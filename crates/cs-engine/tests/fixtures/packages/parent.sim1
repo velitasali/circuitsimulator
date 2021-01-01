@@ -1,0 +1,7 @@
+<circuit version="1.0.0" rev="0" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="0" anicurr="0" ansi="0" width="4000" height="4000" >
+<item itemtype="FixedVolt" CircId="Fixed Voltage-1" Voltage="5 V" />
+<item itemtype="Subcircuit" CircId="vdiv-1" Pos="200,-100" />
+<item itemtype="Ground" CircId="Ground-1" />
+<item itemtype="Connector" CircId="connector-1" startpinid="Fixed Voltage-1-outnod" endpinid="vdiv-1-in" pointList="100,-100,192,-100" />
+<item itemtype="Connector" CircId="connector-2" startpinid="vdiv-1-gnd" endpinid="Ground-1-Gnd" pointList="216,-60,216,-20" />
+</circuit>

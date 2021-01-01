@@ -1,0 +1,13 @@
+#!/bin/sh
+# MinGW ar cannot create meson thin archives (`T`). Drop that flag.
+real=/mingw64/bin/ar.exe
+args=()
+for a in "$@"; do
+    case "$a" in
+        csrDT) a=csrD ;;
+        crDT) a=crD ;;
+        csrT) a=csr ;;
+    esac
+    args+=("$a")
+done
+exec "$real" "${args[@]}"

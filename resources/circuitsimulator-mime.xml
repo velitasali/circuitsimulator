@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-circuitsimulator-circuit">
+    <sub-class-of type="application/xml"/>
+    <icon name="circuitsimulator"/>
+    <glob pattern="*.simu"/>
+    <glob pattern="*.sim1"/>
+    <comment>Circuit Simulator Circuit</comment>
+  </mime-type>
+</mime-info>

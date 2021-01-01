@@ -1,0 +1,6 @@
+<circuit version="1.0.0" rev="0" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="1" anicurr="1" ansi="0" width="3200" height="2400" >
+<item itemtype="Mcu" CircId="mega328-1" Frequency="16 MHz" ForceFreq="true" Program="Mega_Display/Mega_Display.hex" Auto_Load="false" savePGM="false" Logic_Symbol="false" Package="1- mega328_DIP" Pos="-540,-300" label="mega328" />
+<item itemtype="Ssd1306" CircId="Ssd1306-2" Color="White" Width="128" Height="64" Rotate="true" ControlCode="60" Frequency="100 kHz" Pos="-444,-368" ShowProp="Color" />
+<item itemtype="Connector" uid="Connector-1" startpinid="Ssd1306-2-PinSda" endpinid="mega328-1-PORTC4" pointList="-484,-320,-484,-284,-500,-284" />
+<item itemtype="Connector" uid="Connector-2" startpinid="mega328-1-PORTC5" endpinid="Ssd1306-2-PinSck" pointList="-500,-292,-492,-292,-492,-320" />
+</circuit>

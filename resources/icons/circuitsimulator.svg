@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#59B2FF"/>
+      <stop offset="1" stop-color="#0088FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="200" ry="200" fill="url(#bg)"/>
+
+  <!-- pulse / scope trace, centered on the 1024 canvas -->
+  <!-- bold stroke + wide amplitude so the trace survives downscaling to 16-32px -->
+  <path d="M 158 592 L 323 592 L 323 322 L 455 322 L 455 781 L 565 781 L 565 187 L 675 187 L 675 592 L 866 592"
+        fill="none" stroke="#FFFFFF" stroke-width="70" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="158" cy="592" r="55" fill="#5078F0"/>
+  <circle cx="866" cy="592" r="55" fill="#F05050"/>
+</svg>

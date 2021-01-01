@@ -1,0 +1,12 @@
+<circuit version="1.0.0" rev="0" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="0" anicurr="0" ansi="0" width="4000" height="4000" >
+<item itemtype="SubPackage" CircId="Package-1" label="DIP" Width="4" Height="4" Pins="Pin; type=; xpos=-8; ypos=8; angle=180; length=8; space=0; id=in; label=in&#xa;Pin; type=; xpos=40; ypos=8; angle=0; length=8; space=0; id=out; label=out&#xa;Pin; type=; xpos=16; ypos=40; angle=270; length=8; space=0; id=gnd; label=gnd" SubcType="None" />
+<item itemtype="Resistor" CircId="Resistor-1" Resistance="1 kΩ" />
+<item itemtype="Resistor" CircId="Resistor-2" Resistance="1 kΩ" />
+<item itemtype="Tunnel" CircId="Tunnel-1" Name="in" />
+<item itemtype="Tunnel" CircId="Tunnel-2" Name="out" />
+<item itemtype="Tunnel" CircId="Tunnel-3" Name="gnd" />
+<item itemtype="Connector" CircId="connector-1" startpinid="Tunnel-1-pin" endpinid="Resistor-1-lPin" />
+<item itemtype="Connector" CircId="connector-2" startpinid="Resistor-1-rPin" endpinid="Resistor-2-lPin" />
+<item itemtype="Connector" CircId="connector-3" startpinid="Resistor-1-rPin" endpinid="Tunnel-2-pin" />
+<item itemtype="Connector" CircId="connector-4" startpinid="Resistor-2-rPin" endpinid="Tunnel-3-pin" />
+</circuit>

@@ -1,0 +1,2 @@
+[target.'cfg(target_os = "macos")']
+runner = ["sh", "-c", 'if [ -f scripts/macos/cargo-runner.sh ]; then exec scripts/macos/cargo-runner.sh "$@"; else ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); exec "$ROOT/scripts/macos/cargo-runner.sh" "$@"; fi', "--"]

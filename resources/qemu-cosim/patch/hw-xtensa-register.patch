@@ -1,0 +1,36 @@
+diff --git a/hw/xtensa/Kconfig b/hw/xtensa/Kconfig
+index 5866207..6dbc611 100644
+--- a/hw/xtensa/Kconfig
++++ b/hw/xtensa/Kconfig
+@@ -33,6 +33,19 @@ config XTENSA_ESP32
+     select LED
+     select ESP_RGB
+ 
++config XTENSA_ESP32CS
++    bool
++    default y
++    depends on XTENSA
++    select SSI
++    select SSI_M25P80
++    select UNIMP
++    select OPENCORES_ETH
++    select DWC_SDMMC
++    select TMP105
++    select LED
++    select ESP_RGB
++
+ config XTENSA_ESP32S3
+     bool
+     default y
+diff --git a/hw/xtensa/meson.build b/hw/xtensa/meson.build
+index c1deccb..a44b44b 100644
+--- a/hw/xtensa/meson.build
++++ b/hw/xtensa/meson.build
+@@ -8,6 +8,7 @@ xtensa_ss.add(when: 'CONFIG_XTENSA_SIM', if_true: files('sim.c'))
+ xtensa_ss.add(when: 'CONFIG_XTENSA_VIRT', if_true: files('virt.c'))
+ xtensa_ss.add(when: 'CONFIG_XTENSA_XTFPGA', if_true: files('xtfpga.c'))
+ xtensa_ss.add(when: 'CONFIG_XTENSA_ESP32', if_true: files('esp32.c', 'esp32_intc.c'))
++xtensa_ss.add(when: 'CONFIG_XTENSA_ESP32CS', if_true: files('esp32-cs.c', 'esp32_intc.c'))
+ xtensa_ss.add(when: 'CONFIG_XTENSA_ESP32S3', if_true: files(
+   'esp32s3_clk.c',
+   'esp32s3_intc.c',

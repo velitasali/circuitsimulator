@@ -1,0 +1,11 @@
+[package]
+name = "cs-mcu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MCU cores (PIC / AVR / 8051 / 6502 / Z80) driving digital pins (no Qt)"
+
+[dependencies]
+quick-xml = "0.37"
+
+[dev-dependencies]

@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/cs-app", "crates/cs-engine", "crates/cs-mcu", "crates/cs-qemu", "crates/cs-script"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/velitasali/CircuitSimulator"
+
+[workspace.dependencies]
+qtbridge = { version = "0.2", features = ["serde_json"] }
+serde_json = "1"
+
+[profile.release]
+debug = true
+
+[profile.dev.package."*"]
+opt-level = 3
+

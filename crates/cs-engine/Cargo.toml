@@ -1,0 +1,23 @@
+[package]
+name = "cs-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Circuit Simulator analog + digital engine (no Qt)"
+
+[dependencies]
+cs-mcu = { path = "../cs-mcu" }
+cs-qemu = { path = "../cs-qemu" }
+cs-script = { path = "../cs-script" }
+cpal = "0.15"
+dirs = "6"
+flate2 = "1"
+fontdue = "0.9"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
+quick-xml = "0.37"
+regex = "1"
+rustc-hash = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+serialport = "4"
+tiny-skia = "0.11"

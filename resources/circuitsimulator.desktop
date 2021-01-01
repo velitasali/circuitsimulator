@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Circuit Simulator
+GenericName=Circuit Simulator
+Comment=Electronic Circuit Simulator Software
+Exec=circuitsimulator %F
+Icon=circuitsimulator.png
+Terminal=false
+Type=Application
+Categories=Education;Electronics;
+MimeType=application/x-circuitsimulator-circuit;

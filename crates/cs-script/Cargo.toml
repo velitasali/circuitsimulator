@@ -1,0 +1,9 @@
+[package]
+name = "cs-script"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Vendored AngelScript engine via cc (keep existing .as)"
+
+[build-dependencies]
+cc = "1"

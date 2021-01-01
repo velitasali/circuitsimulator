@@ -1,0 +1,11 @@
+<circuit version="2.0.0" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="0" >
+<item itemtype="And Gate" CircId="And Gate-1" Num_Inputs="2" />
+<item itemtype="TestUnit" CircId="TestUnit-1" Inputs="A,B" Outputs="Y" Period="100 ns" Truth="1,1,1,1," />
+<item itemtype="Resistor" CircId="Resistor-1" Resistance="10 kΩ" />
+<item itemtype="Ground" CircId="Ground-1" />
+<item itemtype="Connector" uid="connector-1" startpinid="TestUnit-1-out0" endpinid="And Gate-1-in0" />
+<item itemtype="Connector" uid="connector-2" startpinid="TestUnit-1-out1" endpinid="And Gate-1-in1" />
+<item itemtype="Connector" uid="connector-3" startpinid="And Gate-1-out" endpinid="TestUnit-1-in0" />
+<item itemtype="Connector" uid="connector-4" startpinid="And Gate-1-out" endpinid="Resistor-1-lPin" />
+<item itemtype="Connector" uid="connector-5" startpinid="Resistor-1-rPin" endpinid="Ground-1-Gnd" />
+</circuit>

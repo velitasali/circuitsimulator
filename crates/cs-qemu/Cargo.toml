@@ -1,0 +1,16 @@
+[package]
+name = "cs-qemu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared-memory arena and process wrapper for patched qemu-system-*"
+
+[[bin]]
+name = "qemu-cosim-stub"
+path = "src/bin/qemu-cosim-stub.rs"
+
+[dependencies]
+dirs = "6"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

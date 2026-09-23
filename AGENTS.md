@@ -27,3 +27,9 @@ All colors must be sourced from the central Color Theme (`crates/cs-engine/src/t
 - **Types, Structs, Enums & Traits**: Always import at the top of the file via `use` and reference by short name (e.g. `use circuit_canvas::CircuitCanvas;` and `.register::<CircuitCanvas>()`). Avoid inline qualification unless resolving an explicit name conflict.
 - **Free Functions**: Prefer importing the parent module rather than the function itself (e.g. `use std::fs;` followed by `fs::read(...)`).
 
+## 5. Architectural Changes & User Consultation
+
+- **Consult Before Choosing Local Workarounds vs. Architectural Extensions**: When implementing a fix or feature where an architectural extension (e.g., extending core traits like `Draw`, introducing new primitives, or updating shared pipelines) would make present and future usages significantly simpler and more contained, do not silently proceed with complex local workarounds.
+- **Ask the user first**: Explain the options and trade-offs (e.g., localized workaround vs. core architectural foundation) so the user can choose whether to implement the architectural change.
+
+

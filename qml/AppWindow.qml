@@ -21,6 +21,7 @@ ApplicationWindow {
     // the window takes the panel's own size and refuses to be resized. Without
     // it the window drives the panel, as SizeRootObjectToView did.
     property bool sizeToContent: false
+    property bool resizable: !sizeToContent
 
     // The declaring ApplicationWindow tracks us and closes us with itself.
     property bool closeWithOwner: true
@@ -59,10 +60,16 @@ ApplicationWindow {
         var w = loader.item.implicitWidth > 0 ? loader.item.implicitWidth : loader.item.width
         var h = loader.item.implicitHeight > 0 ? loader.item.implicitHeight : loader.item.height
         if ( w <= 0 || h <= 0 ) return
-        appWindow.width = w
-        appWindow.height = h
+        appWindow.maximumWidth = 16777215
+        appWindow.maximumHeight = 16777215
         appWindow.minimumWidth = w
         appWindow.minimumHeight = h
+        appWindow.width = w
+        appWindow.height = h
+        if (!appWindow.resizable) {
+            appWindow.maximumWidth = w
+            appWindow.maximumHeight = h
+        }
     }
 
     function loadSource(src, initialProperties) {

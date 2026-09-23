@@ -27,6 +27,14 @@ Rectangle {
     property string activeUid: ""
     property int activeTab: -1
 
+    readonly property bool hasVisibleRows: {
+        if (!activeRows || activeRows.length === 0) return false
+        for (var i = 0; i < activeRows.length; i++) {
+            if (activeRows[i] && activeRows[i].rowVisible !== false) return true
+        }
+        return false
+    }
+
     function sameGroups(a, b) {
         if (!a || !b || a.length !== b.length) return false
         for (var i = 0; i < a.length; i++) {
@@ -272,6 +280,7 @@ Rectangle {
         }
 
         Rectangle {
+            visible: root.hasVisibleRows
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignTop
             implicitWidth: groupCol.implicitWidth + 28

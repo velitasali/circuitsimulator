@@ -935,6 +935,8 @@ ApplicationWindow {
                    ? App.translate("Properties: %1").arg(itemTitle)
                    : App.translate("Properties")
             sizeToContent: true
+            resizable: false
+            flags: Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
             minimumWidth: 320
             minimumHeight: 160
             visible: true

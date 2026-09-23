@@ -6,6 +6,8 @@ use crate::canvas::geom::Rect;
 
 pub struct Svg {
     out: String,
+    clip_count: usize,
+    clip_stack: Vec<String>,
 }
 
 impl Svg {
@@ -27,7 +29,11 @@ impl Svg {
             vw = f(scene.w),
             vh = f(scene.h),
         );
-        Self { out }
+        Self {
+            out,
+            clip_count: 0,
+            clip_stack: Vec::new(),
+        }
     }
 
     pub fn finish(mut self) -> String {
@@ -285,6 +291,26 @@ impl Draw for Svg {
 
     fn pop(&mut self) {
         self.out.push_str("</g>\n");
+    }
+
+    fn push_clip_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        let clip_id = format!("clip_{}", self.clip_count);
+        self.clip_count += 1;
+        let _ = write!(
+            self.out,
+            "<clipPath id=\"{clip_id}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath>\n<g clip-path=\"url(#{clip_id})\">\n",
+            f(x),
+            f(y),
+            f(w),
+            f(h)
+        );
+        self.clip_stack.push(clip_id);
+    }
+
+    fn pop_clip(&mut self) {
+        if self.clip_stack.pop().is_some() {
+            self.out.push_str("</g>\n");
+        }
     }
 
     fn draw_pixmap_rect(

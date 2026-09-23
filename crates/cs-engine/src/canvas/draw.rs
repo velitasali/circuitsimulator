@@ -233,6 +233,8 @@ pub trait Draw {
     fn grid_dots(&mut self, scene: Rect, step: i32, c: Color);
     fn push(&mut self, x: f64, y: f64, rot: f64, sx: f64, sy: f64);
     fn pop(&mut self);
+    fn push_clip_rect(&mut self, _x: f64, _y: f64, _w: f64, _h: f64) {}
+    fn pop_clip(&mut self) {}
     fn device_scale(&self) -> f64 {
         1.0
     }

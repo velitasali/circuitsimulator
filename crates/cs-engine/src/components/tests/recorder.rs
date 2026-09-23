@@ -130,6 +130,13 @@ pub enum DrawOp {
         sy: f64,
     },
     Pop,
+    PushClipRect {
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+    },
+    PopClip,
     BlitPixmap {
         x: f64,
         y: f64,
@@ -308,6 +315,14 @@ impl Draw for DrawRecorder {
         self.ops.push(DrawOp::Pop);
     }
 
+    fn push_clip_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        self.ops.push(DrawOp::PushClipRect { x, y, w, h });
+    }
+
+    fn pop_clip(&mut self) {
+        self.ops.push(DrawOp::PopClip);
+    }
+
     fn blit_pixmap(&mut self, x: f64, y: f64, _pm: &tiny_skia::Pixmap, pm_scale: f64) -> bool {
         self.ops.push(DrawOp::BlitPixmap { x, y, pm_scale });
         true
@@ -384,6 +399,8 @@ impl DrawRecorder {
             | DrawOp::GridDots { color: c, .. } => *c == color,
             DrawOp::Push { .. }
             | DrawOp::Pop
+            | DrawOp::PushClipRect { .. }
+            | DrawOp::PopClip
             | DrawOp::BlitPixmap { .. }
             | DrawOp::DrawPixmapRect { .. } => false,
         })
@@ -456,6 +473,10 @@ impl DrawRecorder {
                     && sy.is_finite()
             }
             DrawOp::Pop => true,
+            DrawOp::PushClipRect { x, y, w, h } => {
+                x.is_finite() && y.is_finite() && w.is_finite() && h.is_finite()
+            }
+            DrawOp::PopClip => true,
             DrawOp::BlitPixmap { x, y, pm_scale } => {
                 x.is_finite() && y.is_finite() && pm_scale.is_finite()
             }

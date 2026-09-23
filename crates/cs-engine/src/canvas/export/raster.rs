@@ -1,5 +1,5 @@
 use tiny_skia::{
-    FillRule, LineCap, LineJoin, Paint, Path as SkPath, PathBuilder, Pixmap, PixmapPaint,
+    FillRule, LineCap, LineJoin, Mask, Paint, Path as SkPath, PathBuilder, Pixmap, PixmapPaint,
     PremultipliedColorU8, Rect as SkRect, Stroke, StrokeDash, Transform,
 };
 
@@ -109,6 +109,7 @@ pub fn arc_pts(cx: f64, cy: f64, r: f64, a0: f64, a1: f64) -> Vec<[f64; 2]> {
 pub struct Raster<'a> {
     pub pixmap: &'a mut Pixmap,
     pub stack: Vec<Transform>,
+    pub clip_stack: Vec<Mask>,
 }
 
 impl<'a> Raster<'a> {
@@ -116,6 +117,7 @@ impl<'a> Raster<'a> {
         Self {
             pixmap,
             stack: vec![initial_transform],
+            clip_stack: Vec::new(),
         }
     }
 
@@ -126,6 +128,10 @@ impl<'a> Raster<'a> {
             .unwrap_or_else(Transform::identity)
     }
 
+    pub fn clip_mask(&self) -> Option<&Mask> {
+        self.clip_stack.last()
+    }
+
     fn transform_scale(&self) -> f64 {
         let xf = self.xf();
         let sx = (xf.sx * xf.sx + xf.ky * xf.ky).sqrt() as f64;
@@ -134,26 +140,27 @@ impl<'a> Raster<'a> {
     }
 
     pub fn fill_path(&mut self, path: &SkPath, c: Color) {
+        let xf = self.xf();
+        let mask = self.clip_stack.last();
         self.pixmap
-            .fill_path(path, &sk_paint(c), FillRule::Winding, self.xf(), None);
+            .fill_path(path, &sk_paint(c), FillRule::Winding, xf, mask);
     }
 
     fn fill_path_maybe_aliased(&mut self, path: &SkPath, c: Color, device_max_edge: f64) {
         // Large fills spend their time in the AA blitter; aliased fill is
         // visually identical past ~1 CSS pixel of coverage at typical DPR.
         let aa = device_max_edge < 64.0;
-        self.pixmap.fill_path(
-            path,
-            &sk_paint_aa(c, aa),
-            FillRule::Winding,
-            self.xf(),
-            None,
-        );
+        let xf = self.xf();
+        let mask = self.clip_stack.last();
+        self.pixmap
+            .fill_path(path, &sk_paint_aa(c, aa), FillRule::Winding, xf, mask);
     }
 
     pub fn stroke_path(&mut self, path: &SkPath, c: Color, width: f64, dash: bool) {
+        let xf = self.xf();
+        let mask = self.clip_stack.last();
         self.pixmap
-            .stroke_path(path, &sk_paint(c), &sk_stroke(width, dash), self.xf(), None);
+            .stroke_path(path, &sk_paint(c), &sk_stroke(width, dash), xf, mask);
     }
 
     fn draw_text_with_font(
@@ -299,7 +306,9 @@ impl<'a> Raster<'a> {
 impl<'a> Draw for Raster<'a> {
     fn fill_rect(&mut self, x: f64, y: f64, w: f64, h: f64, c: Color) {
         if let Some(r) = sk_rect(x, y, w, h) {
-            self.pixmap.fill_rect(r, &sk_paint(c), self.xf(), None);
+            let xf = self.xf();
+            let mask = self.clip_stack.last();
+            self.pixmap.fill_rect(r, &sk_paint(c), xf, mask);
         }
     }
 
@@ -578,6 +587,24 @@ impl<'a> Draw for Raster<'a> {
         }
     }
 
+    fn push_clip_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        if let Some(r) = sk_rect(x, y, w, h) {
+            let path = PathBuilder::from_rect(r);
+            if let Some(parent) = self.clip_stack.last() {
+                let mut mask = parent.clone();
+                mask.intersect_path(&path, FillRule::Winding, true, self.xf());
+                self.clip_stack.push(mask);
+            } else if let Some(mut mask) = Mask::new(self.pixmap.width(), self.pixmap.height()) {
+                mask.fill_path(&path, FillRule::Winding, true, self.xf());
+                self.clip_stack.push(mask);
+            }
+        }
+    }
+
+    fn pop_clip(&mut self) {
+        self.clip_stack.pop();
+    }
+
     fn device_scale(&self) -> f64 {
         self.transform_scale()
     }
@@ -590,7 +617,8 @@ impl<'a> Draw for Raster<'a> {
             quality: tiny_skia::FilterQuality::Nearest,
             ..PixmapPaint::default()
         };
-        self.pixmap.draw_pixmap(0, 0, pm.as_ref(), &paint, t, None);
+        let mask = self.clip_stack.last();
+        self.pixmap.draw_pixmap(0, 0, pm.as_ref(), &paint, t, mask);
         true
     }
 
@@ -615,7 +643,8 @@ impl<'a> Draw for Raster<'a> {
             quality: tiny_skia::FilterQuality::Bilinear,
             ..PixmapPaint::default()
         };
-        self.pixmap.draw_pixmap(0, 0, pm.as_ref(), &paint, t, None);
+        let mask = self.clip_stack.last();
+        self.pixmap.draw_pixmap(0, 0, pm.as_ref(), &paint, t, mask);
         true
     }
 }

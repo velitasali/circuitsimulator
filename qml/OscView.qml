@@ -313,6 +313,7 @@ Rectangle {
             }
 
             MouseArea {
+                id: plotMouseArea
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                 hoverEnabled: true
@@ -321,15 +322,15 @@ Rectangle {
                 property real lastDragX: 0
 
                 onPressed: (mouse) => {
-                    lastDragX = mouse.x
+                    plotMouseArea.lastDragX = mouse.x
                     Oscilloscope.plotPressed( mouse.x, mouse.button )
                 }
                 onPositionChanged: (mouse) => {
                     plotCanvas.cursorX = mouse.x
                     plotCanvas.cursorY = mouse.y
                     if ( pressed && ( mouse.buttons & Qt.LeftButton ) ) {
-                        var dx = mouse.x - lastDragX
-                        lastDragX = mouse.x
+                        var dx = mouse.x - plotMouseArea.lastDragX
+                        plotMouseArea.lastDragX = mouse.x
                         var timeSpan = ( Oscilloscope.timeDiv || 1e-3 ) * 10.0
                         var dt = ( dx / Math.max( width, 1 ) ) * timeSpan
                         var ch = Oscilloscope.currentChannel
@@ -351,7 +352,7 @@ Rectangle {
                 Timer {
                     id: canvasWheelTimer
                     interval: 180
-                    onTriggered: canvasWheelAccumY = 0
+                    onTriggered: plotMouseArea.canvasWheelAccumY = 0
                 }
                 onWheel: (wheel) => {
                     // 1. Horizontal trackpad scroll or Shift+wheel: pan Time Pos
@@ -384,18 +385,18 @@ Rectangle {
                     }
 
                     if ( dy !== 0 ) {
-                        if ( ( canvasWheelAccumY > 0 && dy < 0 ) || ( canvasWheelAccumY < 0 && dy > 0 ) ) {
-                            canvasWheelAccumY = 0
+                        if ( ( plotMouseArea.canvasWheelAccumY > 0 && dy < 0 ) || ( plotMouseArea.canvasWheelAccumY < 0 && dy > 0 ) ) {
+                            plotMouseArea.canvasWheelAccumY = 0
                         }
-                        canvasWheelAccumY += dy
+                        plotMouseArea.canvasWheelAccumY += dy
 
                         var thresh = isTrackpad ? 20.0 : 1.0
-                        if ( canvasWheelAccumY >= thresh ) {
+                        if ( plotMouseArea.canvasWheelAccumY >= thresh ) {
                             root.stepTimeDiv( -1 )
-                            canvasWheelAccumY = 0
-                        } else if ( canvasWheelAccumY <= -thresh ) {
+                            plotMouseArea.canvasWheelAccumY = 0
+                        } else if ( plotMouseArea.canvasWheelAccumY <= -thresh ) {
                             root.stepTimeDiv( 1 )
-                            canvasWheelAccumY = 0
+                            plotMouseArea.canvasWheelAccumY = 0
                         }
                         canvasWheelTimer.restart()
                     }

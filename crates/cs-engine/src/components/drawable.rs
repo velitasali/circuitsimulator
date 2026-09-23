@@ -477,6 +477,8 @@ fn paint_oscope_waves(
     };
     let n_out = 96usize;
 
+    d.push_clip_rect(inner_x, inner_y, inner_w, inner_h);
+
     for (c, ch) in buf.channels.iter().enumerate().take(4) {
         if hidden.get(c).copied().unwrap_or(false) || !ch.connected || ch.samples.len() < 2 {
             continue;
@@ -496,11 +498,13 @@ fn paint_oscope_waves(
             let t = k as f64 / (n_out - 1) as f64;
             let v = ch.samples[src];
             let px = inner_x + t * inner_w;
-            let py = (track_center_y - (v - vp) * scale_y).clamp(inner_y, inner_y + inner_h);
+            let py = track_center_y - (v - vp) * scale_y;
             pts.push([px, py]);
         }
         d.polyline(&pts, parse_hex(&ch.color), 1.5, false);
     }
+
+    d.pop_clip();
 }
 
 pub fn paint_lanalizer(

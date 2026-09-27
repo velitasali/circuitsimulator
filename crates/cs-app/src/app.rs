@@ -26,11 +26,6 @@ pub struct App {
     font_mono_family: String,
     font_size: i32,
     i18n_tick: i32,
-    window_width: i32,
-    window_height: i32,
-    window_x: i32,
-    window_y: i32,
-    window_maximized: bool,
     min_window_width: i32,
     min_window_height: i32,
 }
@@ -64,11 +59,6 @@ impl Default for App {
             font_mono_family: s.editor_font_family.clone(),
             font_size: 13,
             i18n_tick: 0,
-            window_width: s.window_width.max(cs_engine::settings::MIN_WINDOW_WIDTH),
-            window_height: s.window_height.max(cs_engine::settings::MIN_WINDOW_HEIGHT),
-            window_x: s.window_x,
-            window_y: s.window_y,
-            window_maximized: s.window_maximized,
             min_window_width: cs_engine::settings::MIN_WINDOW_WIDTH,
             min_window_height: cs_engine::settings::MIN_WINDOW_HEIGHT,
         }
@@ -173,23 +163,6 @@ impl App {
         Notify = font_changed
     );
     qproperty!("fontSize", Read = font_size, Notify = font_changed);
-    qproperty!(
-        "windowWidth",
-        Read = window_width,
-        Notify = window_geometry_changed
-    );
-    qproperty!(
-        "windowHeight",
-        Read = window_height,
-        Notify = window_geometry_changed
-    );
-    qproperty!("windowX", Read = window_x, Notify = window_geometry_changed);
-    qproperty!("windowY", Read = window_y, Notify = window_geometry_changed);
-    qproperty!(
-        "windowMaximized",
-        Read = window_maximized,
-        Notify = window_geometry_changed
-    );
     qproperty!("minWindowWidth", Read = min_window_width, Constant);
     qproperty!("minWindowHeight", Read = min_window_height, Constant);
 
@@ -199,8 +172,6 @@ impl App {
     fn dark_titlebar_changed(&mut self);
     #[qsignal]
     fn theme_changed(&mut self);
-    #[qsignal]
-    fn window_geometry_changed(&mut self);
 
     #[qsignal]
     fn about_visible_changed(&mut self);
@@ -341,26 +312,6 @@ impl App {
 
     fn font_size(&self) -> i32 {
         self.font_size
-    }
-
-    fn window_width(&self) -> i32 {
-        self.window_width
-    }
-
-    fn window_height(&self) -> i32 {
-        self.window_height
-    }
-
-    fn window_x(&self) -> i32 {
-        self.window_x
-    }
-
-    fn window_y(&self) -> i32 {
-        self.window_y
-    }
-
-    fn window_maximized(&self) -> bool {
-        self.window_maximized
     }
 
     fn min_window_width(&self) -> i32 {
@@ -712,25 +663,6 @@ impl App {
         macos_host::apply_app_icon();
         macos_host::set_titlebar_dark(self.dark_titlebar);
         macos_host::setup_window();
-    }
-
-    #[qslot]
-    fn save_window_state(&mut self, x: i32, y: i32, width: i32, height: i32, maximized: bool) {
-        if width < cs_engine::settings::MIN_WINDOW_WIDTH
-            || height < cs_engine::settings::MIN_WINDOW_HEIGHT
-        {
-            return;
-        }
-        self.window_maximized = maximized;
-        if !maximized {
-            self.window_width = width;
-            self.window_height = height;
-            self.window_x = x;
-            self.window_y = y;
-        }
-        cs_engine::settings::edit(|s| {
-            s.update_window_geometry(x, y, width, height, maximized);
-        });
     }
 
     #[qslot]

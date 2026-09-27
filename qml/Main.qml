@@ -62,8 +62,8 @@ ApplicationWindow {
     visible: true
     minimumWidth: App.minWindowWidth
     minimumHeight: App.minWindowHeight
-    width: App.windowWidth > 0 ? App.windowWidth : 1200
-    height: App.windowHeight > 0 ? App.windowHeight : 800
+    width: 1200
+    height: 800
     title: {
         var _tick = App.i18nTick
         var state = CircuitPanel.simRunning ? (CircuitPanel.simPaused ? App.translate("[Paused] ") : App.translate("[Running] ")) : ""
@@ -84,33 +84,6 @@ ApplicationWindow {
     palette.midlight: appTheme.midlight
     palette.text: appTheme.windowText
     palette.base: appTheme.base
-
-    Timer {
-        id: saveGeometryTimer
-        interval: 400
-        repeat: false
-        onTriggered: {
-            if (win.visibility === Window.Maximized) {
-                App.saveWindowState(win.x, win.y, win.width, win.height, true)
-            } else if (win.visibility === Window.Windowed) {
-                App.saveWindowState(win.x, win.y, win.width, win.height, false)
-            }
-        }
-    }
-
-    onWidthChanged: if (visible && visibility === Window.Windowed) saveGeometryTimer.restart()
-    onHeightChanged: if (visible && visibility === Window.Windowed) saveGeometryTimer.restart()
-    onXChanged: if (visible && visibility === Window.Windowed) saveGeometryTimer.restart()
-    onYChanged: if (visible && visibility === Window.Windowed) saveGeometryTimer.restart()
-    onVisibilityChanged: (visibility) => {
-        if (visible) {
-            if (visibility === Window.Maximized) {
-                App.saveWindowState(win.x, win.y, win.width, win.height, true)
-            } else if (visibility === Window.Windowed) {
-                saveGeometryTimer.restart()
-            }
-        }
-    }
 
     menuBar: App.nativeMenus ? null : inWindowBar
     Loader { id: inWindowBar; sourceComponent: App.nativeMenus ? null : inWindowBarComponent }
@@ -1277,12 +1250,6 @@ ApplicationWindow {
         InfoWidget.updateThemeColors(isDark)
         App.installNativeChrome()
         CircuitPanel.installNativeChrome()
-        if (App.windowMaximized) {
-            win.visibility = Window.Maximized
-        } else if (App.windowX >= 0 && App.windowY >= 0) {
-            win.x = App.windowX
-            win.y = App.windowY
-        }
         win.show()
         win.raise()
         win.requestActivate()
@@ -1588,12 +1555,6 @@ ApplicationWindow {
     }
 
     onClosing: (close) => {
-        saveGeometryTimer.stop()
-        if (win.visibility === Window.Maximized) {
-            App.saveWindowState(win.x, win.y, win.width, win.height, true)
-        } else if (win.visibility === Window.Windowed) {
-            App.saveWindowState(win.x, win.y, win.width, win.height, false)
-        }
         if (!App.requestClose()) {
             close.accepted = false
             return

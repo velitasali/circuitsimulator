@@ -29,22 +29,8 @@ pub const TIME_UNITS: [&str; 5] = ["ps", "ns", "µs", "ms", "s"];
 
 pub const LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("tr", "Türkçe")];
 
-pub const DEFAULT_WINDOW_WIDTH: i32 = 1200;
-pub const DEFAULT_WINDOW_HEIGHT: i32 = 800;
 pub const MIN_WINDOW_WIDTH: i32 = 800;
 pub const MIN_WINDOW_HEIGHT: i32 = 550;
-
-fn default_window_width() -> i32 {
-    DEFAULT_WINDOW_WIDTH
-}
-
-fn default_window_height() -> i32 {
-    DEFAULT_WINDOW_HEIGHT
-}
-
-fn default_neg_one() -> i32 {
-    -1
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -87,16 +73,6 @@ pub struct AppSettings {
     pub recent_components: Vec<String>,
     #[serde(default)]
     pub last_project_dir: Option<String>,
-    #[serde(default = "default_window_width")]
-    pub window_width: i32,
-    #[serde(default = "default_window_height")]
-    pub window_height: i32,
-    #[serde(default = "default_neg_one")]
-    pub window_x: i32,
-    #[serde(default = "default_neg_one")]
-    pub window_y: i32,
-    #[serde(default)]
-    pub window_maximized: bool,
     #[serde(default)]
     pub compiler_tool_paths: BTreeMap<String, String>,
     #[serde(default)]
@@ -154,11 +130,6 @@ impl Default for AppSettings {
             recent_projects: Vec::new(),
             recent_components: Vec::new(),
             last_project_dir: None,
-            window_width: DEFAULT_WINDOW_WIDTH,
-            window_height: DEFAULT_WINDOW_HEIGHT,
-            window_x: -1,
-            window_y: -1,
-            window_maximized: false,
             compiler_tool_paths: BTreeMap::new(),
             compiler_incl_paths: BTreeMap::new(),
             compiler_boards: BTreeMap::new(),
@@ -218,12 +189,6 @@ impl AppSettings {
         self.undo_steps = self.undo_steps.clamp(5, 1000);
         self.editor_font_size = self.editor_font_size.clamp(6, 72);
         self.editor_tab_size = self.editor_tab_size.clamp(1, 16);
-        if self.window_width < MIN_WINDOW_WIDTH {
-            self.window_width = DEFAULT_WINDOW_WIDTH;
-        }
-        if self.window_height < MIN_WINDOW_HEIGHT {
-            self.window_height = DEFAULT_WINDOW_HEIGHT;
-        }
         if self.fps == 0 {
             self.fps = DEFAULT_FPS;
         }
@@ -249,27 +214,6 @@ impl AppSettings {
         trim_recent(&mut self.recent_files, MAX_RECENT_FILES);
         trim_recent(&mut self.recent_projects, MAX_RECENT_PROJECTS);
         trim_recent(&mut self.recent_components, MAX_RECENT_COMPONENTS);
-    }
-
-    pub fn update_window_geometry(
-        &mut self,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-        maximized: bool,
-    ) {
-        if width >= MIN_WINDOW_WIDTH {
-            self.window_width = width;
-        }
-        if height >= MIN_WINDOW_HEIGHT {
-            self.window_height = height;
-        }
-        if !maximized {
-            self.window_x = x;
-            self.window_y = y;
-        }
-        self.window_maximized = maximized;
     }
 
     pub fn language_index(&self) -> i32 {

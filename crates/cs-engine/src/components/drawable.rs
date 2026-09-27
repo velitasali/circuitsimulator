@@ -475,8 +475,6 @@ fn paint_oscope_waves(
         4 => 4,
         _ => 1,
     };
-    let n_out = 96usize;
-
     d.push_clip_rect(inner_x, inner_y, inner_w, inner_h);
 
     for (c, ch) in buf.channels.iter().enumerate().take(4) {
@@ -491,12 +489,11 @@ fn paint_oscope_waves(
         let span = vd * 10.0;
         let scale_y = track_h / span;
 
-        let last = ch.samples.len() - 1;
-        let mut pts = Vec::with_capacity(n_out);
-        for k in 0..n_out {
-            let src = k * last / (n_out - 1);
-            let t = k as f64 / (n_out - 1) as f64;
-            let v = ch.samples[src];
+        let n_pts = ch.samples.len();
+        let last = n_pts - 1;
+        let mut pts = Vec::with_capacity(n_pts);
+        for (k, &v) in ch.samples.iter().enumerate() {
+            let t = k as f64 / last as f64;
             let px = inner_x + t * inner_w;
             let py = track_center_y - (v - vp) * scale_y;
             pts.push([px, py]);

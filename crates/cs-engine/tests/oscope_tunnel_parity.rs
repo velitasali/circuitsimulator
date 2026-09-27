@@ -175,6 +175,17 @@ fn test_oscope_tunnel_connectivity_and_selective_rendering() {
         "Expected trough ~0.0V on Channel 0, got {min_v}"
     );
 
+    // Verify on-canvas live scope traces resolution is 256
+    let live = canvas
+        .live_scope_traces(&osc_id)
+        .expect("live oscope traces");
+    assert_eq!(live.channels.len(), 4);
+    assert_eq!(
+        live.channels[0].samples.len(),
+        cs_engine::instruments::SCOPE_CANVAS_DISPLAY_N
+    );
+    assert_eq!(live.channels[0].samples.len(), 256);
+
     // Channels 1, 2, 3 (unconnected) should NOT be connected and have empty samples (no flat line)
     for i in 1..4 {
         let ch = &traces.channels[i];

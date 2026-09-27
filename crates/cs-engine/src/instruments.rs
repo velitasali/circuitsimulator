@@ -23,6 +23,7 @@ pub const SCOPE_CHANNELS: usize = 4;
 pub const LA_CHANNELS: usize = 8;
 const RING: usize = 1048576;
 const DISPLAY_N: usize = 512;
+pub const SCOPE_CANVAS_DISPLAY_N: usize = 256;
 
 pub const SCOPE_COLORS: [&str; SCOPE_CHANNELS] = ["#ffff00", "#00ff00", "#00ffff", "#ff00ff"];
 pub const LA_COLORS: [&str; LA_CHANNELS] = [

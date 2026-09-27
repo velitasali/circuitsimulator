@@ -1242,7 +1242,7 @@ impl Canvas {
             self.scope_trig_level,
             &crate::instruments::SCOPE_COLORS,
             None,
-            96,
+            crate::instruments::SCOPE_CANVAS_DISPLAY_N,
         ))
     }
 

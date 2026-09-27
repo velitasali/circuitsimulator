@@ -31,7 +31,7 @@ T.ToolButton {
         color: control.checked ? appTheme.highlight : appTheme.midlight
     }
 
-    contentItem: Text {
+    contentItem: AppText {
         text: control.text
         font: control.font
         color: control.checked ? appTheme.highlightedText : appTheme.windowText

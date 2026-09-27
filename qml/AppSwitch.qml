@@ -62,7 +62,7 @@ T.Switch {
         }
     }
 
-    contentItem: Text {
+    contentItem: AppText {
         text: control.text
         font: control.font
         color: appTheme.windowText

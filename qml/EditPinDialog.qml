@@ -11,7 +11,7 @@ Rectangle {
     color: appTheme.window
 
     SystemPalette { id: appTheme }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
 
     property string uid: ""
     property string originalPinId: ""
@@ -71,10 +71,9 @@ Rectangle {
         anchors.margins: 12
         spacing: 10
 
-        Text {
+        AppText {
             text: root.tr("Edit Package Pin")
-            font.family: root.uiFont.family
-            font.pixelSize: 15
+            font.pixelSize: App.fontTitle
             font.bold: true
             color: appTheme.windowText
             Layout.fillWidth: true
@@ -90,9 +89,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Pin ID:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -108,9 +106,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Label:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -126,9 +123,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Type:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -147,9 +143,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Orientation:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -168,9 +163,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Style:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -189,9 +183,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Space:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -209,9 +202,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Position (X, Y):")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }

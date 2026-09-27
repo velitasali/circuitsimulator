@@ -231,11 +231,11 @@ Rectangle {
 
         spacing: 3
 
-        Text {
+        AppText {
             Layout.preferredWidth: 48
             text: chRow.label
             color: appTheme.text
-            font.pixelSize: 11
+            font.pixelSize: App.fontSmall
             font.bold: true
         }
 
@@ -248,7 +248,7 @@ Rectangle {
                 Layout.preferredWidth: 28
                 Layout.preferredHeight: 22
                 text: index + 1
-                font.pixelSize: 11
+                font.pixelSize: App.fontSmall
                 font.bold: on
 
                 readonly property bool on: chRow.exclusive ? chRow.activeIndex === index
@@ -263,7 +263,7 @@ Rectangle {
                     border.color: parent.on ? Qt.darker( modelData.color, 1.25 )
                                             : ( root.isLightColor( modelData.color ) && !App.darkTheme ? Qt.darker( modelData.color, 1.35 ) : modelData.color )
                 }
-                contentItem: Text {
+                contentItem: AppText {
                     text: parent.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -415,11 +415,11 @@ Rectangle {
             ControlCard { // Global: Tracks, Time Div, Filter
                 RowLayout {
                     spacing: 3
-                    Text {
+                    AppText {
                         Layout.preferredWidth: 48
                         text: root.tr( "Tracks" )
                         color: appTheme.text
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontSmall
                         font.bold: true
                     }
                     Repeater {
@@ -429,7 +429,7 @@ Rectangle {
                             Layout.preferredWidth: 28
                             Layout.preferredHeight: 22
                             text: modelData
-                            font.pixelSize: 11
+                            font.pixelSize: App.fontSmall
                             font.bold: Oscilloscope.tracks === modelData
                             checked: Oscilloscope.tracks === modelData
                             background: Rectangle {
@@ -438,7 +438,7 @@ Rectangle {
                                 border.width: 1
                                 border.color: parent.checked ? appTheme.highlight : appTheme.mid
                             }
-                            contentItem: Text {
+                            contentItem: AppText {
                                 text: parent.text
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -590,11 +590,11 @@ Rectangle {
 
                 RowLayout {
                     spacing: 6
-                    Text {
+                    AppText {
                         Layout.preferredWidth: 48
                         text: root.tr( "Edge" )
                         color: appTheme.text
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontSmall
                         font.bold: true
                     }
                     AppButton {
@@ -603,7 +603,7 @@ Rectangle {
                         Layout.preferredHeight: 22
                         Layout.preferredWidth: 80
                         text: checked ? root.tr( "Rising ↑" ) : root.tr( "Falling ↓" )
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontSmall
                         font.bold: true
 
                         background: Rectangle {
@@ -613,7 +613,7 @@ Rectangle {
                             border.width: 1
                             border.color: parent.checked ? appTheme.highlight : appTheme.mid
                         }
-                        contentItem: Text {
+                        contentItem: AppText {
                             text: parent.text
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter

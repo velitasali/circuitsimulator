@@ -9,7 +9,7 @@ import cs_app
 Rectangle {
     id: root
     SystemPalette { id: appTheme }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize || 13 })
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     FolderDialog {
@@ -54,17 +54,15 @@ Rectangle {
             Layout.preferredHeight: 1
             color: appTheme.mid
         }
-        Text {
+        AppText {
             id: headerText
-            font.family: root.uiFont.family
             font.pixelSize: 14
             font.bold: true
             color: appTheme.windowText
         }
     }
 
-    component FieldLabel: Text {
-        font: root.uiFont
+    component FieldLabel: AppText {
         color: appTheme.windowText
         verticalAlignment: Text.AlignVCenter
         Layout.preferredWidth: 175
@@ -298,9 +296,8 @@ Rectangle {
                             onMoved: AppDialog.speedPercent = value
                             Binding on value { value: AppDialog.speedPercent }
                         }
-                        Text {
+                        AppText {
                             text: AppDialog.speedLabel
-                            font: root.uiFont
                             color: appTheme.windowText
                             Layout.preferredWidth: 60
                         }
@@ -348,9 +345,8 @@ Rectangle {
                                onValueModified: AppDialog.slopeSteps = value
                                Binding on value { value: AppDialog.slopeSteps } }
                     }
-                    Text {
+                    AppText {
                         text: root.tr( "These are defaults for new circuits; the open circuit is edited from Circuit Settings." )
-                        font: root.uiFont
                         color: appTheme.windowText
                         opacity: 0.65
                         wrapMode: Text.WordWrap
@@ -364,10 +360,9 @@ Rectangle {
                     id: tabEditor
                     Header { text: root.tr( "Editor Settings" ); first: true }
 
-                    Text {
+                    AppText {
                         visible: !AppDialog.hasEditor
                         text: root.tr( "The editor is not open, so these settings are unavailable." )
-                        font: root.uiFont
                         color: appTheme.windowText
                         opacity: 0.65
                         wrapMode: Text.WordWrap

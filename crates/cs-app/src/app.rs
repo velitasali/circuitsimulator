@@ -163,6 +163,11 @@ impl App {
         Notify = font_changed
     );
     qproperty!("fontSize", Read = font_size, Notify = font_changed);
+    qproperty!("fontNormal", Read = font_normal, Notify = font_changed);
+    qproperty!("fontSmall", Read = font_small, Notify = font_changed);
+    qproperty!("fontMicro", Read = font_micro, Notify = font_changed);
+    qproperty!("fontTiny", Read = font_tiny, Notify = font_changed);
+    qproperty!("fontTitle", Read = font_title, Notify = font_changed);
     qproperty!("minWindowWidth", Read = min_window_width, Constant);
     qproperty!("minWindowHeight", Read = min_window_height, Constant);
 
@@ -312,6 +317,26 @@ impl App {
 
     fn font_size(&self) -> i32 {
         self.font_size
+    }
+
+    fn font_normal(&self) -> i32 {
+        self.font_size
+    }
+
+    fn font_small(&self) -> i32 {
+        (self.font_size - 1).max(9)
+    }
+
+    fn font_micro(&self) -> i32 {
+        (self.font_size - 3).max(8)
+    }
+
+    fn font_tiny(&self) -> i32 {
+        (self.font_size - 4).max(7)
+    }
+
+    fn font_title(&self) -> i32 {
+        self.font_size + 3
     }
 
     fn min_window_width(&self) -> i32 {

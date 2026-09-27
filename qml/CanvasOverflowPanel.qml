@@ -85,18 +85,15 @@ Popup {
                     Layout.fillWidth: true
                     spacing: 1
 
-                    Text {
+                    AppText {
                         text: root.tr("Canvas Overflow")
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize + 1
+                        font.pixelSize: App.fontTitle
                         font.bold: true
                         color: appTheme.windowText
                     }
 
-                    Text {
+                    AppText {
                         text: root.tr("%1 item(s) outside canvas bounds").arg(CircuitCanvas.canvasOverflowCount)
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize - 1
                         color: appTheme.windowText
                         opacity: 0.75
                     }
@@ -116,35 +113,27 @@ Popup {
                     anchors.fill: parent
                     anchors.margins: 10
                     columns: 2
-                    rowSpacing: 4
+                    rowSpacing: 6
                     columnSpacing: 10
 
-                    Text {
+                    AppText {
                         text: root.tr("Current Canvas Size:")
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize
                         color: appTheme.windowText
                         opacity: 0.8
                     }
-                    Text {
+                    AppText {
                         text: root.tr("%1 × %2 px").arg(CircuitCanvas.canvasCurrentWidth).arg(CircuitCanvas.canvasCurrentHeight)
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize
                         font.bold: true
                         color: appTheme.windowText
                     }
 
-                    Text {
+                    AppText {
                         text: root.tr("Recommended Size:")
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize
                         color: appTheme.windowText
                         opacity: 0.8
                     }
-                    Text {
+                    AppText {
                         text: root.tr("%1 × %2 px").arg(CircuitCanvas.canvasRequiredWidth).arg(CircuitCanvas.canvasRequiredHeight)
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize
                         font.bold: true
                         color: CircuitCanvas.msgWarnBg
                     }
@@ -165,8 +154,6 @@ Popup {
                     AppButton {
                         Layout.fillWidth: true
                         text: root.tr("Auto-Fit Canvas")
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize
                         font.bold: true
                         highlighted: true
                         onClicked: {
@@ -178,8 +165,6 @@ Popup {
                     AppButton {
                         Layout.fillWidth: true
                         text: root.tr("Center Circuit")
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize
                         onClicked: {
                             CircuitCanvas.centerCircuit()
                             root.close()
@@ -194,8 +179,6 @@ Popup {
                     AppButton {
                         Layout.fillWidth: true
                         text: root.tr("Select Offending")
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize
                         onClicked: {
                             CircuitCanvas.selectOverflowing()
                             root.close()
@@ -205,8 +188,6 @@ Popup {
                     AppButton {
                         Layout.fillWidth: true
                         text: root.tr("Circuit Settings...")
-                        font.family: App.fontFamily
-                        font.pixelSize: App.fontSize
                         onClicked: {
                             root.close()
                             App.showCircuitSettings()

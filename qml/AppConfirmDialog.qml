@@ -49,18 +49,18 @@ Dialog {
             anchors.margins: 18
             spacing: 14
 
-            Text {
+            AppText {
                 id: titleLabel
                 Layout.fillWidth: true
-                font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: (App.fontSize || 13) + 2, bold: true })
+                font.pixelSize: App.fontTitle
+                font.bold: true
                 color: appTheme.windowText
                 wrapMode: Text.Wrap
             }
 
-            Text {
+            AppText {
                 id: messageLabel
                 Layout.fillWidth: true
-                font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
                 color: appTheme.windowText
                 wrapMode: Text.Wrap
                 lineHeight: 1.2
@@ -77,7 +77,6 @@ Dialog {
                     id: discardBtn
                     visible: root.showDiscard
                     text: root.discardText
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
                     padding: 6
                     leftPadding: 14
                     rightPadding: 14
@@ -90,7 +89,7 @@ Dialog {
                         border.width: 1
                     }
 
-                    contentItem: Text {
+                    contentItem: AppText {
                         text: discardBtn.text
                         font: discardBtn.font
                         color: appTheme.buttonText
@@ -111,7 +110,6 @@ Dialog {
                     id: cancelBtn
                     visible: root.showCancel
                     text: root.cancelText
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
                     padding: 6
                     leftPadding: 14
                     rightPadding: 14
@@ -124,7 +122,7 @@ Dialog {
                         border.width: 1
                     }
 
-                    contentItem: Text {
+                    contentItem: AppText {
                         text: cancelBtn.text
                         font: cancelBtn.font
                         color: appTheme.buttonText
@@ -142,7 +140,7 @@ Dialog {
                 AppButton {
                     id: acceptBtn
                     text: root.acceptText
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13, bold: true })
+                    font.bold: true
                     padding: 6
                     leftPadding: 16
                     rightPadding: 16
@@ -156,7 +154,7 @@ Dialog {
                         border.width: 1
                     }
 
-                    contentItem: Text {
+                    contentItem: AppText {
                         text: acceptBtn.text
                         font: acceptBtn.font
                         color: appTheme.highlightedText

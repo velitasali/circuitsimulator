@@ -160,7 +160,7 @@ Item {
                         border.width: isBp ? 1.5 : 0
                         border.color: isBp ? (isErr ? "#ffffff" : EditorPanel.errorColor) : "transparent"
 
-                        Text {
+                        AppText {
                             anchors.centerIn: parent
                             text: "!"
                             color: "#ffffff"
@@ -181,7 +181,7 @@ Item {
                         x: isBp ? 6 : 4
                         color: isBp ? appTheme.highlightedText : (CircuitCanvas.msgWarnBg || appTheme.highlight)
                     }
-                    Text {
+                    AppText {
                         anchors.fill: parent
                         anchors.rightMargin: 8
                         horizontalAlignment: Text.AlignRight
@@ -348,7 +348,7 @@ Item {
                 }
             }
 
-            Text {
+            AppText {
                 id: highlight
                 z: -1
                 x: area.leftPadding
@@ -751,7 +751,7 @@ Item {
             radius: 6
         }
 
-        Text {
+        AppText {
             id: sigText
             text: EditorPanel.signatureHtml
             textFormat: Text.RichText
@@ -795,7 +795,7 @@ Item {
             radius: 6
         }
 
-        Text {
+        AppText {
             id: hoverText
             x: hoverTooltip.padX
             y: hoverTooltip.padY
@@ -825,13 +825,12 @@ Item {
                 id: col
                 width: parent.width
                 spacing: 12
-                Text {
+                AppText {
                     width: parent.width
                     text: EditorPanel.diskPromptKind === "deleted"
                         ? "\n" + EditorPanel.diskPromptPath + "\n\nhas been deleted or renamed by another program."
                         : "\n" + EditorPanel.diskPromptPath + "\n\nhas been changed by another program,\nand you have unsaved changes here."
                     color: appTheme.windowText
-                    font.pixelSize: 13
                     wrapMode: Text.Wrap
                 }
                 Row {
@@ -898,12 +897,12 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 6
                     spacing: 6
-                    Text {
+                    AppText {
                         text: modelData.text !== undefined ? modelData.text : modelData
                         font: area.font
                         color: index === completionList.currentIndex ? appTheme.highlightedText : appTheme.windowText
                     }
-                    Text {
+                    AppText {
                         text: modelData.detail !== undefined ? modelData.detail : ""
                         font: area.font
                         opacity: 0.6

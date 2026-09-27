@@ -11,7 +11,7 @@ Rectangle {
     color: appTheme.window
 
     SystemPalette { id: appTheme }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
 
     property string uid: ""
 
@@ -24,10 +24,9 @@ Rectangle {
         anchors.margins: 12
         spacing: 10
 
-        Text {
+        AppText {
             text: root.tr("Generate Package Pins")
-            font.family: root.uiFont.family
-            font.pixelSize: 15
+            font.pixelSize: App.fontTitle
             font.bold: true
             color: appTheme.windowText
             Layout.fillWidth: true
@@ -43,9 +42,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Left Pins:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -63,9 +61,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Right Pins:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -83,9 +80,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Top Pins:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -103,9 +99,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Bottom Pins:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -123,9 +118,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Pin Prefix:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -141,9 +135,8 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text {
+            AppText {
                 text: root.tr("Start Index:")
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }

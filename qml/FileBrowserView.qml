@@ -343,9 +343,9 @@ Item {
                         }
                     }
 
-                    Text {
+                    AppText {
                         text: root.tr( "Create File" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) + 1, bold: true })
+                        font.bold: true
                         color: appTheme.windowText
                         Layout.fillWidth: true
                         elide: Text.ElideRight
@@ -386,9 +386,9 @@ Item {
                             opacity: 0.7
                         }
 
-                        Text {
+                        AppText {
                             text: root.tr( "In: %1" ).arg( root.destinationDisplayPath() )
-                            font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 2 })
+                            font.pixelSize: App.fontSmall
                             color: appTheme.windowText
                             opacity: 0.8
                             elide: Text.ElideMiddle
@@ -401,9 +401,9 @@ Item {
                     Layout.fillWidth: true
                     spacing: 4
 
-                    Text {
+                    AppText {
                         text: root.tr( "File Name" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1, bold: true })
+                        font.bold: true
                         color: appTheme.windowText
                         opacity: 0.85
                     }
@@ -472,9 +472,9 @@ Item {
                     Layout.fillWidth: true
                     spacing: 4
 
-                    Text {
+                    AppText {
                         text: root.tr( "Type:" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 2 })
+                        font.pixelSize: App.fontSmall
                         color: appTheme.windowText
                         opacity: 0.6
                     }
@@ -495,11 +495,12 @@ Item {
                                           : Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.4 )
                             border.width: 1
 
-                            Text {
+                            AppText {
                                 id: chipText
                                 anchors.centerIn: parent
                                 text: extChip.modelData
-                                font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 2, bold: newFileInput.text.endsWith( extChip.modelData ) })
+                                font.pixelSize: App.fontSmall
+                                font.bold: newFileInput.text.endsWith( extChip.modelData )
                                 color: newFileInput.text.endsWith( extChip.modelData ) ? appTheme.highlight : appTheme.windowText
                             }
 
@@ -512,12 +513,12 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
-                Text {
+                AppText {
                     id: fileValidationText
                     Layout.fillWidth: true
                     visible: text.length > 0
                     text: root.validateFileName( newFileInput.text, false )
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 2 })
+                    font.pixelSize: App.fontSmall
                     color: CircuitCanvas.msgErrorBg || Qt.rgba( 0.9, 0.3, 0.3, 1.0 )
                     wrapMode: Text.WordWrap
                 }
@@ -531,7 +532,6 @@ Item {
 
                     AppButton {
                         text: root.tr( "Cancel" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1 })
                         implicitHeight: 26
                         leftPadding: 12
                         rightPadding: 12
@@ -542,7 +542,7 @@ Item {
                             border.color: appTheme.mid
                             border.width: 1
                         }
-                        contentItem: Text {
+                        contentItem: AppText {
                             text: parent.text
                             font: parent.font
                             color: appTheme.buttonText
@@ -556,7 +556,7 @@ Item {
                         id: createFileBtn
                         text: root.tr( "Create" )
                         enabled: newFileInput.text.trim().length > 0 && fileValidationText.text.length === 0
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1, bold: true })
+                        font.bold: true
                         implicitHeight: 26
                         leftPadding: 14
                         rightPadding: 14
@@ -571,7 +571,7 @@ Item {
                             border.color: createFileBtn.enabled ? Qt.darker( appTheme.highlight, 1.2 ) : "transparent"
                             border.width: 1
                         }
-                        contentItem: Text {
+                        contentItem: AppText {
                             text: parent.text
                             font: parent.font
                             color: createFileBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
@@ -654,9 +654,9 @@ Item {
                         }
                     }
 
-                    Text {
+                    AppText {
                         text: root.tr( "Create Folder" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) + 1, bold: true })
+                        font.bold: true
                         color: appTheme.windowText
                         Layout.fillWidth: true
                         elide: Text.ElideRight
@@ -697,9 +697,9 @@ Item {
                             opacity: 0.7
                         }
 
-                        Text {
+                        AppText {
                             text: root.tr( "In: %1" ).arg( root.destinationDisplayPath() )
-                            font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 2 })
+                            font.pixelSize: App.fontSmall
                             color: appTheme.windowText
                             opacity: 0.8
                             elide: Text.ElideMiddle
@@ -712,9 +712,9 @@ Item {
                     Layout.fillWidth: true
                     spacing: 4
 
-                    Text {
+                    AppText {
                         text: root.tr( "Folder Name" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1, bold: true })
+                        font.bold: true
                         color: appTheme.windowText
                         opacity: 0.85
                     }
@@ -779,12 +779,12 @@ Item {
                     }
                 }
 
-                Text {
+                AppText {
                     id: dirValidationText
                     Layout.fillWidth: true
                     visible: text.length > 0
                     text: root.validateFileName( newDirInput.text, true )
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 2 })
+                    font.pixelSize: App.fontSmall
                     color: CircuitCanvas.msgErrorBg || Qt.rgba( 0.9, 0.3, 0.3, 1.0 )
                     wrapMode: Text.WordWrap
                 }
@@ -798,7 +798,6 @@ Item {
 
                     AppButton {
                         text: root.tr( "Cancel" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1 })
                         implicitHeight: 26
                         leftPadding: 12
                         rightPadding: 12
@@ -809,7 +808,7 @@ Item {
                             border.color: appTheme.mid
                             border.width: 1
                         }
-                        contentItem: Text {
+                        contentItem: AppText {
                             text: parent.text
                             font: parent.font
                             color: appTheme.buttonText
@@ -823,7 +822,7 @@ Item {
                         id: createFolderBtn
                         text: root.tr( "Create" )
                         enabled: newDirInput.text.trim().length > 0 && dirValidationText.text.length === 0
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1, bold: true })
+                        font.bold: true
                         implicitHeight: 26
                         leftPadding: 14
                         rightPadding: 14
@@ -838,7 +837,7 @@ Item {
                             border.color: createFolderBtn.enabled ? Qt.darker( appTheme.highlight, 1.2 ) : "transparent"
                             border.width: 1
                         }
-                        contentItem: Text {
+                        contentItem: AppText {
                             text: parent.text
                             font: parent.font
                             color: createFolderBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
@@ -921,9 +920,9 @@ Item {
                         }
                     }
 
-                    Text {
+                    AppText {
                         text: root.tr( "Rename" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) + 1, bold: true })
+                        font.bold: true
                         color: appTheme.windowText
                         Layout.fillWidth: true
                         elide: Text.ElideRight
@@ -964,9 +963,9 @@ Item {
                             opacity: 0.7
                         }
 
-                        Text {
+                        AppText {
                             text: root.tr( "Target: %1" ).arg( root.renameTargetName() )
-                            font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 2 })
+                            font.pixelSize: App.fontSmall
                             color: appTheme.windowText
                             opacity: 0.8
                             elide: Text.ElideMiddle
@@ -979,9 +978,9 @@ Item {
                     Layout.fillWidth: true
                     spacing: 4
 
-                    Text {
+                    AppText {
                         text: root.tr( "New Name" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1, bold: true })
+                        font.bold: true
                         color: appTheme.windowText
                         opacity: 0.85
                     }
@@ -1046,12 +1045,12 @@ Item {
                     }
                 }
 
-                Text {
+                AppText {
                     id: renameValidationText
                     Layout.fillWidth: true
                     visible: text.length > 0
                     text: root.validateRename( renameInput.text )
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 2 })
+                    font.pixelSize: App.fontSmall
                     color: CircuitCanvas.msgErrorBg || Qt.rgba( 0.9, 0.3, 0.3, 1.0 )
                     wrapMode: Text.WordWrap
                 }
@@ -1065,7 +1064,6 @@ Item {
 
                     AppButton {
                         text: root.tr( "Cancel" )
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1 })
                         implicitHeight: 26
                         leftPadding: 12
                         rightPadding: 12
@@ -1076,7 +1074,7 @@ Item {
                             border.color: appTheme.mid
                             border.width: 1
                         }
-                        contentItem: Text {
+                        contentItem: AppText {
                             text: parent.text
                             font: parent.font
                             color: appTheme.buttonText
@@ -1090,7 +1088,7 @@ Item {
                         id: renameBtn
                         text: root.tr( "Rename" )
                         enabled: renameInput.text.trim().length > 0 && renameValidationText.text.length === 0
-                        font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: ( App.fontSize || 13 ) - 1, bold: true })
+                        font.bold: true
                         implicitHeight: 26
                         leftPadding: 14
                         rightPadding: 14
@@ -1105,7 +1103,7 @@ Item {
                             border.color: renameBtn.enabled ? Qt.darker( appTheme.highlight, 1.2 ) : "transparent"
                             border.width: 1
                         }
-                        contentItem: Text {
+                        contentItem: AppText {
                             text: parent.text
                             font: parent.font
                             color: renameBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
@@ -1201,9 +1199,8 @@ Item {
                     width: Math.min( parent.width - 40, 260 )
                     spacing: 12
 
-                    Label {
+                    AppText {
                         text: root.tr( "Open a project folder to load the file explorer." )
-                        font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
                         color: appTheme.windowText
@@ -1211,7 +1208,6 @@ Item {
                     }
                     AppButton {
                         text: root.tr( "Open Folder" )
-                        font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                         Layout.alignment: Qt.AlignHCenter
                         onClicked: folderDialog.open()
                     }
@@ -1300,10 +1296,9 @@ Item {
                                    : ( model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
                         }
 
-                        Text {
+                        AppText {
                             anchors.verticalCenter: parent.verticalCenter
                             text: model.name
-                            font: Qt.font({ family: App.fontFamily, pixelSize: 12 })
                             color: hoverHandler.hovered
                                    ? appTheme.highlightedText
                                    : ( model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )

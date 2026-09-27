@@ -62,11 +62,9 @@ Popup {
             anchors.fill: parent
             spacing: 6
 
-            Text {
+            AppText {
                 visible: CircuitCanvas.overloadLog ? CircuitCanvas.overloadLog.length === 0 : true
                 text: root.tr("No warnings")
-                font.family: App.fontFamily
-                font.pixelSize: App.fontSize
                 color: appTheme.windowText
                 opacity: 0.65
                 Layout.fillWidth: true
@@ -109,10 +107,8 @@ Popup {
                             color: modelData.crashed ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
                         }
 
-                        Text {
+                        AppText {
                             text: modelData.text || ""
-                            font.family: App.fontFamily
-                            font.pixelSize: App.fontSize
                             color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                             elide: Text.ElideRight
                             verticalAlignment: Text.AlignVCenter
@@ -135,8 +131,6 @@ Popup {
                 Item { Layout.fillWidth: true }
                 AppButton {
                     text: root.tr("Clear")
-                    font.family: App.fontFamily
-                    font.pixelSize: App.fontSize
                     onClicked: CircuitCanvas.clearOverloadLog()
                 }
             }

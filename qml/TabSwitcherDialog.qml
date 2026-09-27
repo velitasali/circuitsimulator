@@ -106,19 +106,18 @@ Dialog {
                         Layout.preferredWidth: 18
                     }
 
-                    Text {
+                    AppText {
                         text: delegateItem.modelData.label || ""
-                        font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                         color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.windowText
                         elide: Text.ElideRight
                         verticalAlignment: Text.AlignVCenter
                         Layout.fillWidth: true
                     }
 
-                    Text {
+                    AppText {
                         visible: Boolean(delegateItem.modelData.badge)
                         text: delegateItem.modelData.badge || ""
-                        font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize - 2 })
+                        font.pixelSize: App.fontMicro
                         color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.mid
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter

@@ -215,13 +215,13 @@ Item {
             anchors.rightMargin: 12
             height: 16
 
-            Text {
+            AppText {
                 text: root.tr("REPAINT TELEMETRY")
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 color: "#e1ebf8"
                 font.family: root.monoFamily
-                font.pixelSize: 10
+                font.pixelSize: App.fontMicro
                 font.bold: true
                 font.letterSpacing: 0.8
             }
@@ -239,11 +239,11 @@ Item {
                     color: root.isTelemetryActive ? "#28dc82" : "#788796"
                 }
 
-                Text {
+                AppText {
                     text: root.isTelemetryActive ? root.tr("ACTIVE") : root.tr("IDLE")
                     color: root.isTelemetryActive ? "#28dc82" : "#788796"
                     font.family: root.monoFamily
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                     font.bold: false
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -286,12 +286,12 @@ Item {
                 border.color: middleRow.isFull ? "#8cff4646" : "#8c28dc82"
                 border.width: 1
 
-                Text {
+                AppText {
                     anchors.centerIn: parent
                     text: middleRow.isFull ? root.tr("FULL FRAME") : root.tr("DIRTY REGIONS")
                     color: middleRow.isFull ? "#ff5f5f" : "#32eb91"
                     font.family: root.monoFamily
-                    font.pixelSize: 8
+                    font.pixelSize: App.fontMicro
                     font.bold: true
                 }
             }
@@ -302,25 +302,25 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 4
 
-                Text {
+                AppText {
                     text: root.tr("Rate:")
                     color: "#a0afc3"
                     font.family: root.monoFamily
-                    font.pixelSize: 10
+                    font.pixelSize: App.fontMicro
                 }
 
-                Text {
+                AppText {
                     text: Math.round(root.repaintFps) + " Hz"
                     color: "#ebf5ff"
                     font.family: root.monoFamily
-                    font.pixelSize: 10
+                    font.pixelSize: App.fontMicro
                     font.bold: true
                 }
             }
         }
 
         // Telemetry Row: Area, Dirty, Total
-        Text {
+        AppText {
             id: telemetryRow
             anchors.top: parent.top
             anchors.topMargin: 58
@@ -334,7 +334,7 @@ Item {
                 .arg(root.totalRepaints)
             color: "#a0afc3"
             font.family: root.monoFamily
-            font.pixelSize: 10
+            font.pixelSize: App.fontMicro
         }
 
         // Footer / Legend
@@ -354,11 +354,11 @@ Item {
                     width: 6; height: 6; radius: 3; color: "#ff3c3c"
                     anchors.verticalCenter: parent.verticalCenter
                 }
-                Text {
+                AppText {
                     text: root.tr("Full Frame")
                     color: "#8c9baf"
                     font.family: root.monoFamily
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                 }
             }
 
@@ -369,11 +369,11 @@ Item {
                     width: 6; height: 6; radius: 3; color: "#00e682"
                     anchors.verticalCenter: parent.verticalCenter
                 }
-                Text {
+                AppText {
                     text: root.tr("Dirty Regions")
                     color: "#8c9baf"
                     font.family: root.monoFamily
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                 }
             }
 
@@ -384,11 +384,11 @@ Item {
                     width: 6; height: 6; radius: 3; color: "#ffe600"
                     anchors.verticalCenter: parent.verticalCenter
                 }
-                Text {
+                AppText {
                     text: root.tr("Source Rects")
                     color: "#8c9baf"
                     font.family: root.monoFamily
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                 }
             }
         }

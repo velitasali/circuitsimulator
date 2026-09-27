@@ -10,7 +10,7 @@ Rectangle {
     color: appTheme.window
 
     SystemPalette { id: appTheme; colorGroup: SystemPalette.Active }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize || 13 })
 
     ColumnLayout {
         anchors.fill: parent
@@ -35,10 +35,9 @@ Rectangle {
                 implicitHeight: 20
             }
 
-            Text {
+            AppText {
                 text: Installer.statusText
                 color: appTheme.windowText
-                font: root.uiFont
                 opacity: 0.75
                 elide: Text.ElideRight
                 Layout.fillWidth: true
@@ -82,22 +81,20 @@ Rectangle {
                             Layout.fillWidth: true
                             spacing: 2
 
-                            Text {
+                            AppText {
                                 text: rowItem.modelData.name
                                 textFormat: Text.MarkdownText
-                                font.family: root.uiFont.family
-                                font.pixelSize: rowItem.modelData.isGroupHeader ? (root.uiFont.pixelSize + 1) : root.uiFont.pixelSize
+                                font.pixelSize: rowItem.modelData.isGroupHeader ? (App.fontNormal + 1) : App.fontNormal
                                 font.bold: rowItem.modelData.isGroupHeader
                                 color: appTheme.windowText
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
-                            Text {
+                            AppText {
                                 visible: !rowItem.modelData.isGroupHeader
                                 text: rowItem.modelData.description || ""
                                 textFormat: Text.MarkdownText
-                                font.family: root.uiFont.family
-                                font.pixelSize: Math.max(10, root.uiFont.pixelSize - 2)
+                                font.pixelSize: Math.max(10, App.fontNormal - 2)
                                 color: appTheme.windowText
                                 opacity: 0.65
                                 elide: Text.ElideRight
@@ -173,34 +170,30 @@ Rectangle {
             anchors.margins: 16
             spacing: 8
 
-            Text {
+            AppText {
                 text: "### " + (Installer.info.title || "")
                 textFormat: Text.MarkdownText
-                font: root.uiFont
                 color: appTheme.windowText
             }
 
-            Text {
+            AppText {
                 visible: (Installer.info.author || "").length > 0
                 text: "**" + root.tr("Author:") + "** " + (Installer.info.author || "")
                 textFormat: Text.MarkdownText
-                font: root.uiFont
                 color: appTheme.windowText
             }
 
-            Text {
+            AppText {
                 visible: (Installer.info.description || "").length > 0
                 text: Installer.info.description || ""
                 wrapMode: Text.WordWrap
-                font: root.uiFont
                 color: appTheme.windowText
                 Layout.fillWidth: true
             }
 
-            Text {
+            AppText {
                 text: "**" + root.tr("Included Components:") + "**"
                 textFormat: Text.MarkdownText
-                font: root.uiFont
                 color: appTheme.windowText
             }
 

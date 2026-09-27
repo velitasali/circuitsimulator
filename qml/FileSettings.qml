@@ -9,13 +9,12 @@ Rectangle {
     id: root
     SystemPalette { id: appTheme }
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
     implicitWidth: Math.max(420, mainCol.implicitWidth + 24)
     implicitHeight: mainCol.implicitHeight + 24
     color: appTheme.window
 
-    component FieldLabel: Text {
-        font: root.uiFont
+    component FieldLabel: AppText {
         color: appTheme.windowText
         verticalAlignment: Text.AlignVCenter
         Layout.preferredWidth: 150
@@ -28,10 +27,9 @@ Rectangle {
         anchors.margins: 12
         spacing: 10
 
-        Text {
+        AppText {
             text: root.tr("Type: CodeEditor")
-            font.family: root.uiFont.family
-            font.pixelSize: 15
+            font.pixelSize: App.fontTitle
             font.bold: true
             color: appTheme.windowText
             Layout.fillWidth: true
@@ -108,10 +106,8 @@ Rectangle {
                         height: 1
                         color: appTheme.mid
                     }
-                    Text {
+                    AppText {
                         text: root.tr("Actions after opening this file:")
-                        font.family: root.uiFont.family
-                        font.pixelSize: 13
                         font.bold: true
                         color: appTheme.windowText
                     }

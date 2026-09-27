@@ -225,10 +225,10 @@ RowLayout {
         spacing: 2
         Layout.fillWidth: true
 
-        Text {
+        AppText {
             text: pvc.label
             color: appTheme.text
-            font.pixelSize: 10
+            font.pixelSize: App.fontSmall
             font.bold: true
             opacity: 0.85
         }
@@ -241,7 +241,7 @@ RowLayout {
                 id: valInput
                 Layout.fillWidth: true
                 Layout.preferredHeight: 24
-                font.pixelSize: 11
+                font.pixelSize: App.fontSmall
                 onActiveFocusChanged: {
                     if ( !activeFocus ) {
                         text = pvc.formatVal( pvc.value, pvc.unit )
@@ -257,12 +257,11 @@ RowLayout {
                 }
             }
 
-            Text {
+            AppText {
                 id: unitLabel
                 visible: pvc.unit.length > 0
                 text: pvc.unit
-                font.family: App.fontFamily
-                font.pixelSize: 11
+                font.pixelSize: App.fontSmall
                 color: appTheme.text
                 opacity: 0.85
                 Layout.preferredWidth: visible ? 16 : 0

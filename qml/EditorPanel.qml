@@ -107,9 +107,8 @@ Item {
                             radius: 3
                             ToolTip.text: root.tr( "Close" )
                             ToolTip.delay: 500
-                            contentItem: Text {
+                            contentItem: AppText {
                                 text: "×"
-                                font.pixelSize: 13
                                 font.bold: true
                                 color: tabBtn.itemColor
                                 horizontalAlignment: Text.AlignHCenter

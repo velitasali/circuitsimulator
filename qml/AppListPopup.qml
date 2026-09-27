@@ -69,16 +69,12 @@ Popup {
                        ? appTheme.alternateBase
                        : (hover.hovered ? appTheme.highlight : "transparent")
 
-                Text {
+                AppText {
                     anchors.fill: parent
                     anchors.leftMargin: 6 + (modelData.depth || 0) * 14
                     anchors.rightMargin: 6
                     text: modelData.text || ""
-                    font: Qt.font({
-                        family: App.fontFamily,
-                        pixelSize: App.fontSize,
-                        bold: Boolean(rowRect.modelData.current)
-                    })
+                    font.bold: Boolean(rowRect.modelData.current)
                     color: hover.hovered && !rowRect.modelData.current
                            ? appTheme.highlightedText
                            : appTheme.windowText

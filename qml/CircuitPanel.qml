@@ -172,7 +172,6 @@ Item {
                         id: componentSearch
                         objectName: "componentSearch"
                         Layout.fillWidth: true
-                        font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                         placeholderText: App.searchPlaceholder
                         onPressed: if ( ctx ) ctx.overlayClicked( "sidePanel" )
                         onTextChanged: {
@@ -613,11 +612,10 @@ Item {
             radius: height / 2
             color: ctx ? ctx.messageBg : "transparent"
             visible: msgText.text !== ""
-            Text {
+            AppText {
                 id: msgText
                 anchors.centerIn: parent
                 text: ctx ? ctx.messageText : ""
-                font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                 color: ctx ? ctx.messageColor : appTheme.windowText
             }
         }
@@ -642,7 +640,8 @@ Item {
             // than assuming six zeroes.
             TextMetrics {
                 id: valueMetrics
-                font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
+                font.family: App.fontFamily
+                font.pixelSize: App.fontNormal
                 text: "-99999"
             }
             Row {
@@ -650,37 +649,33 @@ Item {
                 anchors.centerIn: parent
                 spacing: 3
 
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     text: App.translate( "X" )
-                    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                     color: Qt.rgba( appTheme.windowText.r, appTheme.windowText.g,
                                     appTheme.windowText.b, 0.6 )
                 }
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     // Grows past the reserved width only for a coordinate that
                     // genuinely needs more than six characters.
                     width: Math.max( valueMetrics.width, implicitWidth )
                     horizontalAlignment: Text.AlignRight
                     text: ctx ? ctx.coordsX : 0
-                    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                     color: appTheme.windowText
                 }
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     leftPadding: 7 // the gap between the two axes, not inside one
                     text: App.translate( "Y" )
-                    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                     color: Qt.rgba( appTheme.windowText.r, appTheme.windowText.g,
                                     appTheme.windowText.b, 0.6 )
                 }
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.max( valueMetrics.width, implicitWidth )
                     horizontalAlignment: Text.AlignRight
                     text: ctx ? ctx.coordsY : 0
-                    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                     color: appTheme.windowText
                 }
             }
@@ -711,7 +706,7 @@ Item {
             contentItem: Row {
                 id: zoomRow
                 spacing: 1
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     text: ctx ? ctx.zoomText : ""
                     font: zoomBtn.font
@@ -749,7 +744,7 @@ Item {
                     font.pixelSize: 16
                     color: ctx && ctx.warningsCrashed ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
                 }
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     text: ctx ? ctx.warningsText : ""
                     font: warnBtn.font
@@ -779,7 +774,7 @@ Item {
                     font.pixelSize: 16
                     color: CircuitCanvas.msgWarnBg
                 }
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     text: ctx ? ctx.canvasOverflowText : ""
                     font: overflowBtn.font
@@ -818,7 +813,7 @@ Item {
                     font.pixelSize: 18
                     color: appTheme.windowText
                 }
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     text: ctx && ctx.subcNav ? ctx.subcNav.buttonText : ""
                     font: subcBtn.font
@@ -865,7 +860,7 @@ Item {
                     font.pixelSize: 18
                     color: appTheme.windowText
                 }
-                Text {
+                AppText {
                     anchors.verticalCenter: parent.verticalCenter
                     text: ctx && ctx.deviceSel ? ctx.deviceSel.buttonText : ""
                     font: deviceBtn.font

@@ -7,7 +7,7 @@ Rectangle {
     id: root
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
     implicitWidth: Math.max(460, content.implicitWidth + 24)
     implicitHeight: content.implicitHeight + 24
     color: appTheme.window
@@ -18,10 +18,8 @@ Rectangle {
         anchors.margins: 12
         spacing: 8
 
-        Text {
+        AppText {
             text: root.tr("Find")
-            font.family: root.uiFont.family
-            font.pixelSize: root.uiFont.pixelSize
             font.bold: true
             color: appTheme.windowText
         }
@@ -41,10 +39,8 @@ Rectangle {
             AppButton { text: root.tr("All"); font: root.uiFont; onClicked: EditorPanel.findAll() }
         }
 
-        Text {
+        AppText {
             text: root.tr("Replace")
-            font.family: root.uiFont.family
-            font.pixelSize: root.uiFont.pixelSize
             font.bold: true
             color: appTheme.windowText
             Layout.topMargin: 4

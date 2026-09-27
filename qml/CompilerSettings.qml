@@ -11,7 +11,7 @@ Rectangle {
     id: root
     SystemPalette { id: appTheme }
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
     implicitWidth: Math.max(420, mainCol.implicitWidth + 24)
     implicitHeight: mainCol.implicitHeight + 24
     color: appTheme.window
@@ -31,8 +31,7 @@ Rectangle {
         onAccepted: EditorPanel.inclPath = "" + selectedFolder
     }
 
-    component FieldLabel: Text {
-        font: root.uiFont
+    component FieldLabel: AppText {
         color: appTheme.windowText
         verticalAlignment: Text.AlignVCenter
         Layout.preferredWidth: 150
@@ -53,10 +52,8 @@ Rectangle {
             height: 1
             color: appTheme.mid
         }
-        Text {
+        AppText {
             text: caption
-            font.family: root.uiFont.family
-            font.pixelSize: 13
             font.bold: true
             color: appTheme.windowText
         }
@@ -68,10 +65,9 @@ Rectangle {
         anchors.margins: 12
         spacing: 10
 
-        Text {
+        AppText {
             text: root.tr("Type: Compiler")
-            font.family: root.uiFont.family
-            font.pixelSize: 15
+            font.pixelSize: App.fontTitle
             font.bold: true
             color: appTheme.windowText
             Layout.fillWidth: true
@@ -156,9 +152,8 @@ Rectangle {
                             anchors.margins: 4
                             spacing: 6
                             AppIcon { text: "warning"; color: appTheme.windowText }
-                            Text {
+                            AppText {
                                 text: EditorPanel.toolPathWarning
-                                font: root.uiFont
                                 color: appTheme.windowText
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true

@@ -29,7 +29,7 @@ Item {
         radius: 6
     }
 
-    Text {
+    AppText {
         id: label
         x: root.padX
         y: root.padY
@@ -38,8 +38,6 @@ Item {
         text: CircuitCanvas.hoverHtml
         textFormat: Text.RichText
         wrapMode: Text.WordWrap
-        font.family: App.fontFamily
-        font.pixelSize: 12
         color: appTheme.text
         horizontalAlignment: Text.AlignLeft
         verticalAlignment: Text.AlignTop

@@ -64,11 +64,11 @@ Rectangle {
                     width: root.addrW
                     height: root.rowH
                     color: appTheme.window
-                    Text {
+                    AppText {
                         anchors.centerIn: parent
                         text: root.tr("Addr")
                         font.family: "Ubuntu Mono"
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontMicro
                         font.bold: true
                         color: appTheme.text
                         opacity: 0.7
@@ -83,11 +83,11 @@ Rectangle {
                         width: root.cellW
                         height: root.rowH
                         color: appTheme.window
-                        Text {
+                        AppText {
                             anchors.centerIn: parent
                             text: index.toString(16).toUpperCase()
                             font.family: "Ubuntu Mono"
-                            font.pixelSize: 11
+                            font.pixelSize: App.fontMicro
                             font.bold: true
                             color: appTheme.text
                             opacity: 0.7
@@ -110,11 +110,11 @@ Rectangle {
                         width: root.asciiW
                         height: root.rowH
                         color: appTheme.window
-                        Text {
+                        AppText {
                             anchors.centerIn: parent
                             text: index.toString(16).toUpperCase()
                             font.family: "Ubuntu Mono"
-                            font.pixelSize: 11
+                            font.pixelSize: App.fontMicro
                             font.bold: true
                             color: appTheme.text
                             opacity: 0.7
@@ -171,11 +171,11 @@ Rectangle {
                             height: root.rowH
                             color: "transparent"
 
-                            Text {
+                            AppText {
                                 anchors.centerIn: parent
                                 text: (rowDelegate.rowData && rowDelegate.rowData.address) ? rowDelegate.rowData.address : MemoryTable.rowAddress(rowDelegate.index)
                                 font.family: "Ubuntu Mono"
-                                font.pixelSize: 11
+                                font.pixelSize: App.fontMicro
                                 font.bold: true
                                 color: appTheme.text
                                 opacity: 0.7
@@ -204,7 +204,7 @@ Rectangle {
                                     anchors.fill: parent
                                     text: hexCell.cellHex
                                     font.family: "Ubuntu Mono"
-                                    font.pixelSize: 12
+                                    font.pixelSize: App.fontSmall
                                     font.weight: Font.DemiBold
                                     horizontalAlignment: TextInput.AlignHCenter
                                     verticalAlignment: TextInput.AlignVCenter
@@ -271,7 +271,7 @@ Rectangle {
                                     anchors.fill: parent
                                     text: asciiCell.cellChar
                                     font.family: "Ubuntu Mono"
-                                    font.pixelSize: 12
+                                    font.pixelSize: App.fontSmall
                                     font.weight: Font.Normal
                                     horizontalAlignment: TextInput.AlignHCenter
                                     verticalAlignment: TextInput.AlignVCenter

@@ -892,8 +892,8 @@ Item {
             model: truthTableModel
             delegate: Row {
                 spacing: 16
-                Text { width: 60; text: "" + step; font.family: "Ubuntu Mono" }
-                Text { width: 120; text: "0x" + Number(value).toString(16).toUpperCase(); font.family: "Ubuntu Mono" }
+                AppText { width: 60; text: "" + step; font.family: "Ubuntu Mono" }
+                AppText { width: 120; text: "0x" + Number(value).toString(16).toUpperCase(); font.family: "Ubuntu Mono" }
             }
         }
     }
@@ -908,8 +908,8 @@ Item {
         Column {
             anchors.centerIn: parent
             spacing: 8
-            Text { text: root.tr("Speed: ") + (itemMenu.itemUid ? "" : "") }
-            Text { text: root.tr("Use the Properties panel for live motor values.") }
+            AppText { text: root.tr("Speed: ") + (itemMenu.itemUid ? "" : "") }
+            AppText { text: root.tr("Use the Properties panel for live motor values.") }
         }
     }
     Dialog {
@@ -927,7 +927,7 @@ Item {
             anchors.fill: parent
             anchors.margins: 12
             spacing: 8
-            Text { text: root.tr("New name:") }
+            AppText { text: root.tr("New name:") }
             AppTextField {
                 id: renameTunnelField
                 width: parent.width

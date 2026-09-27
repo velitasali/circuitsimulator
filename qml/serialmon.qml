@@ -10,7 +10,7 @@ Rectangle {
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
     color: appTheme.window
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
 
     property string monitorId: ""
 
@@ -106,10 +106,8 @@ Rectangle {
         required property string text
         spacing: 2
 
-        Text {
+        AppText {
             text: pane.title
-            font.family: root.uiFont.family
-            font.pixelSize: root.uiFont.pixelSize
             font.bold: true
             color: appTheme.windowText
             opacity: 0.65
@@ -144,7 +142,7 @@ Rectangle {
                     readOnly: true
                     wrapMode: TextEdit.WrapAnywhere
                     font.family: "Ubuntu Mono"
-                    font.pixelSize: 13
+                    font.pixelSize: App.fontNormal
                     color: appTheme.windowText
                     background: null
                     onTextChanged: cursorPosition = length
@@ -162,9 +160,8 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 6
 
-            Text {
+            AppText {
                 text: root.tr( "Format:" )
-                font: root.uiFont
                 color: appTheme.windowText
             }
             AppComboBox {
@@ -209,9 +206,8 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 6
 
-            Text {
+            AppText {
                 text: root.tr( "Text:" )
-                font: root.uiFont
                 color: appTheme.windowText
             }
             AppTextField {
@@ -228,9 +224,8 @@ Rectangle {
                 ToolTip.visible: hovered
                 onToggled: root.doSetAddCR(checked)
             }
-            Text {
+            AppText {
                 text: root.tr( "Value:" )
-                font: root.uiFont
                 color: appTheme.windowText
             }
             AppTextField {

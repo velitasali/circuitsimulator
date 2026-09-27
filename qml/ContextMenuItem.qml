@@ -103,7 +103,7 @@ T.MenuItem {
             color: control.highlighted ? appTheme.highlightedText : appTheme.windowText
             opacity: control.enabled ? 1.0 : 0.4
         }
-        Text {
+        AppText {
             id: textLabel
             anchors.left: iconLabel.right
             anchors.leftMargin: 8
@@ -116,7 +116,7 @@ T.MenuItem {
             opacity: control.enabled ? 1.0 : 0.4
             elide: Text.ElideRight
         }
-        Text {
+        AppText {
             id: shortcutLabel
             anchors.right: parent.right
             anchors.rightMargin: 8

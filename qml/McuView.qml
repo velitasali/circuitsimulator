@@ -7,7 +7,7 @@ Rectangle {
     id: root
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
     color: appTheme.window
     anchors.fill: parent
 
@@ -111,12 +111,12 @@ Rectangle {
             anchors.rightMargin: 14
             spacing: 0
 
-            Text {
+            AppText {
                 width: 46
                 height: parent.height
                 text: ( hexRow.rowData && hexRow.rowData.address ) ? hexRow.rowData.address : "0000"
                 font.family: "Menlo"
-                font.pixelSize: 11
+                font.pixelSize: App.fontMicro
                 font.bold: true
                 color: appTheme.mid
                 verticalAlignment: Text.AlignVCenter
@@ -146,11 +146,11 @@ Rectangle {
                         readonly property bool isHover: index === hexRow.hoverCol
                         color: isPc ? appTheme.highlight : ( isHover ? appTheme.midlight : "transparent" )
 
-                        Text {
+                        AppText {
                             anchors.centerIn: parent
                             text: parent.hexVal
                             font.family: "Menlo"
-                            font.pixelSize: 11
+                            font.pixelSize: App.fontMicro
                             font.bold: parent.isPc || ( parent.hexVal !== "00" && parent.hexVal !== "0000" && parent.hexVal !== "--" && parent.hexVal !== "----" && parent.hexVal !== "FFFF" && parent.hexVal !== "FF" )
                             color: parent.isPc ? appTheme.highlightedText
                                   : ( parent.isHover ? appTheme.highlight
@@ -206,13 +206,13 @@ Rectangle {
                 }
             }
 
-            Text {
+            AppText {
                 width: Math.max( 40, parent.width - 46 - hexRow.hexWidth )
                 height: parent.height
                 leftPadding: 8
                 text: ( hexRow.rowData && hexRow.rowData.ascii ) ? hexRow.rowData.ascii : ""
                 font.family: "Menlo"
-                font.pixelSize: 11
+                font.pixelSize: App.fontMicro
                 color: appTheme.highlight
                 verticalAlignment: Text.AlignVCenter
             }
@@ -256,9 +256,8 @@ Rectangle {
 
                     Label {
                         text: root.tr( "STATUS" )
-                        font.family: root.uiFont.family
                         font.bold: true
-                        font.pixelSize: 10
+                        font.pixelSize: App.fontMicro
                         color: appTheme.windowText
                         Layout.leftMargin: 2
                         Layout.rightMargin: 2
@@ -278,11 +277,10 @@ Rectangle {
                                 border.color: mouseArea.containsMouse ? appTheme.highlight : appTheme.mid
                                 border.width: 1
 
-                                Text {
+                                AppText {
                                     anchors.centerIn: parent
                                     text: bitName
-                                    font.family: root.uiFont.family
-                                    font.pixelSize: 9
+                                    font.pixelSize: App.fontMicro
                                     font.bold: true
                                     color: bitSet ? appTheme.highlightedText : appTheme.text
                                 }
@@ -320,22 +318,21 @@ Rectangle {
 
                     Label {
                         text: root.tr( "PC" )
-                        font.family: root.uiFont.family
                         font.bold: true
-                        font.pixelSize: 10
+                        font.pixelSize: App.fontMicro
                         color: appTheme.windowText
                     }
-                    Text {
+                    AppText {
                         text: McuMonitor.pcValue
                         font.family: "Menlo"
                         font.bold: true
-                        font.pixelSize: 12
+                        font.pixelSize: App.fontSmall
                         color: appTheme.highlight
                     }
-                    Text {
+                    AppText {
                         text: "(" + McuMonitor.pcHex + ")"
                         font.family: "Menlo"
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontMicro
                         color: appTheme.windowText
                         opacity: 0.75
                     }
@@ -437,15 +434,14 @@ Rectangle {
                                 spacing: 4
                                 Label {
                                     text: root.tr( "Registers (%1)" ).arg( McuMonitor.registers ? McuMonitor.registers.length : 0 )
-                                    font.family: root.uiFont.family
                                     font.bold: true
-                                    font.pixelSize: 11
+                                    font.pixelSize: App.fontMicro
                                     color: appTheme.windowText
                                 }
                                 Item { Layout.fillWidth: true }
                                 AppButton {
                                     text: root.tr( "+ All" )
-                                    font.pixelSize: 10
+                                    font.pixelSize: App.fontMicro
                                     Layout.preferredHeight: 20
                                     padding: 2
                                     onClicked: McuMonitor.addAllRegistersWatch()
@@ -461,8 +457,7 @@ Rectangle {
                                 Layout.leftMargin: 4
                                 Layout.rightMargin: 4
                                 Layout.bottomMargin: 2
-                                font.family: root.uiFont.family
-                                font.pixelSize: 11
+                                font.pixelSize: App.fontMicro
                                 Layout.preferredHeight: 24
                             }
 
@@ -511,26 +506,23 @@ Rectangle {
                                             anchors.rightMargin: 4
                                             spacing: 4
 
-                                            Text {
+                                            AppText {
                                                 text: modelData.name || ""
-                                                font.family: root.uiFont.family
                                                 font.bold: true
-                                                font.pixelSize: 11
+                                                font.pixelSize: App.fontMicro
                                                 color: appTheme.windowText
                                                 Layout.fillWidth: true
                                                 elide: Text.ElideRight
                                             }
-                                            Text {
+                                            AppText {
                                                 text: modelData.address || ""
                                                 font.family: "Menlo"
-                                                font.pixelSize: 10
+                                                font.pixelSize: App.fontTiny
                                                 color: appTheme.mid
                                             }
-                                            Text {
+                                            AppText {
                                                 text: "+"
-                                                font.family: root.uiFont.family
                                                 font.bold: true
-                                                font.pixelSize: 13
                                                 color: appTheme.highlight
                                                 opacity: regMouse.containsMouse ? 1.0 : 0.0
                                             }
@@ -574,9 +566,8 @@ Rectangle {
                                 spacing: 4
                                 Label {
                                     text: root.tr( "Variables (%1)" ).arg( McuMonitor.variables ? McuMonitor.variables.length : 0 )
-                                    font.family: root.uiFont.family
                                     font.bold: true
-                                    font.pixelSize: 11
+                                    font.pixelSize: App.fontMicro
                                     color: appTheme.windowText
                                 }
                                 Item { Layout.fillWidth: true }
@@ -589,8 +580,7 @@ Rectangle {
                                 Layout.leftMargin: 4
                                 Layout.rightMargin: 4
                                 Layout.bottomMargin: 2
-                                font.family: root.uiFont.family
-                                font.pixelSize: 11
+                                font.pixelSize: App.fontMicro
                                 Layout.preferredHeight: 24
                             }
 
@@ -605,14 +595,13 @@ Rectangle {
                                 Layout.fillHeight: true
                                 Layout.minimumHeight: 0
 
-                                Text {
+                                AppText {
                                     anchors.centerIn: parent
                                     width: parent.width - 16
                                     visible: !McuMonitor.variables || McuMonitor.variables.length === 0
                                     text: root.tr( "No debug variables loaded.\nCompile the sketch (an ELF next to the .hex) to list program variables." )
                                     horizontalAlignment: Text.AlignHCenter
-                                    font.family: root.uiFont.family
-                                    font.pixelSize: 10
+                                    font.pixelSize: App.fontMicro
                                     color: appTheme.mid
                                     wrapMode: Text.WordWrap
                                 }
@@ -652,32 +641,28 @@ Rectangle {
                                             anchors.rightMargin: 4
                                             spacing: 4
 
-                                            Text {
+                                            AppText {
                                                 text: modelData.name || ""
-                                                font.family: root.uiFont.family
                                                 font.bold: true
-                                                font.pixelSize: 11
+                                                font.pixelSize: App.fontMicro
                                                 color: appTheme.windowText
                                                 Layout.fillWidth: true
                                                 elide: Text.ElideRight
                                             }
-                                            Text {
+                                            AppText {
                                                 text: modelData.type || "uint8"
-                                                font.family: root.uiFont.family
-                                                font.pixelSize: 9
+                                                font.pixelSize: App.fontTiny
                                                 color: appTheme.mid
                                             }
-                                            Text {
+                                            AppText {
                                                 text: modelData.address || ""
                                                 font.family: "Menlo"
-                                                font.pixelSize: 10
+                                                font.pixelSize: App.fontTiny
                                                 color: appTheme.mid
                                             }
-                                            Text {
+                                            AppText {
                                                 text: "+"
-                                                font.family: root.uiFont.family
                                                 font.bold: true
-                                                font.pixelSize: 13
                                                 color: appTheme.highlight
                                                 opacity: varMouse.containsMouse ? 1.0 : 0.0
                                             }
@@ -726,7 +711,7 @@ Rectangle {
                                 placeholderText: root.tr( "Variable, SFR name, or address (e.g. PORTB, counter, 0x20)..." )
                                 Layout.fillWidth: true
                                 font.family: "Menlo"
-                                font.pixelSize: 12
+                                font.pixelSize: App.fontSmall
                                 Layout.preferredHeight: 26
                                 onAccepted: addWatchBtn.clicked()
                             }
@@ -778,10 +763,10 @@ Rectangle {
                                 anchors.rightMargin: 14
                                 spacing: 6
 
-                                Text { text: root.tr( "Name" ); font.family: root.uiFont.family; font.bold: true; font.pixelSize: 11; color: appTheme.windowText; Layout.preferredWidth: 120 }
-                                Text { text: root.tr( "Address" ); font.family: root.uiFont.family; font.bold: true; font.pixelSize: 11; color: appTheme.windowText; Layout.preferredWidth: 75 }
-                                Text { text: root.tr( "Value (Dec  0xHex  Bin)" ); font.family: root.uiFont.family; font.bold: true; font.pixelSize: 11; color: appTheme.windowText; Layout.fillWidth: true }
-                                Text { text: root.tr( "Type" ); font.family: root.uiFont.family; font.bold: true; font.pixelSize: 11; color: appTheme.windowText; Layout.preferredWidth: 65 }
+                                AppText { text: root.tr( "Name" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 120 }
+                                AppText { text: root.tr( "Address" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 75 }
+                                AppText { text: root.tr( "Value (Dec  0xHex  Bin)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.fillWidth: true }
+                                AppText { text: root.tr( "Type" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
                                 Item { Layout.preferredWidth: 26 }
                             }
 
@@ -804,18 +789,15 @@ Rectangle {
                                 spacing: 8
                                 visible: McuMonitor.watchCount === 0
 
-                                Text {
+                                AppText {
                                     text: root.tr( "No Watched Variables" )
-                                    font.family: root.uiFont.family
                                     font.bold: true
-                                    font.pixelSize: 13
                                     color: appTheme.windowText
                                     Layout.alignment: Qt.AlignHCenter
                                 }
-                                Text {
+                                AppText {
                                     text: root.tr( "Click any register or variable on the left to watch it, or enter a name / address above." )
-                                    font.family: root.uiFont.family
-                                    font.pixelSize: 11
+                                    font.pixelSize: App.fontMicro
                                     color: appTheme.mid
                                     Layout.alignment: Qt.AlignHCenter
                                 }
@@ -867,26 +849,25 @@ Rectangle {
                                         spacing: 6
                                         z: 1
 
-                                        Text {
+                                        AppText {
                                             text: ( rowData && rowData.name ) ? rowData.name : ""
-                                            font.family: root.uiFont.family
                                             font.bold: true
-                                            font.pixelSize: 11
+                                            font.pixelSize: App.fontMicro
                                             color: appTheme.windowText
                                             Layout.preferredWidth: 120
                                             elide: Text.ElideRight
                                         }
-                                        Text {
+                                        AppText {
                                             text: ( rowData && rowData.address ) ? rowData.address : "---"
                                             font.family: "Menlo"
-                                            font.pixelSize: 11
+                                            font.pixelSize: App.fontMicro
                                             color: appTheme.mid
                                             Layout.preferredWidth: 75
                                         }
-                                        Text {
+                                        AppText {
                                             text: ( rowData && rowData.value ) ? rowData.value : "---"
                                             font.family: "Menlo"
-                                            font.pixelSize: 11
+                                            font.pixelSize: App.fontMicro
                                             font.bold: true
                                             color: appTheme.highlight
                                             Layout.fillWidth: true
@@ -899,11 +880,10 @@ Rectangle {
                                             radius: 3
                                             border.color: appTheme.mid
                                             border.width: 1
-                                            Text {
+                                            AppText {
                                                 anchors.centerIn: parent
                                                 text: ( rowData && rowData.type ) ? rowData.type : "uint8"
-                                                font.family: root.uiFont.family
-                                                font.pixelSize: 10
+                                                font.pixelSize: App.fontMicro
                                                 color: appTheme.windowText
                                             }
                                         }
@@ -939,7 +919,6 @@ Rectangle {
                         text: root.tr( "Total RAM: %1 bytes (%2 rows)" )
                             .arg( McuMonitor.ramTotalRows )
                             .arg( McuMonitor.ramRowCount )
-                        font.family: root.uiFont.family
                         font.bold: true
                         color: appTheme.windowText
                     }
@@ -950,7 +929,7 @@ Rectangle {
                         placeholderText: "0x0000"
                         Layout.preferredWidth: 80
                         font.family: "Menlo"
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontMicro
                         onAccepted: {
                             var clean = text.trim().replace( /^0x/i, "" )
                             var addr = parseInt( clean, 16 )
@@ -971,18 +950,18 @@ Rectangle {
                     header: RowLayout {
                         anchors.fill: parent
                         spacing: 2
-                        Text { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid; Layout.preferredWidth: 46 }
+                        AppText { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
                         Repeater {
                             model: 16
-                            delegate: Text {
+                            delegate: AppText {
                                 required property int index
                                 text: ( index < 10 ? "0" : "" ) + index.toString( 16 ).toUpperCase()
-                                font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid
+                                font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid
                                 Layout.preferredWidth: 22
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
-                        Text { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
+                        AppText { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
                     }
 
                     ListView {
@@ -1019,7 +998,7 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 6
 
-                    Label { text: root.tr( "Total RAM: %1 bytes" ).arg( McuMonitor.ramTotalRows ); font.family: root.uiFont.family; font.pixelSize: root.uiFont.pixelSize; font.bold: true; color: appTheme.windowText }
+                    AppText { text: root.tr( "Total RAM: %1 bytes" ).arg( McuMonitor.ramTotalRows ); font.bold: true; color: appTheme.windowText }
                     Item { Layout.fillWidth: true }
                     Label { text: root.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
                     AppTextField {
@@ -1027,7 +1006,7 @@ Rectangle {
                         placeholderText: "0x0000"
                         Layout.preferredWidth: 80
                         font.family: "Menlo"
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontMicro
                         onAccepted: {
                             var clean = text.trim().replace( /^0x/i, "" )
                             var addr = parseInt( clean, 16 )
@@ -1047,10 +1026,10 @@ Rectangle {
                     header: RowLayout {
                         anchors.fill: parent
                         spacing: 6
-                        Text { text: root.tr( "Address" ); font.family: root.uiFont.family; font.bold: true; font.pixelSize: 11; color: appTheme.windowText; Layout.preferredWidth: 65 }
-                        Text { text: root.tr( "Name (SFR / Variable)" ); font.family: root.uiFont.family; font.bold: true; font.pixelSize: 11; color: appTheme.windowText; Layout.preferredWidth: 150 }
-                        Text { text: root.tr( "Value (Dec  0xHex  Bin)" ); font.family: root.uiFont.family; font.bold: true; font.pixelSize: 11; color: appTheme.windowText; Layout.fillWidth: true }
-                        Text { text: root.tr( "Type" ); font.family: root.uiFont.family; font.bold: true; font.pixelSize: 11; color: appTheme.windowText; Layout.preferredWidth: 65 }
+                        AppText { text: root.tr( "Address" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
+                        AppText { text: root.tr( "Name (SFR / Variable)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 150 }
+                        AppText { text: root.tr( "Value (Dec  0xHex  Bin)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.fillWidth: true }
+                        AppText { text: root.tr( "Type" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
                         Item { Layout.preferredWidth: 26 }
                     }
 
@@ -1080,35 +1059,33 @@ Rectangle {
                                 anchors.rightMargin: 8
                                 spacing: 6
 
-                                Text {
+                                AppText {
                                     text: ( rowData && rowData.address ) ? ( "0x" + rowData.address ) : "0x0000"
                                     font.family: "Menlo"
-                                    font.pixelSize: 11
+                                    font.pixelSize: App.fontMicro
                                     color: appTheme.mid
                                     Layout.preferredWidth: 65
                                 }
-                                Text {
+                                AppText {
                                     text: ( rowData && rowData.name ) ? rowData.name : ""
-                                    font.family: root.uiFont.family
-                                    font.bold: rowData && rowData.name && rowData.name.length > 0
-                                    font.pixelSize: 11
+                                    font.bold: !!( rowData && rowData.name && rowData.name.length > 0 )
+                                    font.pixelSize: App.fontMicro
                                     color: appTheme.windowText
                                     Layout.preferredWidth: 150
                                     elide: Text.ElideRight
                                 }
-                                Text {
+                                AppText {
                                     text: ( rowData && rowData.value ) ? rowData.value : ""
                                     font.family: "Menlo"
-                                    font.pixelSize: 11
+                                    font.pixelSize: App.fontMicro
                                     font.bold: true
                                     color: appTheme.highlight
                                     Layout.fillWidth: true
                                     elide: Text.ElideRight
                                 }
-                                Text {
+                                AppText {
                                     text: ( rowData && rowData.type ) ? rowData.type : "uint8"
-                                    font.family: root.uiFont.family
-                                    font.pixelSize: 10
+                                    font.pixelSize: App.fontMicro
                                     color: appTheme.mid
                                     Layout.preferredWidth: 65
                                 }
@@ -1164,7 +1141,6 @@ Rectangle {
                         text: root.tr( "Total Flash: %1 words (%2 KB)" )
                             .arg( McuMonitor.flashTotalWords )
                             .arg( ( McuMonitor.flashTotalWords * 2 / 1024 ).toFixed( 1 ) )
-                        font.family: root.uiFont.family
                         font.bold: true
                         color: appTheme.windowText
                     }
@@ -1175,7 +1151,7 @@ Rectangle {
                         placeholderText: "0x0000"
                         Layout.preferredWidth: 80
                         font.family: "Menlo"
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontMicro
                         onAccepted: {
                             var clean = text.trim().replace( /^0x/i, "" )
                             var addr = parseInt( clean, 16 )
@@ -1202,18 +1178,18 @@ Rectangle {
                     header: RowLayout {
                         anchors.fill: parent
                         spacing: 4
-                        Text { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid; Layout.preferredWidth: 46 }
+                        AppText { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
                         Repeater {
                             model: 8
-                            delegate: Text {
+                            delegate: AppText {
                                 required property int index
                                 text: "+" + ( index * ( McuMonitor.byteMode ? 2 : 1 ) ).toString( 16 ).toUpperCase()
-                                font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid
+                                font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid
                                 Layout.preferredWidth: 40
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
-                        Text { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
+                        AppText { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
                     }
 
                     ListView {
@@ -1289,7 +1265,6 @@ Rectangle {
                         text: root.tr( "Total EEPROM: %1 bytes (%2 rows)" )
                             .arg( McuMonitor.eepromTotalBytes )
                             .arg( McuMonitor.eepromRowCount )
-                        font.family: root.uiFont.family
                         font.bold: true
                         color: appTheme.windowText
                     }
@@ -1300,7 +1275,7 @@ Rectangle {
                         placeholderText: "0x0000"
                         Layout.preferredWidth: 80
                         font.family: "Menlo"
-                        font.pixelSize: 11
+                        font.pixelSize: App.fontMicro
                         onAccepted: {
                             var clean = text.trim().replace( /^0x/i, "" )
                             var addr = parseInt( clean, 16 )
@@ -1321,18 +1296,18 @@ Rectangle {
                     header: RowLayout {
                         anchors.fill: parent
                         spacing: 2
-                        Text { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid; Layout.preferredWidth: 46 }
+                        AppText { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
                         Repeater {
                             model: 16
-                            delegate: Text {
+                            delegate: AppText {
                                 required property int index
                                 text: ( index < 10 ? "0" : "" ) + index.toString( 16 ).toUpperCase()
-                                font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid
+                                font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid
                                 Layout.preferredWidth: 22
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
-                        Text { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: 11; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
+                        AppText { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
                     }
 
                     ListView {
@@ -1399,7 +1374,7 @@ Rectangle {
                     .arg( editPopup.memType === 0 ? "RAM" : ( editPopup.memType === 1 ? "Flash" : "EEPROM" ) )
                     .arg( editPopup.targetAddr.toString( 16 ).toUpperCase().padStart( 4, "0" ) )
                 font.bold: true
-                font.pixelSize: 11
+                font.pixelSize: App.fontMicro
                 color: appTheme.windowText
             }
 
@@ -1409,7 +1384,7 @@ Rectangle {
                     id: editInput
                     Layout.fillWidth: true
                     font.family: "Menlo"
-                    font.pixelSize: 12
+                    font.pixelSize: App.fontSmall
                     placeholderText: root.tr( "Hex value..." )
                     onAccepted: saveByteBtn.clicked()
                 }

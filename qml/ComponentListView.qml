@@ -184,7 +184,7 @@ Item {
                     icon.color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                     text: model.display
                     font.family: App.fontFamily
-                    font.pixelSize: 12
+                    font.pixelSize: App.fontNormal
                     palette.buttonText: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                     palette.windowText: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                     palette.text: hover.hovered ? appTheme.highlightedText : appTheme.windowText
@@ -192,13 +192,11 @@ Item {
                     hoverEnabled: false
                 }
 
-                Text {
+                AppText {
                     visible: row.isCategory
                     anchors.verticalCenter: parent.verticalCenter
                     text: model.display
-                    font.family: App.fontFamily
                     font.bold: true
-                    font.pixelSize: model.itemType === root.typeCategMain ? 13 : 12
                     color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                     elide: Text.ElideRight
                     width: parent.width - 24

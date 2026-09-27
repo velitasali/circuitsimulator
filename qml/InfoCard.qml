@@ -31,18 +31,16 @@ Rectangle {
         Layout.fillWidth: true
         spacing: 12
 
-        Text {
+        AppText {
             id: nameText
-            font.family: App.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: App.fontSmall
             font.bold: true
             color: InfoWidget.textColor
             Layout.fillWidth: true
         }
-        Text {
+        AppText {
             id: valueText
-            font.family: App.fontFamily
-            font.pixelSize: 12
+            font.pixelSize: App.fontSmall
             font.weight: Font.Normal
             color: InfoWidget.textColor
             horizontalAlignment: Text.AlignRight
@@ -59,17 +57,15 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 3
 
-            Text {
+            AppText {
                 text: root.tr( "Simulation Time" )
-                font.family: App.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: App.fontSmall
                 font.bold: true
                 color: InfoWidget.textColor
             }
-            Text {
+            AppText {
                 text: InfoWidget.simTime
-                font.family: App.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: App.fontSmall
                 font.weight: Font.Normal
                 color: InfoWidget.textColor
             }
@@ -121,10 +117,9 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 4
 
-            Text {
+            AppText {
                 text: root.tr( "Current Speed" )
-                font.family: App.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: App.fontSmall
                 font.bold: true
                 color: InfoWidget.textColor
             }

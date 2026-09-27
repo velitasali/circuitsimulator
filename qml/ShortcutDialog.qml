@@ -122,9 +122,9 @@ Dialog {
             anchors.margins: 16
             spacing: 12
 
-            Text {
+            AppText {
                 text: root.tr("Enter new shortcut for: ") + root.actionName
-                font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13, bold: true })
+                font.bold: true
                 color: appTheme.windowText
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
@@ -142,21 +142,21 @@ Dialog {
                 focus: true
                 activeFocusOnTab: false
 
-                Text {
+                AppText {
                     anchors.fill: parent
                     anchors.leftMargin: 10
                     text: root.recordedShortcut
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: (App.fontSize || 13) + 1, bold: true })
+                    font.pixelSize: App.fontTitle
+                    font.bold: true
                     color: appTheme.windowText
                     verticalAlignment: Text.AlignVCenter
                     visible: root.recordedShortcut.length > 0
                 }
 
-                Text {
+                AppText {
                     anchors.fill: parent
                     anchors.leftMargin: 10
                     text: root.tr("Press a key combination...")
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
                     color: appTheme.windowText
                     opacity: 0.5
                     verticalAlignment: Text.AlignVCenter
@@ -207,7 +207,6 @@ Dialog {
 
                 AppButton {
                     text: root.tr("Clear")
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
                     onClicked: root.recordedShortcut = ""
                 }
 
@@ -215,13 +214,12 @@ Dialog {
 
                 AppButton {
                     text: root.tr("Cancel")
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
                     onClicked: root.close()
                 }
 
                 AppButton {
                     text: root.tr("OK")
-                    font: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13, bold: true })
+                    font.bold: true
                     highlighted: true
                     onClicked: {
                         if (root.actionId) {

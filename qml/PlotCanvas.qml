@@ -338,7 +338,7 @@ Item {
                             ctx.stroke()
                             if ( ctx.setLineDash ) ctx.setLineDash( [] )
 
-                            ctx.font = "bold 9px sans-serif"
+                            ctx.font = "bold 9px " + (App.fontFamily || "Ubuntu")
                             ctx.fillStyle = ch.color
                             var xPos = ( c % 2 === 0 ) ? 4 : ( w - 50 )
                             if ( vMaxY >= 0 && vMaxY <= h )
@@ -391,39 +391,39 @@ Item {
                 anchors.centerIn: parent
                 spacing: 1
 
-                Text {
+                AppText {
                     text: "Δt: " + root.formatEngTime(root.cursorDeltaTime())
                     color: "#ffffff"
                     font.bold: true
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                 }
-                Text {
+                AppText {
                     visible: root.cursorChannelVoltage(0) !== null
                     text: "Ch 1: " + Number(root.cursorChannelVoltage(0) || 0).toFixed(2) + "V"
                     color: root.channelColor(0)
                     font.bold: true
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                 }
-                Text {
+                AppText {
                     visible: root.cursorChannelVoltage(1) !== null
                     text: "Ch 2: " + Number(root.cursorChannelVoltage(1) || 0).toFixed(2) + "V"
                     color: root.channelColor(1)
                     font.bold: true
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                 }
-                Text {
+                AppText {
                     visible: root.cursorChannelVoltage(2) !== null
                     text: "Ch 3: " + Number(root.cursorChannelVoltage(2) || 0).toFixed(2) + "V"
                     color: root.channelColor(2)
                     font.bold: true
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                 }
-                Text {
+                AppText {
                     visible: root.cursorChannelVoltage(3) !== null
                     text: "Ch 4: " + Number(root.cursorChannelVoltage(3) || 0).toFixed(2) + "V"
                     color: root.channelColor(3)
                     font.bold: true
-                    font.pixelSize: 9
+                    font.pixelSize: App.fontMicro
                 }
             }
         }

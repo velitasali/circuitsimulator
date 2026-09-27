@@ -9,7 +9,6 @@ Rectangle {
     color: pal.window
 
     SystemPalette { id: pal; colorGroup: SystemPalette.Active }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     ColumnLayout {
@@ -34,25 +33,21 @@ Rectangle {
                 rowSpacing: 4
                 Layout.fillWidth: true
 
-                Text {
+                AppText {
                     text: "Qt"
                     color: pal.windowText
-                    font.family: root.uiFont.family
                     font.pixelSize: 26
                     font.bold: true
                     Layout.columnSpan: 2
                 }
-                Text {
+                AppText {
                     text: root.tr("Version:")
                     color: pal.windowText
-                    font.family: root.uiFont.family
-                    font.pixelSize: root.uiFont.pixelSize
                     font.bold: true
                 }
-                Text {
+                AppText {
                     text: App.qtVersion
                     color: pal.windowText
-                    font: root.uiFont
                 }
             }
         }
@@ -79,14 +74,13 @@ Rectangle {
                     policy: ScrollBar.AsNeeded
                 }
 
-                Text {
+                AppText {
                     id: aboutText
                     width: flickable.width
                     textFormat: Text.RichText
                     wrapMode: Text.Wrap
                     color: pal.windowText
                     linkColor: pal.highlight
-                    font: root.uiFont
                     lineHeight: 1.25
                     text: "<p><b>" + root.tr("This program uses Qt version %1.").replace("%1", App.qtVersion) + "</b></p>"
                         + "<p>" + root.tr("Qt is a C++ toolkit for cross-platform application development.") + "</p>"

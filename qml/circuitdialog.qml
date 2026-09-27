@@ -10,7 +10,7 @@ import cs_app
 Rectangle {
     id: root
     SystemPalette { id: appTheme }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize || 13 })
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     implicitWidth: Math.max(360, contentCol.implicitWidth + 68)
     implicitHeight: mainCol.implicitHeight + 24
@@ -31,9 +31,8 @@ Rectangle {
             Layout.preferredHeight: 1
             color: appTheme.mid
         }
-        Text {
+        AppText {
             id: headerText
-            font.family: root.uiFont.family
             font.pixelSize: 14
             font.bold: true
             color: appTheme.windowText
@@ -47,9 +46,8 @@ Rectangle {
         property alias label: rowLabel.text
         Layout.fillWidth: true
         spacing: 8
-        Text {
+        AppText {
             id: rowLabel
-            font: root.uiFont
             color: appTheme.windowText
             verticalAlignment: Text.AlignVCenter
         }
@@ -68,9 +66,8 @@ Rectangle {
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignLeft
         horizontalPadding: 0
-        contentItem: Text {
+        contentItem: AppText {
             text: resetBtn.text
-            font: root.uiFont
             color: appTheme.highlight
             horizontalAlignment: Text.AlignLeft
             verticalAlignment: Text.AlignVCenter
@@ -100,9 +97,8 @@ Rectangle {
             y: 12
             spacing: 8
 
-            Text {
+            AppText {
                 text: root.tr( "These settings are saved inside the circuit file." )
-                font: root.uiFont
                 color: Qt.rgba( appTheme.windowText.r, appTheme.windowText.g,
                                 appTheme.windowText.b, 0.6 )
                 wrapMode: Text.WordWrap
@@ -194,9 +190,8 @@ Rectangle {
                             onMoved: CircuitCanvas.speedPercent = value
                             Binding on value { value: CircuitCanvas.speedPercent }
                         }
-                        Text {
+                        AppText {
                             text: CircuitCanvas.speedLabel
-                            font: root.uiFont
                             color: appTheme.windowText
                             horizontalAlignment: Text.AlignRight
                             Layout.preferredWidth: 50

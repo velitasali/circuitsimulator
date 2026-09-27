@@ -64,7 +64,6 @@ Dialog {
             Layout.fillWidth: true
             focus: !shortcutDialog.visible
             enabled: !shortcutDialog.visible
-            font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
             placeholderText: root.tr( "Type > for commands, or type to jump to component..." )
             text: CommandCenter.searchText
 
@@ -136,19 +135,18 @@ Dialog {
                         Layout.preferredWidth: 18
                     }
 
-                    Text {
+                    AppText {
                         text: delegateItem.modelData.text || ""
-                        font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                         color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.windowText
                         elide: Text.ElideRight
                         verticalAlignment: Text.AlignVCenter
                         Layout.fillWidth: true
                     }
 
-                    Text {
+                    AppText {
                         visible: delegateItem.modelData.shortcut && delegateItem.modelData.shortcut.length > 0
                         text: delegateItem.modelData.shortcut || ""
-                        font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize - 1 })
+                        font.pixelSize: App.fontSmall
                         color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.mid
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter

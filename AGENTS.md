@@ -32,4 +32,13 @@ All colors must be sourced from the central Color Theme (`crates/cs-engine/src/t
 - **Consult Before Choosing Local Workarounds vs. Architectural Extensions**: When implementing a fix or feature where an architectural extension (e.g., extending core traits like `Draw`, introducing new primitives, or updating shared pipelines) would make present and future usages significantly simpler and more contained, do not silently proceed with complex local workarounds.
 - **Ask the user first**: Explain the options and trade-offs (e.g., localized workaround vs. core architectural foundation) so the user can choose whether to implement the architectural change.
 
+## 6. Typography & Text Components (`AppText`)
 
+- **Always Use `AppText` Over `Text`**: All UI text in QML must use `AppText` instead of Qt Quick's built-in `Text`.
+  - Qt Quick's `Text` only queries the application font upon creation and fails to update reactively when font family or size changes at runtime. `AppText` binds `font.family: App.fontFamily` and defaults `font.pixelSize: App.fontNormal` dynamically.
+- **Omit Redundant Default Sizes**: Since `font.pixelSize: App.fontNormal` is already the default in `AppText`, do **not** redundantly assign `font.pixelSize: App.fontNormal` on `AppText` instances. Only set `font.pixelSize` when using non-default sizes (`App.fontSmall`, `App.fontMicro`, `App.fontTiny`, `App.fontTitle`, or explicit numbers).
+- **Font Family Overrides**: Monospace or custom font overrides (e.g., `font.family: "Menlo"` or `"Ubuntu Mono"`) should be set directly on `AppText`, which cleanly overrides the default `App.fontFamily`.
+- **Exceptions**:
+  - `AppIcon.qml` remains a direct `Text` element because it specifically binds to the `"Material Symbols Rounded"` icon font.
+  - Enum constants (`Text.WordWrap`, `Text.RichText`, `Text.ElideRight`, `Text.AlignVCenter`, etc.) and `TextMetrics` continue to use the Qt `Text` namespace.
+- **Composite `uiFont` Properties**: When dialogs or views declare a `readonly property font uiFont` used by controls (such as `AppComboBox`, `AppButton`, or `AppTextField`), always include `family: App.fontFamily` (e.g., `Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })`) so they react to global font family changes.

@@ -112,8 +112,7 @@ Rectangle {
         }
     }
 
-    component FieldLabel: Text {
-        font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
+    component FieldLabel: AppText {
         color: appTheme.windowText
         verticalAlignment: Text.AlignVCenter
         Layout.preferredWidth: 140
@@ -156,10 +155,9 @@ Rectangle {
             Layout.alignment: Qt.AlignTop
             spacing: 6
 
-            Text {
+            AppText {
                 text: root.currentTypeText
-                font.family: App.fontFamily
-                font.pixelSize: 15
+                font.pixelSize: App.fontTitle
                 font.bold: true
                 color: appTheme.windowText
                 Layout.fillWidth: true
@@ -194,13 +192,13 @@ Rectangle {
                 width: 1
                 color: appTheme.mid
             }
-            Text {
+            AppText {
                 id: descriptionText
                 anchors.left: parent.left
                 anchors.leftMargin: 9
                 anchors.right: parent.right
                 text: root.currentDescription
-                font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
+                font.pixelSize: App.fontSmall
                 color: appTheme.windowText
                 opacity: 0.65
                 wrapMode: Text.WordWrap
@@ -349,13 +347,13 @@ Rectangle {
                                 width: 1
                                 color: appTheme.mid
                             }
-                            Text {
+                            AppText {
                                 id: rowInfoText
                                 anchors.left: parent.left
                                 anchors.leftMargin: 9
                                 anchors.right: parent.right
                                 text: rowItem.row ? rowItem.row.info : ""
-                                font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
+                                font.pixelSize: App.fontSmall
                                 color: appTheme.windowText
                                 opacity: 0.65
                                 wrapMode: Text.WordWrap
@@ -379,7 +377,6 @@ Rectangle {
             property var row
             onRowChanged: if (row && checked !== row.boolValue) checked = row.boolValue
             text: row ? row.caption : ""
-            font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
             enabled: row ? row.enabled : true
             checked: row ? row.boolValue : false
             Layout.fillWidth: true
@@ -514,11 +511,10 @@ Rectangle {
                     }
                 }
             }
-            Text {
+            AppText {
                 id: unitLabel
                 visible: row ? (row.unit !== undefined && row.unit.length > 0) : false
                 text: (row && row.unit) ? row.unit : ""
-                font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
                 color: appTheme.windowText
                 opacity: 0.85
                 Layout.preferredWidth: (visible && text.length > 0) ? 28 : 0

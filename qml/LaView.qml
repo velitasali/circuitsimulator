@@ -190,10 +190,10 @@ Rectangle {
         RowLayout {
             spacing: 6
 
-            Text {
+            AppText {
                 text: root.tr( "Trigger" )
                 color: appTheme.text
-                font.pixelSize: 11
+                font.pixelSize: App.fontSmall
                 font.bold: true
             }
             AppComboBox {
@@ -206,10 +206,10 @@ Rectangle {
                 }
             }
 
-            Text {
+            AppText {
                 text: root.tr( "Conditions" )
                 color: appTheme.text
-                font.pixelSize: 11
+                font.pixelSize: App.fontSmall
                 font.bold: true
             }
             AppTextField {
@@ -260,10 +260,10 @@ Rectangle {
             ColumnLayout { // Which channels are read as a bus
                 spacing: 2
 
-                Text {
+                AppText {
                     text: root.tr( "Bus" )
                     color: appTheme.text
-                    font.pixelSize: 11
+                    font.pixelSize: App.fontSmall
                     font.bold: true
                 }
 
@@ -291,10 +291,10 @@ Rectangle {
                                 border.color: parent.checked ? Qt.darker( chColor, 1.25 )
                                                              : ( root.isLightColor( chColor ) && !App.darkTheme ? Qt.darker( chColor, 1.35 ) : chColor )
 
-                                Text {
+                                AppText {
                                     anchors.centerIn: parent
                                     text: index + 1
-                                    font.pixelSize: 10
+                                    font.pixelSize: App.fontTiny
                                     font.bold: true
                                     color: parent.parent.checked ? ( root.isLightColor( chColor ) ? "#000000" : "#ffffff" ) : appTheme.text
                                 }
@@ -307,15 +307,15 @@ Rectangle {
             ColumnLayout { // Logic thresholds
                 spacing: 2
 
-                Text {
+                AppText {
                     text: root.tr( "Threshold" )
                     color: appTheme.text
-                    font.pixelSize: 11
+                    font.pixelSize: App.fontSmall
                     font.bold: true
                 }
                 RowLayout {
                     spacing: 4
-                    Text { text: root.tr( "Rise" ); color: appTheme.text; font.pixelSize: 11 }
+                    AppText { text: root.tr( "Rise" ); color: appTheme.text; font.pixelSize: App.fontSmall }
                     AppSpinBox {
                         editable: true
                         from: 0; to: 100
@@ -325,7 +325,7 @@ Rectangle {
                             CircuitCanvas.setLaThresholds( LogicAnalyzer.thresholdR, LogicAnalyzer.thresholdF )
                         }
                     }
-                    Text { text: root.tr( "Fall" ); color: appTheme.text; font.pixelSize: 11 }
+                    AppText { text: root.tr( "Fall" ); color: appTheme.text; font.pixelSize: App.fontSmall }
                     AppSpinBox {
                         editable: true
                         from: 0; to: 100

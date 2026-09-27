@@ -58,7 +58,7 @@ T.ToolButton {
         Behavior on color { ColorAnimation { duration: 90 } }
     }
 
-    contentItem: Text {
+    contentItem: AppText {
         text: control.text
         font: control.font
         color: control.textColor

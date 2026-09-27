@@ -12,7 +12,6 @@ Rectangle {
     color: pal.window
 
     SystemPalette { id: pal; colorGroup: SystemPalette.Active }
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
 
     implicitWidth: Math.max(380, mainLayout.implicitWidth + 40)
     implicitHeight: mainLayout.implicitHeight + 40
@@ -37,10 +36,9 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             spacing: 8
 
-            Text {
+            AppText {
                 text: root.tr("Circuit Simulator")
                 color: pal.windowText
-                font.family: root.uiFont.family
                 font.pixelSize: 22
                 font.bold: true
             }
@@ -51,32 +49,26 @@ Rectangle {
                 rowSpacing: 4
                 Layout.fillWidth: true
 
-                Text {
+                AppText {
                     text: root.tr("Version:")
                     color: pal.windowText
-                    font.family: root.uiFont.family
-                    font.pixelSize: root.uiFont.pixelSize
                     font.bold: true
                 }
-                Text {
+                AppText {
                     text: App.version
                     color: pal.windowText
-                    font: root.uiFont
                 }
 
-                Text {
+                AppText {
                     text: root.tr("Website:")
                     color: pal.windowText
-                    font.family: root.uiFont.family
-                    font.pixelSize: root.uiFont.pixelSize
                     font.bold: true
                 }
-                Text {
+                AppText {
                     text: "<a href=\"http://velitasali.com/\">http://velitasali.com</a>"
                     textFormat: Text.RichText
                     color: pal.windowText
                     linkColor: pal.highlight
-                    font: root.uiFont
                     onLinkActivated: (link) => Qt.openUrlExternally(link)
                     MouseArea {
                         anchors.fill: parent

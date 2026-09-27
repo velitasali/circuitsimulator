@@ -92,9 +92,8 @@ T.ComboBox {
         leftPadding: 8
         rightPadding: 8
 
-        contentItem: Text {
+        contentItem: AppText {
             text: delegateItem.text
-            font.family: control.font.family
             font.pixelSize: control.font.pixelSize
             font.weight: control.currentIndex === delegateItem.index ? Font.DemiBold : Font.Normal
             color: delegateItem.highlighted ? appTheme.highlightedText : appTheme.windowText

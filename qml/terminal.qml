@@ -9,7 +9,7 @@ Rectangle {
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
     color: appTheme.window
-    readonly property font uiFont: Qt.font({ family: App.fontFamily || "Ubuntu", pixelSize: App.fontSize || 13 })
+    readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
 
     ColumnLayout {
         anchors.fill: parent
@@ -20,9 +20,8 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 6
 
-            Text {
+            AppText {
                 text: root.tr( "Format:" )
-                font: root.uiFont
                 color: appTheme.windowText
             }
             AppComboBox {
@@ -73,7 +72,7 @@ Rectangle {
                     readOnly: true
                     wrapMode: TextEdit.WrapAnywhere
                     font.family: "Ubuntu Mono"
-                    font.pixelSize: 13
+                    font.pixelSize: App.fontNormal
                     color: SerialTerminal.rxText
                     background: null
                     onTextChanged: cursorPosition = length
@@ -85,9 +84,8 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 6
 
-            Text {
+            AppText {
                 text: root.tr( "Format:" )
-                font: root.uiFont
                 color: appTheme.windowText
             }
             AppComboBox {
@@ -119,7 +117,6 @@ Rectangle {
                 id: txField
                 Layout.fillWidth: true
                 font.family: "Ubuntu Mono"
-                font.pixelSize: 13
                 text: SerialTerminal.inputText
                 onTextEdited: SerialTerminal.inputText = text
                 onAccepted: SerialTerminal.send()

@@ -1052,7 +1052,6 @@ ApplicationWindow {
     QtObject {
         id: propWindowManager
         property var windows: ({})
-        property int cascadeCounter: 0
 
         function syncOpenDialogs() {
             var list = CircuitCanvas.openPropDialogs || []
@@ -1062,13 +1061,11 @@ ApplicationWindow {
                 var uid = entry.uid
                 activeUids[uid] = true
                 if (!windows[uid]) {
-                    var offset = (cascadeCounter % 8) * 28
-                    cascadeCounter++
                     var w = propWindowComponent.createObject(win, {
                         itemUid: uid,
                         itemTitle: entry.title || entry.typeText || "",
-                        x: win.x + Math.round((win.width - 320) / 2) + offset,
-                        y: win.y + Math.round((win.height - 160) / 2) + offset
+                        x: win.x + Math.round((win.width - 320) / 2),
+                        y: win.y + Math.round((win.height - 160) / 2)
                     })
                     if (w) {
                         windows[uid] = w

@@ -277,11 +277,12 @@ pub fn paint_oscope(
     volt_pos: &[f64; 4],
     tracks: i32,
     hidden: &[bool; 4],
+    zoom: f64,
 ) {
     paint_oscope_chrome(d, pal, tunnels);
-    paint_oscope_reticle(d, tracks);
+    paint_oscope_reticle(d, tracks, zoom);
     paint_oscope_freq_labels(d, pal, freqs);
-    paint_oscope_waves(d, traces, volt_divs, volt_pos, tracks, hidden);
+    paint_oscope_waves(d, traces, volt_divs, volt_pos, tracks, hidden, zoom);
 }
 
 fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, tunnels: &[&str]) {
@@ -363,7 +364,16 @@ fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, tunnels: &[&str]) {
     );
 }
 
-fn paint_oscope_reticle(d: &mut dyn Draw, tracks: i32) {
+/// Width in scene units that renders as `css_px` logical pixels regardless of
+/// canvas zoom. Matches `PlotCanvas.qml` (`ctx.lineWidth` is CSS px): the
+/// tiny-skia raster multiplies scene-unit widths by zoom (x DPR for sharpness,
+/// same as QML Canvas backing-store scaling), so dividing by the viewport zoom
+/// keeps logical width constant. `zoom` is `PaintCtx::scale`.
+fn scope_screen_width(zoom: f64, css_px: f64) -> f64 {
+    css_px / zoom.max(0.1)
+}
+
+fn paint_oscope_reticle(d: &mut dyn Draw, tracks: i32, zoom: f64) {
     let (inner_x, inner_y, inner_w, inner_h) = oscope_inner_rect();
     let end_x = inner_x + inner_w;
     let end_y = inner_y + inner_h;
@@ -389,7 +399,7 @@ fn paint_oscope_reticle(d: &mut dyn Draw, tracks: i32) {
         let y = inner_y + inner_h * (gy as f64) / (v_divs as f64);
         let is_center = track_centers.iter().any(|&tc| (y - tc).abs() < 0.5);
         let c = if is_center { accent_pen } else { grid_pen };
-        let w = if is_center { 1.2 } else { 0.75 };
+        let w = scope_screen_width(zoom, if is_center { 1.2 } else { 0.75 });
         d.line(inner_x, y, end_x, y, c, w);
     }
 
@@ -398,16 +408,17 @@ fn paint_oscope_reticle(d: &mut dyn Draw, tracks: i32) {
         let x = inner_x + inner_w * (gx as f64) / 10.0;
         let is_center = (x - h_center).abs() < 0.5;
         let c = if is_center { accent_pen } else { grid_pen };
-        let w = if is_center { 1.2 } else { 0.75 };
+        let w = scope_screen_width(zoom, if is_center { 1.2 } else { 0.75 });
         d.line(x, inner_y, x, end_y, c, w);
     }
 
     // Center crosshair tick marks
+    let tick_w = scope_screen_width(zoom, 0.75);
     let tick = 1.5;
     for tc in &track_centers {
         for tx in 0..=50 {
             let x = inner_x + inner_w * (tx as f64) / 50.0;
-            d.line(x, tc - tick, x, tc + tick, accent_pen, 0.75);
+            d.line(x, tc - tick, x, tc + tick, accent_pen, tick_w);
         }
     }
     let ym = if num_tracks == 1 {
@@ -419,7 +430,7 @@ fn paint_oscope_reticle(d: &mut dyn Draw, tracks: i32) {
     };
     for ty in 0..=ym {
         let y = inner_y + inner_h * (ty as f64) / (ym as f64);
-        d.line(h_center - tick, y, h_center + tick, y, accent_pen, 0.75);
+        d.line(h_center - tick, y, h_center + tick, y, accent_pen, tick_w);
     }
 }
 
@@ -465,6 +476,7 @@ fn paint_oscope_waves(
     volt_pos: &[f64; 4],
     tracks: i32,
     hidden: &[bool; 4],
+    zoom: f64,
 ) {
     let Some(buf) = traces else {
         return;
@@ -498,7 +510,12 @@ fn paint_oscope_waves(
             let py = track_center_y - (v - vp) * scale_y;
             pts.push([px, py]);
         }
-        d.polyline(&pts, parse_hex(&ch.color), 1.5, false);
+        d.polyline(
+            &pts,
+            parse_hex(&ch.color),
+            scope_screen_width(zoom, 1.5),
+            false,
+        );
     }
 
     d.pop_clip();
@@ -509,6 +526,7 @@ pub fn paint_lanalizer(
     pal: &Palette,
     tunnels: &[&str],
     traces: Option<&PlotBuffer>,
+    zoom: f64,
 ) {
     // 1. Chassis
     d.fill_round_rect(-80.0, -72.0, 213.0, 144.0, 4.0, pal.body.fade(0.9));
@@ -589,19 +607,21 @@ pub fn paint_lanalizer(
     let end_y = inner_y + inner_h;
 
     let grid_pen = crate::canvas::draw::Color::rgb(55, 62, 70);
+    let grid_w = scope_screen_width(zoom, 0.75);
 
     for gy in 1..8 {
         let y = inner_y + inner_h * (gy as f64) / 8.0;
-        d.line(inner_x, y, end_x, y, grid_pen, 0.75);
+        d.line(inner_x, y, end_x, y, grid_pen, grid_w);
     }
     for gx in 1..10 {
         let x = inner_x + inner_w * (gx as f64) / 10.0;
-        d.line(x, inner_y, x, end_y, grid_pen, 0.75);
+        d.line(x, inner_y, x, end_y, grid_pen, grid_w);
     }
 
     // Live Digital Waveforms
     if let Some(buf) = traces {
         let row_h = inner_h / 8.0;
+        let trace_w = scope_screen_width(zoom, 1.2);
         for (c, ch) in buf.channels.iter().enumerate().take(8) {
             if !ch.connected || ch.samples.len() < 2 {
                 continue;
@@ -616,14 +636,25 @@ pub fn paint_lanalizer(
                 pts.push([px, py]);
             }
             let color = parse_hex(&ch.color);
-            d.polyline(&pts, color, 1.2, false);
+            d.polyline(&pts, color, trace_w, false);
         }
     }
 }
 
 #[allow(dead_code)]
 pub fn paint_plot(d: &mut dyn Draw, pal: &Palette) {
-    paint_oscope(d, pal, &[], &[], None, &[1.0; 4], &[0.0; 4], 1, &[false; 4]);
+    paint_oscope(
+        d,
+        pal,
+        &[],
+        &[],
+        None,
+        &[1.0; 4],
+        &[0.0; 4],
+        1,
+        &[false; 4],
+        1.0,
+    );
 }
 
 pub fn paint_chip_body(

@@ -357,6 +357,7 @@ impl Drawable for Oscope {
             &ctx.canvas.scope_volt_pos(),
             ctx.canvas.scope_tracks(),
             &ctx.canvas.scope_hidden(),
+            ctx.scale,
         );
         true
     }

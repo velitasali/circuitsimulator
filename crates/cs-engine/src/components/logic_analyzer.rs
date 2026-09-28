@@ -468,7 +468,7 @@ impl Drawable for LogicAnalyzer {
             self.tunnel8.as_str(),
         ];
         let live = ctx.canvas.live_la_traces(ctx.item_id);
-        paint_lanalizer(d, ctx.pal, &tunnels, live.as_ref());
+        paint_lanalizer(d, ctx.pal, &tunnels, live.as_ref(), ctx.scale);
         true
     }
 }

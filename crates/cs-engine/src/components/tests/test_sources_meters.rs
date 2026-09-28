@@ -119,6 +119,65 @@ fn test_oscilloscope_and_logic_analyzer() {
 }
 
 #[test]
+fn test_oscope_reticle_zoom_invariant_width() {
+    use crate::components::drawable::paint_oscope;
+
+    fn reticle_widths(zoom: f64) -> Vec<f64> {
+        let canvas = crate::canvas::Canvas::new();
+        let pal = crate::canvas::draw::Palette::light();
+        let ctx = crate::canvas::draw::PaintCtx {
+            canvas: &canvas,
+            pal: &pal,
+            scale: zoom,
+            item_id: "test-item",
+        };
+        let mut rec = super::recorder::DrawRecorder::new();
+        // Route through the Oscope Drawable so PaintCtx::scale (viewport zoom)
+        // flows into the reticle, exactly as in production.
+        crate::components::Oscope::default().paint(&mut rec, &ctx);
+        let _ = paint_oscope
+            as fn(
+                &mut dyn crate::canvas::draw::Draw,
+                &crate::canvas::draw::Palette,
+                &[&str],
+                &[&str],
+                Option<&crate::plot::PlotBuffer>,
+                &[f64; 4],
+                &[f64; 4],
+                i32,
+                &[bool; 4],
+                f64,
+            );
+        rec.ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Line { width, .. } => Some(*width),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // Scene-unit width must shrink 1:1 with zoom so logical-px width is constant
+    // (matches PlotCanvas.qml `ctx.lineWidth`, which is CSS px).
+    let w1 = reticle_widths(1.0);
+    let w2 = reticle_widths(2.0);
+    let w4 = reticle_widths(4.0);
+    assert_eq!(w1.len(), w2.len());
+    assert_eq!(w1.len(), w4.len());
+    assert!(!w1.is_empty());
+    for ((a, b), c) in w1.iter().zip(&w2).zip(&w4) {
+        assert!(
+            (a - b * 2.0).abs() < 1e-9,
+            "zoom 2x must halve width: {a} vs {b}"
+        );
+        assert!(
+            (a - c * 4.0).abs() < 1e-9,
+            "zoom 4x must quarter width: {a} vs {c}"
+        );
+    }
+}
+
+#[test]
 fn test_connectors_tunnel_bus_header_socket() {
     // Tunnel
     let mut tun = Tunnel::default();

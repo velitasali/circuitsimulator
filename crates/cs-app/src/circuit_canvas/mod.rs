@@ -395,7 +395,14 @@ impl CircuitCanvas {
                 self.inner.restore_dirty(dirty);
                 return;
             }
-            let force_full = c.zoom || c.center || c.viewport || dirty.full;
+            let vp = self.inner.viewport();
+            let center = vp.center();
+            let zoom = vp.zoom();
+            let meta = crate::native_canvas::current_canvas_meta();
+            let zoom_matches = (meta.zoom - zoom).abs() <= 1e-4;
+            let covers = zoom_matches
+                && crate::native_canvas::pixmap_covers_view(center.x, center.y, zoom, vw, vh);
+            let force_full = dirty.full || c.viewport || !covers;
             let scene_rects = if force_full {
                 Vec::new()
             } else {

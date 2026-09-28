@@ -1,6 +1,6 @@
 //! Native canvas rendering and Qt Quick Scene Graph item integration.
 
-use cs_engine::canvas::{Canvas, Palette, Pixmap, Rect};
+use cs_engine::canvas::{Canvas, Palette, Pixmap, Point, Rect, RegionRenderStatus};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -138,6 +138,21 @@ struct RenderBuffer {
 }
 
 static RENDER_BUFFER: Mutex<Option<RenderBuffer>> = Mutex::new(None);
+
+struct StagingBuffer {
+    data: Vec<u8>,
+    stride: u32,
+    width: u32,
+    height: u32,
+}
+
+static STAGING_BUFFER: Mutex<StagingBuffer> = Mutex::new(StagingBuffer {
+    data: Vec::new(),
+    stride: 0,
+    width: 0,
+    height: 0,
+});
+
 static CANVAS_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 unsafe extern "C" {
@@ -252,30 +267,54 @@ pub fn update_render_regions(
     let zoom = vp.zoom();
     let meta = current_canvas_meta();
     if (meta.zoom - zoom).abs() > 1e-4
-        || (meta.center_x - center.x).abs() > 1e-4
-        || (meta.center_y - center.y).abs() > 1e-4
         || (meta.dpr - d).abs() > 1e-4
         || (meta.view_w - width as f64).abs() > 0.5
         || (meta.view_h - height as f64).abs() > 0.5
     {
         return false;
     }
-    let painted = cs_engine::canvas::render_viewport_regions_mut(
-        canvas,
-        palette,
-        &mut buf.pixmap,
-        d,
-        scene_rects,
-    );
-    if !painted {
+    let same_center =
+        (meta.center_x - center.x).abs() <= 1e-4 && (meta.center_y - center.y).abs() <= 1e-4;
+    let status = if same_center {
+        cs_engine::canvas::render_viewport_regions_projected_mut(
+            canvas,
+            palette,
+            &mut buf.pixmap,
+            d,
+            vp.center(),
+            vp.zoom(),
+            scene_rects,
+        )
+    } else if pixmap_covers_view(center.x, center.y, zoom, width as f64, height as f64) {
+        cs_engine::canvas::render_viewport_regions_projected_mut(
+            canvas,
+            palette,
+            &mut buf.pixmap,
+            d,
+            Point::new(meta.center_x, meta.center_y),
+            meta.zoom,
+            scene_rects,
+        )
+    } else {
         return false;
+    };
+
+    match status {
+        RegionRenderStatus::Painted(_) => {
+            CANVAS_GENERATION.fetch_add(1, Ordering::Release);
+            drop(lock);
+            unsafe {
+                cs_canvas_item_request_update();
+            }
+            true
+        }
+        RegionRenderStatus::Offscreen => {
+            // All dirty rects were outside the viewport/overscan bounds.
+            // Nothing on screen changed; backing pixmap is already valid.
+            true
+        }
+        RegionRenderStatus::Failed => false,
     }
-    CANVAS_GENERATION.fetch_add(1, Ordering::Release);
-    drop(lock);
-    unsafe {
-        cs_canvas_item_request_update();
-    }
-    true
 }
 
 #[unsafe(no_mangle)]
@@ -284,31 +323,45 @@ pub unsafe extern "C" fn cs_canvas_render(
     out_height: *mut u32,
     out_stride: *mut u32,
 ) -> *const u8 {
-    let lock = match RENDER_BUFFER.lock() {
+    let mut staging = match STAGING_BUFFER.lock() {
         Ok(guard) => guard,
         Err(_) => return std::ptr::null(),
     };
-    match lock.as_ref() {
-        Some(buf) => {
-            if !out_width.is_null() {
-                unsafe {
-                    *out_width = buf.width;
-                }
-            }
-            if !out_height.is_null() {
-                unsafe {
-                    *out_height = buf.height;
-                }
-            }
-            if !out_stride.is_null() {
-                unsafe {
-                    *out_stride = buf.stride;
-                }
-            }
-            buf.pixmap.data().as_ptr()
-        }
-        None => std::ptr::null(),
+    let render_lock = match RENDER_BUFFER.lock() {
+        Ok(guard) => guard,
+        Err(_) => return std::ptr::null(),
+    };
+    let Some(buf) = render_lock.as_ref() else {
+        return std::ptr::null();
+    };
+
+    let src = buf.pixmap.data();
+    if staging.data.len() != src.len() {
+        staging.data.resize(src.len(), 0);
     }
+    staging.data.copy_from_slice(src);
+    staging.width = buf.width;
+    staging.height = buf.height;
+    staging.stride = buf.stride;
+
+    if !out_width.is_null() {
+        unsafe {
+            *out_width = staging.width;
+        }
+    }
+    if !out_height.is_null() {
+        unsafe {
+            *out_height = staging.height;
+        }
+    }
+    if !out_stride.is_null() {
+        unsafe {
+            *out_stride = staging.stride;
+        }
+    }
+
+    drop(render_lock);
+    staging.data.as_ptr()
 }
 
 #[unsafe(no_mangle)]

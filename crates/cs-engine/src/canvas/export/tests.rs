@@ -127,6 +127,29 @@ fn render_viewport_regions_patches_without_full_clear() {
 }
 
 #[test]
+fn render_viewport_regions_offscreen_does_not_modify_pixmap() {
+    let mut c = Canvas::new();
+    c.set_view_size(400.0, 300.0);
+    c.viewport_mut().set_center(Point::zero());
+    let pal = Palette::light();
+    let mut pm = render_viewport(&c, &pal, 400, 300, 1.0, true).unwrap();
+    let before = pm.data().to_vec();
+
+    let offscreen = Rect::new(5000.0, 5000.0, 100.0, 100.0);
+    let status = render_viewport_regions_projected_mut(
+        &c,
+        &pal,
+        &mut pm,
+        1.0,
+        Point::zero(),
+        1.0,
+        &[offscreen],
+    );
+    assert_eq!(status, RegionRenderStatus::Offscreen);
+    assert_eq!(pm.data(), before.as_slice());
+}
+
+#[test]
 fn test_glyph_cache_retrieval() {
     let g1 = get_cached_glyph(false, 'A', 12.0);
     let g2 = get_cached_glyph(false, 'A', 12.0);

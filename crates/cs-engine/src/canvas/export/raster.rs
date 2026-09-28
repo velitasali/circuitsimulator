@@ -121,6 +121,14 @@ impl<'a> Raster<'a> {
         }
     }
 
+    pub fn with_clip(pixmap: &'a mut Pixmap, initial_transform: Transform, clip: Mask) -> Self {
+        Self {
+            pixmap,
+            stack: vec![initial_transform],
+            clip_stack: vec![clip],
+        }
+    }
+
     pub fn xf(&self) -> Transform {
         self.stack
             .last()
@@ -254,24 +262,37 @@ impl<'a> Raster<'a> {
                             let start_x = dx.max(0);
                             let end_x = (dx + gw).min(pw);
 
+                            let mask = self.clip_stack.last();
                             let pixels = self.pixmap.pixels_mut();
                             for row in start_y..end_y {
                                 let glyph_row = (row - dy) as usize;
                                 let canvas_row_idx = (row as usize) * (pw as usize);
                                 for col in start_x..end_x {
+                                    let target_idx = canvas_row_idx + col as usize;
+                                    let mask_val = if let Some(m) = mask {
+                                        let mv = m.data()[target_idx];
+                                        if mv == 0 {
+                                            continue;
+                                        }
+                                        mv
+                                    } else {
+                                        255
+                                    };
                                     let glyph_col = (col - dx) as usize;
                                     let a = bitmap[glyph_row * (gw as usize) + glyph_col];
                                     if a == 0 {
                                         continue;
                                     }
-                                    let src_a = ((a as u16 * c.a as u16) / 255) as u8;
+                                    let mut src_a = ((a as u16 * c.a as u16) / 255) as u8;
+                                    if mask_val < 255 {
+                                        src_a = ((src_a as u16 * mask_val as u16) / 255) as u8;
+                                    }
                                     let pr = ((c.r as u16 * src_a as u16) / 255) as u8;
                                     let pg = ((c.g as u16 * src_a as u16) / 255) as u8;
                                     let pb = ((c.b as u16 * src_a as u16) / 255) as u8;
                                     if let Some(src_px) =
                                         PremultipliedColorU8::from_rgba(pr, pg, pb, src_a)
                                     {
-                                        let target_idx = canvas_row_idx + col as usize;
                                         pixels[target_idx] = blend_over(src_px, pixels[target_idx]);
                                     }
                                 }
@@ -293,7 +314,8 @@ impl<'a> Raster<'a> {
                         let t = xf
                             .pre_concat(Transform::from_translate(gx, gy))
                             .pre_concat(Transform::from_scale(1.0 / scale, 1.0 / scale));
-                        self.pixmap.draw_pixmap(0, 0, gpm.as_ref(), &paint, t, None);
+                        let mask = self.clip_stack.last();
+                        self.pixmap.draw_pixmap(0, 0, gpm.as_ref(), &paint, t, mask);
                     }
                 }
                 pen_x += gm.advance_width / scale;

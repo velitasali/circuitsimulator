@@ -14,7 +14,7 @@ mod tests;
 
 use std::io::Write;
 use std::path::Path;
-use tiny_skia::Transform;
+use tiny_skia::{FillRule, Mask, PathBuilder, Transform};
 
 use self::paint::{
     paint_component_rect, paint_grid, paint_item, paint_scene, paint_wire, paint_wire_chevrons,
@@ -22,7 +22,7 @@ use self::paint::{
 use self::raster::{Raster, sk_color};
 use self::svg::Svg;
 use super::Canvas;
-use super::geom::Rect;
+use super::geom::{Point, Rect};
 use super::scene::Scene;
 use crate::Error;
 
@@ -122,9 +122,31 @@ pub fn render_viewport_mut(
     paint_culled(&mut rast, canvas, palette, zoom, cull, &connected_pins);
 }
 
-/// Re-raster `scene_rects` into an existing pixmap. Returns false when the
-/// caller should fall back to a full [`render_viewport_mut`] (empty, or the
-/// dirty area covers most of the surface).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegionRenderStatus {
+    /// At least one dirty region intersected the pixmap and was painted directly.
+    Painted(usize),
+    /// All dirty regions were completely outside the pixmap; nothing on screen was dirty.
+    Offscreen,
+    /// Region rendering could not be performed (e.g. invalid pixmap dimensions or scale).
+    Failed,
+}
+
+impl RegionRenderStatus {
+    #[inline]
+    pub fn is_success(&self) -> bool {
+        !matches!(self, Self::Failed)
+    }
+
+    #[inline]
+    pub fn is_painted(&self) -> bool {
+        matches!(self, Self::Painted(_))
+    }
+}
+
+/// Re-raster `scene_rects` directly into an existing pixmap in a single pass.
+/// Clears dirty device patches to transparent, builds a clipping mask covering
+/// the merged dirty areas, and paints all intersecting elements directly into `pixmap`.
 pub fn render_viewport_regions_mut(
     canvas: &Canvas,
     palette: &Palette,
@@ -132,20 +154,41 @@ pub fn render_viewport_regions_mut(
     dpr: f64,
     scene_rects: &[Rect],
 ) -> bool {
+    let vp = canvas.viewport();
+    render_viewport_regions_projected_mut(
+        canvas,
+        palette,
+        pixmap,
+        dpr,
+        vp.center(),
+        vp.zoom(),
+        scene_rects,
+    )
+    .is_success()
+}
+
+/// Variant of [`render_viewport_regions_mut`] that accepts an explicit projection center and zoom.
+/// Used when patching into an overscan-padded backing pixmap during active pan gestures.
+pub fn render_viewport_regions_projected_mut(
+    canvas: &Canvas,
+    palette: &Palette,
+    pixmap: &mut Pixmap,
+    dpr: f64,
+    center: Point,
+    zoom: f64,
+    scene_rects: &[Rect],
+) -> RegionRenderStatus {
     if scene_rects.is_empty() {
-        return false;
+        return RegionRenderStatus::Offscreen;
     }
     let w = pixmap.width();
     let h = pixmap.height();
     if w == 0 || h == 0 {
-        return false;
+        return RegionRenderStatus::Failed;
     }
-    let vp = canvas.viewport();
-    let zoom = vp.zoom();
-    let center = vp.center();
     let s = zoom * dpr.max(1.0);
     if s <= 1e-9 {
-        return false;
+        return RegionRenderStatus::Failed;
     }
     let tx = w as f64 * 0.5 - center.x * s;
     let ty = h as f64 * 0.5 - center.y * s;
@@ -157,66 +200,117 @@ pub fn render_viewport_regions_mut(
         }
     }
     if device_rects.is_empty() {
-        return false;
+        return RegionRenderStatus::Offscreen;
     }
     let merged = merge_device_rects(device_rects, 6, 4000.0);
-    let dirty_area: f64 = merged.iter().map(Rect::area).sum();
-    if dirty_area > (w as f64) * (h as f64) * 0.5 {
-        return false;
-    }
+    let count = merged.len();
 
-    let connected_pins = canvas.scene().connected_pins_set();
-    let pw = pixmap.width() as i32;
-    let ph = pixmap.height() as i32;
-    for dr in merged {
-        let x0 = dr.x.round() as i32;
-        let y0 = dr.y.round() as i32;
-        let rw = dr.w.round().max(1.0) as u32;
-        let rh = dr.h.round().max(1.0) as u32;
-        let Some(mut sub) = Pixmap::new(rw, rh) else {
-            continue;
-        };
-        // Live canvas pixmap is transparent paper (GPU grid shader sits
-        // underneath). Do not fill canvas color or software grid here —
-        // Source blit of an opaque patch would stain the background.
-        let world = Transform::from_row(
-            s as f32,
-            0.0,
-            0.0,
-            s as f32,
-            (tx - x0 as f64) as f32,
-            (ty - y0 as f64) as f32,
-        );
-        let mut rast = Raster::new(&mut sub, world);
-        let cull = Rect::new(
-            (x0 as f64 - tx) / s - 8.0,
-            (y0 as f64 - ty) / s - 8.0,
-            rw as f64 / s + 16.0,
-            rh as f64 / s + 16.0,
-        );
-        paint_culled(&mut rast, canvas, palette, zoom, cull, &connected_pins);
-        let dst_data = pixmap.data_mut();
-        let src_data = sub.data();
-        for row in 0..rh as i32 {
-            let dst_y = y0 + row;
-            if dst_y < 0 || dst_y >= ph {
-                continue;
+    let pw = w as usize;
+    let ph = h as usize;
+    let stride = pw * 4;
+    let data = pixmap.data_mut();
+
+    // 1. Clear dirty device rectangles directly in the backing pixmap to transparent.
+    for dr in &merged {
+        let x0 = (dr.x.round() as usize).min(pw);
+        let y0 = (dr.y.round() as usize).min(ph);
+        let x1 = (dr.right().round() as usize).min(pw);
+        let y1 = (dr.bottom().round() as usize).min(ph);
+        if x1 > x0 && y1 > y0 {
+            let row_bytes = (x1 - x0) * 4;
+            for row in y0..y1 {
+                let start = row * stride + x0 * 4;
+                data[start..start + row_bytes].fill(0);
             }
-            let dst_x_start = x0.max(0);
-            let dst_x_end = (x0 + rw as i32).min(pw);
-            if dst_x_start >= dst_x_end {
-                continue;
-            }
-            let src_x_offset = (dst_x_start - x0) as usize;
-            let copy_pixels = (dst_x_end - dst_x_start) as usize;
-            let src_row_start = (row as usize * rw as usize + src_x_offset) * 4;
-            let dst_row_start = (dst_y as usize * pw as usize + dst_x_start as usize) * 4;
-            let byte_len = copy_pixels * 4;
-            dst_data[dst_row_start..dst_row_start + byte_len]
-                .copy_from_slice(&src_data[src_row_start..src_row_start + byte_len]);
         }
     }
-    true
+
+    // 2. Build a clip mask from the merged device rectangles so no pixels outside are touched.
+    let Some(mut mask) = Mask::new(w, h) else {
+        return RegionRenderStatus::Failed;
+    };
+    for dr in &merged {
+        let x = dr.x as f32;
+        let y = dr.y as f32;
+        let rw = dr.w as f32;
+        let rh = dr.h as f32;
+        if let Some(r) = tiny_skia::Rect::from_xywh(x, y, rw, rh) {
+            let pb = PathBuilder::from_rect(r);
+            mask.fill_path(&pb, FillRule::Winding, true, Transform::identity());
+        }
+    }
+
+    // 3. Single-pass rasterization directly onto the backing pixmap.
+    let world = Transform::from_row(s as f32, 0.0, 0.0, s as f32, tx as f32, ty as f32);
+    let mut rast = Raster::with_clip(pixmap, world, mask);
+    let connected_pins = canvas.scene().connected_pins_set();
+    paint_culled_regions(
+        &mut rast,
+        canvas,
+        palette,
+        zoom,
+        scene_rects,
+        &connected_pins,
+    );
+
+    RegionRenderStatus::Painted(count)
+}
+
+fn paint_culled_regions(
+    rast: &mut Raster<'_>,
+    canvas: &Canvas,
+    palette: &Palette,
+    zoom: f64,
+    scene_rects: &[Rect],
+    connected_pins: &rustc_hash::FxHashSet<String>,
+) {
+    if scene_rects.is_empty() {
+        return;
+    }
+    let scene: &Scene = canvas.scene();
+    let ctx = PaintCtx {
+        canvas,
+        pal: palette,
+        scale: zoom,
+        item_id: "",
+    };
+
+    let padded_rects: Vec<Rect> = scene_rects
+        .iter()
+        .map(|sr| sr.adjust(-8.0, -8.0, 8.0, 8.0))
+        .collect();
+    let union_cull = padded_rects[1..]
+        .iter()
+        .fold(padded_rects[0], |acc, r| acc.united(*r));
+
+    let intersects = |target: &Rect| -> bool {
+        if !union_cull.intersects(target) {
+            return false;
+        }
+        if padded_rects.len() == 1 {
+            return true;
+        }
+        padded_rects.iter().any(|sr| sr.intersects(target))
+    };
+
+    for w in scene.wires() {
+        if w.points.len() >= 2 && intersects(&w.bounding_rect()) {
+            paint_wire(rast, &ctx, w);
+        }
+    }
+    for it in scene.items() {
+        if intersects(&it.total_bounding_rect()) {
+            paint_item(rast, &ctx, scene, it, connected_pins);
+            if canvas.show_component_rect() {
+                paint_component_rect(rast, &ctx, it);
+            }
+        }
+    }
+    for w in scene.wires() {
+        if w.points.len() >= 2 && intersects(&w.bounding_rect()) {
+            paint_wire_chevrons(rast, &ctx, w);
+        }
+    }
 }
 
 fn paint_culled(
@@ -227,34 +321,7 @@ fn paint_culled(
     cull: Rect,
     connected_pins: &rustc_hash::FxHashSet<String>,
 ) {
-    let scene: &Scene = canvas.scene();
-    let ctx = PaintCtx {
-        canvas,
-        pal: palette,
-        scale: zoom,
-        item_id: "",
-    };
-    for w in scene.wires() {
-        if w.points.len() >= 2 && !cull.intersects(&w.bounding_rect()) {
-            continue;
-        }
-        paint_wire(rast, &ctx, w);
-    }
-    for it in scene.items() {
-        if !it.total_bounding_rect().intersects(&cull) {
-            continue;
-        }
-        paint_item(rast, &ctx, scene, it, connected_pins);
-        if canvas.show_component_rect() {
-            paint_component_rect(rast, &ctx, it);
-        }
-    }
-    for w in scene.wires() {
-        if w.points.len() >= 2 && !cull.intersects(&w.bounding_rect()) {
-            continue;
-        }
-        paint_wire_chevrons(rast, &ctx, w);
-    }
+    paint_culled_regions(rast, canvas, palette, zoom, &[cull], connected_pins);
 }
 
 fn scene_to_device_rect(

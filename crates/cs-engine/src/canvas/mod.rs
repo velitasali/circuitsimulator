@@ -32,8 +32,8 @@ pub use events::{
     KEY_R, KEY_RIGHT, KEY_UP, KEY_V, KEY_X, KEY_Y, KEY_Z, MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT,
 };
 pub use export::{
-    Pixmap, parse_hex, png_bytes, render_viewport, render_viewport_mut,
-    render_viewport_regions_mut, save_image, svg_string,
+    Pixmap, RegionRenderStatus, parse_hex, png_bytes, render_viewport, render_viewport_mut,
+    render_viewport_regions_mut, render_viewport_regions_projected_mut, save_image, svg_string,
 };
 pub use files::MemoryItemInfo;
 pub use geom::{Point, Rect, map_rect, snap_to_grid4, to_grid};

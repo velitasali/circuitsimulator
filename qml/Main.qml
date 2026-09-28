@@ -167,31 +167,99 @@ ApplicationWindow {
             }
 
             Component {
-                id: nestedMenuComp
+                id: menuItemComp
+                ContextMenuItem {
+                    // Path into the AppMenuBar JSON; "" for separators/parents.
+                    property string itemPath: ""
+                    onTriggered: {
+                        if (itemPath !== "")
+                            AppMenuBar.trigger(itemPath)
+                    }
+                }
+            }
+
+            Component {
+                id: subMenuComp
                 AppContextMenu {
-                    id: nestedMenu
                     popupType: Popup.Item
-                    property var itemsModel: []
-                    Instantiator {
-                        model: nestedMenu.itemsModel
-                        onObjectAdded: (index, object) => nestedMenu.insertItem(index, object)
-                        onObjectRemoved: (_, object) => nestedMenu.removeItem(object)
-                        delegate: ContextMenuItem {
-                            required property var modelData
-                            text: modelData.separator ? "" : String(modelData.text)
-                            enabled: !modelData.separator && modelData.enabled
-                            visible: modelData.visible
-                            isSeparator: modelData.separator
-                            checkable: !modelData.separator && modelData.checkable
-                            checked: modelData.checked
-                            shortcutText: modelData.shortcut ? String(modelData.shortcut) : ""
-                            onTriggered: AppMenuBar.trigger(modelData.path)
-                        }
+                }
+            }
+
+            // Qt only creates a cascading row (MenuItem.subMenu + arrow) when a
+            // Menu is registered via addMenu/insertMenu. Parenting a Menu to a
+            // MenuItem (the old createObject(menuItem) path) leaves subMenu null,
+            // so Windows showed the parent row with no cascade. macOS worked
+            // because menu.mm recurses over the same JSON with item.submenu.
+            // itemAt/menuAt/takeMenu/takeItem index over ALL rows (a submenu row
+            // answers both), so probe with menuAt and take the same index either way.
+            // All creation happens from onAboutToShow (menus fully in the scene
+            // by then) — never from Instantiator.onObjectAdded during startup,
+            // which fires before `bar` is placed and logs "Created graphical
+            // object was not placed in the graphics scene" at menuItemComp.
+            function clearMenu(menu) {
+                for (var i = menu.count - 1; i >= 0; --i) {
+                    if (menu.menuAt(i))
+                        menu.takeMenu(i).destroy()
+                    else
+                        menu.takeItem(i).destroy()
+                }
+            }
+
+            function makeLeaf(parentMenu, entry) {
+                var isSep = !!entry.separator
+                // Parent rows can never fire: submenu entries carry no action id
+                // and AppMenuBar.trigger ignores them, so itemPath stays "" there.
+                // NB: parent to `bar` (in the scene), NOT to the Menu (a Popup)
+                // and NOT null — both log "Created graphical object was not
+                // placed in the graphics scene". addItem() reparents into the
+                // menu's visual hierarchy right after.
+                return menuItemComp.createObject(bar, {
+                    text: isSep ? "" : String(entry.text),
+                    enabled: !isSep && !!entry.enabled,
+                    visible: entry.visible !== false,
+                    isSeparator: isSep,
+                    checkable: !isSep && !!entry.checkable && !entry.submenu,
+                    checked: !!entry.checked,
+                    shortcutText: entry.shortcut ? String(entry.shortcut) : "",
+                    itemPath: (!isSep && !entry.submenu && entry.path) ? String(entry.path) : ""
+                })
+            }
+
+            function populateMenu(menu, items) {
+                clearMenu(menu)
+                if (!items)
+                    return
+                for (var i = 0; i < items.length; ++i) {
+                    var entry = items[i]
+                    if (!entry)
+                        continue
+                    if (entry.submenu) {
+                        // QQuickMenu has no row-visible (visible opens the popup),
+                        // so a hidden submenu is skipped instead of inserted.
+                        if (entry.visible === false)
+                            continue
+                        // Menus are non-visual too, but unlike MenuItems they can
+                        // be created parented to the target menu: that is exactly
+                        // what static `Menu { Menu { ... } }` nesting does, and
+                        // addMenu() then adopts them (CircuitView's monitorMenu /
+                        // footprintsMenu rely on the same pattern).
+                        var sub = subMenuComp.createObject(menu, {
+                            title: String(entry.text)
+                        })
+                        if (!sub)
+                            continue
+                        populateMenu(sub, entry.submenu)
+                        menu.addMenu(sub)
+                    } else {
+                        var leaf = makeLeaf(menu, entry)
+                        if (leaf)
+                            menu.addItem(leaf)
                     }
                 }
             }
 
             Instantiator {
+                id: topMenuInstantiator
                 model: AppMenuBar.menus
                 onObjectAdded: (index, object) => bar.insertMenu(index, object)
                 onObjectRemoved: (_, object) => bar.removeMenu(object)
@@ -200,30 +268,57 @@ ApplicationWindow {
                     popupType: Popup.Item
                     required property var modelData
                     title: modelData.title
-                    onAboutToShow: AppMenuBar.aboutToShow(modelData.path)
-                    Instantiator {
-                        model: topMenu.modelData.items
-                        onObjectAdded: (index, object) => topMenu.insertItem(index, object)
-                        onObjectRemoved: (_, object) => topMenu.removeItem(object)
-                        delegate: ContextMenuItem {
-                            id: menuItem
-                            required property var modelData
-                            text: modelData.separator ? "" : String(modelData.text)
-                            enabled: !modelData.separator && modelData.enabled
-                            visible: modelData.visible
-                            isSeparator: modelData.separator
-                            checkable: !modelData.separator && modelData.checkable && !modelData.submenu
-                            checked: modelData.checked
-                            shortcutText: modelData.shortcut ? String(modelData.shortcut) : ""
-                            onTriggered: {
-                                if (!modelData.submenu)
-                                    AppMenuBar.trigger(modelData.path)
-                            }
-                            Component.onCompleted: {
-                                if (modelData.submenu)
-                                    nestedMenuComp.createObject(menuItem, { itemsModel: modelData.submenu })
+                    onAboutToShow: bar.populateTopMenu(topMenu, -1)
+                }
+            }
+
+            function populateTopMenu(menu, index) {
+                var menus = AppMenuBar.menus
+                if (!menus)
+                    return
+                var idx = index
+                if (idx === undefined || idx < 0) {
+                    idx = -1
+                    if (menu) {
+                        for (var k = 0; k < menus.length; ++k) {
+                            if (bar.menuAt(k) === menu) {
+                                idx = k
+                                break
                             }
                         }
+                        if (idx < 0 && menu.title !== undefined) {
+                            for (var j = 0; j < menus.length; ++j) {
+                                if (menus[j] && menus[j].title === menu.title) {
+                                    idx = j
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+                if (idx < 0 || idx >= menus.length)
+                    return
+                var data = menus[idx]
+                if (!data)
+                    return
+                // Keep the bar label in sync when rebuild() retranslates titles;
+                // the Instantiator delegate keeps its creation-time modelData.
+                if (data.title !== undefined && menu.title !== data.title)
+                    menu.title = data.title
+                populateMenu(menu, data.items)
+            }
+
+            // Live updates (checked/enabled/recent lists) rebuild the top-level
+            // menus; skip while one is open so the popup is not torn down.
+            Connections {
+                target: AppMenuBar
+                function onMenusChanged() {
+                    if (bar.menus.length === 0)
+                        return
+                    for (var i = 0; i < bar.menus.length; ++i) {
+                        var m = bar.menuAt(i)
+                        if (m && !m.opened)
+                            bar.populateTopMenu(m, i)
                     }
                 }
             }

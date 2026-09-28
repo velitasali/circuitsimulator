@@ -555,6 +555,7 @@ pub(crate) fn run_command_logged_cancel(
             return Err(e.to_string());
         }
     };
+    #[cfg(unix)]
     let child_pid = child.id();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();

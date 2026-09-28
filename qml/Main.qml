@@ -709,10 +709,16 @@ ApplicationWindow {
                 openSaveCircAs()
             } else if (id === "file.newFile") {
                 EditorPanel.newFile()
+                EditorPanel.focusEditor()
             } else if (id === "file.saveFile") {
                 EditorPanel.save()
             } else if (id === "file.saveFileAs") {
                 openSaveFileAs()
+            } else if (id === "file.close") {
+                if (EditorPanel.focused)
+                    EditorPanel.closeCurrent()
+                else
+                    CircuitCanvas.closeCircuit()
             } else if (id === "file.closeFile") {
                 EditorPanel.closeCurrent()
             } else if (id === "file.closeCirc") {
@@ -737,6 +743,7 @@ ApplicationWindow {
                 CircuitCanvas.loadPath(id.substring(9))
             } else if (id.indexOf("openFile:") === 0) {
                 EditorPanel.loadFile(id.substring(9))
+                EditorPanel.focusEditor()
             } else if (id.indexOf("openProj:") === 0) {
                 FileBrowser.rootPath = id.substring(9)
             } else if (id === "help.about") {
@@ -783,6 +790,7 @@ ApplicationWindow {
                 App.sidePanelTab = 1
             } else if (id === "view.focusEditor") {
                 CircuitPanel.showEditor()
+                EditorPanel.focusEditor()
             } else if (id === "view.focusSimLog" || id === "view.simLog") {
                 CircuitPanel.showSidePanel()
                 App.sidePanelTab = 2
@@ -832,6 +840,20 @@ ApplicationWindow {
                 EditorPanel.findDialog()
             } else if (id === "edit.format") {
                 EditorPanel.formatDocument()
+            } else if (id === "edit.triggerCompletion") {
+                if (EditorPanel.focused) EditorPanel.complete(true)
+            } else if (id === "edit.gotoDefinition") {
+                EditorPanel.gotoDefinition()
+            } else if (id === "edit.rotateCw") {
+                CircuitCanvas.rotateCw()
+            } else if (id === "edit.rotateCcw") {
+                CircuitCanvas.rotateCcw()
+            } else if (id === "edit.flipH") {
+                CircuitCanvas.flipH()
+            } else if (id === "edit.flipV") {
+                CircuitCanvas.flipV()
+            } else if (id === "edit.delete") {
+                CircuitCanvas.removeSelection()
             } else if (id === "sim.compile" || id === "sim_compile") {
                 EditorPanel.compile()
             } else if (id === "sim.load" || id === "sim_load") {
@@ -908,6 +930,7 @@ ApplicationWindow {
         }
         CircuitPanel.showEditor()
         EditorPanel.loadFile(path)
+        EditorPanel.focusEditor()
         AppDialog.addRecentFile(path)
         AppMenuBar.rebuild()
     }
@@ -1436,42 +1459,31 @@ ApplicationWindow {
         sequences: ["Ctrl+Shift+P", "Meta+Shift+P"]
         onActivated: openCommandPalette()
     }
-    Shortcut {
-        sequences: ["Ctrl+N", "Meta+N"]
-        onActivated: AppMenuBar.triggerAction("file.new")
-    }
-    Shortcut {
-        sequences: ["Ctrl+Alt+S", "Meta+Alt+S"]
-        onActivated: runSaveAll()
-    }
-    Shortcut {
-        sequences: ["Ctrl+W", "Meta+W"]
-        enabled: EditorPanel.focused
-        onActivated: EditorPanel.closeCurrent()
-    }
-    Shortcut {
-        sequences: ["Ctrl+Alt+D", "Meta+Alt+D"]
-        onActivated: AppDialog.repaintOverlayEnabled = !AppDialog.repaintOverlayEnabled
-    }
-    Shortcut {
-        sequences: ["Ctrl+Alt+C", "Meta+Alt+C"]
-        onActivated: AppDialog.showComponentRects = !AppDialog.showComponentRects
-    }
-    Shortcut {
-        sequences: ["F12"]
-        onActivated: AppMenuBar.triggerAction("sim.debug")
-    }
-    Shortcut {
-        sequences: ["F5"]
-        onActivated: AppMenuBar.triggerAction("sim.run")
-    }
-    Shortcut {
-        sequences: ["Ctrl+,", "Meta+,"]
-        onActivated: App.showSettings()
-    }
-    Shortcut {
-        sequences: ["Ctrl+J", "Meta+J"]
-        onActivated: CircuitPanel.toggleActiveOverlay()
+
+    // Every menu row that carries a shortcut gets a real Qt Shortcut here, from
+    // the same AppMenuBar list the menu paints its key labels from — so a
+    // binding reassigned in the Command Center starts working immediately.
+    // macOS is excluded: its NSMenu already owns the key equivalents, and a
+    // QML Shortcut on top would fire the action a second time.
+    Instantiator {
+        id: menuShortcutInstantiator
+        model: App.nativeMenus ? [] : AppMenuBar.shortcuts
+        delegate: Shortcut {
+            // Reassigned keys are stored in Qt notation already ("Ctrl+Shift+S").
+            required property var modelData
+            property string actionId: modelData.id || ""
+            sequences: {
+                var s = modelData.shortcut || ""
+                if (s === "Ctrl++" || s === "Ctrl+=")
+                    return ["Ctrl++", "Ctrl+="]
+                return s ? [s] : []
+            }
+            enabled: !!modelData.enabled
+            onActivated: {
+                if (actionId !== "")
+                    AppMenuBar.triggerAction(actionId)
+            }
+        }
     }
 
     CommandCenterDialog {
@@ -1512,6 +1524,7 @@ ApplicationWindow {
                 } else {
                     CircuitPanel.showEditor()
                     EditorPanel.openPath(data)
+                    EditorPanel.focusEditor()
                 }
             }
         }
@@ -1595,6 +1608,7 @@ ApplicationWindow {
                 } else if (id && id.length > 0) {
                     EditorPanel.openPath(id)
                 }
+                EditorPanel.focusEditor()
             }
         }
     }

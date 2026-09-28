@@ -31,6 +31,16 @@ Item {
         return Qt.vector4d(r, g, b, a)
     }
 
+    function shortcutFor(actionId) {
+        var scs = AppMenuBar.shortcuts
+        if (!scs) return ""
+        for (var i = 0; i < scs.length; ++i) {
+            if (scs[i] && scs[i].id === actionId)
+                return scs[i].shortcut || ""
+        }
+        return ""
+    }
+
     function syncSize() {
         CircuitCanvas.setDpr(Screen.devicePixelRatio)
         CircuitCanvas.setViewSize(width, height)
@@ -163,12 +173,14 @@ Item {
         }
         function onRequestOpenFile(path) {
             EditorPanel.loadFile(path)
+            EditorPanel.focusEditor()
             AppDialog.addRecentFile(path)
             AppMenuBar.rebuild()
             CircuitPanel.showEditor()
         }
         function onRequestShowEditor() {
             CircuitPanel.showEditor()
+            EditorPanel.focusEditor()
         }
         function onRequestPauseSim() {
             if (CircuitPanel.simRunning && !CircuitPanel.simPaused)
@@ -234,7 +246,7 @@ Item {
         id: wireMenu
         ContextMenuItem {
             text: root.tr("Remove")
-            shortcutText: "Del"
+            shortcutText: root.shortcutFor("edit.delete") || "Del"
             iconLigature: "delete"
             onTriggered: CircuitCanvas.removeSelection()
         }
@@ -247,7 +259,7 @@ Item {
 
         ContextMenuItem {
             text: root.tr("Rotate CW")
-            shortcutText: "Ctrl+R"
+            shortcutText: root.shortcutFor("edit.rotateCw") || "Ctrl+R"
             iconLigature: "rotate_right"
             onTriggered: {
                 if (labelMenu.isVal)
@@ -258,7 +270,7 @@ Item {
         }
         ContextMenuItem {
             text: root.tr("Rotate CCW")
-            shortcutText: "Ctrl+Shift+R"
+            shortcutText: root.shortcutFor("edit.rotateCcw") || "Ctrl+Shift+R"
             iconLigature: "rotate_left"
             onTriggered: {
                 if (labelMenu.isVal)
@@ -644,21 +656,21 @@ Item {
         // C++ Component::contextMenu: Copy, Cut, Remove, Properties, then rotate/flip
         ContextMenuItem {
             text: root.tr("Copy")
-            shortcutText: "Ctrl+C"
+            shortcutText: root.shortcutFor("edit.copy") || "Ctrl+C"
             iconLigature: "content_copy"
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.copySelection()
         }
         ContextMenuItem {
             text: root.tr("Cut")
-            shortcutText: "Ctrl+X"
+            shortcutText: root.shortcutFor("edit.cut") || "Ctrl+X"
             iconLigature: "content_cut"
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.cutSelection()
         }
         ContextMenuItem {
             text: root.tr("Remove")
-            shortcutText: "Del"
+            shortcutText: root.shortcutFor("edit.delete") || "Del"
             iconLigature: "delete"
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.removeSelection()
@@ -673,17 +685,17 @@ Item {
         ContextMenuSeparator { visible: CircuitCanvas.hasItemSelection }
         ContextMenuItem {
             text: root.tr("Rotate CW")
-            shortcutText: "Ctrl+R"
+            shortcutText: root.shortcutFor("edit.rotateCw") || "Ctrl+R"
             iconLigature: "rotate_right"
             visible: CircuitCanvas.hasItemSelection
-            onTriggered: CircuitCanvas.rotateCw()
+            onTriggered: AppMenuBar.triggerAction("edit.rotateCw")
         }
         ContextMenuItem {
             text: root.tr("Rotate CCW")
-            shortcutText: "Ctrl+Shift+R"
+            shortcutText: root.shortcutFor("edit.rotateCcw") || "Ctrl+Shift+R"
             iconLigature: "rotate_left"
             visible: CircuitCanvas.hasItemSelection
-            onTriggered: CircuitCanvas.rotateCcw()
+            onTriggered: AppMenuBar.triggerAction("edit.rotateCcw")
         }
         ContextMenuItem {
             text: root.tr("Rotate 180")
@@ -693,17 +705,17 @@ Item {
         }
         ContextMenuItem {
             text: root.tr("Horizontal Flip")
-            shortcutText: "Ctrl+L"
+            shortcutText: root.shortcutFor("edit.flipH") || "Ctrl+L"
             iconLigature: "flip"
             visible: CircuitCanvas.hasItemSelection
-            onTriggered: CircuitCanvas.flipH()
+            onTriggered: AppMenuBar.triggerAction("edit.flipH")
         }
         ContextMenuItem {
             text: root.tr("Vertical Flip")
-            shortcutText: "Ctrl+Shift+L"
+            shortcutText: root.shortcutFor("edit.flipV") || "Ctrl+Shift+L"
             iconLigature: "swap_vert"
             visible: CircuitCanvas.hasItemSelection
-            onTriggered: CircuitCanvas.flipV()
+            onTriggered: AppMenuBar.triggerAction("edit.flipV")
         }
     }
 
@@ -749,21 +761,21 @@ Item {
         id: canvasMenu
         ContextMenuItem {
             text: root.tr("Paste")
-            shortcutText: "Ctrl+V"
+            shortcutText: root.shortcutFor("edit.paste") || "Ctrl+V"
             iconLigature: "content_paste"
             enabled: CircuitCanvas.canPaste
             onTriggered: CircuitCanvas.pasteAtCursor()
         }
         ContextMenuItem {
             text: root.tr("Undo")
-            shortcutText: "Ctrl+Z"
+            shortcutText: root.shortcutFor("edit.undo") || "Ctrl+Z"
             iconLigature: "undo"
             enabled: CircuitCanvas.canUndo
             onTriggered: CircuitCanvas.undo()
         }
         ContextMenuItem {
             text: root.tr("Redo")
-            shortcutText: "Ctrl+Y"
+            shortcutText: root.shortcutFor("edit.redo") || "Ctrl+Y"
             iconLigature: "redo"
             enabled: CircuitCanvas.canRedo
             onTriggered: CircuitCanvas.redo()

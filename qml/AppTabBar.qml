@@ -26,11 +26,13 @@ Flickable {
     onWidthChanged: {
         if ( contentWidth <= width ) contentX = 0
         else if ( contentX > contentWidth - width ) contentX = contentWidth - width
+        Qt.callLater( ensureVisibleCurrent )
     }
 
     onContentWidthChanged: {
         if ( contentWidth <= width ) contentX = 0
         else if ( contentX > contentWidth - width ) contentX = contentWidth - width
+        Qt.callLater( ensureVisibleCurrent )
     }
 
     // Centers the tabs when they fit within the available width;
@@ -44,6 +46,10 @@ Flickable {
 
         function tabButtons() {
             return control.tabButtons()
+        }
+
+        function ensureVisible( item ) {
+            control.ensureVisible( item )
         }
 
         property alias currentIndex: control.currentIndex
@@ -61,14 +67,36 @@ Flickable {
         return result
     }
 
+    function ensureVisibleCurrent() {
+        const buttons = tabButtons()
+        if ( currentIndex >= 0 && currentIndex < buttons.length ) {
+            ensureVisible( buttons[currentIndex] )
+        }
+    }
+
     function ensureVisible( item ) {
-        if ( !item || contentWidth <= width ) return
-        const itemLeft = row.x + item.x
-        const itemRight = itemLeft + item.width
-        if ( itemLeft < contentX ) {
+        if ( !item ) return
+        const buttons = tabButtons()
+        const idx = buttons.indexOf( item )
+        if ( idx > 0 && item.x === 0 ) {
+            // Item has not been positioned by Row layout yet; defer until layout pass
+            Qt.callLater( ensureVisibleCurrent )
+            return
+        }
+        const maxContentWidth = Math.max( contentWidth, row.width, row.x + item.x + item.width )
+        if ( maxContentWidth <= width ) {
+            contentX = 0
+            return
+        }
+        const margin = 4
+        const itemLeft = row.x + item.x - margin
+        const itemRight = row.x + item.x + item.width + margin
+        if ( item.width + margin * 2 >= width ) {
+            contentX = Math.max( 0, itemLeft )
+        } else if ( itemLeft < contentX ) {
             contentX = Math.max( 0, itemLeft )
         } else if ( itemRight > contentX + width ) {
-            contentX = Math.min( contentWidth - width, itemRight - width )
+            contentX = Math.max( 0, Math.min( maxContentWidth - width, itemRight - width ) )
         }
     }
 
@@ -96,6 +124,7 @@ Flickable {
             buttons[i].checked = ( i === targetIndex )
         }
         ensureVisible( buttons[targetIndex] )
+        Qt.callLater( ensureVisibleCurrent )
     }
 
     onCurrentIndexChanged: {
@@ -109,6 +138,7 @@ Flickable {
         if ( currentIndex >= 0 && currentIndex < buttons.length ) {
             ensureVisible( buttons[currentIndex] )
         }
+        Qt.callLater( ensureVisibleCurrent )
     }
 
     Component.onCompleted: Qt.callLater( syncTabs )

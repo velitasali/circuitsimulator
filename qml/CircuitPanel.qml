@@ -1056,6 +1056,7 @@ Item {
         target: FileBrowser
         function onOpenFile( path ) {
             EditorPanel.loadFile( path )
+            EditorPanel.focusEditor()
             AppDialog.addRecentFile( path )
             AppMenuBar.rebuild()
         }

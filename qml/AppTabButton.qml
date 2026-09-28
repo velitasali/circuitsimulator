@@ -40,11 +40,21 @@ T.ToolButton {
         elide: Text.ElideRight
     }
 
+    function requestEnsureVisible() {
+        if ( checked && parent && parent.ensureVisible ) {
+            parent.ensureVisible( control )
+        }
+    }
+
     // Reports its own position back to the enclosing AppTabBar's currentIndex;
     // see AppTabBar.tabButtons() for how that position is derived.
     onCheckedChanged: {
         if ( !checked || !parent || !parent.tabButtons ) return
         const index = parent.tabButtons().indexOf( control )
         if ( index >= 0 && parent.currentIndex !== index ) parent.currentIndex = index
+        requestEnsureVisible()
     }
+
+    onXChanged: requestEnsureVisible()
+    onWidthChanged: requestEnsureVisible()
 }

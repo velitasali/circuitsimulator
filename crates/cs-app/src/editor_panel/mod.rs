@@ -295,6 +295,7 @@ impl EditorPanel {
         if let Some((i, _)) = self.docs.iter().enumerate().find(|(_, d)| d.path == path) {
             self.set_current_document(i as i32);
             self.request_show();
+            self.request_focus();
             return;
         }
         let disk = std::fs::read_to_string(&path).unwrap_or_default();
@@ -343,6 +344,7 @@ impl EditorPanel {
         self.file_settings_changed();
         self.rehighlight();
         self.request_show();
+        self.request_focus();
         if !path.is_empty() {
             self.file_watcher.watch(&path);
         }
@@ -758,6 +760,8 @@ impl EditorPanel {
     pub fn request_show(&mut self);
     #[qsignal]
     pub fn request_hide(&mut self);
+    #[qsignal]
+    pub fn request_focus(&mut self);
     #[qsignal]
     pub fn highlight_changed(&mut self);
     #[qsignal]
@@ -1710,6 +1714,9 @@ impl EditorPanel {
         self.current_text_changed();
         self.file_settings_changed();
         self.rehighlight();
+        if !self.docs.is_empty() {
+            self.request_focus();
+        }
     }
 
     #[qslot]
@@ -1759,6 +1766,9 @@ impl EditorPanel {
     #[qslot]
     fn confirm_close_cancel(&mut self) {
         self.pending_close_index = None;
+        if !self.docs.is_empty() {
+            self.request_focus();
+        }
     }
 
     #[qslot]
@@ -1771,6 +1781,9 @@ impl EditorPanel {
     #[qslot]
     fn cancel_pending_close(&mut self) {
         self.pending_close_index = None;
+        if !self.docs.is_empty() {
+            self.request_focus();
+        }
     }
 
     #[qslot]
@@ -1819,6 +1832,7 @@ impl EditorPanel {
             self.file_settings_changed();
             self.rehighlight();
             self.request_show();
+            self.request_focus();
         } else {
             self.documents_changed();
         }
@@ -1850,6 +1864,11 @@ impl EditorPanel {
     }
 
     #[qslot]
+    fn focus_editor(&mut self) {
+        self.request_focus();
+    }
+
+    #[qslot]
     fn new_file(&mut self) {
         let title = self.untitled_name();
         self.docs.push(Document::untitled(title));
@@ -1862,6 +1881,7 @@ impl EditorPanel {
         self.file_settings_changed();
         self.rehighlight();
         self.request_show();
+        self.request_focus();
     }
 
     #[qslot]
@@ -2395,6 +2415,7 @@ impl EditorPanel {
         self.find_visible = false;
         self.found_ranges = json!([]);
         self.find_changed();
+        self.request_focus();
     }
 
     #[qslot]

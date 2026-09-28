@@ -1,5 +1,6 @@
 //! Command Center / Command Palette / Jump to Reference.
 
+use crate::menu_bar::{PALETTE_ACTIONS, PaletteAction};
 use qtbridge::qobject;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -508,31 +509,6 @@ impl CommandCenter {
     }
 }
 
-#[derive(Clone, Copy)]
-struct PaletteAction {
-    id: &'static str,
-    label: &'static str,
-    shortcut: &'static str,
-    icon: &'static str,
-}
-
-#[derive(Clone, Copy)]
-enum PaletteScope {
-    Always,
-    Editor,
-    Circuit,
-}
-
-impl PaletteScope {
-    fn includes(self, editor_focused: bool) -> bool {
-        match self {
-            Self::Always => true,
-            Self::Editor => editor_focused,
-            Self::Circuit => !editor_focused,
-        }
-    }
-}
-
 fn palette_actions(editor_focused: bool) -> impl Iterator<Item = PaletteAction> {
     PALETTE_ACTIONS
         .iter()
@@ -540,76 +516,6 @@ fn palette_actions(editor_focused: bool) -> impl Iterator<Item = PaletteAction> 
         .filter(move |(scope, _)| scope.includes(editor_focused))
         .map(|(_, action)| action)
 }
-
-const fn act(
-    id: &'static str,
-    label: &'static str,
-    shortcut: &'static str,
-    icon: &'static str,
-) -> PaletteAction {
-    PaletteAction {
-        id,
-        label,
-        shortcut,
-        icon,
-    }
-}
-
-#[rustfmt::skip]
-const PALETTE_ACTIONS: &[(PaletteScope, PaletteAction)] = &[
-    (PaletteScope::Editor,  act("file.newFile", "New File", "Ctrl+N", "note_add")),
-    (PaletteScope::Circuit, act("file.new", "New Circuit", "Ctrl+N", "note_add")),
-    (PaletteScope::Always,  act("file.open", "Open...", "Ctrl+O", "folder_open")),
-    (PaletteScope::Always,  act("file.save", "Save", "Ctrl+S", "save")),
-    (PaletteScope::Always,  act("file.saveAs", "Save As...", "Ctrl+Shift+S", "save_as")),
-    (PaletteScope::Editor,  act("file.saveFile", "Save File", "", "save")),
-    (PaletteScope::Editor,  act("file.saveFileAs", "Save File As...", "", "save_as")),
-    (PaletteScope::Circuit, act("file.saveCirc", "Save Circuit", "", "save")),
-    (PaletteScope::Circuit, act("file.saveCircAs", "Save Circuit As...", "", "save_as")),
-    (PaletteScope::Always,  act("file.saveAll", "Save All", "Ctrl+Alt+S", "save")),
-    (PaletteScope::Editor,  act("file.closeFile", "Close File", "Ctrl+W", "close")),
-    (PaletteScope::Always,  act("file.openFolder", "Open Project", "", "folder_open")),
-    (PaletteScope::Always,  act("file.closeProject", "Close Project", "", "folder_off")),
-    (PaletteScope::Circuit, act("file.saveImage", "Save Circuit as Image...", "", "image")),
-    (PaletteScope::Always,  act("file.appSettings", "Application Settings...", "Ctrl+,", "settings")),
-    (PaletteScope::Always,  act("edit.undo", "Undo", "Ctrl+Z", "undo")),
-    (PaletteScope::Always,  act("edit.redo", "Redo", "Ctrl+Y", "redo")),
-    (PaletteScope::Always,  act("edit.cut", "Cut", "Ctrl+X", "content_cut")),
-    (PaletteScope::Always,  act("edit.copy", "Copy", "Ctrl+C", "content_copy")),
-    (PaletteScope::Always,  act("edit.paste", "Paste", "Ctrl+V", "content_paste")),
-    (PaletteScope::Always,  act("edit.selectAll", "Select All", "Ctrl+A", "select_all")),
-    (PaletteScope::Editor,  act("edit.find", "Find", "Ctrl+F", "search")),
-    (PaletteScope::Editor,  act("edit.format", "Format Document", "Ctrl+Shift+I", "format_align_left")),
-    (PaletteScope::Circuit, act("edit.delete", "Delete Selection", "Delete", "delete")),
-    (PaletteScope::Circuit, act("edit.rotateCw", "Rotate Clockwise", "Ctrl+R", "rotate_right")),
-    (PaletteScope::Circuit, act("edit.rotateCcw", "Rotate Counter-Clockwise", "Ctrl+Shift+R", "rotate_left")),
-    (PaletteScope::Circuit, act("view.zoomIn", "Zoom In", "Ctrl++", "zoom_in")),
-    (PaletteScope::Circuit, act("view.zoomOut", "Zoom Out", "Ctrl+-", "zoom_out")),
-    (PaletteScope::Circuit, act("view.zoomFit", "Fit to View", "Ctrl+9", "fit_screen")),
-    (PaletteScope::Circuit, act("view.zoomOne", "Actual Size (1:1)", "Ctrl+0", "zoom_out_map")),
-    (PaletteScope::Circuit, act("view.showGrid", "Toggle Grid", "G", "grid_4x4")),
-    (PaletteScope::Always,  act("view.sidePanel", "Toggle Side Panel", "Ctrl+B", "dock_to_left")),
-    (PaletteScope::Always,  act("view.editorPanel", "Toggle Editor Panel", "Ctrl+E", "code")),
-    (PaletteScope::Always,  act("view.toggleActivePanel", "Toggle Active Panel", "Ctrl+J", "dock_to_left")),
-    (PaletteScope::Always,  act("view.libManager", "Library Manager", "", "local_library")),
-    (PaletteScope::Always,  act("circ.power", "Start / Stop Simulation", "F8", "power_settings_new")),
-    (PaletteScope::Always,  act("circ.pause", "Pause / Resume Simulation", "F9", "pause")),
-    (PaletteScope::Always,  act("circ.step", "Step Simulation", "", "skip_next")),
-    (PaletteScope::Circuit, act("circ.settings", "Circuit Properties...", "", "tune")),
-    (PaletteScope::Circuit, act("circ.addAllComponents", "Add All Components", "", "grid_view")),
-    (PaletteScope::Always,  act("sim.compile", "Compile", "F10", "build")),
-    (PaletteScope::Always,  act("sim.load", "Upload", "F11", "upload")),
-    (PaletteScope::Always,  act("sim.uploadRun", "Upload and Run", "", "play_arrow")),
-    (PaletteScope::Always,  act("sim.debug", "Debug", "F12", "bug_report")),
-    (PaletteScope::Always,  act("sim.run", "Run", "F5", "fast_forward")),
-    (PaletteScope::Always,  act("sim.step", "Step", "F6", "step_into")),
-    (PaletteScope::Always,  act("sim.stepOver", "Step Over", "F7", "step_over")),
-    (PaletteScope::Always,  act("sim.debugPause", "Pause Debugger", "", "pause")),
-    (PaletteScope::Always,  act("sim.stop", "Stop Debugger", "", "stop")),
-    (PaletteScope::Always,  act("sim.reset", "Reset Debugger", "", "restart_alt")),
-    (PaletteScope::Always,  act("debug.toggleRepaintOverlay", "Toggle Canvas Repaint Debug Overlay", "Ctrl+Alt+D", "bug_report")),
-    (PaletteScope::Always,  act("debug.toggleComponentRects", "Show Component Rect", "Ctrl+Alt+C", "crop_free")),
-];
 
 fn scan_dir_files(dir: &Path, files: &mut Vec<PathBuf>, max: usize) {
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -931,36 +837,48 @@ mod tests {
         let mut cc = CommandCenter::default();
         cc.populate_command_palette("");
         let circuit_save = cc.items.iter().find(|i| i["data"] == "file.save");
-        assert!(circuit_save.is_some(), "Circuit palette must list Save");
+        assert!(circuit_save.is_some(), "Palette must list Save");
         assert_eq!(circuit_save.unwrap()["text"], "Save");
         assert_eq!(circuit_save.unwrap()["shortcut"], "Ctrl+S");
         assert!(
             cc.items
                 .iter()
                 .any(|i| i["data"] == "file.saveCirc" && i["shortcut"] == ""),
-            "Circuit palette must list Save Circuit without shortcut"
+            "Palette must list Save Circuit without shortcut"
+        );
+        assert!(
+            cc.items.iter().any(|i| i["data"] == "file.new"
+                && i["text"] == "New"
+                && i["shortcut"] == "Ctrl+N"),
+            "Palette must list New with Ctrl+N"
         );
         assert!(
             cc.items
                 .iter()
-                .any(|i| i["data"] == "file.new" && i["text"] == "New Circuit"),
-            "Circuit palette must list New Circuit"
+                .any(|i| i["data"] == "file.newCirc" && i["text"] == "New Circuit"),
+            "Palette must list New Circuit"
+        );
+        assert!(
+            cc.items
+                .iter()
+                .any(|i| i["data"] == "file.newFile" && i["text"] == "New File"),
+            "Palette must list New File"
+        );
+        assert!(
+            cc.items.iter().any(|i| i["data"] == "file.newWindow"
+                && i["text"] == "New Window"
+                && i["shortcut"] == "Ctrl+Shift+N"),
+            "Palette must list New Window with Ctrl+Shift+N"
         );
         assert!(
             cc.items.iter().any(|i| i["type"] == "component"),
             "Circuit palette must list insert-component entries"
         );
         assert!(
-            !cc.items
-                .iter()
-                .any(|i| i["data"] == "file.saveFile" || i["data"] == "file.closeFile"),
-            "Circuit palette must not list editor file actions"
-        );
-        assert!(
             cc.items
                 .iter()
                 .any(|i| i["data"] == "file.saveAll" && i["shortcut"] == "Ctrl+Alt+S"),
-            "Circuit palette must list Save All"
+            "Palette must list Save All"
         );
 
         cc.editor_focused = true;
@@ -975,15 +893,18 @@ mod tests {
         assert_eq!(file_save.unwrap()["text"], "Save File");
         assert_eq!(file_save.unwrap()["shortcut"], "");
         assert!(
-            cc.items.iter().any(|i| i["data"] == "file.newFile"
-                && i["text"] == "New File"
-                && i["shortcut"] == "Ctrl+N"),
-            "Editor palette must list New File with Ctrl+N"
+            cc.items
+                .iter()
+                .any(|i| i["data"] == "file.newFile" && i["text"] == "New File"),
+            "Editor palette must list New File"
         );
-        let close = cc.items.iter().find(|i| i["data"] == "file.closeFile");
-        assert!(close.is_some(), "Editor palette must list Close File");
-        assert_eq!(close.unwrap()["text"], "Close File");
+        let close = cc.items.iter().find(|i| i["data"] == "file.close");
+        assert!(close.is_some(), "Editor palette must list Close");
+        assert_eq!(close.unwrap()["text"], "Close");
         assert_eq!(close.unwrap()["shortcut"], "Ctrl+W");
+        let close_file = cc.items.iter().find(|i| i["data"] == "file.closeFile");
+        assert!(close_file.is_some(), "Editor palette must list Close File");
+        assert_eq!(close_file.unwrap()["text"], "Close File");
         assert!(
             cc.items.iter().any(|i| i["data"] == "edit.find"),
             "Editor palette must list Find"
@@ -994,19 +915,7 @@ mod tests {
         );
         assert!(
             !cc.items.iter().any(|i| i["type"] == "component"),
-            "Editor palette must not list insert-component entries"
-        );
-        assert!(
-            !cc.items
-                .iter()
-                .any(|i| i["data"] == "file.saveCirc" || i["data"] == "file.new"),
-            "Editor palette must not list circuit file actions"
-        );
-        assert!(
-            !cc.items
-                .iter()
-                .any(|i| i["data"] == "edit.rotateCw" || i["data"] == "view.zoomIn"),
-            "Editor palette must not list canvas-only commands"
+            "Editor palette must not list insert-component entries when in editor"
         );
         let save_all = cc.items.iter().find(|i| i["data"] == "file.saveAll");
         assert!(save_all.is_some(), "Editor palette must list Save All");

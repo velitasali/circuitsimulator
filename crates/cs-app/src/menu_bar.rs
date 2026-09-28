@@ -29,6 +29,11 @@ struct MenuNode {
 pub struct AppMenuBar {
     menus: Vec<MenuNode>,
     json: Vec<Value>,
+    /// QML `Shortcut` data for every menu row that carries one. The in-window
+    /// menu bar only paints the keys as text, so non-macOS platforms register
+    /// them from here; macOS leaves this empty because the NSMenu built from
+    /// the same tree already owns the key equivalents.
+    shortcuts: Vec<Value>,
     running: bool,
     paused: bool,
     show_grid: bool,
@@ -45,6 +50,131 @@ pub struct AppMenuBar {
 fn t(s: &str) -> String {
     i18n::tr(s)
 }
+
+/// Where an action shows up in the Command Center. The circuit palette and the
+/// editor palette differ: Ctrl+S saves the circuit or the focused file.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum PaletteScope {
+    Always,
+    Editor,
+    Circuit,
+}
+
+impl PaletteScope {
+    pub fn includes(self, editor_focused: bool) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Editor => editor_focused,
+            Self::Circuit => !editor_focused,
+        }
+    }
+}
+
+/// One Command Center action. Its `shortcut` is the default the user's
+/// custom binding overrides; `menu_bar` is where that binding is registered.
+#[derive(Clone, Copy)]
+pub struct PaletteAction {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub shortcut: &'static str,
+    pub icon: &'static str,
+}
+
+const fn act(
+    id: &'static str,
+    label: &'static str,
+    shortcut: &'static str,
+    icon: &'static str,
+) -> PaletteAction {
+    PaletteAction {
+        id,
+        label,
+        shortcut,
+        icon,
+    }
+}
+
+/// Shortcut-bindable actions, in Command Center order. `collect_shortcuts`
+/// walks the menu tree instead of this list, so a row that is missing here
+/// still keeps its menu shortcut.
+#[rustfmt::skip]
+pub const PALETTE_ACTIONS: &[(PaletteScope, PaletteAction)] = &[
+    (PaletteScope::Always,  act("file.new", "New", "Ctrl+N", "add")),
+    (PaletteScope::Always,  act("file.newCirc", "New Circuit", "", "account_tree")),
+    (PaletteScope::Always,  act("file.newFile", "New File", "", "note_add")),
+    (PaletteScope::Always,  act("file.newWindow", "New Window", "Ctrl+Shift+N", "open_in_new")),
+    (PaletteScope::Always,  act("file.open", "Open...", "Ctrl+O", "folder_open")),
+    (PaletteScope::Always,  act("file.save", "Save", "Ctrl+S", "save")),
+    (PaletteScope::Always,  act("file.saveAs", "Save As...", "Ctrl+Shift+S", "save_as")),
+    (PaletteScope::Always,  act("file.saveCirc", "Save Circuit", "", "save")),
+    (PaletteScope::Always,  act("file.saveCircAs", "Save Circuit As...", "", "save_as")),
+    (PaletteScope::Always,  act("file.saveFile", "Save File", "", "save")),
+    (PaletteScope::Always,  act("file.saveFileAs", "Save File As...", "", "save_as")),
+    (PaletteScope::Always,  act("file.saveAll", "Save All", "Ctrl+Alt+S", "save")),
+    (PaletteScope::Always,  act("file.close", "Close", "Ctrl+W", "close")),
+    (PaletteScope::Always,  act("file.closeCirc", "Close Circuit", "", "close")),
+    (PaletteScope::Always,  act("file.closeFile", "Close File", "", "close")),
+    (PaletteScope::Always,  act("file.openFolder", "Open Project", "", "folder_open")),
+    (PaletteScope::Always,  act("file.closeProject", "Close Project", "", "folder_off")),
+    (PaletteScope::Always,  act("file.saveImage", "Save Circuit as Image...", "", "image")),
+    (PaletteScope::Always,  act("file.exportSub", "Export as Subcircuit...", "", "ios_share")),
+    (PaletteScope::Always,  act("file.appSettings", "Application Settings...", "Ctrl+,", "settings")),
+    (PaletteScope::Always,  act("file.quit", "Quit", "Ctrl+Q", "exit_to_app")),
+    (PaletteScope::Always,  act("edit.undo", "Undo", "Ctrl+Z", "undo")),
+    (PaletteScope::Always,  act("edit.redo", "Redo", "Ctrl+Y", "redo")),
+    (PaletteScope::Always,  act("edit.cut", "Cut", "Ctrl+X", "content_cut")),
+    (PaletteScope::Always,  act("edit.copy", "Copy", "Ctrl+C", "content_copy")),
+    (PaletteScope::Always,  act("edit.paste", "Paste", "Ctrl+V", "content_paste")),
+    (PaletteScope::Always,  act("edit.selectAll", "Select All", "Ctrl+A", "select_all")),
+    (PaletteScope::Always,  act("edit.delete", "Delete Selection", "Delete", "delete")),
+    (PaletteScope::Always,  act("edit.find", "Find", "Ctrl+F", "search")),
+    (PaletteScope::Always,  act("edit.format", "Format Document", "Ctrl+Shift+I", "format_align_left")),
+    (PaletteScope::Always,  act("edit.triggerCompletion", "Trigger Completion", "Ctrl+Space", "lightbulb")),
+    (PaletteScope::Always,  act("edit.gotoDefinition", "Go to Definition", "Ctrl+F12", "search")),
+    (PaletteScope::Always,  act("edit.rotateCw", "Rotate Clockwise", "Ctrl+R", "rotate_right")),
+    (PaletteScope::Always,  act("edit.rotateCcw", "Rotate Counter-Clockwise", "Ctrl+Shift+R", "rotate_left")),
+    (PaletteScope::Always,  act("edit.flipH", "Flip Horizontal", "Ctrl+L", "flip")),
+    (PaletteScope::Always,  act("edit.flipV", "Flip Vertical", "Ctrl+Shift+L", "flip")),
+    (PaletteScope::Always,  act("view.zoomIn", "Zoom In", "Ctrl++", "zoom_in")),
+    (PaletteScope::Always,  act("view.zoomOut", "Zoom Out", "Ctrl+-", "zoom_out")),
+    (PaletteScope::Always,  act("view.zoomFit", "Fit to View", "Ctrl+9", "fit_screen")),
+    (PaletteScope::Always,  act("view.zoomSel", "Zoom to Selection", "", "fit_screen")),
+    (PaletteScope::Always,  act("view.zoomOne", "Actual Size (1:1)", "Ctrl+0", "zoom_out_map")),
+    (PaletteScope::Always,  act("view.showGrid", "Toggle Grid", "G", "grid_4x4")),
+    (PaletteScope::Always,  act("view.showScroll", "Toggle Scrollbars", "", "swap_vert")),
+    (PaletteScope::Always,  act("view.searchComp", "Search Components", "Ctrl+Shift+F", "search")),
+    (PaletteScope::Always,  act("view.focusFiles", "Focus Files", "Ctrl+Shift+E", "folder")),
+    (PaletteScope::Always,  act("view.focusEditor", "Focus Text Editor", "Ctrl+E", "code")),
+    (PaletteScope::Always,  act("view.focusSimLog", "Focus Simulator Messages", "Ctrl+Shift+M", "terminal")),
+    (PaletteScope::Always,  act("view.focusCompLog", "Focus Compiler Messages", "Ctrl+Shift+U", "build")),
+    (PaletteScope::Always,  act("view.sidePanel", "Toggle Side Panel", "Ctrl+B", "dock_to_left")),
+    (PaletteScope::Always,  act("view.editorPanel", "Toggle Editor Panel", "", "code")),
+    (PaletteScope::Always,  act("view.toggleActivePanel", "Toggle Active Panel", "Ctrl+J", "dock_to_left")),
+    (PaletteScope::Always,  act("view.libManager", "Library Manager", "", "local_library")),
+    (PaletteScope::Always,  act("circ.power", "Start / Stop Simulation", "F8", "power_settings_new")),
+    (PaletteScope::Always,  act("circ.pause", "Pause / Resume Simulation", "F9", "pause")),
+    (PaletteScope::Always,  act("circ.step", "Step Simulation", "", "skip_next")),
+    (PaletteScope::Always,  act("circ.settings", "Circuit Properties...", "", "tune")),
+    (PaletteScope::Always,  act("circ.addAllComponents", "Add All Components", "", "grid_view")),
+    (PaletteScope::Always,  act("sim.compile", "Compile", "F10", "build")),
+    (PaletteScope::Always,  act("sim.load", "Upload", "F11", "upload")),
+    (PaletteScope::Always,  act("sim.uploadRun", "Upload and Run", "", "play_arrow")),
+    (PaletteScope::Always,  act("sim.debug", "Debug", "F12", "bug_report")),
+    (PaletteScope::Always,  act("sim.run", "Run", "F5", "fast_forward")),
+    (PaletteScope::Always,  act("sim.step", "Step", "F6", "step_into")),
+    (PaletteScope::Always,  act("sim.stepOver", "Step Over", "F7", "step_over")),
+    (PaletteScope::Always,  act("sim.debugPause", "Pause Debugger", "", "pause")),
+    (PaletteScope::Always,  act("sim.stop", "Stop Debugger", "", "stop")),
+    (PaletteScope::Always,  act("sim.reset", "Reset Debugger", "", "restart_alt")),
+    (PaletteScope::Always,  act("sim.animateLogic", "Animate Logic", "", "motion_photos_on")),
+    (PaletteScope::Always,  act("sim.animateCurr", "Animate Current", "", "waves")),
+    (PaletteScope::Always,  act("help.info", "Simulation Info", "", "info")),
+    (PaletteScope::Always,  act("help.about", "About Circuit Simulator", "", "help")),
+    (PaletteScope::Always,  act("help.aboutQt", "About Qt", "", "help_outline")),
+    (PaletteScope::Always,  act("debug.toggleRepaintOverlay", "Toggle Canvas Repaint Debug Overlay", "Ctrl+Alt+D", "bug_report")),
+    (PaletteScope::Always,  act("debug.toggleComponentRects", "Show Component Rect", "Ctrl+Alt+C", "crop_free")),
+];
 
 fn item(
     id: &str,
@@ -158,6 +288,105 @@ fn serialize_menus(menus: &[MenuNode]) -> Vec<Value> {
         .collect()
 }
 
+/// `Canvas::key_press` already implements these by hand. The canvas marks every
+/// key it receives as handled, so a QML `Shortcut` bound to the same chord would
+/// fire the action a second time — the menu keeps printing the hint, but only
+/// the canvas reacts to the key.
+const CANVAS_SHORTCUTS: &[&str] = &[
+    "Ctrl+A",
+    "Ctrl+C",
+    "Ctrl+V",
+    "Ctrl+X",
+    "Ctrl+Y",
+    "Ctrl+Z",
+    "Delete",
+    "Backspace",
+];
+
+fn canvas_owns(shortcut: &str) -> bool {
+    CANVAS_SHORTCUTS
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case(shortcut))
+}
+
+/// Actions and chords that are hardcoded with dedicated `Shortcut` components
+/// in QML (`Ctrl+Shift+P` for Command Palette, `Ctrl+P` for Jump to Reference,
+/// `Ctrl+Tab` for Tab Switcher).
+///
+/// They must not be registered dynamically by `menuShortcutInstantiator` in
+/// `Main.qml`, otherwise Qt Quick detects an ambiguous shortcut overload and
+/// suppresses both from firing.
+const HARDCODED_ACTIONS: &[&str] = &["view.cmdPalette", "view.jumpRef", "view.tabSwitch"];
+
+const HARDCODED_CHORDS: &[&str] = &["Ctrl+Shift+P", "Ctrl+P", "Ctrl+Tab", "Ctrl+Shift+Tab"];
+
+fn hardcoded_owns(id: &str, shortcut: &str) -> bool {
+    HARDCODED_ACTIONS.contains(&id)
+        || HARDCODED_CHORDS
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(shortcut))
+}
+
+/// Every leaf that carries a shortcut, flattened for QML `Shortcut` items.
+/// All but macOS use this: the in-window menu bar only paints the keys as text,
+/// so without it a reassigned shortcut would show up in the menu and the
+/// Command Center yet never fire. Leaves with an empty shortcut are skipped —
+/// that is both a parent/separator and a shortcut the user cleared.
+fn collect_shortcuts(entries: &[Entry], out: &mut Vec<Value>) {
+    for e in entries {
+        if let Some(sub) = &e.submenu {
+            collect_shortcuts(&sub.entries, out);
+            continue;
+        }
+        if e.separator || e.id.is_empty() || e.shortcut.is_empty() {
+            continue;
+        }
+        if canvas_owns(&e.shortcut) || hardcoded_owns(&e.id, &e.shortcut) {
+            continue;
+        }
+        out.push(json!({
+            "id": e.id,
+            "shortcut": e.shortcut,
+            "enabled": e.enabled,
+        }));
+    }
+}
+
+fn menu_shortcuts(menus: &[MenuNode]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for m in menus {
+        collect_shortcuts(&m.entries, &mut out);
+    }
+    let custom_shortcuts = cs_engine::settings::get().shortcuts;
+    for (_, action) in PALETTE_ACTIONS {
+        if hardcoded_owns(action.id, action.shortcut) || out.iter().any(|v| v["id"] == action.id) {
+            continue;
+        }
+        let effective_shortcut = custom_shortcuts
+            .get(action.id)
+            .map(|s| s.as_str())
+            .unwrap_or(action.shortcut);
+        if effective_shortcut.is_empty()
+            || canvas_owns(effective_shortcut)
+            || hardcoded_owns(action.id, effective_shortcut)
+            || out.iter().any(|v| {
+                v["shortcut"]
+                    .as_str()
+                    .map(|s| s.eq_ignore_ascii_case(effective_shortcut))
+                    .unwrap_or(false)
+            })
+        {
+            continue;
+        }
+        out.push(json!({
+            "id": action.id,
+            "shortcut": effective_shortcut,
+            "enabled": true,
+        }));
+    }
+    out
+}
+
 fn recent_entries(prefix: &str, clear_id: &str, clear_text: &str, paths: &[String]) -> Vec<Entry> {
     let mut entries = Vec::new();
     for (i, p) in paths.iter().enumerate() {
@@ -223,7 +452,14 @@ fn build_menus(
                     vec![
                         item("file.newFile", &t("&File"), "", true, false, false),
                         item("file.newCirc", &t("&Circuit"), "", true, false, false),
-                        item("file.newWindow", &t("&Window"), "", true, false, false),
+                        item(
+                            "file.newWindow",
+                            &t("&Window"),
+                            "Ctrl+Shift+N",
+                            true,
+                            false,
+                            false,
+                        ),
                     ],
                 ),
                 item("file.open", &t("&Open..."), "Ctrl+O", true, false, false),
@@ -300,6 +536,7 @@ fn build_menus(
                         &st.recent_files,
                     ),
                 ),
+                item("file.close", &t("&Close"), "Ctrl+W", true, false, false),
                 item("file.closeFile", &t("Close File"), "", true, false, false),
                 item(
                     "file.closeCirc",
@@ -353,6 +590,63 @@ fn build_menus(
                     false,
                 ),
                 item("edit.find", &t("Find"), "Ctrl+F", true, false, false),
+                item(
+                    "edit.format",
+                    &t("Format Document"),
+                    "Ctrl+Shift+I",
+                    true,
+                    false,
+                    false,
+                ),
+                item(
+                    "edit.triggerCompletion",
+                    &t("Trigger Completion"),
+                    "Ctrl+Space",
+                    true,
+                    false,
+                    false,
+                ),
+                item(
+                    "edit.gotoDefinition",
+                    &t("Go to Definition"),
+                    "Ctrl+F12",
+                    true,
+                    false,
+                    false,
+                ),
+                sep(),
+                item(
+                    "edit.rotateCw",
+                    &t("Rotate Clockwise"),
+                    "Ctrl+R",
+                    true,
+                    false,
+                    false,
+                ),
+                item(
+                    "edit.rotateCcw",
+                    &t("Rotate Counter-Clockwise"),
+                    "Ctrl+Shift+R",
+                    true,
+                    false,
+                    false,
+                ),
+                item(
+                    "edit.flipH",
+                    &t("Flip Horizontal"),
+                    "Ctrl+L",
+                    true,
+                    false,
+                    false,
+                ),
+                item(
+                    "edit.flipV",
+                    &t("Flip Vertical"),
+                    "Ctrl+Shift+L",
+                    true,
+                    false,
+                    false,
+                ),
                 sep(),
                 item(
                     "circ.addAllComponents",
@@ -367,9 +661,16 @@ fn build_menus(
         MenuNode {
             title: t("&View"),
             entries: vec![
-                item("view.zoomIn", &t("Zoom In"), "Ctrl+=", true, false, false),
+                item("view.zoomIn", &t("Zoom In"), "Ctrl++", true, false, false),
                 item("view.zoomOut", &t("Zoom Out"), "Ctrl+-", true, false, false),
-                item("view.zoomFit", &t("Zoom to Fit"), "", true, false, false),
+                item(
+                    "view.zoomFit",
+                    &t("Zoom to Fit"),
+                    "Ctrl+9",
+                    true,
+                    false,
+                    false,
+                ),
                 item(
                     "view.zoomSel",
                     &t("Zoom to Selection"),
@@ -378,7 +679,14 @@ fn build_menus(
                     false,
                     false,
                 ),
-                item("view.zoomOne", &t("Reset Zoom"), "", true, false, false),
+                item(
+                    "view.zoomOne",
+                    &t("Reset Zoom"),
+                    "Ctrl+0",
+                    true,
+                    false,
+                    false,
+                ),
                 sep(),
                 item("view.showGrid", &t("Show Grid"), "", true, true, show_grid),
                 item(
@@ -565,9 +873,11 @@ impl Default for AppMenuBar {
             has_project,
         );
         let json = serialize_menus(&menus);
+        let shortcuts = menu_shortcuts(&menus);
         Self {
             menus,
             json,
+            shortcuts,
             running: false,
             paused: false,
             show_grid: st.draw_grid,
@@ -656,22 +966,31 @@ fn find_by_id_mut<'a>(entries: &'a mut [Entry], id: &str) -> Option<&'a mut Entr
 impl AppMenuBar {
     fn republish(&mut self) {
         self.json = serialize_menus(&self.menus);
+        self.shortcuts = menu_shortcuts(&self.menus);
         macos_host::set_native_menu_json(&Value::Array(self.json.clone()).to_string());
         self.menus_changed();
+        self.shortcuts_changed();
     }
 }
 
 #[qobject(Singleton, ConvertToCamelCase)]
 impl AppMenuBar {
     qproperty!("menus", Read = menus, Notify = menus_changed);
+    qproperty!("shortcuts", Read = shortcuts, Notify = shortcuts_changed);
 
     #[qsignal]
     fn menus_changed(&mut self);
+    #[qsignal]
+    fn shortcuts_changed(&mut self);
     #[qsignal]
     fn action(&mut self, id: String);
 
     fn menus(&self) -> Vec<Value> {
         self.json.clone()
+    }
+
+    fn shortcuts(&self) -> Vec<Value> {
+        self.shortcuts.clone()
     }
 
     #[qslot]
@@ -842,5 +1161,157 @@ impl AppMenuBar {
     fn install_native_menus(&mut self) {
         macos_host::install_native_menu(self);
         macos_host::set_native_menu_json(&Value::Array(self.json.clone()).to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leaf(id: &str, shortcut: &str) -> Entry {
+        Entry {
+            id: id.into(),
+            text: id.into(),
+            shortcut: shortcut.into(),
+            enabled: true,
+            visible: true,
+            checkable: false,
+            checked: false,
+            separator: false,
+            submenu: None,
+        }
+    }
+
+    fn shortcut_of(list: &[Value], id: &str) -> Option<String> {
+        list.iter()
+            .find(|e| e["id"] == id)
+            .map(|e| e["shortcut"].as_str().unwrap_or_default().to_string())
+    }
+
+    #[test]
+    fn collect_shortcuts_walks_submenus_and_skips_keyless_rows() {
+        let node = MenuNode {
+            title: "File".into(),
+            entries: vec![
+                leaf("file.save", "Ctrl+S"),
+                leaf("file.closeProject", ""),
+                sep(),
+                Entry {
+                    id: String::new(),
+                    text: "Recent".into(),
+                    shortcut: String::new(),
+                    enabled: true,
+                    visible: true,
+                    checkable: false,
+                    checked: false,
+                    separator: false,
+                    submenu: Some(MenuNode {
+                        title: "Recent".into(),
+                        entries: vec![leaf("file.recentFile.0", "Ctrl+1")],
+                    }),
+                },
+            ],
+        };
+        let list = menu_shortcuts(&[node]);
+        assert_eq!(shortcut_of(&list, "file.save").as_deref(), Some("Ctrl+S"));
+        assert_eq!(
+            shortcut_of(&list, "file.recentFile.0").as_deref(),
+            Some("Ctrl+1"),
+            "submenu leaves must be registered too"
+        );
+        assert!(
+            list.iter().all(|e| e["id"] != "file.closeProject"),
+            "a cleared shortcut must not be registered"
+        );
+    }
+
+    #[test]
+    fn collect_shortcuts_omits_chords_the_canvas_handles_itself() {
+        let node = MenuNode {
+            title: "Edit".into(),
+            entries: vec![
+                leaf("edit.undo", "Ctrl+Z"),
+                leaf("edit.delete", "Delete"),
+                leaf("edit.find", "Ctrl+F"),
+            ],
+        };
+        let list = menu_shortcuts(&[node]);
+        assert_eq!(shortcut_of(&list, "edit.undo"), None);
+        assert_eq!(shortcut_of(&list, "edit.delete"), None);
+        assert_eq!(shortcut_of(&list, "edit.find").as_deref(), Some("Ctrl+F"));
+    }
+
+    #[test]
+    fn default_menu_bar_publishes_save_shortcuts_for_qml() {
+        let bar = AppMenuBar::default();
+        let list = bar.shortcuts();
+        assert_eq!(
+            shortcut_of(&list, "file.save").as_deref(),
+            Some("Ctrl+S"),
+            "QML registers Ctrl+S from this list on non-macOS platforms"
+        );
+        assert_eq!(
+            shortcut_of(&list, "file.saveAs").as_deref(),
+            Some("Ctrl+Shift+S")
+        );
+        assert_eq!(shortcut_of(&list, "file.close").as_deref(), Some("Ctrl+W"));
+        assert_eq!(shortcut_of(&list, "file.new").as_deref(), Some("Ctrl+N"));
+        assert_eq!(
+            shortcut_of(&list, "file.newWindow").as_deref(),
+            Some("Ctrl+Shift+N")
+        );
+        assert_eq!(
+            shortcut_of(&list, "edit.rotateCw").as_deref(),
+            Some("Ctrl+R")
+        );
+        assert_eq!(
+            shortcut_of(&list, "edit.rotateCcw").as_deref(),
+            Some("Ctrl+Shift+R")
+        );
+        assert_eq!(
+            shortcut_of(&list, "edit.triggerCompletion").as_deref(),
+            Some("Ctrl+Space")
+        );
+        assert_eq!(
+            shortcut_of(&list, "edit.gotoDefinition").as_deref(),
+            Some("Ctrl+F12")
+        );
+        assert_eq!(shortcut_of(&list, "edit.flipH").as_deref(), Some("Ctrl+L"));
+        assert_eq!(
+            shortcut_of(&list, "edit.flipV").as_deref(),
+            Some("Ctrl+Shift+L")
+        );
+        assert_eq!(shortcut_of(&list, "view.zoomIn").as_deref(), Some("Ctrl++"));
+        assert_eq!(
+            shortcut_of(&list, "view.zoomOut").as_deref(),
+            Some("Ctrl+-")
+        );
+        assert_eq!(
+            shortcut_of(&list, "view.zoomFit").as_deref(),
+            Some("Ctrl+9")
+        );
+        assert_eq!(
+            shortcut_of(&list, "view.zoomOne").as_deref(),
+            Some("Ctrl+0")
+        );
+        assert_eq!(
+            shortcut_of(&list, "debug.toggleRepaintOverlay").as_deref(),
+            Some("Ctrl+Alt+D")
+        );
+        assert_eq!(
+            shortcut_of(&list, "view.cmdPalette"),
+            None,
+            "hardcoded in Main.qml; must not be registered dynamically"
+        );
+        assert_eq!(
+            shortcut_of(&list, "view.jumpRef"),
+            None,
+            "hardcoded in Main.qml; must not be registered dynamically"
+        );
+        assert_eq!(
+            shortcut_of(&list, "view.tabSwitch"),
+            None,
+            "hardcoded in Main.qml; must not be registered dynamically"
+        );
     }
 }

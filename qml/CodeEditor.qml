@@ -9,6 +9,24 @@ Item {
     SystemPalette { id: appTheme }
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
+    function shortcutFor(actionId) {
+        var scs = AppMenuBar.shortcuts
+        if (!scs) return ""
+        for (var i = 0; i < scs.length; ++i) {
+            if (scs[i] && scs[i].id === actionId)
+                return scs[i].shortcut || ""
+        }
+        return ""
+    }
+
+    function focusEditor() {
+        Qt.callLater(function() {
+            if (root.visible && EditorPanel.currentDocument >= 0 && area) {
+                area.forceActiveFocus()
+            }
+        })
+    }
+
     // C++ registered these with QFontDatabase::addApplicationFont before any
     // QML ran. FontLoader is async, so the editor font binding must depend on
     // status or it keeps the first (missed) resolution forever.
@@ -88,7 +106,12 @@ Item {
         font: area.font
     }
 
-    onVisibleChanged: EditorPanel.dark = CircuitCanvas.dark
+    onVisibleChanged: {
+        EditorPanel.dark = CircuitCanvas.dark
+        if (visible && EditorPanel.currentDocument >= 0) {
+            root.focusEditor()
+        }
+    }
     Component.onCompleted: EditorPanel.dark = CircuitCanvas.dark
     Connections {
         target: CircuitCanvas
@@ -556,30 +579,6 @@ Item {
                         return
                     }
                 }
-                var ctrl = (event.modifiers & Qt.ControlModifier) || (event.modifiers & Qt.MetaModifier)
-                if (ctrl && event.key === Qt.Key_Space) {
-                    EditorPanel.complete(true)
-                    event.accepted = true
-                    return
-                }
-                if (ctrl && event.key === Qt.Key_F) {
-                    EditorPanel.findDialog()
-                    event.accepted = true
-                    return
-                }
-                if (ctrl && event.key === Qt.Key_S) {
-                    if (event.modifiers & Qt.ShiftModifier)
-                        AppMenuBar.triggerAction("file.saveFileAs")
-                    else
-                        AppMenuBar.triggerAction("file.saveFile")
-                    event.accepted = true
-                    return
-                }
-                if (ctrl && event.key === Qt.Key_O) {
-                    AppMenuBar.triggerAction("file.open")
-                    event.accepted = true
-                    return
-                }
                 if (event.key === Qt.Key_Escape) {
                     EditorPanel.hideSignature()
                 }
@@ -618,15 +617,6 @@ Item {
         }
     }
 
-    Shortcut {
-        sequence: "Ctrl+Shift+I"
-        onActivated: EditorPanel.formatDocument()
-    }
-    Shortcut {
-        sequence: "Ctrl+F12"
-        onActivated: EditorPanel.gotoDefinition()
-    }
-
     AppContextMenu {
         id: editorMenu
 
@@ -639,8 +629,8 @@ Item {
             height: visible ? implicitHeight : 0
             iconLigature: "search"
             text: root.tr("Go to Definition")
-            shortcutText: editorMenu._mod + "F12"
-            onTriggered: EditorPanel.gotoDefinition()
+            shortcutText: root.shortcutFor("edit.gotoDefinition") || (editorMenu._mod + "F12")
+            onTriggered: AppMenuBar.triggerAction("edit.gotoDefinition")
         }
         ContextMenuSeparator { visible: EditorPanel.lspReady }
 
@@ -694,7 +684,7 @@ Item {
         ContextMenuItem {
             iconLigature: "format_align_left"
             text: root.tr("Format Document")
-            shortcutText: editorMenu._mac ? "⇧⌘I" : "Ctrl+Shift+I"
+            shortcutText: root.shortcutFor("edit.format") || (editorMenu._mac ? "⇧⌘I" : "Ctrl+Shift+I")
             onTriggered: EditorPanel.formatDocument()
         }
 
@@ -919,7 +909,16 @@ Item {
 
     Connections {
         target: EditorPanel
+        function onRequestFocus() {
+            root.focusEditor()
+        }
+        function onCurrentDocumentChanged() {
+            if (EditorPanel.currentDocument >= 0) {
+                root.focusEditor()
+            }
+        }
         function onGotoChanged() {
+            root.focusEditor()
             if (EditorPanel.selectStart >= 0 && EditorPanel.selectEnd > EditorPanel.selectStart) {
                 area.select(EditorPanel.selectStart, EditorPanel.selectEnd)
                 return

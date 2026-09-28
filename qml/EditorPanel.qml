@@ -48,6 +48,7 @@ Item {
                         rightPadding: 24 + (modelData.hasSettings ? 18 : 0) + (modelData.hasCompiler ? 18 : 0)
 
                         readonly property color itemColor: tabBtn.checked ? appTheme.highlightedText : appTheme.windowText
+                        onClicked: codeEditor.focusEditor()
 
                         AppToolButton {
                             id: uploadRunBtn
@@ -114,7 +115,10 @@ Item {
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                             }
-                            onClicked: ctx.closeDocument( index )
+                            onClicked: {
+                                ctx.closeDocument( index )
+                                codeEditor.focusEditor()
+                            }
                         }
                     }
                 }
@@ -144,7 +148,10 @@ Item {
                     font.pixelSize: 14
                     color: newFileBtn.textColor
                 }
-                onClicked: EditorPanel.newFile()
+                onClicked: {
+                    EditorPanel.newFile()
+                    codeEditor.focusEditor()
+                }
             }
         }
         Binding {
@@ -152,6 +159,15 @@ Item {
             property: "currentIndex"
             value: root.ctx ? root.ctx.currentDocument : 0
             restoreMode: Binding.RestoreNone
+        }
+        Connections {
+            target: EditorPanel
+            function onDocumentsChanged() {
+                Qt.callLater(docTabs.ensureVisibleCurrent)
+            }
+            function onCurrentDocumentChanged() {
+                Qt.callLater(docTabs.ensureVisibleCurrent)
+            }
         }
 
         Rectangle {
@@ -165,6 +181,7 @@ Item {
             visible: root.ctx && root.ctx.currentDocument >= 0
 
             CodeEditor {
+                id: codeEditor
                 anchors.fill: parent
             }
         }

@@ -641,11 +641,11 @@ fn flip_h_and_ctrl_r() {
     c.set_view_size(800.0, 600.0);
     c.add_component_at("Resistor", Point::zero());
     c.scene.select_only(0);
-    c.key_press(KEY_L, MOD_CTRL);
+    c.flip_h();
     assert_eq!(c.scene.items()[0].hflip, -1);
     let left = c.scene.pin_scene("Resistor-1-lPin").unwrap();
     assert!((left.x - 16.0).abs() < 1e-6);
-    c.key_press(KEY_R, MOD_CTRL);
+    c.rotate_cw();
     // C++: rotation += 90 * hflip * vflip = 90 * -1 * 1 = -90
     assert!((c.scene.items()[0].rotation + 90.0).abs() < 1e-9);
 }

@@ -853,25 +853,6 @@ impl Canvas {
         if cmd && key == KEY_V {
             return self.paste_at_cursor();
         }
-        if cmd && key == KEY_R {
-            return if shift {
-                self.rotate_ccw()
-            } else {
-                self.rotate_cw()
-            };
-        }
-        if cmd && key == KEY_L {
-            return if shift { self.flip_v() } else { self.flip_h() };
-        }
-        if cmd && (key == KEY_PLUS || key == KEY_EQUAL) {
-            return self.zoom_in();
-        }
-        if cmd && key == KEY_MINUS {
-            return self.zoom_out();
-        }
-        if cmd && key == KEY_0 {
-            return self.zoom_one();
-        }
         if !cmd
             && (key == KEY_LEFT
                 || key == KEY_DOWN

@@ -28,6 +28,9 @@ ApplicationWindow {
     property Window ownerWindow: (typeof win !== "undefined" && win !== appWindow) ? win : null
     property bool isQuitting: false
 
+    // Closes the window on Escape (standard dialog behavior).
+    property bool closeOnEscape: true
+
     font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
     color: appTheme.window
     palette.window: appTheme.window
@@ -112,6 +115,12 @@ ApplicationWindow {
         }
         if (visible)
             close()
+    }
+
+    Shortcut {
+        sequence: "Escape"
+        enabled: appWindow.closeOnEscape && appWindow.visible
+        onActivated: appWindow.dismiss()
     }
 
     Component.onCompleted: {

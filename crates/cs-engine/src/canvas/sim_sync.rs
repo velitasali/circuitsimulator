@@ -3,6 +3,7 @@
 use crate::canvas::events::Change;
 use crate::canvas::scene::Part;
 use crate::canvas::{Canvas, Point, with_pin_id, with_pin_id_idx};
+use crate::debug::DebugSession;
 use crate::elements::pins::{
     PIN_IN0, PIN_IN1, PIN_IN2, PIN_IN3, PIN_IN4, PIN_IN5, PIN_INPIN, PIN_LEFT, PIN_RGB_B,
     PIN_RGB_G, PIN_RGB_R, PIN_RIGHT,
@@ -11,6 +12,7 @@ use crate::elements::pins::{
 impl Canvas {
     pub fn power_on(&mut self) -> Change {
         self.sim_running = true;
+        self.sim_paused = false;
         let mut circuit = self.scene.to_circuit();
         circuit.slope_steps = crate::settings::get().slope_steps;
         crate::logging::log_sim(format!(
@@ -59,12 +61,48 @@ impl Canvas {
         }
     }
 
+    /// Pause simulation.
+    pub fn pause_sim(&mut self) -> Change {
+        if !self.sim_running || self.sim_paused {
+            return Change::default();
+        }
+        self.sim_paused = true;
+        self.pause_qemu();
+        Change {
+            sim: true,
+            ..Change::default()
+        }
+    }
+
+    /// Resume paused simulation.
+    pub fn resume_sim(&mut self) -> Change {
+        if !self.sim_running || !self.sim_paused {
+            return Change::default();
+        }
+        self.sim_paused = false;
+        self.resume_qemu();
+        Change {
+            sim: true,
+            ..Change::default()
+        }
+    }
+
+    /// Toggle pause state of the running simulation.
+    pub fn toggle_pause(&mut self) -> Change {
+        if self.sim_paused {
+            self.resume_sim()
+        } else {
+            self.pause_sim()
+        }
+    }
+
     pub fn power_off(&mut self) -> Change {
         if !self.sim_running && self.pin_volts.is_empty() && self.sim_error.is_none() {
             self.publish_mcu_snap();
             return Change::default();
         }
         crate::logging::log_sim("Simulation stopped");
+        DebugSession::global().stop();
         if let Some(c) = self.running.as_ref() {
             self.scene.capture_mcus_from(c);
             self.scene.capture_memories_from(c);
@@ -80,6 +118,7 @@ impl Canvas {
             }
         }
         self.sim_running = false;
+        self.sim_paused = false;
         self.running = None;
         self.pin_volts.clear();
         self.wire_currents.clear();

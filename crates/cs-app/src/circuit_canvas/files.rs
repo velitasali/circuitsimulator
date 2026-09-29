@@ -93,6 +93,7 @@ pub(super) fn load_path_now(
             }
         }
         Err(e) => {
+            canvas.power_off();
             let err_prefix = cs_engine::i18n::tr("Error reading circuit file:");
             cs_engine::logging::log_sim(format!("{err_prefix} {e}"));
             Err(e.to_string())

@@ -970,6 +970,7 @@ Item {
         function onZoomChanged() { ctx.setZoomPercent( CircuitCanvas.zoom ) }
         function onCoordsChanged() { ctx.setCoords( CircuitCanvas.cursorX, CircuitCanvas.cursorY ) }
         function onRootCircuitLoaded() {
+            ctx.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
             ctx.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
             ctx.updateDevices( CircuitCanvas.programmableDevices )
         }
@@ -993,16 +994,11 @@ Item {
             }
         }
         function onSimChanged() {
+            ctx.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
             if ( CircuitCanvas.simError )
                 ctx.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
             else if ( CircuitCanvas.simWarning )
                 ctx.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
-            else if ( CircuitPanel.simRunning ) {
-                if ( CircuitPanel.simPaused )
-                    ctx.setMessage( App.translate( "Paused" ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
-                else
-                    ctx.setMessage( App.translate( "Running" ), CircuitCanvas.msgOkBg, CircuitCanvas.msgOkText )
-            }
         }
     }
 
@@ -1031,14 +1027,13 @@ Item {
         function onAction( id ) {
             if ( id === "zoomIn" ) CircuitCanvas.zoomIn()
             else if ( id === "zoomOut" ) CircuitCanvas.zoomOut()
-            else if ( id === "powerOn" ) {
+            else if ( id === "powerCirc" || id === "powerOn" ) {
                 CircuitPanel.showSidePanel()
                 App.sidePanelTab = 2
-                CircuitCanvas.powerOn()
+                CircuitCanvas.powerCirc()
             }
             else if ( id === "powerOff" ) CircuitCanvas.powerOff()
-            else if ( id === "pauseQemu" ) CircuitCanvas.pauseQemu()
-            else if ( id === "resumeQemu" ) CircuitCanvas.resumeQemu()
+            else if ( id === "pauseCirc" || id === "pauseQemu" || id === "resumeQemu" ) CircuitCanvas.pauseCirc()
             else if ( id === "settCircuit" ) App.showCircuitSettings()
             else if ( id.startsWith( "openSubcircuit:" ) ) CircuitCanvas.openSubcircuit( id.substring( 15 ) )
         }

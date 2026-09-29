@@ -814,57 +814,58 @@ impl CircuitPanel {
         self.toolbar_changed();
     }
 
-    #[qslot]
-    fn power_circ(&mut self) {
-        let new_running = !self.running;
-        self.set_sim_running_state(new_running);
-        if self.running {
-            let dark = crate::macos_host::apply_theme(&cs_engine::settings::get().theme);
-            self.message_text = cs_engine::i18n::tr("Running");
-            self.message_bg =
-                cs_engine::theme::ColorTheme::get_hex(cs_engine::theme::ColorId::MsgOkBg, dark);
-            self.message_color =
-                cs_engine::theme::ColorTheme::get_hex(cs_engine::theme::ColorId::MsgOkText, dark);
-        } else {
+    fn sync_sim_state_data(&mut self, running: bool, paused: bool) -> bool {
+        if self.running == running
+            && self.paused == paused
+            && (!running || !self.message_text.is_empty())
+        {
+            return false;
+        }
+        self.set_sim_running_state(running);
+        self.paused = paused;
+        let dark = crate::macos_host::apply_theme(&cs_engine::settings::get().theme);
+        if !self.running {
             self.message_text.clear();
+        } else if self.paused {
+            self.message_text = cs_engine::i18n::tr("Paused");
+            self.message_bg = ColorTheme::get_hex(ColorId::MsgWarnBg, dark);
+            self.message_color = ColorTheme::get_hex(ColorId::MsgWarnText, dark);
+        } else {
+            self.message_text = cs_engine::i18n::tr("Running");
+            self.message_bg = ColorTheme::get_hex(ColorId::MsgOkBg, dark);
+            self.message_color = ColorTheme::get_hex(ColorId::MsgOkText, dark);
         }
         macos_host::set_sim_state(self.running, self.paused);
-        self.info_visible_changed();
-        self.overlay_layout_changed();
-        self.toolbar_changed();
-        self.action(if self.running {
-            "powerOn".into()
-        } else {
-            "powerOff".into()
-        });
+        true
+    }
+
+    #[qslot]
+    fn sync_sim_state(&mut self, running: bool, paused: bool) {
+        if self.sync_sim_state_data(running, paused) {
+            self.info_visible_changed();
+            self.overlay_layout_changed();
+            self.toolbar_changed();
+        }
+    }
+
+    #[qslot]
+    fn power_circ(&mut self) {
+        self.action("powerCirc".into());
+    }
+
+    fn stop_circ_data(&mut self) -> bool {
+        self.sync_sim_state_data(false, false)
+    }
+
+    #[qslot]
+    fn stop_circ(&mut self) {
+        self.action("powerOff".into());
+        self.sync_sim_state(false, false);
     }
 
     #[qslot]
     fn pause_circ(&mut self) {
-        if !self.running {
-            return;
-        }
-        self.paused = !self.paused;
-        let dark = crate::macos_host::apply_theme(&cs_engine::settings::get().theme);
-        self.message_text = if self.paused {
-            cs_engine::i18n::tr("Paused")
-        } else {
-            cs_engine::i18n::tr("Running")
-        };
-        let (bg_id, text_id) = if self.paused {
-            (ColorId::MsgWarnBg, ColorId::MsgWarnText)
-        } else {
-            (ColorId::MsgOkBg, ColorId::MsgOkText)
-        };
-        self.message_bg = ColorTheme::get_hex(bg_id, dark);
-        self.message_color = ColorTheme::get_hex(text_id, dark);
-        macos_host::set_sim_state(self.running, self.paused);
-        self.toolbar_changed();
-        self.action(if self.paused {
-            "pauseQemu".into()
-        } else {
-            "resumeQemu".into()
-        });
+        self.action("pauseCirc".into());
     }
 
     #[qslot]
@@ -1254,5 +1255,38 @@ mod tests {
         assert!(panel.running);
         assert!(panel.sim_info_enabled);
         assert!(panel.info_visible());
+    }
+
+    #[test]
+    fn test_stop_circ_resets_simulation_and_ui_state() {
+        let mut panel = CircuitPanel::default();
+        panel.set_sim_running_state(true);
+        panel.message_text = "Running".into();
+        assert!(panel.running);
+        assert!(panel.info_visible());
+
+        let stopped = panel.stop_circ_data();
+        assert!(stopped);
+        assert!(!panel.running);
+        assert!(!panel.paused);
+        assert!(panel.message_text.is_empty());
+        assert!(!panel.info_visible());
+
+        // Calling again should return false (already stopped)
+        assert!(!panel.stop_circ_data());
+    }
+
+    #[test]
+    fn test_sync_sim_state_paused() {
+        let mut panel = CircuitPanel::default();
+        panel.sync_sim_state_data(true, true);
+        assert!(panel.running);
+        assert!(panel.paused);
+        assert_eq!(panel.message_text, "Paused");
+
+        panel.sync_sim_state_data(false, false);
+        assert!(!panel.running);
+        assert!(!panel.paused);
+        assert!(panel.message_text.is_empty());
     }
 }

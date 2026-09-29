@@ -66,7 +66,7 @@ ApplicationWindow {
     height: 800
     title: {
         var _tick = App.i18nTick
-        var state = CircuitPanel.simRunning ? (CircuitPanel.simPaused ? App.translate("[Paused] ") : App.translate("[Running] ")) : ""
+        var state = CircuitCanvas.simRunning ? (CircuitCanvas.simPaused ? App.translate("[Paused] ") : App.translate("[Running] ")) : ""
         var proj = FileBrowser.rootPath ? ("[" + FileBrowser.rootPath.split("/").filter(Boolean).pop() + "] ") : ""
         var file = CircuitCanvas.fileName ? CircuitCanvas.fileName : App.translate("Untitled")
         var changed = CircuitCanvas.modified ? "*" : ""
@@ -648,6 +648,7 @@ ApplicationWindow {
         target: AppMenuBar
         function onAction(id) {
             if (id === "file.quit") {
+                CircuitCanvas.powerOff()
                 if (App.requestClose()) {
                     closeOwnedWindows()
                     Qt.quit()
@@ -724,9 +725,9 @@ ApplicationWindow {
             } else if (id === "help.info") {
                 CircuitPanel.toggleInfo()
             } else if (id === "sim.power" || id === "circ.power") {
-                CircuitPanel.powerCirc()
+                CircuitCanvas.powerCirc()
             } else if (id === "sim.pause" || id === "circ.pause") {
-                CircuitPanel.pauseCirc()
+                CircuitCanvas.pauseCirc()
             } else if (id === "circ.settings") {
                 App.showCircuitSettings()
             } else if (id === "view.zoomIn") {
@@ -830,7 +831,7 @@ ApplicationWindow {
             } else if (id === "sim.load" || id === "sim_load") {
                 EditorPanel.upload()
             } else if (id === "sim.uploadRun" || id === "sim.upload_run") {
-                if (EditorPanel.documents.length === 0 && !CircuitPanel.simRunning)
+                if (EditorPanel.documents.length === 0 && !CircuitCanvas.simRunning)
                     CircuitCanvas.editFirmware("")
                 EditorPanel.uploadRun()
             } else if (id === "sim.debug" || id === "sim_debug") {
@@ -839,7 +840,7 @@ ApplicationWindow {
                     CircuitCanvas.editFirmware("")
                 EditorPanel.debug()
             } else if (id === "sim.run" || id === "sim_run") {
-                if (EditorPanel.documents.length === 0 && !CircuitPanel.simRunning)
+                if (EditorPanel.documents.length === 0 && !CircuitCanvas.simRunning)
                     CircuitCanvas.editFirmware("")
                 EditorPanel.run()
             } else if (id === "sim.step" || id === "sim_step") {
@@ -874,6 +875,9 @@ ApplicationWindow {
             AppMenuBar.setEditState(CircuitCanvas.canUndo, CircuitCanvas.canRedo,
                                     CircuitCanvas.hasSelection, CircuitCanvas.canPaste)
             CommandCenter.setCircuitItems(CircuitCanvas.items)
+        }
+        function onSimChanged() {
+            AppMenuBar.setSimState(CircuitCanvas.simRunning, CircuitCanvas.simPaused)
         }
         function onFilePathChanged() {
             App.windowTitle = CircuitCanvas.fileName
@@ -1094,7 +1098,7 @@ ApplicationWindow {
     Connections {
         target: CircuitPanel
         function onToolbarChanged() {
-            AppMenuBar.setSimState(CircuitPanel.simRunning, CircuitPanel.simPaused)
+            AppMenuBar.setSimState(CircuitCanvas.simRunning, CircuitCanvas.simPaused)
         }
         function onAction(id) {
             if (id === "settCircuit") App.showCircuitSettings()
@@ -1183,10 +1187,10 @@ ApplicationWindow {
             CircuitCanvas.uploadFirmware(EditorPanel.lastFirmware)
         }
         function onRequestPowerOn() {
-            if (!CircuitPanel.simRunning)
-                CircuitPanel.powerCirc()
-            else if (CircuitPanel.simPaused)
-                CircuitPanel.pauseCirc()
+            if (!CircuitCanvas.simRunning)
+                CircuitCanvas.powerCirc()
+            else if (CircuitCanvas.simPaused)
+                CircuitCanvas.pauseCirc()
         }
         function onFocusedChanged() {
             if (!CommandCenter.visible)
@@ -1632,6 +1636,7 @@ ApplicationWindow {
     }
 
     onClosing: (close) => {
+        CircuitCanvas.powerOff()
         if (!App.requestClose()) {
             close.accepted = false
             return

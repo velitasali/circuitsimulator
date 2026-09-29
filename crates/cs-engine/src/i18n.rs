@@ -202,6 +202,21 @@ mod tests {
     }
 
     #[test]
+    fn turkish_qt_license() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        set_locale("tr");
+        assert_eq!(
+            tr("Qt is licensed under the GNU LGPL version 3."),
+            "Qt, GNU LGPL sürüm 3 kapsamında lisanslanmıştır."
+        );
+        set_locale("en");
+        assert_eq!(
+            tr("Qt is licensed under the GNU LGPL version 3."),
+            "Qt is licensed under the GNU LGPL version 3."
+        );
+    }
+
+    #[test]
     fn entities() {
         assert_eq!(decode_entities("&amp;File"), "&File");
         assert_eq!(decode_entities("A &#xa; B"), "A \n B");

@@ -171,7 +171,6 @@ pub const PALETTE_ACTIONS: &[(PaletteScope, PaletteAction)] = &[
     (PaletteScope::Always,  act("sim.animateCurr", "Animate Current", "", "waves")),
     (PaletteScope::Always,  act("help.info", "Simulation Info", "", "info")),
     (PaletteScope::Always,  act("help.about", "About Circuit Simulator", "", "help")),
-    (PaletteScope::Always,  act("help.aboutQt", "About Qt", "", "help_outline")),
     (PaletteScope::Always,  act("debug.toggleRepaintOverlay", "Toggle Canvas Repaint Debug Overlay", "Ctrl+Alt+D", "bug_report")),
     (PaletteScope::Always,  act("debug.toggleComponentRects", "Show Component Rect", "Ctrl+Alt+C", "crop_free")),
 ];
@@ -849,7 +848,6 @@ fn build_menus(
                     false,
                     false,
                 ),
-                item("help.aboutQt", &t("About Qt"), "", true, false, false),
             ],
         },
     ]

@@ -275,7 +275,6 @@ fn compile_resources() {
         "Main.qml",
         "AppWindow.qml",
         "about.qml",
-        "aboutqt.qml",
         "appdialog.qml",
         "circuitdialog.qml",
         "AppComboBox.qml",

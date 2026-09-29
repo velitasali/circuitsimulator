@@ -98,7 +98,7 @@ static CSMenuTarget* g_menu_target = nil;
 // application menu automatically. qt-bridge hands us raw JSON instead, so we
 // match that behaviour here by item id (ids survive translation, unlike text).
 static BOOL CSIsAboutItem(NSString* idStr) {
-    return [idStr isEqualToString:@"help.about"] || [idStr isEqualToString:@"help.aboutQt"];
+    return [idStr isEqualToString:@"help.about"];
 }
 static BOOL CSIsPreferencesItem(NSString* idStr) {
     return [idStr isEqualToString:@"file.settings"];

@@ -11,7 +11,6 @@ pub struct App {
     compiled: String,
     qt_version: String,
     about_visible: bool,
-    about_qt_visible: bool,
     osc_visible: bool,
     la_visible: bool,
     mcu_visible: bool,
@@ -44,7 +43,6 @@ impl Default for App {
             compiled: format!("{} (dd-MM-yy)", env!("CS_BUILDDATE")),
             qt_version: crate::native_canvas::qt_version(),
             about_visible: std::env::args().any(|a| a == "--about"),
-            about_qt_visible: std::env::args().any(|a| a == "--about-qt"),
             osc_visible: false,
             la_visible: false,
             mcu_visible: false,
@@ -89,12 +87,6 @@ impl App {
         Read = about_visible,
         Write = set_about_visible,
         Notify = about_visible_changed
-    );
-    qproperty!(
-        "aboutQtVisible",
-        Read = about_qt_visible,
-        Write = set_about_qt_visible,
-        Notify = about_qt_visible_changed
     );
     qproperty!(
         "oscVisible",
@@ -181,8 +173,6 @@ impl App {
     #[qsignal]
     fn about_visible_changed(&mut self);
     #[qsignal]
-    fn about_qt_visible_changed(&mut self);
-    #[qsignal]
     fn osc_visible_changed(&mut self);
     #[qsignal]
     fn la_visible_changed(&mut self);
@@ -200,8 +190,6 @@ impl App {
     fn installer_visible_changed(&mut self);
     #[qsignal]
     fn request_show_about(&mut self);
-    #[qsignal]
-    fn request_show_about_qt(&mut self);
     #[qsignal]
     fn request_show_osc(&mut self);
     #[qsignal]
@@ -261,10 +249,6 @@ impl App {
 
     fn about_visible(&self) -> bool {
         self.about_visible
-    }
-
-    fn about_qt_visible(&self) -> bool {
-        self.about_qt_visible
     }
 
     fn osc_visible(&self) -> bool {
@@ -374,19 +358,6 @@ impl App {
         } else if self.about_visible {
             self.about_visible = false;
             self.about_visible_changed();
-        }
-    }
-
-    fn set_about_qt_visible(&mut self, visible: bool) {
-        if visible {
-            if !self.about_qt_visible {
-                self.about_qt_visible = true;
-                self.about_qt_visible_changed();
-            }
-            self.request_show_about_qt();
-        } else if self.about_qt_visible {
-            self.about_qt_visible = false;
-            self.about_qt_visible_changed();
         }
     }
 
@@ -511,11 +482,6 @@ impl App {
     #[qslot]
     fn show_about(&mut self) {
         self.set_about_visible(true);
-    }
-
-    #[qslot]
-    fn show_about_qt(&mut self) {
-        self.set_about_qt_visible(true);
     }
 
     #[qslot]
@@ -795,8 +761,8 @@ mod tests {
     }
 
     #[test]
-    fn test_about_qt_initial_state() {
+    fn test_about_initial_state() {
         let app = App::default();
-        assert!(!app.about_qt_visible);
+        assert!(!app.about_visible);
     }
 }

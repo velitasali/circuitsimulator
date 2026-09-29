@@ -9311,6 +9311,10 @@ Program değişkenlerini listelemek için taslağı derleyin (.hex yanında bir 
         <translation>Ticari lisans sözleşmemiz kapsamında lisanslanan Qt, üçüncü taraflarla herhangi bir kaynak kodunu paylaşmak istemediğiniz veya GNU LGPL sürüm 3 şartlarına uyamadığınız tescilli/ticari yazılımların geliştirilmesi için uygundur.</translation>
     </message>
     <message>
+        <source>Qt is licensed under the GNU LGPL version 3.</source>
+        <translation>Qt, GNU LGPL sürüm 3 kapsamında lisanslanmıştır.</translation>
+    </message>
+    <message>
         <source>Qt licensed under the GNU LGPL version 3 is appropriate for the development of Qt applications (proprietary or open source) provided you can comply with the terms and conditions of the GNU LGPL version 3.</source>
         <translation>GNU LGPL sürüm 3 kapsamında lisanslanan Qt, GNU LGPL sürüm 3 hüküm ve koşullarına uymanız koşuluyla Qt uygulamalarının (tescilli veya açık kaynak) geliştirilmesi için uygundur.</translation>
     </message>

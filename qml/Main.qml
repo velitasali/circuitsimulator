@@ -355,32 +355,6 @@ ApplicationWindow {
     }
 
     AppWindow {
-        id: aboutQtWin
-        title: App.translate("About Qt")
-        width: 580
-        height: 480
-        minimumWidth: 400
-        minimumHeight: 320
-        source: "aboutqt.qml"
-        visible: App.aboutQtVisible
-
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
-        onClosing: (close) => {
-            if (!win.isQuitting) {
-                close.accepted = false
-                App.aboutQtVisible = false
-            }
-        }
-    }
-
-    AppWindow {
         id: oscWin
         title: win.tr("Oscilloscope")
         width: 900
@@ -625,7 +599,6 @@ ApplicationWindow {
     Connections {
         target: App
         function onRequestShowAbout() { aboutWin.bringToFront() }
-        function onRequestShowAboutQt() { aboutQtWin.bringToFront() }
         function onRequestShowSettings() { settingsWin.bringToFront() }
         function onRequestShowCircuitSettings() { circSettingsWin.bringToFront() }
         function onRequestShowInstaller() { installerWin.bringToFront() }
@@ -748,8 +721,6 @@ ApplicationWindow {
                 FileBrowser.rootPath = id.substring(9)
             } else if (id === "help.about") {
                 App.showAbout()
-            } else if (id === "help.aboutQt") {
-                App.showAboutQt()
             } else if (id === "help.info") {
                 CircuitPanel.toggleInfo()
             } else if (id === "sim.power" || id === "circ.power") {

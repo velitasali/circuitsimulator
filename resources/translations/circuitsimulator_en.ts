@@ -9313,6 +9313,10 @@ Compile the sketch (an ELF next to the .hex) to list program variables.</transla
         <translation>Qt licensed under our commercial license agreement is appropriate for development of proprietary/commercial software where you do not want to share any source code with third parties or otherwise cannot comply with the terms of the GNU LGPL version 3.</translation>
     </message>
     <message>
+        <source>Qt is licensed under the GNU LGPL version 3.</source>
+        <translation>Qt is licensed under the GNU LGPL version 3.</translation>
+    </message>
+    <message>
         <source>Qt licensed under the GNU LGPL version 3 is appropriate for the development of Qt applications (proprietary or open source) provided you can comply with the terms and conditions of the GNU LGPL version 3.</source>
         <translation>Qt licensed under the GNU LGPL version 3 is appropriate for the development of Qt applications (proprietary or open source) provided you can comply with the terms and conditions of the GNU LGPL version 3.</translation>
     </message>

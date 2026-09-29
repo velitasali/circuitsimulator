@@ -871,6 +871,7 @@ impl Canvas {
     }
 
     pub fn new_circuit_with(&mut self, settings: crate::CircSettings) -> Change {
+        let mut c = self.power_off();
         self.scene = Scene::new();
         *self.scene.settings_mut() = settings.clone();
         self.viewport
@@ -889,7 +890,6 @@ impl Canvas {
         self.overload_states.clear();
         self.overload_log.clear();
         self.overload_escalated = false;
-        let mut c = self.power_off();
         c.items = true;
         c.wires = true;
         c.history = true;
@@ -897,6 +897,7 @@ impl Canvas {
         c.open_props = true;
         c.settings = true;
         c.viewport = true;
+        c.sim = true;
         c
     }
 
@@ -965,6 +966,7 @@ impl Canvas {
         path: Option<String>,
         mark_saved: bool,
     ) -> crate::Result<Change> {
+        let off_c = self.power_off();
         let mut search = crate::subcircuit::SubcSearch::from_circuit_path(path.as_deref());
         search.catalog = if self.catalog.is_empty() {
             crate::catalog::standard()
@@ -996,8 +998,10 @@ impl Canvas {
             open_props: true,
             settings: true,
             viewport: true,
+            sim: true,
             ..Change::default()
         };
+        c.merge(off_c);
         c.merge(self.zoom_to_fit());
         c.merge(self.refresh_sim());
         self.publish_mcu_snap();

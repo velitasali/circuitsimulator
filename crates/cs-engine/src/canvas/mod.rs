@@ -119,6 +119,7 @@ pub struct Canvas {
     pub(crate) show_component_rect: bool,
     pub(crate) hovered_pin: Option<String>,
     pub(crate) sim_running: bool,
+    pub(crate) sim_paused: bool,
     pub(crate) pin_volts: std::collections::HashMap<String, f64>,
     pub(crate) wire_currents: std::collections::HashMap<String, f64>,
     pub(crate) pin_directions: std::collections::HashMap<String, PinDirection>,
@@ -219,6 +220,7 @@ impl Canvas {
             show_component_rect: false,
             hovered_pin: None,
             sim_running: false,
+            sim_paused: false,
             pin_volts: std::collections::HashMap::new(),
             wire_currents: std::collections::HashMap::new(),
             pin_directions: std::collections::HashMap::new(),
@@ -529,6 +531,14 @@ impl Canvas {
 
     pub fn set_sim_running(&mut self, running: bool) {
         self.sim_running = running;
+    }
+
+    pub fn sim_paused(&self) -> bool {
+        self.sim_paused
+    }
+
+    pub fn set_sim_paused(&mut self, paused: bool) {
+        self.sim_paused = paused;
     }
 
     pub fn sim_error(&self) -> Option<&str> {

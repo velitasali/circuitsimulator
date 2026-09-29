@@ -241,6 +241,7 @@ impl CircuitCanvas {
             }
             Err(_) => {
                 self.flush_sim_logs();
+                self.sim_changed();
             }
         }
     }
@@ -307,6 +308,8 @@ impl CircuitCanvas {
             self.devices_changed();
         }
         if c.pause_sim {
+            let pause_c = self.inner.pause_sim();
+            c.merge(pause_c);
             self.request_pause_sim();
         }
         if c.hovered_pin {
@@ -552,6 +555,7 @@ impl CircuitCanvas {
     qproperty!("items", Read = items, Notify = items_changed);
     qproperty!("wires", Read = wires, Notify = wires_changed);
     qproperty!("simRunning", Read = sim_running, Notify = sim_changed);
+    qproperty!("simPaused", Read = sim_paused, Notify = sim_changed);
     qproperty!("simError", Read = sim_error, Notify = sim_changed);
     qproperty!("simWarning", Read = sim_warning, Notify = sim_changed);
     qproperty!("animTick", Read = anim_tick, Notify = anim_changed);
@@ -1436,6 +1440,10 @@ impl CircuitCanvas {
 
     fn sim_running(&self) -> bool {
         self.inner.sim_running()
+    }
+
+    fn sim_paused(&self) -> bool {
+        self.inner.sim_paused()
     }
 
     fn sim_error(&self) -> String {
@@ -2418,6 +2426,27 @@ impl CircuitCanvas {
         self.last_warnings_count = cur_count;
         self.last_warnings_crashed = cur_crashed;
         self.warnings_changed();
+        self.sim_load = 0.0;
+        self.gui_load = 0.0;
+        self.real_speed = 0.0;
+        self.last_ref_time = None;
+        self.last_circ_time = 0;
+        self.frame_count = 0;
+    }
+
+    #[qslot]
+    fn power_circ(&mut self) {
+        if self.inner.sim_running() {
+            self.power_off();
+        } else {
+            self.power_on();
+        }
+    }
+
+    #[qslot]
+    fn pause_circ(&mut self) {
+        let c = self.inner.toggle_pause();
+        self.apply(c);
     }
 
     #[qslot]
@@ -2721,6 +2750,7 @@ impl CircuitCanvas {
             }
             Err(_) => {
                 self.flush_sim_logs();
+                self.sim_changed();
             }
         }
     }

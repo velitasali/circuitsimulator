@@ -183,8 +183,8 @@ Item {
             EditorPanel.focusEditor()
         }
         function onRequestPauseSim() {
-            if (CircuitPanel.simRunning && !CircuitPanel.simPaused)
-                CircuitPanel.pauseCirc()
+            if (CircuitCanvas.simRunning && !CircuitCanvas.simPaused)
+                CircuitCanvas.pauseCirc()
         }
         function onRequestUploadRun(debug) {
             if (debug)
@@ -1043,7 +1043,7 @@ Item {
         id: simTimer
         interval: Math.max(10, Math.round(1000 / Math.max(1, AppDialog.fps)))
         repeat: true
-        running: CircuitCanvas.simRunning && !CircuitPanel.simPaused
+        running: CircuitCanvas.simRunning && !CircuitCanvas.simPaused
         onTriggered: {
             CircuitCanvas.tick()
             SerialMonitor.sync()
@@ -1054,7 +1054,7 @@ Item {
         id: infoTimer
         interval: 100
         repeat: true
-        running: CircuitCanvas.simRunning && !CircuitPanel.simPaused && CircuitPanel.infoVisible
+        running: CircuitCanvas.simRunning && !CircuitCanvas.simPaused && CircuitPanel.infoVisible
         onTriggered: {
             InfoWidget.syncSim(
                 CircuitCanvas.simCircTime,

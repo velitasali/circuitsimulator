@@ -343,6 +343,53 @@ fn power_on_solves_demo_divider() {
 }
 
 #[test]
+fn new_circuit_stops_running_simulation() {
+    let mut c = Canvas::with_demo_divider();
+    c.power_on();
+    assert!(c.sim_running());
+    let change = c.new_circuit();
+    assert!(!c.sim_running());
+    assert!(change.sim);
+}
+
+#[test]
+fn load_sim1_stops_running_simulation() {
+    let mut c = Canvas::with_demo_divider();
+    c.power_on();
+    assert!(c.sim_running());
+    let empty_sim1 = "<circuit version=\"1.0.0\"/>";
+    let change = c.load_sim1(empty_sim1, None).unwrap();
+    assert!(!c.sim_running());
+    assert!(change.sim);
+}
+
+#[test]
+fn pause_and_resume_simulation() {
+    let mut c = Canvas::with_demo_divider();
+    c.power_on();
+    assert!(c.sim_running());
+    assert!(!c.sim_paused());
+
+    let ch1 = c.pause_sim();
+    assert!(c.sim_running());
+    assert!(c.sim_paused());
+    assert!(ch1.sim);
+
+    let ch2 = c.resume_sim();
+    assert!(c.sim_running());
+    assert!(!c.sim_paused());
+    assert!(ch2.sim);
+
+    let ch3 = c.toggle_pause();
+    assert!(c.sim_paused());
+    assert!(ch3.sim);
+
+    c.power_off();
+    assert!(!c.sim_running());
+    assert!(!c.sim_paused());
+}
+
+#[test]
 fn place_and_roundtrip_instruments() {
     let mut c = Canvas::empty();
     c.add_component_at("Probe", Point::zero());

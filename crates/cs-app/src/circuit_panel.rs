@@ -821,7 +821,11 @@ impl CircuitPanel {
         {
             return false;
         }
-        self.set_sim_running_state(running);
+        // Opening the side panel and the info card belongs to a start or stop.
+        // Pause and resume only change the banner.
+        if self.running != running {
+            self.set_sim_running_state(running);
+        }
         self.paused = paused;
         let dark = crate::macos_host::apply_theme(&cs_engine::settings::get().theme);
         if !self.running {
@@ -853,6 +857,7 @@ impl CircuitPanel {
         self.action("powerCirc".into());
     }
 
+    #[cfg(test)]
     fn stop_circ_data(&mut self) -> bool {
         self.sync_sim_state_data(false, false)
     }
@@ -1288,5 +1293,41 @@ mod tests {
         assert!(!panel.running);
         assert!(!panel.paused);
         assert!(panel.message_text.is_empty());
+    }
+
+    #[test]
+    fn test_sync_start_shows_side_panel_and_info() {
+        let mut panel = CircuitPanel::default();
+        assert!(panel.overlays.set_side_shown(false));
+        assert!(!panel.info_visible());
+
+        assert!(panel.sync_sim_state_data(true, false));
+        assert!(panel.running);
+        assert!(!panel.paused);
+        assert_eq!(panel.message_text, "Running");
+        assert!(panel.overlays.side_shown());
+        assert!(panel.info_visible());
+    }
+
+    #[test]
+    fn test_sync_pause_leaves_overlays_alone() {
+        let mut panel = CircuitPanel::default();
+        panel.sync_sim_state_data(true, false);
+        panel.set_info_hidden();
+        assert!(panel.overlays.set_side_shown(false));
+        assert!(!panel.info_visible());
+        assert!(!panel.overlays.side_shown());
+
+        assert!(panel.sync_sim_state_data(true, true));
+        assert!(panel.paused);
+        assert_eq!(panel.message_text, "Paused");
+        assert!(!panel.info_visible());
+        assert!(!panel.overlays.side_shown());
+
+        assert!(panel.sync_sim_state_data(true, false));
+        assert!(!panel.paused);
+        assert_eq!(panel.message_text, "Running");
+        assert!(!panel.info_visible());
+        assert!(!panel.overlays.side_shown());
     }
 }

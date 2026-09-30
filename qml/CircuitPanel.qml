@@ -994,11 +994,22 @@ Item {
             }
         }
         function onSimChanged() {
+            var starting = !CircuitPanel.simRunning && CircuitCanvas.simRunning
             ctx.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
+            if ( starting ) {
+                CircuitPanel.showSidePanel()
+                App.sidePanelTab = 2
+            }
             if ( CircuitCanvas.simError )
                 ctx.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
             else if ( CircuitCanvas.simWarning )
                 ctx.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
+            else if ( CircuitCanvas.simRunning ) {
+                if ( CircuitCanvas.simPaused )
+                    ctx.setMessage( App.translate( "Paused" ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
+                else
+                    ctx.setMessage( App.translate( "Running" ), CircuitCanvas.msgOkBg, CircuitCanvas.msgOkText )
+            }
         }
     }
 
@@ -1027,11 +1038,7 @@ Item {
         function onAction( id ) {
             if ( id === "zoomIn" ) CircuitCanvas.zoomIn()
             else if ( id === "zoomOut" ) CircuitCanvas.zoomOut()
-            else if ( id === "powerCirc" || id === "powerOn" ) {
-                CircuitPanel.showSidePanel()
-                App.sidePanelTab = 2
-                CircuitCanvas.powerCirc()
-            }
+            else if ( id === "powerCirc" || id === "powerOn" ) CircuitCanvas.powerCirc()
             else if ( id === "powerOff" ) CircuitCanvas.powerOff()
             else if ( id === "pauseCirc" || id === "pauseQemu" || id === "resumeQemu" ) CircuitCanvas.pauseCirc()
             else if ( id === "settCircuit" ) App.showCircuitSettings()

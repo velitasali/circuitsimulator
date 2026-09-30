@@ -973,7 +973,11 @@ impl Canvas {
         } else {
             self.catalog.clone()
         };
-        self.scene = Scene::from_sim1_with(src, &search)?;
+        // Parse before stopping. A bad file must leave the running circuit alone,
+        // including live MCU and memory state that power_off writes back.
+        let scene = Scene::from_sim1_with(src, &search)?;
+        let off_c = self.power_off();
+        self.scene = scene;
         let s = self.scene.settings();
         self.viewport
             .set_scene_size(s.width as f64, s.height as f64);

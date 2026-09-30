@@ -364,6 +364,23 @@ fn load_sim1_stops_running_simulation() {
 }
 
 #[test]
+fn failed_load_leaves_running_simulation() {
+    let mut c = Canvas::with_demo_divider();
+    c.power_on();
+    c.pause_sim();
+    let snapshot = c.to_sim1();
+    let mid = c.pin_voltage("Resistor-1-rPin");
+    assert!(mid.is_some());
+
+    let err = c.load_sim1("not a circuit", None);
+    assert!(err.is_err());
+    assert!(c.sim_running());
+    assert!(c.sim_paused());
+    assert_eq!(c.pin_voltage("Resistor-1-rPin"), mid);
+    assert_eq!(c.to_sim1(), snapshot);
+}
+
+#[test]
 fn pause_and_resume_simulation() {
     let mut c = Canvas::with_demo_divider();
     c.power_on();

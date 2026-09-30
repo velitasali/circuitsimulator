@@ -254,7 +254,9 @@ impl CircuitCanvas {
                 self.flush_sim_logs();
             }
             Ok(None) => {}
-            Err(_) => {}
+            Err(_) => {
+                self.flush_sim_logs();
+            }
         }
     }
 
@@ -281,7 +283,7 @@ impl CircuitCanvas {
         }
     }
 
-    fn apply(&mut self, c: Change) {
+    fn apply(&mut self, mut c: Change) {
         self.flush_sim_logs();
         if c.zoom {
             self.zoom_changed();

@@ -5,9 +5,13 @@
 #include <QSize>
 #include <qsgtexture_platform.h>
 
+#include <QObject>
+#include <QSGTexture>
+
 #include <atomic>
 #include <cstdio>
 #include <mutex>
+#include <unordered_map>
 
 #include "vello_preview.h"
 
@@ -32,6 +36,41 @@ static std::atomic<int> g_held{-1};
 static std::atomic<int> g_published{-1};
 static std::atomic<uint64_t> g_frame{0};
 static bool g_logged_fail = false;
+
+// Qt wraps the MTLTexture without retaining it. drop_surfaces() can run on the
+// Vello thread between frames and nil that texture; the next scene-graph pass
+// then binds nil and Metal faults at offset 0x58. Hold the texture and its
+// IOSurface until the QSGTexture that samples them is destroyed.
+struct KeptTexture {
+    void *tex = nullptr;
+    IOSurfaceRef surf = nullptr;
+};
+static std::unordered_map<void *, KeptTexture> g_keeps;
+static id<MTLTexture> g_export_tex = nil;
+static IOSurfaceRef g_export_surf = nullptr;
+
+static void release_keep_locked(void *key) {
+    const auto it = g_keeps.find(key);
+    if (it == g_keeps.end()) {
+        return;
+    }
+    if (it->second.tex) {
+        id<MTLTexture> __attribute__((unused)) tex =
+            (__bridge_transfer id<MTLTexture>)it->second.tex;
+    }
+    if (it->second.surf) {
+        CFRelease(it->second.surf);
+    }
+    g_keeps.erase(it);
+}
+
+static void clear_export_locked() {
+    g_export_tex = nil;
+    if (g_export_surf) {
+        CFRelease(g_export_surf);
+        g_export_surf = nullptr;
+    }
+}
 
 static void log_fail(const char *msg) {
     if (g_logged_fail) {
@@ -256,7 +295,34 @@ extern "C" void *cs_vello_qt_texture(void *qt_device, int *out_width, int *out_h
     if (out_height) {
         *out_height = g_height;
     }
+    // Extra retain so a resize on the Vello thread cannot free this texture
+    // before the render thread attaches it to the QSGTexture.
+    clear_export_locked();
+    g_export_tex = g_qt_tex[slot];
+    g_export_surf = g_surf[slot];
+    if (g_export_surf) {
+        CFRetain(g_export_surf);
+    }
     return (__bridge void *)g_qt_tex[slot];
+}
+
+extern "C" void cs_vello_attach_keep(void *qsg_texture) {
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (!qsg_texture || !g_export_tex) {
+        clear_export_locked();
+        return;
+    }
+    release_keep_locked(qsg_texture);
+    KeptTexture keep;
+    keep.tex = (__bridge_retained void *)g_export_tex;
+    keep.surf = g_export_surf;
+    g_export_tex = nil;
+    g_export_surf = nullptr;
+    g_keeps.emplace(qsg_texture, keep);
+    QObject::connect(static_cast<QObject *>(qsg_texture), &QObject::destroyed, [qsg_texture]() {
+        std::lock_guard<std::mutex> lock(g_mu);
+        release_keep_locked(qsg_texture);
+    });
 }
 
 extern "C" void *cs_vello_wrap_texture(void *mtl_texture, void *window, int width, int height) {

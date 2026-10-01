@@ -25,11 +25,16 @@ int cs_vello_shared_patch(void *patch_tex, int x, int y, int w, int h);
 
 // Render thread. Opens the published IOSurface on Qt's MTLDevice.
 // The returned MTLTexture is owned here; the caller must not release it.
+// A successful return retains that texture until cs_vello_attach_keep.
 void *cs_vello_qt_texture(void *qt_device, int *out_width, int *out_height);
 
 // Wraps that texture as a QSGTexture* for `window` (a QQuickWindow).
 // Qt owns the returned texture.
 void *cs_vello_wrap_texture(void *mtl_texture, void *window, int width, int height);
+
+// Render thread. Keeps the texture just returned by cs_vello_qt_texture alive
+// until `qsg_texture` is destroyed. Pass null to drop that retain instead.
+void cs_vello_attach_keep(void *qsg_texture);
 
 uint64_t cs_vello_frame_generation(void);
 

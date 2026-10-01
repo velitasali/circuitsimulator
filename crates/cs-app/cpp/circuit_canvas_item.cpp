@@ -31,6 +31,8 @@ extern "C" {
     void cs_vello_shared_release(void);
     void *cs_vello_qt_texture(void *qt_device, int *out_width, int *out_height);
     void *cs_vello_wrap_texture(void *mtl_texture, void *window, int width, int height);
+    // Pairs with cs_vello_qt_texture. Pass the QSGTexture, or null to drop the retain.
+    void cs_vello_attach_keep(void *qsg_texture);
     uint64_t cs_vello_frame_generation(void);
 }
 #endif
@@ -105,22 +107,47 @@ void CircuitCanvasItem::syncVelloHost() {
     emit hostReady();
 }
 
-QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) {
-#ifdef Q_OS_MACOS
-    auto *node = static_cast<QSGSimpleTextureNode *>(oldNode);
-    if (!node) {
-        node = new QSGSimpleTextureNode();
-        node->setFiltering(QSGTexture::Linear);
-        node->setOwnsTexture(true);
-    }
-    if (!window() || width() <= 0 || height() <= 0) {
+namespace {
+
+QSGSimpleTextureNode *texture_node(QSGSimpleTextureNode *node) {
+    if (node) {
         return node;
     }
+    node = new QSGSimpleTextureNode();
+    node->setFiltering(QSGTexture::Linear);
+    node->setOwnsTexture(true);
+    return node;
+}
+
+// A texture-less node still has geometry. Qt batches it and Metal reads
+// offset 0x58 of a null texture (SIGSEGV in setFragmentTextures). Delete it
+// and return null: the scene graph does not remove a node we simply drop,
+// and the grid shader shows until a frame exists.
+QSGNode *node_with_texture(QSGSimpleTextureNode *node, qreal width, qreal height) {
+    if (!node) {
+        return nullptr;
+    }
+    if (node->texture() == nullptr) {
+        delete node;
+        return nullptr;
+    }
+    node->setRect(0, 0, width, height);
+    return node;
+}
+
+} // namespace
+
+QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) {
+    auto *node = static_cast<QSGSimpleTextureNode *>(oldNode);
+    if (!window() || width() <= 0 || height() <= 0) {
+        return node_with_texture(node, width(), height());
+    }
+#ifdef Q_OS_MACOS
     QRhi *rhi = window()->rhi();
     const auto *handles = rhi ? static_cast<const QRhiMetalNativeHandles *>(rhi->nativeHandles()) : nullptr;
     if (handles && handles->dev) {
         const uint64_t gen = cs_vello_frame_generation();
-        if (gen != m_last_generation || node->texture() == nullptr) {
+        if (!node || node->texture() == nullptr || gen != m_last_generation) {
             int tw = 0;
             int th = 0;
             void *native = cs_vello_qt_texture(reinterpret_cast<void *>(handles->dev), &tw, &th);
@@ -128,37 +155,27 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
                 QSGTexture *texture = static_cast<QSGTexture *>(
                     cs_vello_wrap_texture(native, window(), tw, th));
                 if (texture) {
+                    cs_vello_attach_keep(texture);
+                    node = texture_node(node);
                     node->setTexture(texture);
-                    node->setRect(0, 0, width(), height());
                     node->setSourceRect(QRectF(0, 0, tw, th));
                     m_last_generation = gen;
+                } else {
+                    cs_vello_attach_keep(nullptr);
                 }
             }
         }
     }
-    if (node->texture() != nullptr) {
-        node->setRect(0, 0, width(), height());
-    }
-    return node;
+    return node_with_texture(node, width(), height());
 #else
-    auto *node = static_cast<QSGSimpleTextureNode *>(oldNode);
-    if (!node) {
-        node = new QSGSimpleTextureNode();
-        node->setFiltering(QSGTexture::Linear);
-        node->setOwnsTexture(true);
-    }
-    if (!window() || width() <= 0 || height() <= 0) {
-        return node;
-    }
-
     const uint64_t share_gen = cs_vello_share_generation();
-    if (share_gen != 0 && (share_gen != m_last_generation || node->texture() == nullptr)) {
+    if (share_gen != 0 && (!node || node->texture() == nullptr || share_gen != m_last_generation)) {
         int tw = 0;
         int th = 0;
         void *native = cs_vello_share_adopt(window(), &tw, &th);
         if (native && tw > 0 && th > 0) {
+            node = texture_node(node);
             node->setTexture(static_cast<QSGTexture *>(native));
-            node->setRect(0, 0, width(), height());
             node->setSourceRect(QRectF(0, 0, tw, th));
             m_last_generation = share_gen;
         }
@@ -166,7 +183,7 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
     // generation() is 0 until a shared frame exists, and again after adopt()
     // gives up. Those frames upload the read-back image.
     const uint64_t gen = cs_canvas_generation();
-    if (share_gen == 0 && (gen != m_last_generation || node->texture() == nullptr)) {
+    if (share_gen == 0 && (!node || node->texture() == nullptr || gen != m_last_generation)) {
         uint32_t w = 0, h = 0, stride = 0;
         const uint8_t *pixels = cs_canvas_render(&w, &h, &stride);
         if (pixels && w > 0 && h > 0) {
@@ -178,17 +195,14 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
             QSGTexture *texture = window()->createTextureFromImage(
                 img, QQuickWindow::TextureHasAlphaChannel);
             if (texture) {
+                node = texture_node(node);
                 node->setTexture(texture);
-                node->setRect(0, 0, width(), height());
                 node->setSourceRect(QRectF(0, 0, w, h));
                 m_last_generation = gen;
             }
         }
     }
-    if (node->texture() != nullptr) {
-        node->setRect(0, 0, width(), height());
-    }
-    return node;
+    return node_with_texture(node, width(), height());
 #endif
 }
 

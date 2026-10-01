@@ -1,23 +1,57 @@
 #include "circuit_canvas_item.h"
-#include <QImage>
+#include <QMetaObject>
+#include <QPointer>
 #include <QtQml>
 #include <cmath>
 
+#ifndef Q_OS_MACOS
+#include <QImage>
+
+#include "vello_share.h"
+#endif
+
+#ifdef Q_OS_MACOS
+#include <rhi/qrhi.h>
+#endif
+
+extern "C" {
+    void cs_canvas_item_request_update();
+    void cs_vello_preview_release(void);
+}
+
+#ifndef Q_OS_MACOS
 extern "C" {
     const uint8_t *cs_canvas_render(uint32_t *out_width, uint32_t *out_height, uint32_t *out_stride);
     uint64_t cs_canvas_generation();
-    void cs_canvas_item_request_update();
-    void cs_canvas_meta(double *out_cx, double *out_cy, double *out_zoom,
-                        double *out_pad_x, double *out_pad_y, double *out_dpr,
-                        double *out_view_w, double *out_view_h);
 }
+#endif
+
+#ifdef Q_OS_MACOS
+extern "C" {
+    void cs_vello_shared_release(void);
+    void *cs_vello_qt_texture(void *qt_device, int *out_width, int *out_height);
+    void *cs_vello_wrap_texture(void *mtl_texture, void *window, int width, int height);
+    uint64_t cs_vello_frame_generation(void);
+}
+#endif
 
 static CircuitCanvasItem *s_active_item = nullptr;
 
 extern "C" void cs_canvas_item_request_update() {
-    if (s_active_item) {
-        s_active_item->update();
+    // The Vello frame is finished on a background thread. Queue the repaint
+    // onto the item's thread; update() itself is not safe to call from there.
+    QPointer<CircuitCanvasItem> item = s_active_item;
+    if (!item) {
+        return;
     }
+    QMetaObject::invokeMethod(
+        item.data(),
+        [item]() {
+            if (item) {
+                item->update();
+            }
+        },
+        Qt::QueuedConnection);
 }
 
 CircuitCanvasItem::CircuitCanvasItem(QQuickItem *parent)
@@ -28,94 +62,134 @@ CircuitCanvasItem::CircuitCanvasItem(QQuickItem *parent)
 }
 
 CircuitCanvasItem::~CircuitCanvasItem() {
+    cs_vello_preview_release();
+#ifdef Q_OS_MACOS
+    cs_vello_shared_release();
+#endif
     if (s_active_item == this) {
         s_active_item = nullptr;
     }
 }
 
-void CircuitCanvasItem::setCenterX(double cx) {
-    if (std::abs(m_centerX - cx) > 1e-4) {
-        m_centerX = cx;
-        emit centerChanged();
-        update();
+void CircuitCanvasItem::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) {
+    QQuickItem::geometryChange(newGeometry, oldGeometry);
+    syncVelloHost();
+}
+
+void CircuitCanvasItem::itemChange(ItemChange change, const ItemChangeData &value) {
+    QQuickItem::itemChange(change, value);
+    if (change == ItemSceneChange) {
+        if (!value.window) {
+            m_host_w = -1.0;
+        } else {
+            syncVelloHost();
+        }
     }
 }
 
-void CircuitCanvasItem::setCenterY(double cy) {
-    if (std::abs(m_centerY - cy) > 1e-4) {
-        m_centerY = cy;
-        emit centerChanged();
-        update();
+void CircuitCanvasItem::syncVelloHost() {
+    QQuickWindow *win = window();
+    if (!win || width() < 1.0 || height() < 1.0) {
+        return;
     }
-}
-
-void CircuitCanvasItem::setZoom(double z) {
-    if (std::abs(m_zoom - z) > 1e-4) {
-        m_zoom = z;
-        emit zoomChanged();
-        update();
+    const double dpr = win->devicePixelRatio();
+    const double w = width();
+    const double h = height();
+    if (std::abs(m_host_w - w) < 0.5 && std::abs(m_host_h - h) < 0.5 &&
+        std::abs(m_host_dpr - dpr) < 1e-4) {
+        return;
     }
+    m_host_w = w;
+    m_host_h = h;
+    m_host_dpr = dpr;
+    emit hostReady();
 }
 
 QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) {
+#ifdef Q_OS_MACOS
     auto *node = static_cast<QSGSimpleTextureNode *>(oldNode);
     if (!node) {
         node = new QSGSimpleTextureNode();
         node->setFiltering(QSGTexture::Linear);
+        node->setOwnsTexture(true);
     }
-
+    if (!window() || width() <= 0 || height() <= 0) {
+        return node;
+    }
+    QRhi *rhi = window()->rhi();
+    const auto *handles = rhi ? static_cast<const QRhiMetalNativeHandles *>(rhi->nativeHandles()) : nullptr;
+    if (handles && handles->dev) {
+        const uint64_t gen = cs_vello_frame_generation();
+        if (gen != m_last_generation || node->texture() == nullptr) {
+            int tw = 0;
+            int th = 0;
+            void *native = cs_vello_qt_texture(reinterpret_cast<void *>(handles->dev), &tw, &th);
+            if (native && tw > 0 && th > 0) {
+                QSGTexture *texture = static_cast<QSGTexture *>(
+                    cs_vello_wrap_texture(native, window(), tw, th));
+                if (texture) {
+                    node->setTexture(texture);
+                    node->setRect(0, 0, width(), height());
+                    node->setSourceRect(QRectF(0, 0, tw, th));
+                    m_last_generation = gen;
+                }
+            }
+        }
+    }
+    if (node->texture() != nullptr) {
+        node->setRect(0, 0, width(), height());
+    }
+    return node;
+#else
+    auto *node = static_cast<QSGSimpleTextureNode *>(oldNode);
+    if (!node) {
+        node = new QSGSimpleTextureNode();
+        node->setFiltering(QSGTexture::Linear);
+        node->setOwnsTexture(true);
+    }
     if (!window() || width() <= 0 || height() <= 0) {
         return node;
     }
 
-    uint64_t gen = cs_canvas_generation();
-    if (gen != m_last_generation || node->texture() == nullptr) {
-        m_last_generation = gen;
-
+    const uint64_t share_gen = cs_vello_share_generation();
+    if (share_gen != 0 && (share_gen != m_last_generation || node->texture() == nullptr)) {
+        int tw = 0;
+        int th = 0;
+        void *native = cs_vello_share_adopt(window(), &tw, &th);
+        if (native && tw > 0 && th > 0) {
+            node->setTexture(static_cast<QSGTexture *>(native));
+            node->setRect(0, 0, width(), height());
+            node->setSourceRect(QRectF(0, 0, tw, th));
+            m_last_generation = share_gen;
+        }
+    }
+    // generation() is 0 until a shared frame exists, and again after adopt()
+    // gives up. Those frames upload the read-back image.
+    const uint64_t gen = cs_canvas_generation();
+    if (share_gen == 0 && (gen != m_last_generation || node->texture() == nullptr)) {
         uint32_t w = 0, h = 0, stride = 0;
         const uint8_t *pixels = cs_canvas_render(&w, &h, &stride);
         if (pixels && w > 0 && h > 0) {
-            double dpr = window() ? window()->devicePixelRatio() : 1.0;
+            const double dpr = window()->devicePixelRatio();
             QImage img(pixels, static_cast<int>(w), static_cast<int>(h),
                        static_cast<qsizetype>(stride),
                        QImage::Format_RGBA8888_Premultiplied);
             img.setDevicePixelRatio(dpr);
-
             QSGTexture *texture = window()->createTextureFromImage(
                 img, QQuickWindow::TextureHasAlphaChannel);
-            node->setTexture(texture);
-            node->setOwnsTexture(true);
-
-            cs_canvas_meta(&m_rendered_cx, &m_rendered_cy, &m_rendered_zoom,
-                           &m_pad_x, &m_pad_y, &m_rendered_dpr,
-                           &m_rendered_view_w, &m_rendered_view_h);
+            if (texture) {
+                node->setTexture(texture);
+                node->setRect(0, 0, width(), height());
+                node->setSourceRect(QRectF(0, 0, w, h));
+                m_last_generation = gen;
+            }
         }
     }
-
     if (node->texture() != nullptr) {
-        double dpr = m_rendered_dpr > 0.0 ? m_rendered_dpr : (window() ? window()->devicePixelRatio() : 1.0);
-        double zoom_ratio = (m_rendered_zoom > 0.0 && m_zoom > 0.0) ? (m_rendered_zoom / m_zoom) : 1.0;
-
-        double dx = (m_centerX - m_rendered_cx) * m_rendered_zoom * dpr;
-        double dy = (m_centerY - m_rendered_cy) * m_rendered_zoom * dpr;
-
-        double srcW = width() * dpr * zoom_ratio;
-        double srcH = height() * dpr * zoom_ratio;
-        double srcX = m_pad_x * dpr + dx - (srcW - width() * dpr) * 0.5;
-        double srcY = m_pad_y * dpr + dy - (srcH - height() * dpr) * 0.5;
-
-        if (std::abs(zoom_ratio - 1.0) < 1e-4) {
-            srcX = std::round(srcX);
-            srcY = std::round(srcY);
-            srcW = std::round(srcW);
-            srcH = std::round(srcH);
-        }
-
         node->setRect(0, 0, width(), height());
-        node->setSourceRect(QRectF(srcX, srcY, srcW, srcH));
     }
-
     return node;
+#endif
 }
 
 extern "C" void cs_set_native_text_rendering() {
@@ -133,5 +207,3 @@ extern "C" void cs_register_canvas_item() {
 extern "C" const char* cs_qt_version() {
     return qVersion();
 }
-
-

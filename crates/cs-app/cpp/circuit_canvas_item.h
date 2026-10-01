@@ -6,42 +6,23 @@
 
 class CircuitCanvasItem : public QQuickItem {
     Q_OBJECT
-    Q_PROPERTY(double centerX READ centerX WRITE setCenterX NOTIFY centerChanged)
-    Q_PROPERTY(double centerY READ centerY WRITE setCenterY NOTIFY centerChanged)
-    Q_PROPERTY(double zoom READ zoom WRITE setZoom NOTIFY zoomChanged)
 public:
     explicit CircuitCanvasItem(QQuickItem *parent = nullptr);
     ~CircuitCanvasItem() override;
 
-    double centerX() const { return m_centerX; }
-    void setCenterX(double cx);
-
-    double centerY() const { return m_centerY; }
-    void setCenterY(double cy);
-
-    double zoom() const { return m_zoom; }
-    void setZoom(double z);
-
 signals:
-    void centerChanged();
-    void zoomChanged();
+    // The canvas item has a size. QML asks for the first Vello frame.
+    void hostReady();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    void itemChange(ItemChange change, const ItemChangeData &value) override;
 
 private:
+    void syncVelloHost();
     uint64_t m_last_generation = 0;
-    double m_centerX = 0.0;
-    double m_centerY = 0.0;
-    double m_zoom = 1.0;
-
-    double m_rendered_cx = 0.0;
-    double m_rendered_cy = 0.0;
-    double m_rendered_zoom = 1.0;
-    double m_pad_x = 0.0;
-    double m_pad_y = 0.0;
-    double m_rendered_dpr = 1.0;
-    double m_rendered_view_w = 0.0;
-    double m_rendered_view_h = 0.0;
+    double m_host_w = -1.0;
+    double m_host_h = -1.0;
+    double m_host_dpr = 0.0;
 };
-

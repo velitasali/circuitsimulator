@@ -4,9 +4,10 @@ import QtQuick.Dialogs
 import QtQuick.Window
 import cs_app
 
-/* Pan/zoom/select canvas backed by native tiny-skia software rasterization
- * (CircuitCanvasItem) composited over the existing GPU grid shader.
- * Forwarding all input to CircuitCanvas (Rust scene + hit-test). Hosted by CircuitPanel.qml. */
+/* Pan/zoom/select canvas. The picture is the Vello frame in
+ * CircuitCanvasItem, so overlays in this file paint above it. The grid
+ * shader underneath shows until that frame arrives. Input goes to
+ * CircuitCanvas. Hosted by CircuitPanel.qml. */
 Item {
     id: root
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
@@ -77,35 +78,7 @@ Item {
     CircuitCanvasItem {
         id: nativeCanvas
         anchors.fill: parent
-        centerX: CircuitCanvas.centerX
-        centerY: CircuitCanvas.centerY
-        zoom: CircuitCanvas.zoom
-    }
-
-    Timer {
-        id: panSettleTimer
-        interval: 60
-        repeat: false
-        onTriggered: {
-            if (typeof CircuitCanvas.settlePan === "function") {
-                CircuitCanvas.settlePan()
-            } else if (typeof CircuitCanvas.settle_pan === "function") {
-                CircuitCanvas.settle_pan()
-            }
-        }
-    }
-
-    Connections {
-        target: CircuitCanvas
-        function onCenterXChanged() {
-            panSettleTimer.restart()
-        }
-        function onCenterYChanged() {
-            panSettleTimer.restart()
-        }
-        function onZoomChanged() {
-            panSettleTimer.restart()
-        }
+        onHostReady: CircuitCanvas.render()
     }
 
     MouseArea {

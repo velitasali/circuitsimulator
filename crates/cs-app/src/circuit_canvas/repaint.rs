@@ -1,4 +1,4 @@
-//! Repaint tracking, overscan management, coordinate culling, and canvas render state synchronization.
+//! Repaint tracking, coordinate culling, and canvas render state.
 
 use cs_engine::canvas::{Canvas, Change, DirtySet, Palette, Rect};
 use serde_json::{Value, json};
@@ -59,10 +59,10 @@ pub(super) fn rect_json(r: Rect) -> Value {
     json!({ "x": r.x, "y": r.y, "w": r.w, "h": r.h })
 }
 
-pub(super) fn render_canvas(canvas: &Canvas, dark: bool, dpr: f64) {
+pub(super) fn render_canvas(canvas: &Canvas, dark: bool, dpr: f64) -> bool {
     let (w, h) = canvas.viewport().view_size();
     if w <= 0.0 || h <= 0.0 {
-        return;
+        return false;
     }
     let palette = if dark {
         Palette::dark()
@@ -75,31 +75,6 @@ pub(super) fn render_canvas(canvas: &Canvas, dark: bool, dpr: f64) {
         w.round().max(1.0) as u32,
         h.round().max(1.0) as u32,
         dpr.max(1.0),
-    );
-}
-
-pub(super) fn render_canvas_regions(
-    canvas: &Canvas,
-    dark: bool,
-    dpr: f64,
-    scene_rects: &[Rect],
-) -> bool {
-    let (w, h) = canvas.viewport().view_size();
-    if w <= 0.0 || h <= 0.0 {
-        return false;
-    }
-    let palette = if dark {
-        Palette::dark()
-    } else {
-        Palette::light()
-    };
-    crate::native_canvas::update_render_regions(
-        canvas,
-        &palette,
-        w.round().max(1.0) as u32,
-        h.round().max(1.0) as u32,
-        dpr.max(1.0),
-        scene_rects,
     )
 }
 

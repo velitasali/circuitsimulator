@@ -10,7 +10,7 @@ pub mod selection;
 
 use crate::path_util::strip_file_url;
 use cs_engine::backup;
-use cs_engine::canvas::{Canvas, Change};
+use cs_engine::canvas::{Canvas, Change, DirtySet, Palette};
 use cs_engine::settings;
 use cs_engine::units;
 use files::PendingReplace;
@@ -99,7 +99,6 @@ pub struct CircuitCanvas {
     pub(crate) last_warnings_count: usize,
     pub(crate) last_warnings_crashed: bool,
     pub(crate) dpr: f64,
-    pub(crate) last_nav_raster: Option<std::time::Instant>,
 }
 
 impl Default for CircuitCanvas {
@@ -125,7 +124,6 @@ impl Default for CircuitCanvas {
             last_warnings_count: 0,
             last_warnings_crashed: false,
             dpr: 1.0,
-            last_nav_raster: None,
             grid_color: String::new(),
             canvas_color: String::new(),
             viewport_color: String::new(),
@@ -374,25 +372,11 @@ impl CircuitCanvas {
             && !c.settings;
 
         if view_nav {
-            let vp = self.inner.viewport();
-            let center = vp.center();
-            if !crate::native_canvas::pixmap_covers_view(
-                center.x,
-                center.y,
-                vp.zoom(),
-                vp.view_size().0,
-                vp.view_size().1,
-            ) {
-                let due = self
-                    .last_nav_raster
-                    .is_none_or(|t| t.elapsed() >= std::time::Duration::from_millis(32));
-                if due {
-                    self.inner.mark_full_dirty();
-                    let dirty = self.inner.take_dirty();
-                    self.render_canvas();
-                    self.record_repaint_event(&dirty, true, c);
-                }
-            }
+            // Pan and zoom redraw the Vello frame for the current view.
+            // The viewport change is not in the dirty set, so a busy presenter
+            // has to mark the whole canvas or the last frame of the gesture
+            // never comes back.
+            self.redraw_or_mark_full();
         } else {
             let dirty = self.inner.take_dirty();
             let (vw, vh) = self.inner.viewport().view_size();
@@ -400,46 +384,58 @@ impl CircuitCanvas {
                 self.inner.restore_dirty(dirty);
                 return;
             }
-            let vp = self.inner.viewport();
-            let center = vp.center();
-            let zoom = vp.zoom();
-            let meta = crate::native_canvas::current_canvas_meta();
-            let zoom_matches = (meta.zoom - zoom).abs() <= 1e-4;
-            let covers = zoom_matches
-                && crate::native_canvas::pixmap_covers_view(center.x, center.y, zoom, vw, vh);
-            let force_full = dirty.full || c.viewport || !covers;
-            let scene_rects = if force_full {
-                Vec::new()
-            } else {
-                dirty.scene_rects(&self.inner)
-            };
-            let fallback_full = scene_rects.is_empty() && (c.items || c.wires) && !dirty.full;
-            let painted_full;
-            if force_full || fallback_full {
-                self.render_canvas();
-                painted_full = true;
-            } else if !scene_rects.is_empty() {
-                if !self.render_canvas_regions(&scene_rects) {
-                    self.render_canvas();
-                    painted_full = true;
-                } else {
-                    painted_full = false;
-                }
-            } else {
-                painted_full = false;
-            }
-            if force_full || fallback_full || !scene_rects.is_empty() || c.band {
-                self.record_repaint_event(&dirty, painted_full, c);
-            }
+            self.paint_vello(dirty, c);
         }
     }
 
-    fn record_repaint_event(
-        &mut self,
-        dirty: &cs_engine::canvas::DirtySet,
-        painted_full: bool,
-        c: Change,
-    ) {
+    /// A full frame redraws the view. A small change is drawn on top of the
+    /// frame already showing. An unchanged tick does not draw.
+    fn paint_vello(&mut self, dirty: DirtySet, c: Change) {
+        if dirty.full || c.viewport {
+            // A resize is not stored as partial rects, so a busy retry is a full frame.
+            let force_full = c.viewport;
+            self.present_full(dirty, c, force_full);
+            return;
+        }
+        let scene_rects = dirty.scene_rects(&self.inner);
+        if scene_rects.is_empty() {
+            if c.items || c.wires {
+                // Nothing in the dirty set describes this change, so a retry
+                // has to be a full frame.
+                self.present_full(dirty, c, true);
+            } else if c.band {
+                self.record_repaint_event(&dirty, false, c);
+            }
+            return;
+        }
+        let (vw, vh) = self.inner.viewport().view_size();
+        let palette = if self.dark {
+            Palette::dark()
+        } else {
+            Palette::light()
+        };
+        match crate::vello_preview::present_regions(
+            &self.inner,
+            &palette,
+            vw.round().max(1.0) as u32,
+            vh.round().max(1.0) as u32,
+            self.dpr.max(1.0),
+            &scene_rects,
+        ) {
+            crate::vello_preview::RegionPresent::Painted => {
+                self.record_repaint_event(&dirty, false, c);
+            }
+            crate::vello_preview::RegionPresent::Busy => {
+                self.inner.restore_dirty(dirty);
+            }
+            crate::vello_preview::RegionPresent::Fallback => {
+                self.present_full(dirty, c, false);
+            }
+            crate::vello_preview::RegionPresent::Skipped => {}
+        }
+    }
+
+    fn record_repaint_event(&mut self, dirty: &DirtySet, painted_full: bool, c: Change) {
         let band_rect = self.inner.band_item_rect();
         if let Some((rects, is_full, sub_rects)) =
             repaint::check_and_record_repaints(&self.inner, band_rect, c, dirty, painted_full)
@@ -468,14 +464,28 @@ impl CircuitCanvas {
         }
     }
 
-    pub fn render_canvas(&mut self) {
-        self.last_nav_raster = Some(std::time::Instant::now());
-        repaint::render_canvas(&self.inner, self.dark, self.dpr);
+    pub fn render_canvas(&mut self) -> bool {
+        repaint::render_canvas(&self.inner, self.dark, self.dpr)
     }
 
-    fn render_canvas_regions(&mut self, scene_rects: &[cs_engine::canvas::Rect]) -> bool {
-        self.last_nav_raster = Some(std::time::Instant::now());
-        repaint::render_canvas_regions(&self.inner, self.dark, self.dpr, scene_rects)
+    /// Full frame. A busy presenter marks the canvas so the next tick retries.
+    fn redraw_or_mark_full(&mut self) {
+        if !self.render_canvas() {
+            self.inner.mark_full_dirty();
+        }
+    }
+
+    /// Queue a full frame for `dirty`. On busy, put `dirty` back. `force_full`
+    /// covers a viewport change or a change the dirty rects do not describe.
+    fn present_full(&mut self, dirty: DirtySet, c: Change, force_full: bool) {
+        if self.render_canvas() {
+            self.record_repaint_event(&dirty, true, c);
+            return;
+        }
+        self.inner.restore_dirty(dirty);
+        if force_full {
+            self.inner.mark_full_dirty();
+        }
     }
 }
 
@@ -1223,7 +1233,7 @@ impl CircuitCanvas {
             self.active_device_changed();
             self.devices_changed();
             self.items_changed();
-            self.render_canvas();
+            self.redraw_or_mark_full();
         }
     }
 
@@ -1237,7 +1247,7 @@ impl CircuitCanvas {
                 .set_active_device_id(self.active_device_id.clone());
             self.active_device_changed();
             self.devices_changed();
-            self.render_canvas();
+            self.redraw_or_mark_full();
         }
     }
 
@@ -1796,7 +1806,7 @@ impl CircuitCanvas {
     fn set_show_component_rects(&mut self, show: bool) {
         if self.inner.set_show_component_rect(show) {
             self.appearance_changed();
-            self.render_canvas();
+            self.redraw_or_mark_full();
         }
     }
 
@@ -2187,7 +2197,7 @@ impl CircuitCanvas {
         self.dark = dark;
         self.apply_palette();
         self.appearance_changed();
-        self.render_canvas();
+        self.redraw_or_mark_full();
     }
 
     #[qslot]
@@ -2195,25 +2205,13 @@ impl CircuitCanvas {
         let d = dpr.max(1.0);
         if (self.dpr - d).abs() > 1e-4 {
             self.dpr = d;
-            self.render_canvas();
+            self.redraw_or_mark_full();
         }
     }
 
     #[qslot]
     fn render(&mut self) {
-        self.render_canvas();
-    }
-
-    #[qslot]
-    fn settle_pan(&mut self) {
-        let meta = crate::native_canvas::current_canvas_meta();
-        let vp = self.inner.viewport();
-        let dx = (vp.center().x - meta.center_x).abs() * vp.zoom();
-        let dy = (vp.center().y - meta.center_y).abs() * vp.zoom();
-        let zoom_changed = (vp.zoom() - meta.zoom).abs() > 1e-4;
-        if dx > 1.0 || dy > 1.0 || zoom_changed {
-            self.render_canvas();
-        }
+        self.redraw_or_mark_full();
     }
 
     #[qslot]

@@ -241,54 +241,28 @@ impl super::drawable::Drawable for Sh1107 {
 
         let screen_x = -64.0;
         let screen_y = -h / 2.0 - 10.0;
-        // Deep-black OLED screen
-        d.fill_rect(screen_x, screen_y, w, h, Color::rgb(0, 0, 0));
-        d.stroke_rect(screen_x, screen_y, w, h, ctx.pal.border.fade(0.4), 1.0);
-
-        if let Some(reading) = ctx.canvas.readings().get(ctx.item_id) {
-            if !reading.text.is_empty() {
-                let fg = Color::rgb(0, 170, 255);
-                let hex_bytes = reading.text.as_bytes();
-                let num_pages = (self.height as usize) / 8;
-                let cols = self.width as usize;
-                for page in 0..num_pages {
-                    let page_offset = page * cols * 2;
-                    let py_base = screen_y + (page * 8) as f64;
-                    for col in 0..cols {
-                        let idx = page_offset + col * 2;
-                        if idx + 2 <= hex_bytes.len() {
-                            let hi = hex_nibble(hex_bytes[idx]);
-                            let lo = hex_nibble(hex_bytes[idx + 1]);
-                            let val = (hi << 4) | lo;
-                            if val == 0 {
-                                continue;
-                            }
-                            let px = screen_x + col as f64;
-                            if val == 0xFF {
-                                d.fill_rect(px, py_base, 1.0, 8.0, fg);
-                            } else {
-                                for bit in 0..8 {
-                                    if (val & (1 << bit)) != 0 {
-                                        d.fill_rect(px, py_base + bit as f64, 1.0, 1.0, fg);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let hex = ctx
+            .canvas
+            .readings()
+            .get(ctx.item_id)
+            .map(|reading| reading.text.as_str())
+            .unwrap_or("");
+        super::mono_fb::paint_mono_screen(
+            d,
+            screen_x,
+            screen_y,
+            w,
+            h,
+            self.width as usize,
+            (self.height as usize) / 8,
+            hex,
+            Color::rgb(0, 170, 255),
+            Color::rgb(0, 0, 0),
+            ctx.pal.border.fade(0.4),
+            1.0,
+            true,
+        );
         true
-    }
-}
-
-#[inline]
-fn hex_nibble(b: u8) -> u8 {
-    match b {
-        b'0'..=b'9' => b - b'0',
-        b'a'..=b'f' => b - b'a' + 10,
-        b'A'..=b'F' => b - b'A' + 10,
-        _ => 0,
     }
 }
 

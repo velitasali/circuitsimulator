@@ -1,8 +1,12 @@
 use std::fmt::Write as _;
 
-use super::raster::arc_pts;
+use image::ImageEncoder;
+use image::codecs::png::PngEncoder;
+
+use super::arc;
 use crate::canvas::draw::{Align, Color, Draw};
 use crate::canvas::geom::Rect;
+use crate::canvas::image_buf::ImageBuf;
 
 pub struct Svg {
     out: String,
@@ -213,7 +217,7 @@ impl Draw for Svg {
     }
 
     fn arc(&mut self, cx: f64, cy: f64, r: f64, a0: f64, a1: f64, c: Color, width: f64) {
-        let pts = arc_pts(cx, cy, r, a0, a1);
+        let pts = arc::arc_pts(cx, cy, r, a0, a1);
         self.polyline(&pts, c, width, false);
     }
 
@@ -319,28 +323,41 @@ impl Draw for Svg {
         y: f64,
         w: f64,
         h: f64,
-        pm: &tiny_skia::Pixmap,
+        image: &ImageBuf,
         opacity: f64,
     ) -> bool {
-        if pm.width() == 0 || pm.height() == 0 || w <= 0.0 || h <= 0.0 {
+        if image.width() == 0 || image.height() == 0 || w <= 0.0 || h <= 0.0 {
             return false;
         }
-        if let Ok(png_bytes) = pm.encode_png() {
-            let b64 = base64_encode(&png_bytes);
-            let _ = write!(
-                self.out,
-                "<image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" opacity=\"{}\" href=\"data:image/png;base64,{}\"/>\n",
-                f(x),
-                f(y),
-                f(w),
-                f(h),
-                f(opacity.clamp(0.0, 1.0)),
-                b64
-            );
-            return true;
-        }
-        false
+        let Some(png_bytes) = encode_png(image) else {
+            return false;
+        };
+        let b64 = base64_encode(&png_bytes);
+        let _ = write!(
+            self.out,
+            "<image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" opacity=\"{}\" href=\"data:image/png;base64,{}\"/>\n",
+            f(x),
+            f(y),
+            f(w),
+            f(h),
+            f(opacity.clamp(0.0, 1.0)),
+            b64
+        );
+        true
     }
+}
+
+fn encode_png(image: &ImageBuf) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    PngEncoder::new(&mut bytes)
+        .write_image(
+            image.pixels(),
+            image.width(),
+            image.height(),
+            image::ExtendedColorType::Rgba8,
+        )
+        .ok()?;
+    Some(bytes)
 }
 
 fn base64_encode(bytes: &[u8]) -> String {

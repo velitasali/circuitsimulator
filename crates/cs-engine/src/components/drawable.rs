@@ -366,7 +366,7 @@ fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, tunnels: &[&str]) {
 
 /// Width in scene units that renders as `css_px` logical pixels regardless of
 /// canvas zoom. Matches `PlotCanvas.qml` (`ctx.lineWidth` is CSS px): the
-/// tiny-skia raster multiplies scene-unit widths by zoom (x DPR for sharpness,
+/// canvas transform multiplies scene-unit widths by zoom (x DPR for sharpness,
 /// same as QML Canvas backing-store scaling), so dividing by the viewport zoom
 /// keeps logical width constant. `zoom` is `PaintCtx::scale`.
 fn scope_screen_width(zoom: f64, css_px: f64) -> f64 {

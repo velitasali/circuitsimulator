@@ -13,12 +13,15 @@ pub mod export;
 pub mod files;
 mod geom;
 pub(crate) mod history;
+mod image_buf;
 pub(crate) mod pin;
 pub(crate) mod place;
 pub(crate) mod props;
 pub mod scene;
 pub(crate) mod sim_sync;
 pub(crate) mod tooltip;
+pub mod vello_draw;
+mod vello_gpu;
 mod viewport;
 mod wire;
 pub(crate) mod wire_tool;
@@ -37,6 +40,7 @@ pub use export::{
 };
 pub use files::MemoryItemInfo;
 pub use geom::{Point, Rect, map_rect, snap_to_grid4, to_grid};
+pub use image_buf::ImageBuf;
 pub use pin::{PIN_HIT_RADIUS, Pin, PinDirection, PinGeom};
 pub use place::PlaceKind;
 pub use scene::{

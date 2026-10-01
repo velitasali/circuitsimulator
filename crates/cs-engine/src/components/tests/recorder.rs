@@ -1,6 +1,7 @@
 //! DrawRecorder for testing component canvas drawing commands deterministically.
 
 use crate::canvas::Canvas;
+use crate::canvas::ImageBuf;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Align, Color, Draw, PaintCtx, Palette};
 use crate::canvas::scene::Item;
@@ -323,7 +324,7 @@ impl Draw for DrawRecorder {
         self.ops.push(DrawOp::PopClip);
     }
 
-    fn blit_pixmap(&mut self, x: f64, y: f64, _pm: &tiny_skia::Pixmap, pm_scale: f64) -> bool {
+    fn blit_pixmap(&mut self, x: f64, y: f64, _image: &ImageBuf, pm_scale: f64) -> bool {
         self.ops.push(DrawOp::BlitPixmap { x, y, pm_scale });
         true
     }
@@ -334,7 +335,7 @@ impl Draw for DrawRecorder {
         y: f64,
         w: f64,
         h: f64,
-        _pm: &tiny_skia::Pixmap,
+        _image: &ImageBuf,
         opacity: f64,
     ) -> bool {
         self.ops.push(DrawOp::DrawPixmapRect {

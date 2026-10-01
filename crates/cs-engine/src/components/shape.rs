@@ -8,6 +8,7 @@ use super::props::{
     PropDef, PropError, PropValue, expect_bool, expect_float, expect_int, expect_string,
 };
 use super::{CompPin, Component, Stampable};
+use crate::canvas::ImageBuf;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Align, Draw, PaintCtx, parse_hex};
 use crate::elements::Kind;
@@ -80,31 +81,13 @@ pub const SHAPE_KINDS: &[&str] = &[
     "Image",
 ];
 
-pub fn decode_image_bytes(bytes: &[u8]) -> Option<tiny_skia::Pixmap> {
+pub fn decode_image_bytes(bytes: &[u8]) -> Option<ImageBuf> {
     if bytes.is_empty() {
         return None;
     }
-    if let Ok(pm) = tiny_skia::Pixmap::decode_png(bytes) {
-        return Some(pm);
-    }
-    if let Ok(dyn_img) = image::load_from_memory(bytes) {
-        let rgba = dyn_img.to_rgba8();
-        let (w, h) = rgba.dimensions();
-        if let Some(mut pm) = tiny_skia::Pixmap::new(w, h) {
-            let src_bytes = rgba.as_raw();
-            for (i, pixel) in pm.pixels_mut().iter_mut().enumerate() {
-                let r = src_bytes[i * 4];
-                let g = src_bytes[i * 4 + 1];
-                let b = src_bytes[i * 4 + 2];
-                let a = src_bytes[i * 4 + 3];
-                if let Some(c) = tiny_skia::PremultipliedColorU8::from_rgba(r, g, b, a) {
-                    *pixel = c;
-                }
-            }
-            return Some(pm);
-        }
-    }
-    None
+    let rgba = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    ImageBuf::from_rgba(w, h, rgba.into_raw())
 }
 
 pub fn hex_to_bytes(hex: &str) -> Vec<u8> {
@@ -160,7 +143,7 @@ pub struct Shape {
     pub embed_bck: bool,
     pub image_file: String,
     pub bck_data: String,
-    pub image_pixmap: Option<Arc<tiny_skia::Pixmap>>,
+    pub image_pixmap: Option<Arc<ImageBuf>>,
 }
 
 impl PartialEq for Shape {
@@ -938,8 +921,8 @@ impl Drawable for Shape {
             ShapeKind::Image => {
                 let x = -self.width / 2.0;
                 let y = -self.height / 2.0;
-                if let Some(pm) = &self.image_pixmap {
-                    d.draw_pixmap_rect(x, y, self.width, self.height, pm, self.opacity);
+                if let Some(image) = &self.image_pixmap {
+                    d.draw_pixmap_rect(x, y, self.width, self.height, image, self.opacity);
                 } else {
                     d.fill_rect(
                         x,

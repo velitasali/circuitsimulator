@@ -66,6 +66,7 @@ mod magnitude_comp;
 mod max72xx;
 mod mcu;
 mod memory;
+mod mono_fb;
 mod mosfet;
 mod mux;
 mod node;

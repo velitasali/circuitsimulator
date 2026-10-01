@@ -1,5 +1,6 @@
 //! Canvas drawing primitives: Color, Palette, Draw trait, and PaintCtx.
 
+use super::image_buf::ImageBuf;
 use crate::canvas::Canvas;
 use crate::canvas::geom::Rect;
 use crate::theme::{ColorId, ColorTheme};
@@ -238,19 +239,19 @@ pub trait Draw {
     fn device_scale(&self) -> f64 {
         1.0
     }
-    /// Blit a pixmap whose pixels were rasterized at `pm_scale` local units per
-    /// pixel, with pixmap (0,0) at local (`x`,`y`). Returns false if unsupported.
-    fn blit_pixmap(&mut self, _x: f64, _y: f64, _pm: &tiny_skia::Pixmap, _pm_scale: f64) -> bool {
+    /// Blit an image whose pixels were rasterized at `pm_scale` local units per
+    /// pixel, with pixel (0,0) at local (`x`,`y`). Returns false if unsupported.
+    fn blit_pixmap(&mut self, _x: f64, _y: f64, _image: &ImageBuf, _pm_scale: f64) -> bool {
         false
     }
-    /// Draw and scale a pixmap to fit the rectangle (x, y, w, h) with opacity. Returns false if unsupported.
+    /// Draw and scale an image to fit the rectangle (x, y, w, h) with opacity. Returns false if unsupported.
     fn draw_pixmap_rect(
         &mut self,
         _x: f64,
         _y: f64,
         _w: f64,
         _h: f64,
-        _pm: &tiny_skia::Pixmap,
+        _image: &ImageBuf,
         _opacity: f64,
     ) -> bool {
         false

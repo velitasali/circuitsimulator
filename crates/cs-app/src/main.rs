@@ -21,6 +21,7 @@ mod pending;
 mod plots;
 mod serial;
 mod tab_switcher;
+mod vello_preview;
 
 use app::App;
 use app_dialog::AppDialog;

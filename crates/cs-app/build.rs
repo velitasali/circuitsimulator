@@ -42,13 +42,25 @@ fn compile_macos() {
     let icon = manifest.join("../../resources/icons/circuitsimulator.icns");
     println!("cargo:rustc-env=CS_ICON_PATH={}", icon.display());
 
+    let cpp = manifest.join("cpp");
+    println!(
+        "cargo:rerun-if-changed={}",
+        cpp.join("vello_preview.mm").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        cpp.join("vello_preview.h").display()
+    );
+
     let mut build = cc::Build::new();
     build
         .file(macos.join("menu.mm"))
         .file(macos.join("touchbar.mm"))
         .file(macos.join("titlebar.mm"))
         .file(macos.join("appicon.mm"))
+        .file(cpp.join("vello_preview.mm"))
         .include(&macos)
+        .include(&cpp)
         .flag("-fobjc-arc")
         .flag("-std=c++17");
 
@@ -57,16 +69,21 @@ fn compile_macos() {
         build.flag(&format!("-F{libs}"));
         build.include(p.join("QtCore.framework/Headers"));
         build.include(p.join("QtGui.framework/Headers"));
+        build.include(p.join("QtQuick.framework/Headers"));
     }
     if let Some(inc) = qmake_query("QT_INSTALL_HEADERS") {
         let p = PathBuf::from(inc);
         build.include(&p);
         build.include(p.join("QtCore"));
         build.include(p.join("QtGui"));
+        build.include(p.join("QtQuick"));
     }
 
     build.compile("cs_macos");
     println!("cargo:rustc-link-lib=framework=AppKit");
+    println!("cargo:rustc-link-lib=framework=QuartzCore");
+    println!("cargo:rustc-link-lib=framework=Metal");
+    println!("cargo:rustc-link-lib=framework=IOSurface");
     if let Some(libs) = qmake_query("QT_INSTALL_LIBS") {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{libs}");
     }
@@ -176,6 +193,14 @@ fn compile_canvas_item() {
     let source = cpp_dir.join("circuit_canvas_item.cpp");
     println!("cargo:rerun-if-changed={}", header.display());
     println!("cargo:rerun-if-changed={}", source.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        cpp_dir.join("vello_share.cpp").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        cpp_dir.join("vello_share.h").display()
+    );
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let moc_out = out_dir.join("moc_circuit_canvas_item.cpp");
@@ -191,6 +216,7 @@ fn compile_canvas_item() {
         panic!("moc failed on {}", header.display());
     }
 
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let mut build = cc::Build::new();
     build
         .cpp(true)
@@ -198,13 +224,21 @@ fn compile_canvas_item() {
         .file(&moc_out)
         .include(&cpp_dir)
         .flag("-std=c++17");
+    // macOS keeps the IOSurface handoff in vello_preview.mm. The other
+    // platforms compile the shared-texture handoff beside this item.
+    if os != "macos" {
+        build.file(cpp_dir.join("vello_share.cpp"));
+    }
 
     if let Some(libs) = qmake_query("QT_INSTALL_LIBS") {
         let p = PathBuf::from(&libs);
-        if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        if os == "macos" {
             build.flag(&format!("-F{libs}"));
             build.include(p.join("QtCore.framework/Headers"));
             build.include(p.join("QtGui.framework/Headers"));
+            if let Some(rhi) = qtgui_rhi_include(&p) {
+                build.include(rhi);
+            }
             build.include(p.join("QtQuick.framework/Headers"));
             build.include(p.join("QtQml.framework/Headers"));
         }
@@ -220,13 +254,37 @@ fn compile_canvas_item() {
 
     build.compile("cs_canvas_item");
 
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+    if os == "macos" {
+        println!("cargo:rustc-link-lib=framework=QtGui");
         println!("cargo:rustc-link-lib=framework=QtQuick");
         println!("cargo:rustc-link-lib=framework=QtQml");
     } else if let Some(libs) = qmake_query("QT_INSTALL_LIBS") {
         println!("cargo:rustc-link-search=native={libs}");
         println!("cargo:rustc-link-lib=Qt6Quick");
     }
+    if os == "windows" {
+        println!("cargo:rustc-link-lib=d3d11");
+        println!("cargo:rustc-link-lib=d3d12");
+        println!("cargo:rustc-link-lib=dxgi");
+    } else if os == "linux" {
+        println!("cargo:rustc-link-lib=vulkan");
+    }
+}
+
+/// `<rhi/qrhi.h>` lives in a versioned framework header on macOS Qt.
+fn qtgui_rhi_include(libs: &Path) -> Option<PathBuf> {
+    let headers = libs.join("QtGui.framework/Headers");
+    if headers.join("rhi/qrhi.h").exists() {
+        return Some(headers);
+    }
+    let entries = std::fs::read_dir(&headers).ok()?;
+    for entry in entries.flatten() {
+        let candidate = entry.path().join("QtGui");
+        if candidate.join("rhi/qrhi.h").exists() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn qmake_query(key: &str) -> Option<String> {

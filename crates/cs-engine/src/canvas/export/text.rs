@@ -1,5 +1,4 @@
 use std::sync::OnceLock;
-use tiny_skia::PremultipliedColorU8;
 
 const FONT_TTF: &[u8] = include_bytes!("../../../../../resources/fonts/Ubuntu-R.ttf");
 const FONT_BOLD_TTF: &[u8] = include_bytes!("../../../../../resources/fonts/Ubuntu-B.ttf");
@@ -92,20 +91,4 @@ pub fn strip_tags(s: &str) -> std::borrow::Cow<'_, str> {
         }
     }
     std::borrow::Cow::Owned(out)
-}
-
-#[inline(always)]
-pub fn blend_over(src: PremultipliedColorU8, dst: PremultipliedColorU8) -> PremultipliedColorU8 {
-    if src.alpha() == 255 || dst.alpha() == 0 {
-        return src;
-    }
-    if src.alpha() == 0 {
-        return dst;
-    }
-    let inv_a = 255 - src.alpha() as u16;
-    let r = (src.red() as u16 + ((dst.red() as u16 * inv_a) / 255)).min(255);
-    let g = (src.green() as u16 + ((dst.green() as u16 * inv_a) / 255)).min(255);
-    let b = (src.blue() as u16 + ((dst.blue() as u16 * inv_a) / 255)).min(255);
-    let a = (src.alpha() as u16 + ((dst.alpha() as u16 * inv_a) / 255)).min(255);
-    PremultipliedColorU8::from_rgba(r as u8, g as u8, b as u8, a as u8).unwrap_or(src)
 }

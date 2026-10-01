@@ -92,7 +92,12 @@ Item {
     Connections {
         target: CircuitCanvas
         function onRepaintRecorded(rects, isFull, subRects) {
-            root.recordRepaint(rects, isFull, subRects)
+            // Window setup calls setViewSize while App is still borrowed.
+            // Updating the HUD inline reads App.i18nTick and aborts.
+            var r = rects
+            var full = isFull
+            var sub = subRects
+            Qt.callLater(function() { root.recordRepaint(r, full, sub) })
         }
     }
 

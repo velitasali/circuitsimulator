@@ -651,7 +651,7 @@ impl Canvas {
                 {
                     return std::fs::copy(&shape.image_file, path).is_ok();
                 } else if let Some(pm) = &shape.image_pixmap {
-                    if let Ok(png_bytes) = pm.encode_png() {
+                    if let Some(png_bytes) = pm.encode_png() {
                         return std::fs::write(path, png_bytes).is_ok();
                     }
                 }

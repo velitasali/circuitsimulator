@@ -149,48 +149,28 @@ impl super::drawable::Drawable for Pcd8544 {
         // Screen glass
         let sx = -42.0;
         let sy = -42.0;
-        d.fill_rect(sx, sy, 84.0, 48.0, Color::rgb(200, 215, 180));
-        d.stroke_rect(sx, sy, 84.0, 48.0, Color::rgb(140, 160, 144), 1.0);
-
-        let pixel_color = Color::rgb(28, 44, 32);
-
-        if let Some(reading) = ctx.canvas.readings().get(ctx.item_id) {
-            if !reading.text.is_empty() {
-                let hex_bytes = reading.text.as_bytes();
-                for page in 0..6 {
-                    let page_offset = page * 84 * 2;
-                    let py_base = sy + (page * 8) as f64;
-                    for col in 0..84 {
-                        let idx = page_offset + col * 2;
-                        if idx + 2 <= hex_bytes.len() {
-                            let hi = hex_nibble(hex_bytes[idx]);
-                            let lo = hex_nibble(hex_bytes[idx + 1]);
-                            let val = (hi << 4) | lo;
-                            if val == 0 {
-                                continue;
-                            }
-                            let px = sx + col as f64;
-                            for bit in 0..8 {
-                                if (val & (1 << bit)) != 0 {
-                                    d.fill_rect(px, py_base + bit as f64, 1.0, 1.0, pixel_color);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let hex = ctx
+            .canvas
+            .readings()
+            .get(ctx.item_id)
+            .map(|reading| reading.text.as_str())
+            .unwrap_or("");
+        super::mono_fb::paint_mono_screen(
+            d,
+            sx,
+            sy,
+            84.0,
+            48.0,
+            84,
+            6,
+            hex,
+            Color::rgb(28, 44, 32),
+            Color::rgb(200, 215, 180),
+            Color::rgb(140, 160, 144),
+            1.0,
+            false,
+        );
         true
-    }
-}
-
-#[inline]
-fn hex_nibble(b: u8) -> u8 {
-    match b {
-        b'0'..=b'9' => b - b'0',
-        b'a'..=b'f' => b - b'a' + 10,
-        b'A'..=b'F' => b - b'A' + 10,
-        _ => 0,
     }
 }
 

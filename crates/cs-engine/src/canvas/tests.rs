@@ -21,6 +21,21 @@ fn latch_trigger_none_drops_clock_wire() {
     assert!(pins.iter().all(|p| p.id != clk));
 }
 
+#[test]
+fn and_gate_num_inputs_drops_removed_pin_wire() {
+    let mut c = Canvas::empty();
+    let id = c.scene.add_and_gate(0.0, 0.0);
+    let rid = c.scene.add_default_resistor(80.0, 0.0);
+    let pin = format!("{id}-in1");
+    let rpin = format!("{rid}-lPin");
+    let pin_at = c.scene.pin_scene(&pin).expect("input pin");
+    let r_at = c.scene.pin_scene(&rpin).expect("resistor pin");
+    c.scene.connect_pins(&pin, pin_at, &rpin, r_at);
+    assert_eq!(c.scene.wires().len(), 1);
+    c.set_prop_text_for(&id, "NumInputs".to_string(), "1".to_string());
+    assert!(c.scene.wires().is_empty());
+}
+
 fn ready() -> Canvas {
     let mut c = Canvas::empty();
     c.set_view_size(800.0, 600.0);

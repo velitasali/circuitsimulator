@@ -159,6 +159,38 @@ impl Canvas {
         self.finish_component_change(spec)
     }
 
+    /// Property-dialog edit. The setter's [`ComponentChange`] decides undo,
+    /// wire rebuild, and sim refresh. The snapshot is taken before the write
+    /// and kept only when that change records undo.
+    pub fn apply_property_result<F>(&mut self, uid: &str, mutate: F) -> Change
+    where
+        F: FnOnce(&mut crate::canvas::scene::Item) -> Result<ComponentChange, ()>,
+    {
+        let uid_s = uid.to_string();
+        if self.scene.item_by_id(&uid_s).is_none() {
+            return Change::default();
+        }
+        let before = self.snapshot();
+        self.dirty_item_now(&uid_s);
+        let produced = self
+            .scene
+            .item_by_id_mut(&uid_s)
+            .and_then(|it| mutate(it).ok());
+        let Some(change) = produced else {
+            return Change::default();
+        };
+        let spec = change.with_uid(&uid_s);
+        if spec.undo {
+            self.history.undo.push(before);
+            let cap = self.max_undo();
+            while self.history.undo.len() > cap {
+                self.history.undo.remove(0);
+            }
+            self.history.redo.clear();
+        }
+        self.finish_component_change(spec)
+    }
+
     /// Apply flags after a mutation that already happened. Does not snapshot.
     pub fn apply_component_change(&mut self, spec: ComponentChange) -> Change {
         self.finish_component_change(spec)

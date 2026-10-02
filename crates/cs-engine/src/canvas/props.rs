@@ -50,67 +50,6 @@ fn item_monitor_names(it: &crate::canvas::scene::Item) -> Vec<String> {
     }
 }
 
-fn structural_text_prop(name: &str) -> bool {
-    matches!(
-        name,
-        "Package"
-            | "package"
-            | "Power_Pins"
-            | "Switch_Pins"
-            | "Num_Inputs"
-            | "numInputs"
-            | "Channels"
-            | "Poles"
-            | "Size"
-            | "Rows"
-            | "Cols"
-            | "Segments"
-            | "Pins"
-            | "Down"
-            | "Width"
-            | "Height"
-            | "Count"
-            | "Modules"
-            | "Trigger"
-            | "ShowButton"
-            | "Show_Button"
-            | "show_button"
-            | "NumDisplays"
-            | "numDisplays"
-            | "Vertical_Pins"
-            | "vertical_pins"
-    )
-}
-
-fn structural_bool_prop(name: &str) -> bool {
-    matches!(
-        name,
-        "Power_Pins"
-            | "Switch_Pins"
-            | "Logic_Symbol"
-            | "LogicSymbol"
-            | "logic_symbol"
-            | "Grounded"
-            | "Use_RS"
-            | "UseRS"
-            | "Use_Reset"
-            | "Tristate"
-            | "Double_Throw"
-            | "DT"
-            | "Common_Pin"
-            | "CommonPin"
-            | "Bussed"
-            | "PullUp"
-            | "Control_Pins"
-            | "Small"
-            | "ShowButton"
-            | "Show_Button"
-            | "show_button"
-            | "Vertical_Pins"
-            | "vertical_pins"
-    )
-}
-
 impl Canvas {
     pub fn open_properties(&mut self, uid: &str) -> Change {
         if self.scene.item_by_id(uid).is_none() {
@@ -239,16 +178,8 @@ impl Canvas {
     }
 
     pub fn set_prop_text_for(&mut self, uid: &str, name: String, text: String) -> Change {
-        let spec = if structural_text_prop(&name) {
-            ComponentChange::structural(uid)
-        } else {
-            ComponentChange::document(uid)
-        };
-        let uid = uid.to_string();
-        self.apply_component_edit(spec, |scene| {
-            scene
-                .item_by_id_mut(&uid)
-                .is_some_and(|it| it.set_prop_text(&name, &text))
+        self.apply_property_result(uid, |it| {
+            it.kind.set_prop_text(&name, &text).map_err(|_| ())
         })
     }
 
@@ -260,17 +191,8 @@ impl Canvas {
     }
 
     pub fn set_prop_bool_for(&mut self, uid: &str, name: String, value: bool) -> Change {
-        let spec = if structural_bool_prop(&name) {
-            ComponentChange::structural(uid)
-        } else {
-            ComponentChange::document(uid)
-        };
-        let uid = uid.to_string();
-        self.apply_component_edit(spec, |scene| {
-            scene
-                .item_by_id_mut(&uid)
-                .is_some_and(|it| it.set_prop_bool(&name, value))
-        })
+        let text = if value { "true" } else { "false" };
+        self.set_prop_text_for(uid, name, text.to_string())
     }
 
     pub fn set_prop_bool(&mut self, name: String, value: bool) -> Change {

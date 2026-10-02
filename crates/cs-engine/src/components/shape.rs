@@ -445,34 +445,26 @@ impl Component for Shape {
     }
 
     fn props() -> &'static [PropDef<Self>] {
-        const W: PropDef<Shape> = {
-            let mut p = PropDef::float(
-                PROP_H_SIZE,
-                "Width",
-                "_px",
-                MIN_SIZE,
-                MAX_SIZE,
-                Shape::get_width,
-                Shape::set_width,
-            )
-            .with_info("Width of the shape, in pixels.");
-            p.structural = true;
-            p
-        };
-        const H: PropDef<Shape> = {
-            let mut p = PropDef::float(
-                PROP_V_SIZE,
-                "Height",
-                "_px",
-                MIN_SIZE,
-                MAX_SIZE,
-                Shape::get_height,
-                Shape::set_height,
-            )
-            .with_info("Height of the shape, in pixels.");
-            p.structural = true;
-            p
-        };
+        const W: PropDef<Shape> = PropDef::float(
+            PROP_H_SIZE,
+            "Width",
+            "_px",
+            MIN_SIZE,
+            MAX_SIZE,
+            Shape::get_width,
+            Shape::set_width,
+        )
+        .with_info("Width of the shape, in pixels.");
+        const H: PropDef<Shape> = PropDef::float(
+            PROP_V_SIZE,
+            "Height",
+            "_px",
+            MIN_SIZE,
+            MAX_SIZE,
+            Shape::get_height,
+            Shape::set_height,
+        )
+        .with_info("Height of the shape, in pixels.");
         const SK: PropDef<Shape> = {
             let mut p = PropDef::enumeration(
                 "ShapeKind",

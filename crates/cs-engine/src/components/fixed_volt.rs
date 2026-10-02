@@ -30,7 +30,10 @@ impl crate::canvas::Item {
         voltage: f64,
         small: bool,
     ) -> Self {
-        Self::new(id, x, y, FixedVolt { voltage, small })
+        let mut source = FixedVolt::default();
+        source.voltage = voltage;
+        source.small = small;
+        Self::new(id, x, y, source)
     }
 }
 

@@ -206,7 +206,7 @@ impl crate::canvas::Scene {
         let id = format!("Voltimeter-{}", self.next_voltmeter);
         self.next_voltmeter += 1;
         self.items
-            .push(crate::canvas::Item::voltmeter(&id, x, y, false));
+            .push(crate::canvas::Item::new(&id, x, y, Voltmeter::default()));
         id
     }
 }

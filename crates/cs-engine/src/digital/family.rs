@@ -88,3 +88,82 @@ impl LogicFamily {
         pin.set_output_imp(self.out_imp);
     }
 }
+
+/// One `LogicSubc` field. A bit is set only after that property is edited or loaded.
+pub const LOGIC_IN_HIGH: u16 = 1 << 0;
+pub const LOGIC_IN_LOW: u16 = 1 << 1;
+pub const LOGIC_IN_IMP: u16 = 1 << 2;
+pub const LOGIC_OUT_HIGH: u16 = 1 << 3;
+pub const LOGIC_OUT_LOW: u16 = 1 << 4;
+pub const LOGIC_OUT_IMP: u16 = 1 << 5;
+pub const LOGIC_DELAY: u16 = 1 << 6;
+pub const LOGIC_RISE: u16 = 1 << 7;
+pub const LOGIC_FALL: u16 = 1 << 8;
+
+/// SimulIDE `LogicSubc` electrical and timing values.
+///
+/// `mask` records which fields have been set. Unset fields keep the defaults
+/// for the property panel and are not pushed onto child parts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LogicOverride {
+    pub mask: u16,
+    pub in_high_v: f64,
+    pub in_low_v: f64,
+    pub in_imp: f64,
+    pub out_high_v: f64,
+    pub out_low_v: f64,
+    pub out_imp: f64,
+    /// Seconds. `Tpd_ps` getter is `m_propDelay * 1e-12`.
+    pub delay_s: f64,
+    pub rise_s: f64,
+    pub fall_s: f64,
+}
+
+impl Default for LogicOverride {
+    fn default() -> Self {
+        Self {
+            mask: 0,
+            in_high_v: 2.5,
+            in_low_v: 2.5,
+            in_imp: 1e9,
+            out_high_v: 5.0,
+            out_low_v: 0.0,
+            out_imp: DEFAULT_OUT_IMP,
+            delay_s: DEFAULT_DELAY_PS * 1e-12,
+            rise_s: DEFAULT_RISE_PS * 1e-12,
+            fall_s: DEFAULT_FALL_PS * 1e-12,
+        }
+    }
+}
+
+impl LogicOverride {
+    pub fn apply(self, family: &mut LogicFamily) {
+        if self.mask & LOGIC_IN_HIGH != 0 {
+            family.inp_high_v = self.in_high_v;
+        }
+        if self.mask & LOGIC_IN_LOW != 0 {
+            family.inp_low_v = self.in_low_v;
+        }
+        if self.mask & LOGIC_IN_IMP != 0 {
+            family.inp_imp = self.in_imp;
+        }
+        if self.mask & LOGIC_OUT_HIGH != 0 {
+            family.out_high_v = self.out_high_v;
+        }
+        if self.mask & LOGIC_OUT_LOW != 0 {
+            family.out_low_v = self.out_low_v;
+        }
+        if self.mask & LOGIC_OUT_IMP != 0 {
+            family.out_imp = self.out_imp;
+        }
+        if self.mask & LOGIC_DELAY != 0 {
+            family.set_prop_delay_s(self.delay_s);
+        }
+        if self.mask & LOGIC_RISE != 0 {
+            family.set_rise_s(self.rise_s);
+        }
+        if self.mask & LOGIC_FALL != 0 {
+            family.set_fall_s(self.fall_s);
+        }
+    }
+}

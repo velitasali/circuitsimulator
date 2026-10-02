@@ -42,7 +42,10 @@ pub use converters::{
     MuxState,
 };
 pub use event::{EventQueue, EventTarget};
-pub use family::LogicFamily;
+pub use family::{
+    LOGIC_DELAY, LOGIC_FALL, LOGIC_IN_HIGH, LOGIC_IN_IMP, LOGIC_IN_LOW, LOGIC_OUT_HIGH,
+    LOGIC_OUT_IMP, LOGIC_OUT_LOW, LOGIC_RISE, LogicFamily, LogicOverride,
+};
 pub use flipflop::{FlipFlopKind, FlipFlopState, LatchState};
 pub use gate::{GateOp, GateState, GateUpdate, apply_family_out};
 pub use hd44780::Hd44780State;

@@ -206,7 +206,7 @@ impl crate::canvas::Scene {
         let id = format!("Amperimeter-{}", self.next_ammeter);
         self.next_ammeter += 1;
         self.items
-            .push(crate::canvas::Item::ammeter(&id, x, y, false));
+            .push(crate::canvas::Item::new(&id, x, y, Ammeter::default()));
         id
     }
 }

@@ -16,16 +16,7 @@ const MAX_AXIS: f64 = 25.0;
 
 impl crate::canvas::Item {
     pub fn ky023(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            KY023 {
-                stick_x: 0.5,
-                stick_y: 0.5,
-                btn_down: false,
-            },
-        )
+        Self::new(id, x, y, KY023::default())
     }
 }
 
@@ -197,7 +188,8 @@ impl Component for KY023 {
 impl crate::canvas::Scene {
     pub fn add_ky023(&mut self, x: f64, y: f64) -> String {
         let id = format!("KY023-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::ky023(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, KY023::default()));
         id
     }
 

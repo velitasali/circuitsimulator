@@ -61,11 +61,11 @@ impl Default for Csource {
     fn default() -> Self {
         Self {
             control_pins: true,
-            curr_source: false,
+            curr_source: true,
             curr_control: false,
             gain: 1.0,
-            volt: 0.0,
-            current: 0.0,
+            volt: 5.0,
+            current: 1.0,
         }
     }
 }
@@ -302,9 +302,8 @@ impl Drawable for Csource {
 impl crate::canvas::Scene {
     pub fn add_csource(&mut self, x: f64, y: f64) -> String {
         let id = format!("Csource-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::csource(
-            &id, x, y, true, false, false, 1.0, 0.0, 0.0,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Csource::default()));
         id
     }
 }
@@ -318,11 +317,11 @@ mod tests {
         let c = Csource::default();
         assert_eq!(c.type_id(), "Csource");
         assert!(c.control_pins);
-        assert!(!c.curr_source);
+        assert!(c.curr_source);
         assert!(!c.curr_control);
         assert_eq!(c.gain, 1.0);
-        assert_eq!(c.volt, 0.0);
-        assert_eq!(c.current, 0.0);
+        assert_eq!(c.volt, 5.0);
+        assert_eq!(c.current, 1.0);
         assert_eq!(c.pin_geoms().len(), 4);
         assert_eq!(c.body(), Rect::new(-16.0, -16.0, 32.0, 32.0));
     }

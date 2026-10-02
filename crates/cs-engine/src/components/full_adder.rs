@@ -29,7 +29,7 @@ impl crate::canvas::Item {
 
 impl Default for FullAdder {
     fn default() -> Self {
-        Self { bits: 4 }
+        Self { bits: 1 }
     }
 }
 
@@ -104,7 +104,7 @@ impl crate::canvas::Scene {
     pub fn add_full_adder(&mut self, x: f64, y: f64) -> String {
         let id = format!("FullAdder-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::full_adder(&id, x, y, 4));
+            .push(crate::canvas::Item::new(&id, x, y, FullAdder::default()));
         id
     }
 }
@@ -117,18 +117,18 @@ mod tests {
     fn default_full_adder() {
         let a = FullAdder::default();
         assert_eq!(a.type_id(), "FullAdder");
-        assert_eq!(a.bits, 4);
-        // 4 A + 4 B + 1 Ci + 4 S + 1 Co = 14 pins
-        assert_eq!(a.pin_geoms().len(), 14);
+        assert_eq!(a.bits, 1);
+        // 1 A + 1 B + 1 Ci + 1 S + 1 Co = 5 pins
+        assert_eq!(a.pin_geoms().len(), 5);
     }
 
     #[test]
     fn set_bits() {
         let mut a = FullAdder::default();
-        a.set_prop("Bits", PropValue::Int(1)).unwrap();
-        assert_eq!(a.bits, 1);
-        // 1 A + 1 B + 1 Ci + 1 S + 1 Co = 5 pins
-        assert_eq!(a.pin_geoms().len(), 5);
+        a.set_prop("Bits", PropValue::Int(4)).unwrap();
+        assert_eq!(a.bits, 4);
+        // 4 A + 4 B + 1 Ci + 4 S + 1 Co = 14 pins
+        assert_eq!(a.pin_geoms().len(), 14);
     }
 }
 

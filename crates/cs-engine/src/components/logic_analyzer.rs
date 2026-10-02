@@ -42,30 +42,9 @@ pub struct LogicAnalyzer {
 
 impl crate::canvas::Item {
     pub fn lanalizer(id: impl Into<String>, x: f64, y: f64, connect_gnd: bool) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            LogicAnalyzer {
-                basic_x: 135,
-                basic_y: 135,
-                buffer_size: 600000,
-                connect_gnd,
-                input_imped: 10.0,
-                test_time: 0.0,
-                do_test: false,
-                auto_export: false,
-                time_step: 1000,
-                tunnel1: String::new(),
-                tunnel2: String::new(),
-                tunnel3: String::new(),
-                tunnel4: String::new(),
-                tunnel5: String::new(),
-                tunnel6: String::new(),
-                tunnel7: String::new(),
-                tunnel8: String::new(),
-            },
-        )
+        let mut analyzer = LogicAnalyzer::default();
+        analyzer.connect_gnd = connect_gnd;
+        Self::new(id, x, y, analyzer)
     }
 }
 
@@ -74,7 +53,7 @@ impl Default for LogicAnalyzer {
         Self {
             basic_x: 135,
             basic_y: 135,
-            buffer_size: 600000,
+            buffer_size: 100000,
             connect_gnd: true,
             input_imped: 10.0,
             test_time: 0.0,
@@ -477,8 +456,12 @@ impl crate::canvas::Scene {
     pub fn add_lanalizer(&mut self, x: f64, y: f64) -> String {
         let id = format!("LAnalizer-{}", self.next_lanalizer);
         self.next_lanalizer += 1;
-        self.items
-            .push(crate::canvas::Item::lanalizer(&id, x, y, true));
+        self.items.push(crate::canvas::Item::new(
+            &id,
+            x,
+            y,
+            LogicAnalyzer::default(),
+        ));
         id
     }
 }

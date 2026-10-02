@@ -26,7 +26,7 @@ impl crate::canvas::Item {
 
 impl Default for I2CToParallel {
     fn default() -> Self {
-        Self { address: 0x20 }
+        Self { address: 0x50 }
     }
 }
 
@@ -93,8 +93,12 @@ impl Drawable for I2CToParallel {
 impl crate::canvas::Scene {
     pub fn add_i2c_to_parallel(&mut self, x: f64, y: f64) -> String {
         let id = format!("I2CToParallel-{}", self.items.len() + 1);
-        self.items
-            .push(crate::canvas::Item::i2c_to_parallel(&id, x, y, 0x20));
+        self.items.push(crate::canvas::Item::new(
+            &id,
+            x,
+            y,
+            I2CToParallel::default(),
+        ));
         id
     }
 }
@@ -107,7 +111,7 @@ mod tests {
     fn default_i2c_to_parallel() {
         let p = I2CToParallel::default();
         assert_eq!(p.type_id(), "I2CToParallel");
-        assert_eq!(p.address, 0x20);
+        assert_eq!(p.address, 0x50);
         // 6 left + 8 right = 14 pins
         assert_eq!(p.pin_geoms().len(), 14);
         assert_eq!(p.body(), Rect::new(-16.0, -32.0, 32.0, 72.0));

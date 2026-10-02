@@ -44,15 +44,15 @@ fn test_potentiometer_and_var_resistor_defaults() {
     let var = scene.item_by_id(&var_id).unwrap();
     if let Part::VarResistor(p) = &var.kind {
         assert_eq!(
-            p.resistance, 1000.0,
-            "VarResistor default resistance must be 1000 ohms (1 kΩ)"
+            p.resistance, 0.0,
+            "VarResistor default resistance must be 0 ohms"
         );
         assert_eq!(p.min_r, 0.0);
-        assert_eq!(p.max_r, 2000.0);
+        assert_eq!(p.max_r, 1000.0);
     } else {
         panic!("Expected VarResistor");
     }
-    assert_eq!(var.prop_text("Resistance"), Some("1 kΩ".into()));
+    assert_eq!(var.prop_text("Resistance"), Some("0 Ω".into()));
 }
 
 #[test]
@@ -115,10 +115,10 @@ fn test_switches_enabled_defaults() {
     let dip_id = scene.add_switch_dip(0.0, 0.0);
     let dip = scene.item_by_id(&dip_id).unwrap();
     if let Part::SwitchDip(p) = &dip.kind {
-        assert_eq!(p.size, 4, "SwitchDip default size must be 4");
+        assert_eq!(p.size, 8, "SwitchDip default size must be 8");
         assert_eq!(
-            p.state, 15,
-            "SwitchDip default state must have all switches closed (0b1111 = 15)"
+            p.state, 0xFF,
+            "SwitchDip default state must have all switches closed (0xFF = 255)"
         );
     } else {
         panic!("Expected SwitchDip");

@@ -141,7 +141,8 @@ impl Drawable for Socket {
 impl crate::canvas::Scene {
     pub fn add_socket(&mut self, x: f64, y: f64) -> String {
         let id = format!("Socket-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::socket(&id, x, y, 8));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Socket::default()));
         id
     }
 }

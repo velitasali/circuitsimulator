@@ -199,9 +199,8 @@ impl Drawable for BufferGate {
 impl crate::canvas::Scene {
     pub fn add_buffer(&mut self, x: f64, y: f64) -> String {
         let id = format!("Buffer-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::gate(
-            &id, x, y, "Buffer", 1, false, false, false, false, false,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, BufferGate::default()));
         id
     }
 }

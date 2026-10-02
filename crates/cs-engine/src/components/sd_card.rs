@@ -123,7 +123,8 @@ impl super::drawable::Drawable for SdCard {
 impl crate::canvas::Scene {
     pub fn add_sdcard(&mut self, x: f64, y: f64) -> String {
         let id = format!("SdCard-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::sdcard(&id, x, y, ""));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, SdCard::default()));
         id
     }
 }

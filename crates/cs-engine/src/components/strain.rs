@@ -21,7 +21,10 @@ const MAX_TEMP: f64 = 1000.0;
 
 impl crate::canvas::Item {
     pub fn strain(id: impl Into<String>, x: f64, y: f64, resistance: f64, strain: f64) -> Self {
-        Self::strain_with(id, x, y, strain, 2.0, resistance, 25.0, 25.0, 10.0)
+        let mut s = Strain::default();
+        s.strain = strain;
+        s.r0 = resistance;
+        Self::new(id, x, y, s)
     }
 
     pub fn strain_with(
@@ -67,18 +70,33 @@ impl Default for Strain {
             strain: 0.0,
             gauge_factor: 2.0,
             r0: 350.0,
-            temp_c: 25.0,
-            ref_temp: 25.0,
-            dial_step: 1e-6,
+            temp_c: 20.0,
+            ref_temp: 20.0,
+            dial_step: 0.0,
         }
     }
 }
 
 impl Strain {
     pub const TYPE_ID: &'static str = "Strain";
+
+    /// Gauge equation from the stored gauge factor. R = R0 * (1 + GF * ε).
+    pub fn resistance_of(r0: f64, gauge_factor: f64, strain: f64) -> f64 {
+        let res = r0 * (1.0 + gauge_factor * strain);
+        if res.is_finite() && res > 0.0 {
+            res.max(1e-12)
+        } else {
+            r0.max(1e-12)
+        }
+    }
+
+    pub fn resistance(&self) -> f64 {
+        Self::resistance_of(self.r0, self.gauge_factor, self.strain)
+    }
+
     pub fn to_element_kind(&self) -> Kind {
         Kind::Strain {
-            resistance: self.r0,
+            resistance: self.resistance(),
             strain: self.strain,
         }
     }
@@ -127,7 +145,7 @@ impl Strain {
         PropValue::Float(self.dial_step)
     }
     fn set_dial_step(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.dial_step = expect_float("DialStep", v)?.clamp(1e-9, 1.0);
+        self.dial_step = expect_float("DialStep", v)?.clamp(0.0, 1.0);
         Ok(())
     }
 }
@@ -197,7 +215,7 @@ impl Component for Strain {
                 "DialStep",
                 "Dial Step",
                 "ε",
-                1e-9,
+                0.0,
                 1.0,
                 Strain::get_dial_step,
                 Strain::set_dial_step,
@@ -220,7 +238,7 @@ impl TwoTerminal for Strain {}
 
 impl Stampable for Strain {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
-        stamp_two_terminal(matrix, pin_nodes, resistor_g(self.r0), 0.0);
+        stamp_two_terminal(matrix, pin_nodes, resistor_g(self.resistance()), 0.0);
     }
 }
 
@@ -235,7 +253,7 @@ impl crate::canvas::Scene {
     pub fn add_strain(&mut self, x: f64, y: f64) -> String {
         let id = format!("Strain-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::strain(&id, x, y, 120.0, 0.0));
+            .push(crate::canvas::Item::new(&id, x, y, Strain::default()));
         id
     }
 }
@@ -251,10 +269,12 @@ mod tests {
         assert_eq!(s.strain, 0.0);
         assert_eq!(s.gauge_factor, 2.0);
         assert_eq!(s.r0, 350.0);
-        assert_eq!(s.temp_c, 25.0);
-        assert_eq!(s.ref_temp, 25.0);
-        assert_eq!(s.dial_step, 1e-6);
+        assert_eq!(s.temp_c, 20.0);
+        assert_eq!(s.ref_temp, 20.0);
+        assert_eq!(s.dial_step, 0.0);
         assert_eq!(s.pin_geoms().len(), 2);
         assert_eq!(s.body(), Rect::new(-11.0, -4.5, 22.0, 9.0));
+        assert!((s.resistance() - 350.0).abs() < 1e-9);
+        assert!((Strain::resistance_of(350.0, 2.0, 0.001) - 350.7).abs() < 1e-9);
     }
 }

@@ -35,25 +35,20 @@ impl crate::canvas::Item {
         period: f64,
         truth: Vec<u32>,
     ) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            TestUnit {
-                inputs: inputs.into(),
-                outputs: outputs.into(),
-                period,
-                truth,
-            },
-        )
+        let mut unit = TestUnit::default();
+        unit.inputs = inputs.into();
+        unit.outputs = outputs.into();
+        unit.period = period;
+        unit.truth = truth;
+        Self::new(id, x, y, unit)
     }
 }
 
 impl Default for TestUnit {
     fn default() -> Self {
         Self {
-            inputs: "in0,in1".to_string(),
-            outputs: "out0".to_string(),
+            inputs: "O".to_string(),
+            outputs: "I0,I1".to_string(),
             period: 1e-7,
             truth: Vec::new(),
         }
@@ -263,15 +258,8 @@ impl Drawable for TestUnit {
 impl crate::canvas::Scene {
     pub fn add_test_unit(&mut self, x: f64, y: f64) -> String {
         let id = format!("TestUnit-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::test_unit(
-            &id,
-            x,
-            y,
-            "O",
-            "I0,I1",
-            1e-7,
-            Vec::new(),
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, TestUnit::default()));
         id
     }
 }
@@ -284,11 +272,11 @@ mod tests {
     fn default_test_unit() {
         let tu = TestUnit::default();
         assert_eq!(tu.type_id(), "TestUnit");
-        assert_eq!(tu.inputs, "in0,in1");
-        assert_eq!(tu.outputs, "out0");
+        assert_eq!(tu.inputs, "O");
+        assert_eq!(tu.outputs, "I0,I1");
         assert_eq!(tu.period, 1e-7);
         assert!(tu.truth.is_empty());
-        // 1 input pin (reads out0) + 2 output pins (drive in0, in1) = 3 pins
+        // 2 sense pins (I0, I1) + 1 drive pin (O) = 3 pins
         assert_eq!(tu.pin_geoms().len(), 3);
     }
 

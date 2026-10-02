@@ -178,11 +178,12 @@ impl Mcu {
     }
     fn set_program(&mut self, v: PropValue) -> Result<(), PropError> {
         let s = expect_string("Program", v)?;
-        self.mcu.firmware = if s.trim().is_empty() {
-            None
-        } else {
-            Some(s.trim().to_string())
-        };
+        // C++ `Mcu::setProgram` leaves the path alone while PGM is persistent,
+        // and an empty path does not clear a loaded file.
+        if self.mcu.save_pgm || s.trim().is_empty() {
+            return Ok(());
+        }
+        self.mcu.firmware = Some(s.trim().to_string());
         Ok(())
     }
 
@@ -203,7 +204,20 @@ impl Mcu {
     }
 
     fn get_pgm(&self) -> PropValue {
-        PropValue::String(self.pgm.clone())
+        // C++ `Mcu::getPGM` serializes flash only while PGM persistent is on.
+        if !self.mcu.save_pgm {
+            return PropValue::String(String::new());
+        }
+        let words = self.mcu.device.flash_words();
+        if words.is_empty() {
+            return PropValue::String(self.pgm.clone());
+        }
+        let mut s = String::new();
+        for w in words {
+            s.push_str(&w.to_string());
+            s.push(',');
+        }
+        PropValue::String(s)
     }
     fn set_pgm(&mut self, v: PropValue) -> Result<(), PropError> {
         let s = expect_string("Pgm", v)?;
@@ -246,17 +260,7 @@ impl Mcu {
             PropValue::String(s) | PropValue::Enum(s) => s,
             _ => expect_string("Package", v)?,
         };
-        let is_ls = if name.ends_with("LS") || name.ends_with("_LS") || name.ends_with("-LS") {
-            true
-        } else if name.ends_with("DIP")
-            || name.ends_with("_DIP")
-            || name.ends_with("-DIP")
-            || name.contains("DIP")
-        {
-            false
-        } else {
-            self.logic_symbol
-        };
+        let is_ls = crate::package::logic_symbol_for_package_name(&name, self.logic_symbol);
         self.logic_symbol = is_ls;
         self.package = crate::mcu::canvas_package(
             &self.mcu,
@@ -275,6 +279,31 @@ impl Mcu {
     }
     fn set_save_eepr(&mut self, v: PropValue) -> Result<(), PropError> {
         self.save_eepr = expect_bool("SaveEepr", v)?;
+        Ok(())
+    }
+
+    fn get_eeprom(&self) -> PropValue {
+        // C++ `Mcu::getEeprom` writes the ROM only while EEPROM persistent is on,
+        // and drops the trailing 0xFF bytes.
+        if !self.save_eepr {
+            return PropValue::String(String::new());
+        }
+        PropValue::String(eeprom_image(self.mcu.device.eeprom()))
+    }
+    fn set_eeprom(&mut self, v: PropValue) -> Result<(), PropError> {
+        let s = expect_string("Eeprom", v)?;
+        if s.is_empty() {
+            return Ok(());
+        }
+        for (i, token) in s.split(',').enumerate() {
+            let token = token.trim();
+            if token.is_empty() {
+                continue;
+            }
+            if let Ok(val) = token.parse::<u32>() {
+                self.mcu.device.set_eeprom(i, val as u8);
+            }
+        }
         Ok(())
     }
 
@@ -317,6 +346,23 @@ impl Mcu {
         self.clk_out = expect_bool("ClkOut", v)?;
         Ok(())
     }
+}
+
+/// C++ `Mcu::getEeprom`: trailing 0xFF bytes are omitted, and each kept byte
+/// is written with a trailing comma.
+fn eeprom_image(bytes: &[u8]) -> String {
+    let mut image = String::new();
+    let mut empty = true;
+    for val in bytes.iter().rev() {
+        if *val < 0xFF {
+            empty = false;
+        }
+        if empty {
+            continue;
+        }
+        image.insert_str(0, &format!("{val},"));
+    }
+    image
 }
 
 impl Component for Mcu {
@@ -370,6 +416,18 @@ impl Component for Mcu {
             p.structural = true;
             p
         };
+        const PGM: PropDef<Mcu> = {
+            let mut p = PropDef::string("Pgm", "Flash Words", Mcu::get_pgm, Mcu::set_pgm)
+                .with_info("Flash image saved with the circuit when Save Program is on.");
+            p.show_by_default = false;
+            p
+        };
+        const EEPROM: PropDef<Mcu> = {
+            let mut p = PropDef::string("Eeprom", "EEPROM", Mcu::get_eeprom, Mcu::set_eeprom)
+                .with_info("EEPROM image saved with the circuit when Save EEPROM is on.");
+            p.show_by_default = false;
+            p
+        };
         static PROPS: &[PropDef<Mcu>] = &[
             DEV,
             MAIN_COMP,
@@ -411,8 +469,7 @@ impl Component for Mcu {
                 Mcu::set_save_pgm,
             )
             .with_info("Save firmware binary into the circuit file."),
-            PropDef::string("Pgm", "Flash Words", Mcu::get_pgm, Mcu::set_pgm)
-                .with_info("Embedded firmware hex data stored within the circuit."),
+            PGM,
             LS,
             PKG,
             PropDef::bool(
@@ -422,6 +479,7 @@ impl Component for Mcu {
                 Mcu::set_save_eepr,
             )
             .with_info("Save EEPROM non-volatile data into the circuit file."),
+            EEPROM,
             PropDef::bool(
                 "RstEnabled",
                 "Reset Enabled",
@@ -524,7 +582,6 @@ impl Component for Mcu {
                         "Program",
                         "AutoLoad",
                         "SavePgm",
-                        "Pgm",
                         "SaveEepr",
                     ],
                 ),
@@ -760,9 +817,41 @@ mod tests {
     fn mcu_load_pgm() {
         let mut mcu = Mcu::default();
         mcu.set_prop_text("Pgm", "10,20,30,").unwrap();
-        assert_eq!(mcu.get_prop_text("Pgm").unwrap(), "10,20,30,");
+        assert_eq!(mcu.get_prop_text("Pgm").unwrap(), "");
         assert_eq!(mcu.mcu.device.flash_word(0), Some(10));
         assert_eq!(mcu.mcu.device.flash_word(1), Some(20));
         assert_eq!(mcu.mcu.device.flash_word(2), Some(30));
+
+        mcu.set_prop_text("SavePgm", "true").unwrap();
+        let image = mcu.get_prop_text("Pgm").unwrap();
+        assert!(image.starts_with("10,20,30,"), "{image}");
+        assert_eq!(
+            image.split(',').filter(|t| !t.is_empty()).count(),
+            mcu.mcu.device.flash_size()
+        );
+        mcu.set_prop_text("Program", "other.hex").unwrap();
+        assert!(mcu.mcu.firmware.is_none());
+
+        mcu.set_prop_text("SavePgm", "false").unwrap();
+        assert_eq!(mcu.get_prop_text("Pgm").unwrap(), "");
+        mcu.set_prop_text("Program", "firmware.hex").unwrap();
+        assert_eq!(mcu.mcu.firmware.as_deref(), Some("firmware.hex"));
+    }
+
+    #[test]
+    fn mcu_eeprom_image_follows_save_flag() {
+        let xml = r#"<mcu core="AVR" data="32" prog="4" eeprom="4" freq="1000000"></mcu>"#;
+        let device = cs_mcu::Device::from_xml("e", xml).expect("eeprom device");
+        let mut mcu = Mcu {
+            mcu: crate::mcu::McuComp::from_device(device),
+            ..Mcu::default()
+        };
+        mcu.set_prop_text("Eeprom", "1,2,3,255,").unwrap();
+        assert_eq!(mcu.get_prop_text("Eeprom").unwrap(), "");
+        assert_eq!(mcu.mcu.device.eeprom(), &[1, 2, 3, 255]);
+
+        mcu.set_prop_text("SaveEepr", "true").unwrap();
+        assert_eq!(mcu.get_prop_text("Eeprom").unwrap(), "1,2,3,");
+        assert_eq!(eeprom_image(&[1, 255, 2, 255]), "1,255,2,");
     }
 }

@@ -706,9 +706,6 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let id = circ_id(&properties)?;
                 let mut comp = Comp::diode(id);
                 if let Kind::Diode { ref mut state, .. } = comp.kind {
-                    if let Some(v) = prop(&properties, PROP_THRESHOLD) {
-                        state.threshold = parse_si(v, "V");
-                    }
                     if let Some(v) = prop(&properties, PROP_MAXCURRENT) {
                         state.max_current = parse_si(v, "A");
                     }
@@ -719,10 +716,10 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                         state.bk_down = parse_si(v, "V");
                     }
                     if let Some(v) = prop(&properties, PROP_SATCURRENT) {
-                        state.sat_cur = parse_si(v, "A");
+                        state.set_sat_cur(parse_si(v, "A"));
                     }
                     if let Some(v) = prop(&properties, PROP_EMCOEF) {
-                        state.em_coef = parse_si(v, "");
+                        state.set_em_coef(parse_si(v, ""));
                     }
                 }
                 items.push(parsed_item(comp, &properties));
@@ -731,9 +728,6 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let id = circ_id(&properties)?;
                 let mut comp = Comp::zener(id);
                 if let Kind::Diode { ref mut state, .. } = comp.kind {
-                    if let Some(v) = prop(&properties, PROP_THRESHOLD) {
-                        state.threshold = parse_si(v, "V");
-                    }
                     if let Some(v) = prop(&properties, PROP_MAXCURRENT) {
                         state.max_current = parse_si(v, "A");
                     }
@@ -744,10 +738,10 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                         state.bk_down = parse_si(v, "V");
                     }
                     if let Some(v) = prop(&properties, PROP_SATCURRENT) {
-                        state.sat_cur = parse_si(v, "A");
+                        state.set_sat_cur(parse_si(v, "A"));
                     }
                     if let Some(v) = prop(&properties, PROP_EMCOEF) {
-                        state.em_coef = parse_si(v, "");
+                        state.set_em_coef(parse_si(v, ""));
                     }
                 }
                 items.push(parsed_item(comp, &properties));
@@ -1642,11 +1636,23 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let temp = prop(&properties, PROP_TEMP)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(25.0);
+                let r0 = prop(&properties, "R25")
+                    .or_else(|| prop(&properties, "R0"))
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(10_000.0);
+                let beta = prop(&properties, "B")
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(3455.0);
+                let t0 = prop(&properties, "T0")
+                    .map(|v| parse_si(v, "°C"))
+                    .unwrap_or(25.0);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::Thermistor {
-                            resistance: 10_000.0,
+                            resistance: crate::components::Thermistor::resistance_of(
+                                temp, t0, r0, beta,
+                            ),
                             temp_c: temp,
                         },
                     },
@@ -1658,11 +1664,17 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let temp = prop(&properties, PROP_TEMP)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(25.0);
+                let r0 = prop(&properties, "R0")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(100.0);
+                let alpha = prop(&properties, "Alpha")
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(0.00385);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::Rtd {
-                            resistance: 100.0,
+                            resistance: crate::components::Rtd::resistance_of(temp, r0, alpha),
                             temp_c: temp,
                         },
                     },
@@ -1674,11 +1686,17 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let strain = prop(&properties, PROP_STRAIN)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(0.0);
+                let r0 = prop(&properties, "R0")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(350.0);
+                let gauge = prop(&properties, "GaugeFactor")
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(2.0);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::Strain {
-                            resistance: 350.0,
+                            resistance: crate::components::Strain::resistance_of(r0, gauge, strain),
                             strain,
                         },
                     },
@@ -2122,13 +2140,13 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let id = circ_id(&properties)?;
                 let value = prop(&properties, PROP_VALUE)
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(0.0);
+                    .unwrap_or(500.0);
                 let min_val = prop(&properties, PROP_MIN)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(0.0);
                 let max_val = prop(&properties, PROP_MAX)
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(100.0);
+                    .unwrap_or(999.0);
                 let step = prop(&properties, PROP_STEP)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(1.0);
@@ -2141,7 +2159,7 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let id = circ_id(&properties)?;
                 let addr_bits = prop(&properties, PROP_ADDR_BITS)
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(2);
+                    .unwrap_or(3);
                 let mut m = crate::digital::MuxState::new(&id, addr_bits);
                 apply_family_props(&properties, &mut m.family);
                 m.apply_family();
@@ -2157,7 +2175,7 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let id = circ_id(&properties)?;
                 let addr_bits = prop(&properties, PROP_ADDR_BITS)
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(2);
+                    .unwrap_or(3);
                 let inverted = prop(&properties, PROP_INVERTED)
                     .map(parse_bool)
                     .unwrap_or(false);
@@ -2381,8 +2399,10 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let id = circ_id(&properties)?;
                 let inputs = prop(&properties, PROP_INPUTS)
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(3);
-                let expr = prop(&properties, PROP_EXPRESSION).unwrap_or("").to_string();
+                    .unwrap_or(2);
+                let expr = prop(&properties, PROP_EXPRESSION)
+                    .unwrap_or("A | B")
+                    .to_string();
                 let mut f = crate::digital::FunctionState::new(&id, inputs, &expr);
                 apply_family_props(&properties, &mut f.family);
                 f.apply_family();

@@ -15,15 +15,10 @@ const MAX_VTH: f64 = 100.0;
 
 impl crate::canvas::Item {
     pub fn mosfet(id: impl Into<String>, x: f64, y: f64, p_channel: bool, depletion: bool) -> Self {
-        Self::mosfet_with(
-            id,
-            x,
-            y,
-            p_channel,
-            depletion,
-            MOSFET_DEFAULT_RDSON,
-            MOSFET_DEFAULT_VTH,
-        )
+        let mut fet = Mosfet::default();
+        fet.p_channel = p_channel;
+        fet.depletion = depletion;
+        Self::new(id, x, y, fet)
     }
 
     pub fn mosfet_with(

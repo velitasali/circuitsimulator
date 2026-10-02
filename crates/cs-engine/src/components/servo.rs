@@ -223,7 +223,7 @@ impl crate::canvas::Scene {
     pub fn add_servo(&mut self, x: f64, y: f64) -> String {
         let id = format!("Servo-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::servo(&id, x, y, 0.2, 1000.0, 2000.0));
+            .push(crate::canvas::Item::new(&id, x, y, Servo::default()));
         id
     }
 }

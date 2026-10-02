@@ -11,20 +11,13 @@ const MIN_C: f64 = 1e-15;
 const MAX_C: f64 = 1e3;
 const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
-const DEFAULT_ESR: f64 = 1e-3;
+const DEFAULT_ESR: f64 = 1e-6;
 
 impl crate::canvas::Item {
     pub fn capacitor(id: impl Into<String>, x: f64, y: f64, capacitance: f64) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Capacitor {
-                capacitance,
-                resistance: 1e-3,
-                init_volt: 0.0,
-            },
-        )
+        let mut capacitor = Capacitor::default();
+        capacitor.capacitance = capacitance;
+        Self::new(id, x, y, capacitor)
     }
 }
 
@@ -48,11 +41,9 @@ impl Default for Capacitor {
 impl Capacitor {
     pub const TYPE_ID: &'static str = "Capacitor";
     pub fn new(capacitance: f64) -> Self {
-        Self {
-            capacitance: capacitance.max(MIN_C),
-            resistance: DEFAULT_ESR,
-            init_volt: 0.0,
-        }
+        let mut capacitor = Self::default();
+        capacitor.capacitance = capacitance.max(MIN_C);
+        capacitor
     }
 
     pub fn to_element_kind(&self) -> Kind {

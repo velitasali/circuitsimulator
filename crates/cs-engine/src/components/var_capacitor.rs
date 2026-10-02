@@ -1,7 +1,8 @@
 //! Variable capacitor: companion stamp plus a dial on Capacitance.
 
 use super::component::{DialState, stamp_two_terminal, two_terminal_pins};
-use super::props::{PropDef, PropError, PropValue, expect_float};
+use super::prop_links;
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable, TwoTerminal};
 use crate::canvas::Rect;
 use crate::elements::Kind;
@@ -11,8 +12,8 @@ const MIN_C: f64 = 1e-15;
 const MAX_C: f64 = 1e3;
 const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
-const DEFAULT_C: f64 = 100e-12;
-const DEFAULT_ESR: f64 = 1e-3;
+const DEFAULT_MAX_C: f64 = 10e-6;
+const DEFAULT_ESR: f64 = 1e-6;
 
 impl crate::canvas::Item {
     pub fn var_capacitor(id: impl Into<String>, x: f64, y: f64, capacitance: f64) -> Self {
@@ -23,7 +24,7 @@ impl crate::canvas::Item {
             capacitance,
             0.0,
             capacitance * 2.0,
-            1e-3,
+            DEFAULT_ESR,
             0.0,
             0.0,
         )
@@ -72,12 +73,12 @@ pub struct VarCapacitor {
 impl Default for VarCapacitor {
     fn default() -> Self {
         Self {
-            capacitance: DEFAULT_C,
+            capacitance: 0.0,
             min_c: 0.0,
-            max_c: DEFAULT_C * 2.0,
+            max_c: DEFAULT_MAX_C,
             resistance: DEFAULT_ESR,
             init_volt: 0.0,
-            dial: DialState::new(1e-12),
+            dial: DialState::new(0.0),
         }
     }
 }
@@ -101,12 +102,6 @@ impl VarCapacitor {
         }
     }
 
-    fn clamp_c(&mut self) {
-        let lo = self.min_c.min(self.max_c).max(MIN_C);
-        let hi = self.min_c.max(self.max_c).max(lo);
-        self.capacitance = self.capacitance.clamp(lo, hi);
-    }
-
     pub fn to_element_kind(&self) -> Kind {
         Kind::VarCapacitor {
             capacitance: self.capacitance.max(MIN_C),
@@ -118,25 +113,31 @@ impl VarCapacitor {
         PropValue::Float(self.capacitance)
     }
     fn set_capacitance(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.capacitance = expect_float("Capacitance", v)?.clamp(MIN_C, MAX_C);
-        self.clamp_c();
+        self.capacitance = expect_float("Capacitance", v)?.clamp(0.0, MAX_C);
         Ok(())
+    }
+    fn value_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_value(&mut part.capacitance, part.min_c, part.max_c);
     }
     fn get_min_c(&self) -> PropValue {
         PropValue::Float(self.min_c)
     }
     fn set_min_c(&mut self, v: PropValue) -> Result<(), PropError> {
         self.min_c = expect_float("MinCapacitance", v)?.clamp(0.0, MAX_C);
-        self.clamp_c();
         Ok(())
+    }
+    fn min_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_min(&mut part.min_c, part.max_c, &mut part.capacitance);
     }
     fn get_max_c(&self) -> PropValue {
         PropValue::Float(self.max_c)
     }
     fn set_max_c(&mut self, v: PropValue) -> Result<(), PropError> {
         self.max_c = expect_float("MaxCapacitance", v)?.clamp(MIN_C, MAX_C);
-        self.clamp_c();
         Ok(())
+    }
+    fn max_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_max(&mut part.max_c, part.min_c, &mut part.capacitance);
     }
     fn get_resistance(&self) -> PropValue {
         PropValue::Float(self.resistance)
@@ -156,7 +157,7 @@ impl VarCapacitor {
         PropValue::Float(self.dial.step)
     }
     fn set_dial_step(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.dial.step = expect_float("DialStep", v)?.clamp(MIN_C, MAX_C);
+        self.dial.step = expect_float("DialStep", v)?.clamp(0.0, MAX_C);
         Ok(())
     }
 }
@@ -169,16 +170,23 @@ impl Component for VarCapacitor {
         "Variable capacitor."
     }
     fn props() -> &'static [PropDef<Self>] {
+        const CAP_UPDATES: &[PropUpdate<VarCapacitor>] =
+            &[PropUpdate::always(VarCapacitor::value_adjusts)];
+        const MIN_UPDATES: &[PropUpdate<VarCapacitor>] =
+            &[PropUpdate::always(VarCapacitor::min_adjusts)];
+        const MAX_UPDATES: &[PropUpdate<VarCapacitor>] =
+            &[PropUpdate::always(VarCapacitor::max_adjusts)];
         const CAP: PropDef<VarCapacitor> = {
             let mut p = PropDef::float(
                 "Capacitance",
                 "Capacitance",
                 "F",
-                MIN_C,
+                0.0,
                 MAX_C,
                 VarCapacitor::get_capacitance,
                 VarCapacitor::set_capacitance,
             )
+            .updates(CAP_UPDATES)
             .with_info("Value determined by dial position.");
             p.required = true;
             p
@@ -194,6 +202,7 @@ impl Component for VarCapacitor {
                 VarCapacitor::get_min_c,
                 VarCapacitor::set_min_c,
             )
+            .updates(MIN_UPDATES)
             .with_info("Capacitance with dial at the left end."),
             PropDef::float(
                 "MaxCapacitance",
@@ -204,6 +213,7 @@ impl Component for VarCapacitor {
                 VarCapacitor::get_max_c,
                 VarCapacitor::set_max_c,
             )
+            .updates(MAX_UPDATES)
             .with_info("Capacitance with dial at the right end."),
             PropDef::float(
                 "Resistance",
@@ -229,7 +239,7 @@ impl Component for VarCapacitor {
                 "DialStep",
                 "Dial Step",
                 "F",
-                MIN_C,
+                0.0,
                 MAX_C,
                 VarCapacitor::get_dial_step,
                 VarCapacitor::set_dial_step,
@@ -285,7 +295,7 @@ impl crate::canvas::Scene {
     pub fn add_var_capacitor(&mut self, x: f64, y: f64) -> String {
         let id = format!("VarCapacitor-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::var_capacitor(&id, x, y, 10e-6));
+            .push(crate::canvas::Item::new(&id, x, y, VarCapacitor::default()));
         id
     }
 }
@@ -311,10 +321,10 @@ impl Dialed for VarCapacitor {
         self.capacitance
     }
     fn min(&self) -> f64 {
-        self.min_c.min(self.max_c).max(MIN_C)
+        self.min_c.min(self.max_c)
     }
     fn max(&self) -> f64 {
-        self.min_c.max(self.max_c).max(MIN_C)
+        self.min_c.max(self.max_c)
     }
 }
 
@@ -340,11 +350,14 @@ mod tests {
     #[test]
     fn default_and_dial() {
         let mut v = VarCapacitor::default();
-        assert_eq!(v.capacitance, DEFAULT_C);
-        assert_eq!(
-            v.get_prop_text("Capacitance").unwrap(),
-            format_si(DEFAULT_C, "F")
-        );
+        assert_eq!(v.capacitance, 0.0);
+        assert_eq!(v.max_c, DEFAULT_MAX_C);
+        assert_eq!(v.resistance, DEFAULT_ESR);
+        assert_eq!(v.dial.step, 0.0);
+        assert_eq!(v.get_prop_text("Capacitance").unwrap(), format_si(0.0, "F"));
+        assert_eq!(v.min(), 0.0);
+        v.set_value(0.0);
+        assert_eq!(v.capacitance, 0.0);
         v.set_value(50e-12);
         assert_eq!(v.get_prop_text("Capacitance").unwrap(), "50 pF");
     }

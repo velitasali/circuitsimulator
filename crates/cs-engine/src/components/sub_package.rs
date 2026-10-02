@@ -29,9 +29,9 @@ impl crate::canvas::Item {
 
 impl Default for SubPackage {
     fn default() -> Self {
-        Self {
-            package: Package::default(),
-        }
+        let mut package = Package::default();
+        package.logic_symbol = true;
+        Self { package }
     }
 }
 
@@ -310,10 +310,9 @@ impl crate::canvas::Scene {
     pub fn add_subpackage(&mut self, x: f64, y: f64) -> String {
         self.next_subc += 1;
         let id = format!("SubPackage-{}", self.next_subc);
-        let mut pkg = crate::package::Package::default();
-        pkg.name = id.clone();
-        self.items
-            .push(crate::canvas::Item::subpackage(&id, x, y, pkg));
+        let mut part = SubPackage::default();
+        part.package.name = id.clone();
+        self.items.push(crate::canvas::Item::new(&id, x, y, part));
         id
     }
 
@@ -491,7 +490,7 @@ mod tests {
         assert_eq!(sp.get_prop_text("Width").unwrap(), "4");
         assert_eq!(sp.get_prop_text("Height").unwrap(), "8");
         assert_eq!(sp.get_prop_text("SubcType").unwrap(), "None");
-        assert_eq!(sp.get_prop_text("LogicSymbol").unwrap(), "false");
+        assert_eq!(sp.get_prop_text("LogicSymbol").unwrap(), "true");
         assert_eq!(sp.get_prop_text("CustomColor").unwrap(), "false");
         assert_eq!(sp.get_prop_text("BckGndColor").unwrap(), "");
         assert_eq!(sp.get_prop_text("Border").unwrap(), "false");

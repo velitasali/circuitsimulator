@@ -12,16 +12,9 @@ use crate::theme::{COMPONENT_BORDER_WIDTH, COMPONENT_FILL_ALPHA};
 
 impl crate::canvas::Item {
     pub fn tunnel(id: impl Into<String>, x: f64, y: f64, name: impl Into<String>) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Tunnel {
-                name: name.into(),
-                is_bus: false,
-                show: true,
-            },
-        )
+        let mut tunnel = Tunnel::default();
+        tunnel.name = name.into();
+        Self::new(id, x, y, tunnel)
     }
 }
 
@@ -141,7 +134,7 @@ impl crate::canvas::Scene {
     pub fn add_tunnel(&mut self, x: f64, y: f64) -> String {
         let id = format!("Tunnel-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::tunnel(&id, x, y, "net"));
+            .push(crate::canvas::Item::new(&id, x, y, Tunnel::default()));
         id
     }
 }

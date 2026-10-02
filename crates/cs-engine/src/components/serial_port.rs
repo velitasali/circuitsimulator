@@ -52,7 +52,7 @@ pub struct SerialPort {
 impl Default for SerialPort {
     fn default() -> Self {
         Self {
-            port_name: "/dev/ttyUSB0".into(),
+            port_name: String::new(),
             baud_rate: 9600,
             data_bits: 8,
             stop_bits: 1,
@@ -220,13 +220,14 @@ impl Drawable for SerialPort {
         d.stroke_round_rect(-8.0, -10.0, 44.0, 20.0, 3.0, ctx.pal.border, 1.0);
         d.text(14.0, 0.0, "Open", 8.0, ctx.pal.border, Align::Center);
 
-        // Port text
-        let p_name = if self.port_name.is_empty() {
-            "/dev/ttyUSB0"
-        } else {
-            &self.port_name
-        };
-        d.text(42.0, -4.0, p_name, 8.0, ctx.pal.border, Align::TopLeft);
+        d.text(
+            42.0,
+            -4.0,
+            &self.port_name,
+            8.0,
+            ctx.pal.border,
+            Align::TopLeft,
+        );
 
         true
     }
@@ -235,13 +236,8 @@ impl Drawable for SerialPort {
 impl crate::canvas::Scene {
     pub fn add_serial_port(&mut self, x: f64, y: f64) -> String {
         let id = format!("SerialPort-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::serial_port(
-            &id,
-            x,
-            y,
-            "/dev/ttyUSB0",
-            9600,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, SerialPort::default()));
         id
     }
 }
@@ -254,7 +250,7 @@ mod tests {
     fn default_serial_port() {
         let sp = SerialPort::default();
         assert_eq!(sp.type_id(), "SerialPort");
-        assert_eq!(sp.port_name, "/dev/ttyUSB0");
+        assert_eq!(sp.port_name, "");
         assert_eq!(sp.baud_rate, 9600);
         assert_eq!(sp.data_bits, 8);
         assert_eq!(sp.stop_bits, 1);

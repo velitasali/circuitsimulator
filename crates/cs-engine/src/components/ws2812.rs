@@ -53,9 +53,9 @@ pub struct Ws2812 {
 impl Default for Ws2812 {
     fn default() -> Self {
         Self {
-            count: 8,
+            count: 1,
             rows: 1,
-            cols: 8,
+            cols: 1,
             rst_time_ns: 50000,
             t0h_ns: 400,
             t0l_ns: 850,
@@ -265,7 +265,8 @@ impl Drawable for Ws2812 {
 impl crate::canvas::Scene {
     pub fn add_ws2812(&mut self, x: f64, y: f64) -> String {
         let id = format!("WS2812-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::ws2812(&id, x, y, 8));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Ws2812::default()));
         id
     }
 }
@@ -278,16 +279,16 @@ mod tests {
     fn default_ws2812() {
         let w = Ws2812::default();
         assert_eq!(w.type_id(), "Ws2812");
-        assert_eq!(w.count, 8);
+        assert_eq!(w.count, 1);
         assert_eq!(w.rows, 1);
-        assert_eq!(w.cols, 8);
+        assert_eq!(w.cols, 1);
         assert_eq!(w.rst_time_ns, 50000);
         assert_eq!(w.t0h_ns, 400);
         assert_eq!(w.t0l_ns, 850);
         assert_eq!(w.t1h_ns, 850);
         assert_eq!(w.t1l_ns, 400);
         assert_eq!(w.pin_geoms().len(), 4);
-        assert_eq!(w.body(), Rect::new(-6.0, -6.0, 96.0, 12.0));
+        assert_eq!(w.body(), Rect::new(-6.0, -6.0, 12.0, 12.0));
     }
 }
 

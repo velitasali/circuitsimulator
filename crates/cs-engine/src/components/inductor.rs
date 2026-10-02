@@ -11,20 +11,13 @@ const MIN_L: f64 = 1e-12;
 const MAX_L: f64 = 1e6;
 const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
-const DEFAULT_R: f64 = 1e-3;
+const DEFAULT_R: f64 = 1e-6;
 
 impl crate::canvas::Item {
     pub fn inductor(id: impl Into<String>, x: f64, y: f64, inductance: f64) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Inductor {
-                inductance,
-                resistance: 1e-3,
-                init_curr: 0.0,
-            },
-        )
+        let mut inductor = Inductor::default();
+        inductor.inductance = inductance;
+        Self::new(id, x, y, inductor)
     }
 }
 
@@ -48,11 +41,9 @@ impl Default for Inductor {
 impl Inductor {
     pub const TYPE_ID: &'static str = "Inductor";
     pub fn new(inductance: f64) -> Self {
-        Self {
-            inductance: inductance.max(MIN_L),
-            resistance: DEFAULT_R,
-            init_curr: 0.0,
-        }
+        let mut inductor = Self::default();
+        inductor.inductance = inductance.max(MIN_L);
+        inductor
     }
 
     pub fn to_element_kind(&self) -> Kind {

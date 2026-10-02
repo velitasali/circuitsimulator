@@ -12,19 +12,9 @@ const MAX_POLES: i64 = 4;
 
 impl crate::canvas::Item {
     pub fn switch(id: impl Into<String>, x: f64, y: f64, closed: bool) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Switch {
-                checked: closed,
-                norm_close: false,
-                double_throw: false,
-                poles: 1,
-                key: String::new(),
-                show_button: false,
-            },
-        )
+        let mut switch = Switch::default();
+        switch.checked = closed;
+        Self::new(id, x, y, switch)
     }
 }
 

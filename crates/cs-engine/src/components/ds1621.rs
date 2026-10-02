@@ -27,7 +27,7 @@ pub struct DS1621 {
 impl Default for DS1621 {
     fn default() -> Self {
         Self {
-            temp: 25.0,
+            temp: 22.5,
             temp_inc: 0.5,
         }
     }
@@ -154,7 +154,7 @@ impl crate::canvas::Scene {
     pub fn add_ds1621(&mut self, x: f64, y: f64) -> String {
         let id = format!("DS1621-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::ds1621(&id, x, y, 25.0, 0.5));
+            .push(crate::canvas::Item::new(&id, x, y, DS1621::default()));
         id
     }
 }
@@ -167,7 +167,7 @@ mod tests {
     fn default_ds1621() {
         let d = DS1621::default();
         assert_eq!(d.type_id(), "DS1621");
-        assert_eq!(d.temp, 25.0);
+        assert_eq!(d.temp, 22.5);
         assert_eq!(d.temp_inc, 0.5);
         assert_eq!(d.pin_geoms().len(), 8);
     }

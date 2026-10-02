@@ -622,15 +622,15 @@ impl Canvas {
                 true
             }
             PlaceKind::ILI9341 => {
-                self.scene.add_tft_display(p.x, p.y, "ILI9341", 320, 240);
+                self.scene.add_tft_display(p.x, p.y, "ILI9341", 240, 320);
                 true
             }
             PlaceKind::ST7789 => {
-                self.scene.add_tft_display(p.x, p.y, "ST7789", 240, 240);
+                self.scene.add_tft_display(p.x, p.y, "ST7789", 240, 320);
                 true
             }
             PlaceKind::ST7735 => {
-                self.scene.add_tft_display(p.x, p.y, "ST7735", 160, 128);
+                self.scene.add_tft_display(p.x, p.y, "ST7735", 132, 162);
                 true
             }
             PlaceKind::GC9A01A => {
@@ -638,7 +638,7 @@ impl Canvas {
                 true
             }
             PlaceKind::TFTDisplay => {
-                self.scene.add_tft_display(p.x, p.y, "ILI9341", 320, 240);
+                self.scene.add_tft_display(p.x, p.y, "ILI9341", 240, 320);
                 true
             }
             PlaceKind::PCD8544 => {

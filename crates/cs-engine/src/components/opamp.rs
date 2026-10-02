@@ -21,17 +21,7 @@ const MAX_VOLT: f64 = 1000.0;
 
 impl crate::canvas::Item {
     pub fn opamp(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::opamp_with(
-            id,
-            x,
-            y,
-            OPAMP_DEFAULT_GAIN,
-            OPAMP_DEFAULT_OUT_IMP,
-            OPAMP_DEFAULT_VOLT_POS,
-            OPAMP_DEFAULT_VOLT_NEG,
-            false,
-            false,
-        )
+        Self::new(id, x, y, OpAmp::default())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -290,7 +280,8 @@ impl crate::canvas::Scene {
     pub fn add_opamp(&mut self, x: f64, y: f64) -> String {
         let id = format!("opAmp-{}", self.next_opamp);
         self.next_opamp += 1;
-        self.items.push(crate::canvas::Item::opamp(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, OpAmp::default()));
         id
     }
 }

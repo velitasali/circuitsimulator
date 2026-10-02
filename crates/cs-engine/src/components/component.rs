@@ -207,6 +207,12 @@ pub trait Component: Sized + 'static {
         self.body()
     }
 
+    /// Instance gate on top of [`PropDef::persist`]. Logic-subcircuit fields
+    /// are saved only while the package type is Logic.
+    fn saves_prop(&self, _id: &str) -> bool {
+        true
+    }
+
     fn get_prop(&self, id: &str) -> Option<PropValue> {
         Self::props()
             .iter()
@@ -224,7 +230,8 @@ pub trait Component: Sized + 'static {
             .iter()
             .find(|p| p.id == id)
             .ok_or_else(|| PropError::Unknown(id.to_string()))?;
-        (def.set)(self, value)?;
+        (def.set)(self, value.clone())?;
+        def.run_updates(self, &value);
         Ok(def.change())
     }
 
@@ -234,7 +241,8 @@ pub trait Component: Sized + 'static {
             .find(|p| p.id == id)
             .ok_or_else(|| PropError::Unknown(id.to_string()))?;
         let value = def.parse_text(text)?;
-        (def.set)(self, value)?;
+        (def.set)(self, value.clone())?;
+        def.run_updates(self, &value);
         Ok(def.change())
     }
 
@@ -246,7 +254,8 @@ pub trait Component: Sized + 'static {
     fn set_prop_text_alias(&mut self, id: &str, text: &str) -> Result<ComponentChange, PropError> {
         let def = find_prop_def::<Self>(id).ok_or_else(|| PropError::Unknown(id.to_string()))?;
         let value = def.parse_text(text)?;
-        (def.set)(self, value)?;
+        (def.set)(self, value.clone())?;
+        def.run_updates(self, &value);
         Ok(def.change())
     }
 

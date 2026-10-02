@@ -333,9 +333,8 @@ impl Drawable for AndGate {
 impl crate::canvas::Scene {
     pub fn add_and_gate(&mut self, x: f64, y: f64) -> String {
         let id = format!("AndGate-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::gate(
-            &id, x, y, "And", 2, false, false, false, false, false,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, AndGate::default()));
         id
     }
 }

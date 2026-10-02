@@ -56,7 +56,7 @@ impl Default for DS18B20 {
     fn default() -> Self {
         Self {
             rom: "28FF2B450000".into(),
-            temp: 25.0,
+            temp: 22.0,
             temp_inc: 0.5,
         }
     }
@@ -185,14 +185,8 @@ impl super::drawable::Drawable for DS18B20 {
 impl crate::canvas::Scene {
     pub fn add_ds18b20(&mut self, x: f64, y: f64) -> String {
         let id = format!("DS18B20-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::ds18b20(
-            &id,
-            x,
-            y,
-            "2800000000000001",
-            25.0,
-            1.0,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, DS18B20::default()));
         id
     }
 }
@@ -206,7 +200,7 @@ mod tests {
         let d = DS18B20::default();
         assert_eq!(d.type_id(), "DS18B20");
         assert_eq!(d.rom, "28FF2B450000");
-        assert_eq!(d.temp, 25.0);
+        assert_eq!(d.temp, 22.0);
         assert_eq!(d.temp_inc, 0.5);
         assert_eq!(d.pin_geoms().len(), 3);
     }

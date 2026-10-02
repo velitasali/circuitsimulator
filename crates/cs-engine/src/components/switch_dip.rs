@@ -56,8 +56,8 @@ pub struct SwitchDip {
 impl Default for SwitchDip {
     fn default() -> Self {
         Self {
-            size: 4,
-            state: 0b1111,
+            size: 8,
+            state: 0xFF,
             exclusive: false,
             common_pin: false,
         }
@@ -242,14 +242,8 @@ impl Component for SwitchDip {
 impl crate::canvas::Scene {
     pub fn add_switch_dip(&mut self, x: f64, y: f64) -> String {
         let id = format!("SwitchDip-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::switch_dip(
-            &id,
-            x,
-            y,
-            4,
-            (1 << 4) - 1,
-            false,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, SwitchDip::default()));
         id
     }
 
@@ -341,10 +335,10 @@ mod tests {
     #[test]
     fn default_all_closed() {
         let d = SwitchDip::default();
-        assert_eq!(d.size, 4);
-        assert_eq!(d.state, 15);
-        assert_eq!(d.get_prop_text("State").unwrap(), "15");
-        assert_eq!(d.get_prop_text("Size").unwrap(), "4");
+        assert_eq!(d.size, 8);
+        assert_eq!(d.state, 0xFF);
+        assert_eq!(d.get_prop_text("State").unwrap(), "255");
+        assert_eq!(d.get_prop_text("Size").unwrap(), "8");
     }
 
     #[test]
@@ -370,7 +364,7 @@ mod tests {
         let before = d.pin_geoms().len();
         let c = d.set_prop_text("CommonPin", "true").unwrap();
         assert!(c.structural);
-        assert_eq!(before, 8);
-        assert_eq!(d.pin_geoms().len(), 5);
+        assert_eq!(before, 16);
+        assert_eq!(d.pin_geoms().len(), 9);
     }
 }

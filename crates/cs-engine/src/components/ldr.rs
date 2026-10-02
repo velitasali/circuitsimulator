@@ -17,7 +17,10 @@ const MAX_R: f64 = 1e12;
 
 impl crate::canvas::Item {
     pub fn ldr(id: impl Into<String>, x: f64, y: f64, resistance: f64, lux: f64) -> Self {
-        Self::ldr_with(id, x, y, lux, 1e6, resistance, 10.0)
+        let mut ldr = Ldr::default();
+        ldr.lux = lux;
+        ldr.r_light = resistance;
+        Self::new(id, x, y, ldr)
     }
 
     pub fn ldr_with(
@@ -54,10 +57,10 @@ pub struct Ldr {
 impl Default for Ldr {
     fn default() -> Self {
         Self {
-            lux: 100.0,
+            lux: 1.0,
             r_dark: 1e6,
             r_light: 1_000.0,
-            dial_step: 1.0,
+            dial_step: 0.0,
         }
     }
 }
@@ -99,7 +102,7 @@ impl Ldr {
         PropValue::Float(self.dial_step)
     }
     fn set_dial_step(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.dial_step = expect_float("DialStep", v)?.clamp(MIN_LUX, 1e6);
+        self.dial_step = expect_float("DialStep", v)?.clamp(0.0, 1e6);
         Ok(())
     }
 }
@@ -149,7 +152,7 @@ impl Component for Ldr {
                 "DialStep",
                 "Dial Step",
                 "lux",
-                MIN_LUX,
+                0.0,
                 1e6,
                 Ldr::get_dial_step,
                 Ldr::set_dial_step,
@@ -187,7 +190,7 @@ impl crate::canvas::Scene {
     pub fn add_ldr(&mut self, x: f64, y: f64) -> String {
         let id = format!("LDR-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::ldr(&id, x, y, 1000.0, 100.0));
+            .push(crate::canvas::Item::new(&id, x, y, Ldr::default()));
         id
     }
 }
@@ -200,10 +203,10 @@ mod tests {
     fn default_ldr() {
         let l = Ldr::default();
         assert_eq!(l.type_id(), "Ldr");
-        assert_eq!(l.lux, 100.0);
+        assert_eq!(l.lux, 1.0);
         assert_eq!(l.r_dark, 1e6);
         assert_eq!(l.r_light, 1000.0);
-        assert_eq!(l.dial_step, 1.0);
+        assert_eq!(l.dial_step, 0.0);
         assert_eq!(l.pin_geoms().len(), 2);
         assert_eq!(l.body(), Rect::new(-11.0, -4.5, 22.0, 9.0));
     }

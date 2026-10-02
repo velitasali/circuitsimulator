@@ -48,8 +48,8 @@ impl Default for Lamp {
     fn default() -> Self {
         Self {
             voltage: 12.0,
-            power: 24.0,
-            r_cold: 1.0,
+            power: 2.4,
+            r_cold: 5.0,
         }
     }
 }
@@ -233,7 +233,7 @@ impl crate::canvas::Scene {
     pub fn add_lamp(&mut self, x: f64, y: f64) -> String {
         let id = format!("Lamp-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::lamp(&id, x, y, 12.0, 24.0, 1.0));
+            .push(crate::canvas::Item::new(&id, x, y, Lamp::default()));
         id
     }
 }
@@ -247,8 +247,8 @@ mod tests {
         let l = Lamp::default();
         assert_eq!(l.type_id(), "Lamp");
         assert_eq!(l.voltage, 12.0);
-        assert_eq!(l.power, 24.0);
-        assert_eq!(l.r_cold, 1.0);
+        assert_eq!(l.power, 2.4);
+        assert_eq!(l.r_cold, 5.0);
         assert_eq!(l.pin_geoms().len(), 2);
         assert_eq!(l.body(), Rect::new(-8.0, -8.0, 16.0, 16.0));
     }

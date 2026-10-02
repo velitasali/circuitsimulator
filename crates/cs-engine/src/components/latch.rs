@@ -53,10 +53,10 @@ impl crate::canvas::Item {
 impl Default for Latch {
     fn default() -> Self {
         Self {
-            channels: 4,
+            channels: 8,
             use_reset: false,
-            tristate: false,
-            trigger: Trigger::Clock,
+            tristate: true,
+            trigger: Trigger::Enable,
             invert_inputs: false,
         }
     }
@@ -154,11 +154,8 @@ impl Component for Latch {
             p.structural = true;
             p
         };
-        static PROPS: &[PropDef<Latch>] = &[
-            CHANNELS,
-            USE_RESET,
-            TRISTATE,
-            PropDef::enumeration(
+        const TRIGGER: PropDef<Latch> = {
+            let mut p = PropDef::enumeration(
                 "Trigger",
                 "Trigger",
                 TRIGGER_OPTIONS,
@@ -167,7 +164,15 @@ impl Component for Latch {
             )
             .with_info(
                 "\"Clock\" triggers every active edge.\n\"Enable\" any change during active state.\n\"None\" hides Clock pin.",
-            ),
+            );
+            p.structural = true;
+            p
+        };
+        static PROPS: &[PropDef<Latch>] = &[
+            CHANNELS,
+            USE_RESET,
+            TRISTATE,
+            TRIGGER,
             PropDef::bool(
                 "InvertInputs",
                 "Invert Inputs",
@@ -204,10 +209,12 @@ impl Component for Latch {
                 CompPin::new(format!("-out{i}"), 24.0, y, 0, 8.0).with_direction(PinDirection::Out),
             );
         }
-        pins.push(
-            CompPin::new("-clk", -24.0, y0 + (ch as f64) * 8.0, 180, 8.0)
-                .with_direction(PinDirection::In),
-        );
+        if self.trigger != Trigger::None {
+            pins.push(
+                CompPin::new("-clk", -24.0, y0 + (ch as f64) * 8.0, 180, 8.0)
+                    .with_direction(PinDirection::In),
+            );
+        }
         if self.use_reset {
             pins.push(
                 CompPin::new("-rst", 0.0, -((h as f64) / 2.0) * 8.0, 90, 8.0)
@@ -264,9 +271,8 @@ impl Drawable for Latch {
 impl crate::canvas::Scene {
     pub fn add_latch_d(&mut self, x: f64, y: f64) -> String {
         let id = format!("LatchD-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::latch(
-            &id, x, y, 8, false, false, "pos", false,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Latch::default()));
         id
     }
 }
@@ -279,10 +285,12 @@ mod tests {
     fn default_latch() {
         let l = Latch::default();
         assert_eq!(l.type_id(), "Latch");
-        assert_eq!(l.channels, 4);
+        assert_eq!(l.channels, 8);
         assert!(!l.use_reset);
-        assert!(!l.tristate);
-        assert_eq!(l.pin_geoms().len(), 4 * 2 + 1); // 4 in + 4 out + 1 clk
+        assert!(l.tristate);
+        assert_eq!(l.trigger, Trigger::Enable);
+        // 8 in + 8 out + clk + oe
+        assert_eq!(l.pin_geoms().len(), 8 * 2 + 2);
     }
 
     #[test]
@@ -290,6 +298,19 @@ mod tests {
         let mut l = Latch::default();
         l.use_reset = true;
         l.tristate = true;
-        assert_eq!(l.pin_geoms().len(), 4 * 2 + 3);
+        // 8 in + 8 out + clk + rst + oe
+        assert_eq!(l.pin_geoms().len(), 8 * 2 + 3);
+    }
+
+    #[test]
+    fn trigger_none_hides_clock_pin() {
+        let mut l = Latch::default();
+        assert!(l.pin_geoms().iter().any(|p| p.suffix == "-clk"));
+        let change = l.set_prop_text("Trigger", "None").unwrap();
+        assert!(change.structural);
+        let pins = l.pin_geoms();
+        assert!(pins.iter().all(|p| p.suffix != "-clk"));
+        // 8 in + 8 out + oe
+        assert_eq!(pins.len(), 8 * 2 + 1);
     }
 }

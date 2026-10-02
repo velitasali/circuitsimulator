@@ -249,9 +249,8 @@ impl Drawable for OrGate {
 impl crate::canvas::Scene {
     pub fn add_or_gate(&mut self, x: f64, y: f64) -> String {
         let id = format!("OrGate-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::gate(
-            &id, x, y, "Or", 2, false, false, false, false, false,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, OrGate::default()));
         id
     }
 }

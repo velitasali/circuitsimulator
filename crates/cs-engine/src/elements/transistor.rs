@@ -173,6 +173,11 @@ fn v_crit(vt: f64, sat_cur: f64) -> f64 {
     vt * (vt / (std::f64::consts::SQRT_2 * sat_cur)).ln()
 }
 
+/// SimulIDE `eBJT` default `m_vCrit` from `m_vt` and `m_satCur`.
+pub fn default_v_crit() -> f64 {
+    v_crit(VT, BJT_DEFAULT_SAT)
+}
+
 fn limit_step(mut vnew: f64, vold: f64, vt: f64, v_crit: f64) -> f64 {
     if vnew > v_crit && (vnew - vold).abs() > 2.0 * vt {
         if vold > 0.0 {

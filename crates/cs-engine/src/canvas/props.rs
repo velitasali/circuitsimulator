@@ -71,6 +71,7 @@ fn structural_text_prop(name: &str) -> bool {
             | "Height"
             | "Count"
             | "Modules"
+            | "Trigger"
             | "ShowButton"
             | "Show_Button"
             | "show_button"

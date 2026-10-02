@@ -109,22 +109,13 @@ impl crate::canvas::Item {
         offset: f64,
         duty: f64,
     ) -> Self {
-        Self::wave_gen_full(
-            id,
-            x,
-            y,
-            wave_type,
-            freq_hz,
-            amplitude,
-            offset,
-            duty,
-            0.0,
-            64,
-            false,
-            false,
-            String::new(),
-            Vec::new(),
-        )
+        let mut wave = WaveGen::default();
+        wave.wave_type = WaveType::from_str_name(wave_type.as_ref());
+        wave.freq_hz = freq_hz;
+        wave.amplitude = amplitude;
+        wave.offset = offset;
+        wave.duty = normalize_duty(duty);
+        Self::new(id, x, y, wave)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -174,7 +165,7 @@ impl Default for WaveGen {
         Self {
             wave_type: WaveType::Sine,
             freq_hz: 1000.0,
-            amplitude: 5.0,
+            amplitude: 2.5,
             offset: 0.0,
             duty: 0.5,
             phase: 0.0,
@@ -547,9 +538,8 @@ impl Drawable for WaveGen {
 impl crate::canvas::Scene {
     pub fn add_wave_gen(&mut self, x: f64, y: f64) -> String {
         let id = format!("WaveGen-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::wave_gen(
-            &id, x, y, "Sine", 1000.0, 5.0, 0.0, 0.5,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, WaveGen::default()));
         id
     }
 }
@@ -565,7 +555,7 @@ mod tests {
         assert_eq!(wg.pin_geoms().len(), 1);
         assert_eq!(wg.wave_type, WaveType::Sine);
         assert_eq!(wg.freq_hz, 1000.0);
-        assert_eq!(wg.amplitude, 5.0);
+        assert_eq!(wg.amplitude, 2.5);
         assert_eq!(wg.offset, 0.0);
         assert_eq!(wg.duty, 0.5);
         assert_eq!(wg.phase, 0.0);

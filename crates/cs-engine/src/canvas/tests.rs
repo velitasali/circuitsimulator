@@ -4,6 +4,23 @@ use super::*;
 use crate::canvas::geom::to_grid as snap_point;
 use crate::components::ComponentChange;
 
+#[test]
+fn latch_trigger_none_drops_clock_wire() {
+    let mut c = Canvas::empty();
+    let id = c.scene.add_latch_d(0.0, 0.0);
+    let rid = c.scene.add_default_resistor(80.0, 0.0);
+    let clk = format!("{id}-clk");
+    let rpin = format!("{rid}-lPin");
+    let clk_at = c.scene.pin_scene(&clk).expect("clock pin");
+    let r_at = c.scene.pin_scene(&rpin).expect("resistor pin");
+    c.scene.connect_pins(&clk, clk_at, &rpin, r_at);
+    assert_eq!(c.scene.wires().len(), 1);
+    c.set_prop_text_for(&id, "Trigger".to_string(), "None".to_string());
+    assert!(c.scene.wires().is_empty());
+    let pins = c.scene.item_by_id(&id).expect("latch").pins();
+    assert!(pins.iter().all(|p| p.id != clk));
+}
+
 fn ready() -> Canvas {
     let mut c = Canvas::empty();
     c.set_view_size(800.0, 600.0);

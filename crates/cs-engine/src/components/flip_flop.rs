@@ -32,18 +32,11 @@ impl crate::canvas::Item {
         use_rs: bool,
         trigger: &str,
     ) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            FlipFlop {
-                ff_kind: FlipFlopKind::from_str_name(kind),
-                use_rs,
-                trigger: Trigger::from_str_name(trigger),
-                reset_inverted: true,
-                clock_inverted: false,
-            },
-        )
+        let mut flip_flop = FlipFlop::default();
+        flip_flop.ff_kind = FlipFlopKind::from_str_name(kind);
+        flip_flop.use_rs = use_rs;
+        flip_flop.trigger = Trigger::from_str_name(trigger);
+        Self::new(id, x, y, flip_flop)
     }
 }
 
@@ -51,9 +44,9 @@ impl Default for FlipFlop {
     fn default() -> Self {
         Self {
             ff_kind: FlipFlopKind::D,
-            use_rs: false,
+            use_rs: true,
             trigger: Trigger::Clock,
-            reset_inverted: false,
+            reset_inverted: true,
             clock_inverted: false,
         }
     }
@@ -279,28 +272,37 @@ impl crate::canvas::Scene {
     pub fn add_flipflop_d(&mut self, x: f64, y: f64) -> String {
         let id = format!("FlipFlopD-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::flipflop(&id, x, y, "D", false, "pos"));
+            .push(crate::canvas::Item::new(&id, x, y, FlipFlop::default()));
         id
     }
 
     pub fn add_flipflop_jk(&mut self, x: f64, y: f64) -> String {
         let id = format!("FlipFlopJK-{}", self.items.len() + 1);
+        let mut flip_flop = FlipFlop::default();
+        flip_flop.ff_kind = FlipFlopKind::Jk;
+        flip_flop.use_rs = true;
         self.items
-            .push(crate::canvas::Item::flipflop(&id, x, y, "JK", false, "pos"));
+            .push(crate::canvas::Item::new(&id, x, y, flip_flop));
         id
     }
 
     pub fn add_flipflop_rs(&mut self, x: f64, y: f64) -> String {
         let id = format!("FlipFlopRS-{}", self.items.len() + 1);
+        let mut flip_flop = FlipFlop::default();
+        flip_flop.ff_kind = FlipFlopKind::Rs;
+        flip_flop.use_rs = false;
         self.items
-            .push(crate::canvas::Item::flipflop(&id, x, y, "RS", false, "pos"));
+            .push(crate::canvas::Item::new(&id, x, y, flip_flop));
         id
     }
 
     pub fn add_flipflop_t(&mut self, x: f64, y: f64) -> String {
         let id = format!("FlipFlopT-{}", self.items.len() + 1);
+        let mut flip_flop = FlipFlop::default();
+        flip_flop.ff_kind = FlipFlopKind::T;
+        flip_flop.use_rs = true;
         self.items
-            .push(crate::canvas::Item::flipflop(&id, x, y, "T", false, "pos"));
+            .push(crate::canvas::Item::new(&id, x, y, flip_flop));
         id
     }
 }
@@ -314,16 +316,17 @@ mod tests {
         let ff = FlipFlop::default();
         assert_eq!(ff.type_id(), "FlipFlop");
         assert_eq!(ff.ff_kind, FlipFlopKind::D);
-        assert!(!ff.use_rs);
+        assert!(ff.use_rs);
         assert_eq!(ff.trigger, Trigger::Clock);
-        assert_eq!(ff.pin_geoms().len(), 4);
+        assert!(ff.reset_inverted);
+        assert_eq!(ff.pin_geoms().len(), 6);
     }
 
     #[test]
     fn flip_flop_with_rs() {
         let mut ff = FlipFlop::default();
-        ff.use_rs = true;
-        assert_eq!(ff.pin_geoms().len(), 6);
+        ff.use_rs = false;
+        assert_eq!(ff.pin_geoms().len(), 4);
     }
 }
 

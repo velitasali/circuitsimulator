@@ -27,14 +27,14 @@ pub(crate) const CASES: &[Case] = &[
         itemtype: "VarResistor",
         make: || Part::VarResistor(VarResistor::default()),
         extras: &[
-            ("Resistance", "1.5 kΩ", "500 Ω"),
+            ("Resistance", "750 Ω", "500 Ω"),
             ("MinResistance", "10 Ω", "50 Ω"),
             ("MaxResistance", "5 kΩ", "10 kΩ"),
             ("Key", "A", "B"),
             ("DialStep", "10 Ω", "100 Ω"),
         ],
         dial_prop: Some("Resistance"),
-        dial_value: 1_500.0,
+        dial_value: 750.0,
     },
     Case {
         itemtype: "Potentiometer",
@@ -263,7 +263,7 @@ pub(crate) const CASES: &[Case] = &[
         itemtype: "Zener",
         make: || Part::Diode(Diode::zener_default()),
         extras: &[
-            ("Threshold", "5.1 V", "3.3 V"),
+            ("Threshold", "800 mV", "1.2 V"),
             ("MaxCurrent", "500 mA", "2 A"),
             ("Resistance", "500 mΩ", "20 mΩ"),
             ("BrkDownV", "5.1 V", "3.3 V"),
@@ -1258,7 +1258,6 @@ pub(crate) const CASES: &[Case] = &[
             ("Program", "firmware1.hex", "firmware2.hex"),
             ("AutoLoad", "true", "false"),
             ("SavePgm", "true", "false"),
-            ("Pgm", "1,2,3,", "4,5,6,"),
             ("LogicSymbol", "true", "false"),
             ("Package", "DIP18", "DIP28"),
             ("SaveEepr", "true", "false"),

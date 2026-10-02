@@ -3,7 +3,8 @@
 use super::component::{
     DialState, clamp_positive, resistor_g, stamp_two_terminal, two_terminal_pins,
 };
-use super::props::{PropDef, PropError, PropValue, expect_float, expect_string};
+use super::prop_links;
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float, expect_string};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable, TwoTerminal};
 use crate::canvas::Rect;
 use crate::elements::Kind;
@@ -11,7 +12,7 @@ use crate::matrix::CircMatrix;
 
 const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
-const DEFAULT_R: f64 = 1_000.0;
+const DEFAULT_MAX_R: f64 = 1_000.0;
 
 impl crate::canvas::Item {
     pub fn var_resistor(id: impl Into<String>, x: f64, y: f64, resistance: f64) -> Self {
@@ -65,10 +66,10 @@ pub struct VarResistor {
 impl Default for VarResistor {
     fn default() -> Self {
         Self {
-            resistance: DEFAULT_R,
+            resistance: 0.0,
             min_r: 0.0,
-            max_r: DEFAULT_R * 2.0,
-            dial: DialState::new(1.0),
+            max_r: DEFAULT_MAX_R,
+            dial: DialState::new(0.0),
         }
     }
 }
@@ -90,12 +91,6 @@ impl VarResistor {
         }
     }
 
-    fn clamp_r(&mut self) {
-        let lo = self.min_r.min(self.max_r);
-        let hi = self.min_r.max(self.max_r).max(lo);
-        self.resistance = self.resistance.clamp(lo.max(MIN_OHMS), hi.max(MIN_OHMS));
-    }
-
     pub fn to_element_kind(&self) -> Kind {
         Kind::VarResistor {
             resistance: self.resistance.max(MIN_OHMS),
@@ -106,25 +101,31 @@ impl VarResistor {
         PropValue::Float(self.resistance)
     }
     fn set_resistance(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.resistance = expect_float("Resistance", v)?.clamp(MIN_OHMS, MAX_OHMS);
-        self.clamp_r();
+        self.resistance = expect_float("Resistance", v)?.clamp(0.0, MAX_OHMS);
         Ok(())
+    }
+    fn value_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_value(&mut part.resistance, part.min_r, part.max_r);
     }
     fn get_min_r(&self) -> PropValue {
         PropValue::Float(self.min_r)
     }
     fn set_min_r(&mut self, v: PropValue) -> Result<(), PropError> {
         self.min_r = expect_float("MinResistance", v)?.clamp(0.0, MAX_OHMS);
-        self.clamp_r();
         Ok(())
+    }
+    fn min_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_min(&mut part.min_r, part.max_r, &mut part.resistance);
     }
     fn get_max_r(&self) -> PropValue {
         PropValue::Float(self.max_r)
     }
     fn set_max_r(&mut self, v: PropValue) -> Result<(), PropError> {
         self.max_r = expect_float("MaxResistance", v)?.clamp(MIN_OHMS, MAX_OHMS);
-        self.clamp_r();
         Ok(())
+    }
+    fn max_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_max(&mut part.max_r, part.min_r, &mut part.resistance);
     }
     fn get_key(&self) -> PropValue {
         PropValue::String(self.dial.key.clone())
@@ -137,7 +138,7 @@ impl VarResistor {
         PropValue::Float(self.dial.step)
     }
     fn set_dial_step(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.dial.step = expect_float("DialStep", v)?.clamp(MIN_OHMS, MAX_OHMS);
+        self.dial.step = expect_float("DialStep", v)?.clamp(0.0, MAX_OHMS);
         Ok(())
     }
 }
@@ -150,16 +151,23 @@ impl Component for VarResistor {
         "Variable resistor."
     }
     fn props() -> &'static [PropDef<Self>] {
+        const RES_UPDATES: &[PropUpdate<VarResistor>] =
+            &[PropUpdate::always(VarResistor::value_adjusts)];
+        const MIN_UPDATES: &[PropUpdate<VarResistor>] =
+            &[PropUpdate::always(VarResistor::min_adjusts)];
+        const MAX_UPDATES: &[PropUpdate<VarResistor>] =
+            &[PropUpdate::always(VarResistor::max_adjusts)];
         static PROPS: &[PropDef<VarResistor>] = &[
             PropDef::float(
                 "Resistance",
                 "Resistance",
                 "Ω",
-                MIN_OHMS,
+                0.0,
                 MAX_OHMS,
                 VarResistor::get_resistance,
                 VarResistor::set_resistance,
             )
+            .updates(RES_UPDATES)
             .with_info("Resistance value, in ohms."),
             PropDef::float(
                 "MinResistance",
@@ -170,6 +178,7 @@ impl Component for VarResistor {
                 VarResistor::get_min_r,
                 VarResistor::set_min_r,
             )
+            .updates(MIN_UPDATES)
             .with_info("Resistance with dial at the left end."),
             PropDef::float(
                 "MaxResistance",
@@ -180,6 +189,7 @@ impl Component for VarResistor {
                 VarResistor::get_max_r,
                 VarResistor::set_max_r,
             )
+            .updates(MAX_UPDATES)
             .with_info("Resistance with dial at the right end."),
             PropDef::string("Key", "Key", VarResistor::get_key, VarResistor::set_key).with_info(
                 "Character shown in the button.\nCan be activated by keyboard in your PC.",
@@ -188,7 +198,7 @@ impl Component for VarResistor {
                 "DialStep",
                 "Dial Step",
                 "Ω",
-                MIN_OHMS,
+                0.0,
                 MAX_OHMS,
                 VarResistor::get_dial_step,
                 VarResistor::set_dial_step,
@@ -244,7 +254,7 @@ impl crate::canvas::Scene {
     pub fn add_var_resistor(&mut self, x: f64, y: f64) -> String {
         let id = format!("VarResistor-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::var_resistor(&id, x, y, 1000.0));
+            .push(crate::canvas::Item::new(&id, x, y, VarResistor::default()));
         id
     }
 }
@@ -266,10 +276,10 @@ impl Dialed for VarResistor {
         self.resistance
     }
     fn min(&self) -> f64 {
-        self.min_r.min(self.max_r).max(MIN_OHMS)
+        self.min_r.min(self.max_r)
     }
     fn max(&self) -> f64 {
-        self.min_r.max(self.max_r).max(MIN_OHMS)
+        self.min_r.max(self.max_r)
     }
 }
 
@@ -294,22 +304,23 @@ mod tests {
 
     #[test]
     fn default_matches_constructor() {
-        let v = VarResistor::default();
-        assert_eq!(v.resistance, DEFAULT_R);
+        let mut v = VarResistor::default();
+        assert_eq!(v.resistance, 0.0);
         assert_eq!(v.min_r, 0.0);
-        assert_eq!(v.max_r, 2_000.0);
-        assert_eq!(
-            v.get_prop_text("Resistance").unwrap(),
-            format_si(DEFAULT_R, "Ω")
-        );
+        assert_eq!(v.max_r, DEFAULT_MAX_R);
+        assert_eq!(v.dial.step, 0.0);
+        assert_eq!(v.get_prop_text("Resistance").unwrap(), format_si(0.0, "Ω"));
+        assert_eq!(v.min(), 0.0);
+        v.set_value(0.0);
+        assert_eq!(v.resistance, 0.0);
     }
 
     #[test]
     fn dial_writes_resistance() {
         let mut v = VarResistor::default();
-        let c = v.set_value(1_500.0);
+        let c = v.set_value(500.0);
         assert!(c.saved && c.undo && c.sim);
-        assert_eq!(v.get_prop_text("Resistance").unwrap(), "1.5 kΩ");
+        assert_eq!(v.get_prop_text("Resistance").unwrap(), "500 Ω");
         v.set_value(10_000.0);
         assert_eq!(v.value(), v.max());
     }

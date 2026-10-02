@@ -1,7 +1,7 @@
 //! Potentiometer: two series resistors sharing a wiper pin.
 
 use super::component::{DialState, clamp_positive, resistor_g, stamp_conductance_between};
-use super::props::{PropDef, PropError, PropValue, expect_float, expect_string};
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float, expect_string};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable};
 use crate::canvas::Rect;
 use crate::elements::Kind;
@@ -113,13 +113,20 @@ impl Potentiometer {
         PropValue::Float(self.resistance * self.wiper)
     }
     fn set_value_ohm(&mut self, v: PropValue) -> Result<(), PropError> {
-        let val = expect_float("Value_Ohm", v)?.max(0.0);
-        self.wiper = if self.resistance > 1e-12 {
-            (val / self.resistance).clamp(0.0, 1.0)
+        expect_float("Value_Ohm", v)?;
+        Ok(())
+    }
+    fn value_ohm_sets_wiper(pot: &mut Self, v: &PropValue) {
+        let PropValue::Float(val) = *v else {
+            return;
+        };
+        let span = pot.resistance.max(0.0);
+        let val = val.max(0.0).min(span);
+        pot.wiper = if span > 1e-12 {
+            (val / span).clamp(0.0, 1.0)
         } else {
             0.0
         };
-        Ok(())
     }
 }
 
@@ -131,6 +138,8 @@ impl Component for Potentiometer {
         "Potentiometer."
     }
     fn props() -> &'static [PropDef<Self>] {
+        const OHM_UPDATES: &[PropUpdate<Potentiometer>] =
+            &[PropUpdate::always(Potentiometer::value_ohm_sets_wiper)];
         const VAL_OHM: PropDef<Potentiometer> = {
             let mut p = PropDef::float(
                 "Value_Ohm",
@@ -141,7 +150,10 @@ impl Component for Potentiometer {
                 Potentiometer::get_value_ohm,
                 Potentiometer::set_value_ohm,
             )
-            .with_info("Value determined by dial position.");
+            .updates(OHM_UPDATES)
+            .with_info(
+                "Value determined by dial position. Not stored: it is resistance times the wiper.",
+            );
             p.persist = false;
             p.show_by_default = false;
             p
@@ -234,8 +246,12 @@ impl Component for Potentiometer {
 impl crate::canvas::Scene {
     pub fn add_potentiometer(&mut self, x: f64, y: f64) -> String {
         let id = format!("Potentiometer-{}", self.items.len() + 1);
-        self.items
-            .push(crate::canvas::Item::potentiometer(&id, x, y, 1000.0, 0.5));
+        self.items.push(crate::canvas::Item::new(
+            &id,
+            x,
+            y,
+            Potentiometer::default(),
+        ));
         id
     }
 
@@ -310,6 +326,17 @@ mod tests {
             format_si(DEFAULT_R, "Ω")
         );
         assert_eq!(p.get_prop_text("Wiper").unwrap(), "0.5");
+    }
+
+    #[test]
+    fn current_value_moves_the_wiper_and_is_not_a_stored_field() {
+        let mut p = Potentiometer::default();
+        p.set_prop_text("Value_Ohm", "250 Ω").unwrap();
+        assert!((p.wiper - 0.25).abs() < 1e-12);
+        assert_eq!(p.get_prop_text("Value_Ohm").unwrap(), "250 Ω");
+        p.set_prop_text("Resistance", "2 kΩ").unwrap();
+        assert!((p.wiper - 0.25).abs() < 1e-12);
+        assert_eq!(p.get_prop_text("Value_Ohm").unwrap(), "500 Ω");
     }
 
     #[test]

@@ -7,8 +7,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use crate::catalog::Catalog;
+use crate::digital::LogicOverride;
 use crate::elements::{Comp, Kind};
-use crate::package::{Package, convert_package, packages_from_sim1, select_package};
+use crate::package::{Package, SubcType, convert_package, packages_from_sim1, select_package};
 use crate::sim1::{ParsedCircuit, parse_sim1, parse_xml_props};
 use crate::{Error, Result};
 
@@ -254,6 +255,7 @@ pub fn instantiate(
     logic_symbol: bool,
     package_name: Option<&str>,
     depth: u32,
+    logic: Option<LogicOverride>,
 ) -> Result<SubcInstance> {
     instantiate_resolved(
         instance_id,
@@ -264,6 +266,7 @@ pub fn instantiate(
         logic_symbol,
         package_name,
         depth,
+        logic,
     )
 }
 
@@ -276,6 +279,7 @@ fn instantiate_resolved(
     logic_symbol: bool,
     package_name: Option<&str>,
     depth: u32,
+    logic: Option<LogicOverride>,
 ) -> Result<SubcInstance> {
     if depth >= MAX_NEST {
         return Err(Error::Parse(format!(
@@ -293,7 +297,13 @@ fn instantiate_resolved(
     let child_search = nested_path
         .map(|p| search.child_for(p))
         .unwrap_or_else(|| search.clone());
-    let expanded = expand_parsed(parsed, &child_search, depth + 1)?;
+    // LogicSubc pushes only when this device is a logic subcircuit.
+    let logic = if package.subc_type == SubcType::Logic {
+        logic
+    } else {
+        None
+    };
+    let expanded = expand_parsed(parsed, &child_search, depth + 1, logic)?;
 
     let mut components = expanded.components;
     let connectors = expanded.connectors;
@@ -320,7 +330,12 @@ pub struct Expanded {
 }
 
 /// Walk a parsed document, flattening every Subcircuit item.
-pub fn expand_parsed(parsed: ParsedCircuit, search: &SubcSearch, depth: u32) -> Result<Expanded> {
+pub fn expand_parsed(
+    parsed: ParsedCircuit,
+    search: &SubcSearch,
+    depth: u32,
+    logic: Option<LogicOverride>,
+) -> Result<Expanded> {
     let mut components = Vec::new();
     let mut connectors: Vec<(String, String)> = parsed
         .connectors
@@ -360,6 +375,7 @@ pub fn expand_parsed(parsed: ParsedCircuit, search: &SubcSearch, depth: u32) -> 
                     logic_symbol,
                     package_name.as_deref(),
                     depth,
+                    logic,
                 ) {
                     Ok(inst) => {
                         components.extend(inst.components);
@@ -374,6 +390,9 @@ pub fn expand_parsed(parsed: ParsedCircuit, search: &SubcSearch, depth: u32) -> 
                 if let Kind::QemuDevice(q) = &mut comp.kind {
                     resolve_qemu_firmware(q, search);
                 }
+                if let Some(levels) = logic {
+                    apply_logic_override(&mut comp, levels);
+                }
                 components.push(comp);
             }
         }
@@ -383,6 +402,103 @@ pub fn expand_parsed(parsed: ParsedCircuit, search: &SubcSearch, depth: u32) -> 
         connectors,
         skipped,
     })
+}
+
+/// `LogicSubc` setter: `setPropStr` on each direct child. Parts without a logic
+/// family ignore it. A nested logic subcircuit receives the same override and
+/// pushes it onward. Any other nested subcircuit does not.
+fn apply_logic_override(comp: &mut Comp, levels: LogicOverride) {
+    match &mut comp.kind {
+        Kind::Gate(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::FlipFlop(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Latch(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Comparator { state } => {
+            levels.apply(&mut state.family);
+            state.apply_electric();
+        }
+        Kind::TestUnit(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Mux(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Demux(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::BcdToDec(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::DecToBcd(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::BcdTo7S(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::I2CToParallel(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Adc(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Dac(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Counter(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::BinCounter(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::FullAdder(s) | Kind::HalfAdder(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::MagnitudeComp(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::ShiftReg(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Function(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::Memory(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::DynamicMemory(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        Kind::I2CRam(s) => {
+            levels.apply(&mut s.family);
+            s.apply_family();
+        }
+        _ => {}
+    }
 }
 
 /// Prefix inner CircIds / connector pin ids / tunnel names (C++ `numId+"@"+uid`).
@@ -457,6 +573,7 @@ fn rebuild_item(properties: &[(String, String)]) -> String {
 pub struct SubcView {
     pub device: String,
     pub package: Package,
+    pub packages: BTreeMap<String, Package>,
     pub nested_src: String,
     pub nested_path: Option<String>,
     pub logic_symbol: bool,
@@ -480,6 +597,7 @@ pub fn load_view(
     Ok(SubcView {
         device: device.to_string(),
         package,
+        packages,
         nested_src: resolved.src,
         nested_path: resolved.path.map(|p| p.to_string_lossy().into_owned()),
         logic_symbol,

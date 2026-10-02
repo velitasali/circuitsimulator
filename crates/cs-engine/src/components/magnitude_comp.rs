@@ -29,7 +29,7 @@ impl crate::canvas::Item {
 
 impl Default for MagnitudeComp {
     fn default() -> Self {
-        Self { bits: 4 }
+        Self { bits: 2 }
     }
 }
 
@@ -103,8 +103,12 @@ impl Drawable for MagnitudeComp {
 impl crate::canvas::Scene {
     pub fn add_magnitude_comp(&mut self, x: f64, y: f64) -> String {
         let id = format!("MagnitudeComp-{}", self.items.len() + 1);
-        self.items
-            .push(crate::canvas::Item::magnitude_comp(&id, x, y, 4));
+        self.items.push(crate::canvas::Item::new(
+            &id,
+            x,
+            y,
+            MagnitudeComp::default(),
+        ));
         id
     }
 }
@@ -117,11 +121,11 @@ mod tests {
     fn default_magnitude_comp() {
         let m = MagnitudeComp::default();
         assert_eq!(m.type_id(), "MagnitudeComp");
-        assert_eq!(m.bits, 4);
-        // 3 cascade in + 4 A + 4 B + 3 out = 14 pins
-        assert_eq!(m.pin_geoms().len(), 14);
-        // h = (4*2 + 4)*8 = 96
-        assert_eq!(m.body(), Rect::new(-16.0, -48.0, 32.0, 96.0));
+        assert_eq!(m.bits, 2);
+        // 3 cascade in + 2 A + 2 B + 3 out = 10 pins
+        assert_eq!(m.pin_geoms().len(), 10);
+        // h = (2*2 + 4)*8 = 64
+        assert_eq!(m.body(), Rect::new(-16.0, -32.0, 32.0, 64.0));
     }
 
     #[test]

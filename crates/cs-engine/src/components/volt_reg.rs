@@ -13,7 +13,7 @@ const MAX_VOLT: f64 = 1000.0;
 
 impl crate::canvas::Item {
     pub fn volt_reg(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::volt_reg_with(id, x, y, VOLTREG_DEFAULT_VREF)
+        Self::new(id, x, y, VoltReg::default())
     }
 
     pub fn volt_reg_with(id: impl Into<String>, x: f64, y: f64, voltage: f64) -> Self {
@@ -136,7 +136,8 @@ impl crate::canvas::Scene {
     pub fn add_volt_reg(&mut self, x: f64, y: f64) -> String {
         let id = format!("VoltReg-{}", self.next_voltreg);
         self.next_voltreg += 1;
-        self.items.push(crate::canvas::Item::volt_reg(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, VoltReg::default()));
         id
     }
 }

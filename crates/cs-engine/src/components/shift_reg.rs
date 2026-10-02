@@ -103,7 +103,7 @@ impl crate::canvas::Scene {
     pub fn add_shift_reg(&mut self, x: f64, y: f64) -> String {
         let id = format!("ShiftReg-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::shift_reg(&id, x, y, 8));
+            .push(crate::canvas::Item::new(&id, x, y, ShiftReg::default()));
         id
     }
 }

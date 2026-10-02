@@ -126,9 +126,9 @@ fn test_property_editing_getters_and_setters() {
     assert_eq!(fv.prop_bool("Small"), Some(true));
 
     let mut probe = Item::probe("P1", 0.0, 0.0, 2.5, false);
-    assert_eq!(probe.prop_bool("ShowVolt"), Some(false));
-    assert!(probe.set_prop_bool("ShowVolt", true));
     assert_eq!(probe.prop_bool("ShowVolt"), Some(true));
+    assert!(probe.set_prop_bool("ShowVolt", false));
+    assert_eq!(probe.prop_bool("ShowVolt"), Some(false));
 
     // Relay
     let mut relay = Item::relay("RL1", 0.0, 0.0, false, false, 2, 0.03, 0.015, false);
@@ -225,7 +225,18 @@ fn test_sim1_serialization_and_deserialization_roundtrip() {
     assert!(xml.contains(r#"Depletion="true""#));
     assert!(xml.contains(r#"RDSon="80 mΩ""#));
     assert!(xml.contains(r#"itemtype="Diode""#));
-    assert!(xml.contains(r#"Threshold="850 mV""#));
+    let diode_line = xml
+        .lines()
+        .find(|line| line.contains(r#"itemtype="Diode""#))
+        .expect("diode item");
+    assert!(
+        !diode_line.contains("Threshold="),
+        "forward voltage is computed, got {diode_line}"
+    );
+    assert!(
+        diode_line.contains(r#"SatCurrent="2.67380821 nA""#),
+        "{diode_line}"
+    );
     assert!(xml.contains(r#"MaxCurrent="3 A""#));
 
     // Reload from XML
@@ -340,10 +351,10 @@ fn led_bar_colors_properties_and_simulation() {
     let lb_id = canvas.scene_mut().add_led_bar(0.0, 0.0);
     {
         let lb = canvas.scene_mut().item_by_id_mut(&lb_id).unwrap();
-        assert_eq!(lb.prop_text("Color").as_deref(), Some("Red"));
-        assert_eq!(lb.prop_text("Segments").as_deref(), Some("10"));
+        assert_eq!(lb.prop_text("Color").as_deref(), Some("Yellow"));
+        assert_eq!(lb.prop_text("Segments").as_deref(), Some("8"));
         assert_eq!(lb.prop_bool("Grounded"), Some(false));
-        assert_eq!(lb.pins().len(), 20); // 10 anodes + 10 cathodes
+        assert_eq!(lb.pins().len(), 16); // 8 anodes + 8 cathodes
 
         // Change color to Yellow
         assert!(lb.set_prop_text("Color", "Yellow"));
@@ -394,21 +405,21 @@ fn led_bar_colors_properties_and_simulation() {
     // Segment 0 should be lit ('1'), remaining segments unlit ('0')
     assert_eq!(rd.text.chars().next(), Some('1'));
     assert_eq!(rd.text.chars().nth(1), Some('0'));
-    assert_eq!(rd.text, "1000000000");
+    assert_eq!(rd.text, "10000000");
 
     // Test Grounded mode
     canvas.power_off();
     {
         let lb = canvas.scene_mut().item_by_id_mut(&lb_id).unwrap();
         assert!(lb.set_prop_bool("Grounded", true));
-        assert_eq!(lb.pins().len(), 10); // only anode pins
+        assert_eq!(lb.pins().len(), 8); // only anode pins
     }
     canvas.power_on();
     for _ in 0..5 {
         canvas.tick();
     }
     let rd_gnd = canvas.readings().get(&lb_id).expect("LedBar reading");
-    assert_eq!(rd_gnd.text, "1000000000");
+    assert_eq!(rd_gnd.text, "10000000");
 }
 
 #[test]

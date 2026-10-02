@@ -73,7 +73,8 @@ impl crate::canvas::Scene {
     pub fn add_ground(&mut self, x: f64, y: f64) -> String {
         let id = format!("Ground-{}", self.next_ground);
         self.next_ground += 1;
-        self.items.push(crate::canvas::Item::ground(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Ground::default()));
         id
     }
 }

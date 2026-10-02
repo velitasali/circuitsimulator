@@ -1,11 +1,14 @@
 //! Diode: semiconductor diode with configurable Shockley model and optional Zener breakdown.
 
 use super::component::{PropGroup, pin_node, stamp_two_terminal};
-use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float};
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_bool, expect_float};
 use super::{CompPin, Component, Stampable, TwoTerminal};
 use crate::canvas::Rect;
 use crate::elements::Kind;
-use crate::elements::diode::DiodeState;
+use crate::elements::diode::{
+    DIODE_DEFAULT_EM, DIODE_DEFAULT_RS, DIODE_DEFAULT_SAT_NA, DiodeState, ZENER_DEFAULT_BV,
+    forward_voltage, sat_current_for_forward_voltage,
+};
 use crate::matrix::CircMatrix;
 
 const MIN_V: f64 = 0.0;
@@ -19,18 +22,12 @@ const MAX_EM: f64 = 100.0;
 
 impl crate::canvas::Item {
     pub fn diode(id: impl Into<String>, x: f64, y: f64, zener: bool) -> Self {
-        Self::diode_with(
-            id,
-            x,
-            y,
-            zener,
-            if zener { 4.7 } else { 0.7 },
-            1.0,
-            0.1,
-            if zener { 4.7 } else { 50.0 },
-            1e-9,
-            1.0,
-        )
+        let d = if zener {
+            Diode::zener_default()
+        } else {
+            Diode::default()
+        };
+        Self::new(id, x, y, d)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -39,7 +36,6 @@ impl crate::canvas::Item {
         x: f64,
         y: f64,
         zener: bool,
-        threshold: f64,
         max_current: f64,
         resistance: f64,
         brkdown_v: f64,
@@ -52,7 +48,6 @@ impl crate::canvas::Item {
             y,
             Diode {
                 zener,
-                threshold,
                 max_current,
                 resistance,
                 brkdown_v,
@@ -66,7 +61,6 @@ impl crate::canvas::Item {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Diode {
     pub zener: bool,
-    pub threshold: f64,
     pub max_current: f64,
     pub resistance: f64,
     pub brkdown_v: f64,
@@ -74,16 +68,20 @@ pub struct Diode {
     pub em_coef: f64,
 }
 
+fn diode_sat_current() -> f64 {
+    DIODE_DEFAULT_SAT_NA * 1e-9
+}
+
 impl Default for Diode {
     fn default() -> Self {
+        let sat_current = diode_sat_current();
         Self {
             zener: false,
-            threshold: 0.7,
             max_current: 1.0,
-            resistance: 0.1,
-            brkdown_v: 50.0,
-            sat_current: 1e-9,
-            em_coef: 1.0,
+            resistance: DIODE_DEFAULT_RS,
+            brkdown_v: 0.0,
+            sat_current,
+            em_coef: DIODE_DEFAULT_EM,
         }
     }
 }
@@ -92,15 +90,20 @@ impl Diode {
     pub const TYPE_ID: &'static str = "Diode";
     pub const TYPE_ID_ZENER: &'static str = "Zener";
     pub fn zener_default() -> Self {
+        let sat_current = diode_sat_current();
         Self {
             zener: true,
-            threshold: 4.7,
             max_current: 1.0,
-            resistance: 0.1,
-            brkdown_v: 4.7,
-            sat_current: 1e-9,
-            em_coef: 1.0,
+            resistance: DIODE_DEFAULT_RS,
+            brkdown_v: ZENER_DEFAULT_BV,
+            sat_current,
+            em_coef: DIODE_DEFAULT_EM,
         }
+    }
+
+    /// Forward voltage, SimulIDE `eDiode::threshold` (`m_vCriti`).
+    pub fn threshold(&self) -> f64 {
+        forward_voltage(self.sat_current, self.em_coef)
     }
 
     pub fn to_element_kind(&self) -> Kind {
@@ -110,7 +113,6 @@ impl Diode {
             self.brkdown_v,
             self.resistance,
         );
-        state.threshold = self.threshold;
         state.max_current = self.max_current;
         Kind::Diode {
             state,
@@ -126,11 +128,21 @@ impl Diode {
         Ok(())
     }
     fn get_threshold(&self) -> PropValue {
-        PropValue::Float(self.threshold)
+        PropValue::Float(self.threshold())
     }
     fn set_threshold(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.threshold = expect_float("Threshold", v)?.clamp(MIN_V, MAX_V);
+        expect_float("Threshold", v)?;
         Ok(())
+    }
+
+    fn threshold_sets_sat(diode: &mut Self, v: &PropValue) {
+        let PropValue::Float(volts) = v else {
+            return;
+        };
+        let volts = volts.clamp(MIN_V, MAX_V);
+        if let Some(sat) = sat_current_for_forward_voltage(volts, diode.em_coef) {
+            diode.sat_current = sat.clamp(MIN_A, MAX_A);
+        }
     }
     fn get_max_current(&self) -> PropValue {
         PropValue::Float(self.max_current)
@@ -187,11 +199,11 @@ impl Component for Diode {
     }
 
     fn props() -> &'static [PropDef<Self>] {
-        static PROPS: &[PropDef<Diode>] = &[
-            PropDef::bool("Zener", "Zener Diode", Diode::get_zener, Diode::set_zener).with_info(
-                "Configure component as a Zener diode instead of a standard rectifier diode.",
-            ),
-            PropDef::float(
+        const THRESHOLD_UPDATES: &[PropUpdate<Diode>] =
+            &[PropUpdate::always(Diode::threshold_sets_sat)];
+        // Computed from saturation current and emission coefficient. Not written or loaded.
+        const THRESHOLD: PropDef<Diode> = {
+            let mut p = PropDef::float(
                 "Threshold",
                 "Threshold",
                 "V",
@@ -200,7 +212,15 @@ impl Component for Diode {
                 Diode::get_threshold,
                 Diode::set_threshold,
             )
-            .with_info("Voltage drop when forward biased."),
+            .updates(THRESHOLD_UPDATES)
+            .with_info("Forward voltage, computed from the saturation current and emission coefficient. Editing it changes the saturation current.");
+            p.persist = false;
+            p
+        };
+        static PROPS: &[PropDef<Diode>] = &[
+            PropDef::bool("Zener", "Zener Diode", Diode::get_zener, Diode::set_zener).with_info(
+                "Configure component as a Zener diode instead of a standard rectifier diode.",
+            ),
             PropDef::float(
                 "MaxCurrent",
                 "Max Current",
@@ -240,6 +260,8 @@ impl Component for Diode {
                 Diode::get_sat_current,
                 Diode::set_sat_current,
             )
+            // Eight places: this current is the saved source for forward voltage.
+            .with_decimals(8)
             .with_info("Minority charge carriers current when reverse biased."),
             PropDef::float(
                 "EmCoef",
@@ -251,6 +273,7 @@ impl Component for Diode {
                 Diode::set_em_coef,
             )
             .with_info("Ideality factor."),
+            THRESHOLD,
         ];
         PROPS
     }
@@ -294,7 +317,6 @@ impl Stampable for Diode {
             self.brkdown_v,
             self.resistance,
         );
-        state.threshold = self.threshold;
         state.max_current = self.max_current;
         let n = matrix.n();
         let va = pin_node(pin_nodes, 0, n)
@@ -358,14 +380,54 @@ mod tests {
         let d = Diode::default();
         assert!(!d.zener);
         assert_eq!(d.type_id(), "Diode");
-        assert_eq!(d.threshold, 0.7);
-        assert_eq!(d.brkdown_v, 50.0);
+        let sat = diode_sat_current();
+        let v_crit = forward_voltage(sat, DIODE_DEFAULT_EM);
+        assert_eq!(d.threshold(), v_crit);
+        assert_eq!(d.resistance, DIODE_DEFAULT_RS);
+        assert_eq!(d.brkdown_v, 0.0);
+        assert_eq!(d.sat_current, sat);
+        assert_eq!(d.em_coef, DIODE_DEFAULT_EM);
 
         let z = Diode::zener_default();
         assert!(z.zener);
         assert_eq!(z.type_id(), "Zener");
-        assert_eq!(z.threshold, 4.7);
-        assert_eq!(z.brkdown_v, 4.7);
+        assert_eq!(z.threshold(), v_crit);
+        assert_eq!(z.brkdown_v, ZENER_DEFAULT_BV);
+        assert_eq!(z.resistance, DIODE_DEFAULT_RS);
+        assert_eq!(z.sat_current, sat);
+        assert_eq!(z.em_coef, DIODE_DEFAULT_EM);
+    }
+
+    #[test]
+    fn forward_voltage_follows_saturation_and_emission() {
+        let mut d = Diode::default();
+        let v0 = d.threshold();
+        let sat0 = d.sat_current;
+
+        d.set_prop("SatCurrent", PropValue::Float(1e-9)).unwrap();
+        assert!((d.threshold() - v0).abs() > 1e-3);
+        assert!((d.sat_current - 1e-9).abs() < 1e-18);
+
+        let v_sat = d.threshold();
+        d.set_prop("EmCoef", PropValue::Float(1.5)).unwrap();
+        assert!((d.em_coef - 1.5).abs() < 1e-12);
+        assert!((d.sat_current - 1e-9).abs() < 1e-18);
+        assert!((d.threshold() - v_sat).abs() > 1e-3);
+
+        d.set_prop("Threshold", PropValue::Float(0.8)).unwrap();
+        assert!((d.threshold() - 0.8).abs() < 1e-9);
+        assert!((d.sat_current - sat0).abs() > 1e-12);
+        assert!((d.em_coef - 1.5).abs() < 1e-12);
+
+        let sat = d.sat_current;
+        d.set_prop("Threshold", PropValue::Float(0.0)).unwrap();
+        assert!((d.sat_current - sat).abs() < 1e-18);
+        assert!((d.threshold() - 0.8).abs() < 1e-9);
+
+        d.set_prop("SatCurrent", PropValue::Float(sat0)).unwrap();
+        d.set_prop("EmCoef", PropValue::Float(DIODE_DEFAULT_EM))
+            .unwrap();
+        assert!((d.threshold() - v0).abs() < 1e-9);
     }
 
     #[test]

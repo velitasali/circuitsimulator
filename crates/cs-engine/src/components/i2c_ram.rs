@@ -48,7 +48,7 @@ impl crate::canvas::Item {
 impl Default for I2CRam {
     fn default() -> Self {
         Self {
-            size_bytes: 256,
+            size_bytes: 65536,
             dev_address: 0x50,
             data: Vec::new(),
         }
@@ -135,14 +135,8 @@ impl Drawable for I2CRam {
 impl crate::canvas::Scene {
     pub fn add_i2c_ram(&mut self, x: f64, y: f64) -> String {
         let id = format!("I2CRam-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::i2c_ram(
-            &id,
-            x,
-            y,
-            256,
-            0x50,
-            Vec::new(),
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, I2CRam::default()));
         id
     }
 }
@@ -155,7 +149,7 @@ mod tests {
     fn default_i2c_ram() {
         let r = I2CRam::default();
         assert_eq!(r.type_id(), "I2CRam");
-        assert_eq!(r.size_bytes, 256);
+        assert_eq!(r.size_bytes, 65536);
         assert_eq!(r.dev_address, 0x50);
         // SDA, SCL, A0, A1, A2 = 5 pins
         assert_eq!(r.pin_geoms().len(), 5);

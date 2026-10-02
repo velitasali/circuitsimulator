@@ -99,12 +99,12 @@ impl Circuit {
             Comp::diode(id)
         };
         if let Kind::Diode { ref mut state, .. } = comp.kind {
-            state.threshold = threshold;
             state.max_current = max_current;
             state.series_r = resistance;
             state.bk_down = brkdown_v;
-            state.sat_cur = sat_current;
-            state.em_coef = em_coef;
+            state.set_em_coef(em_coef);
+            state.set_forward_voltage(threshold);
+            state.set_sat_cur(sat_current);
         }
         self.components.push(comp);
         self
@@ -830,7 +830,7 @@ impl Circuit {
         let dt = parsed.analog_dt;
         let max_nl_steps = parsed.max_nl_steps;
         let ps_per_sec = parsed.circ.ps_per_sec();
-        let expanded = expand_parsed(parsed, search, 0)?;
+        let expanded = expand_parsed(parsed, search, 0, None)?;
         Ok(Self {
             components: expanded.components,
             connectors: expanded.connectors,

@@ -39,7 +39,7 @@ fn test_scene_item_delegate_accessors() {
     let dial = Item::dial("Dial-1", 500.0, 100.0, 5.0);
     assert_eq!(dial.source_value(), 5.0);
     assert_eq!(dial.min_value(), 0.0);
-    assert_eq!(dial.max_value(), 100.0);
+    assert_eq!(dial.max_value(), 999.0);
     assert_eq!(dial.dial_step(), 1.0);
     scene.add_saved_item(dial);
 
@@ -316,7 +316,7 @@ fn test_canvas_interactive_manipulations() {
         4.0
     );
 
-    // If min is 3V and we set MaxValue to 2V -> min becomes 2V and value clamps to 2V
+    // Max below Min stays 1 mV above Min. Min does not move, and the output clamps.
     canvas
         .scene_mut()
         .item_by_id_mut("VoltSource-1")
@@ -328,7 +328,7 @@ fn test_canvas_interactive_manipulations() {
             .item_by_id("VoltSource-1")
             .unwrap()
             .min_value(),
-        2.0
+        3.0
     );
     assert_eq!(
         canvas
@@ -336,7 +336,7 @@ fn test_canvas_interactive_manipulations() {
             .item_by_id("VoltSource-1")
             .unwrap()
             .max_value(),
-        2.0
+        3.001
     );
     assert_eq!(
         canvas
@@ -344,10 +344,10 @@ fn test_canvas_interactive_manipulations() {
             .item_by_id("VoltSource-1")
             .unwrap()
             .source_value(),
-        2.0
+        3.001
     );
 
-    // If max is 2V and we set MinValue to 5V -> max becomes 5V and value clamps to 5V
+    // Min above Max stays 1 mV below Max. Max does not move.
     canvas
         .scene_mut()
         .item_by_id_mut("VoltSource-1")
@@ -359,7 +359,7 @@ fn test_canvas_interactive_manipulations() {
             .item_by_id("VoltSource-1")
             .unwrap()
             .min_value(),
-        5.0
+        3.0
     );
     assert_eq!(
         canvas
@@ -367,7 +367,7 @@ fn test_canvas_interactive_manipulations() {
             .item_by_id("VoltSource-1")
             .unwrap()
             .max_value(),
-        5.0
+        3.001
     );
     assert_eq!(
         canvas
@@ -375,7 +375,7 @@ fn test_canvas_interactive_manipulations() {
             .item_by_id("VoltSource-1")
             .unwrap()
             .source_value(),
-        5.0
+        3.001
     );
 }
 

@@ -112,7 +112,8 @@ impl Drawable for Bus {
 impl crate::canvas::Scene {
     pub fn add_bus(&mut self, x: f64, y: f64) -> String {
         let id = format!("Bus-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::bus(&id, x, y, 8));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Bus::default()));
         id
     }
 }

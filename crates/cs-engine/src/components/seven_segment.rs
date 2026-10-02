@@ -2,7 +2,7 @@
 
 use super::component::stamp_two_terminal;
 use super::props::{
-    PropDef, PropError, PropValue, expect_bool, expect_float, expect_int, expect_string,
+    PropDef, PropError, PropUpdate, PropValue, expect_bool, expect_float, expect_int, expect_string,
 };
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
@@ -25,20 +25,9 @@ use super::led::{LED_COLOR_OPTIONS, LedColor};
 
 impl crate::canvas::Item {
     pub fn seven_segment(id: impl Into<String>, x: f64, y: f64, common_anode: bool) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            SevenSegment {
-                common_anode,
-                num_displays: 1,
-                vertical_pins: false,
-                color: LedColor::Red,
-                threshold: 2.0,
-                max_current: 0.03,
-                resistance: 0.6,
-            },
-        )
+        let mut display = SevenSegment::default();
+        display.common_anode = common_anode;
+        Self::new(id, x, y, display)
     }
 }
 
@@ -59,10 +48,10 @@ impl Default for SevenSegment {
             common_anode: false,
             num_displays: 1,
             vertical_pins: false,
-            color: LedColor::Red,
-            threshold: 2.0,
-            max_current: 0.03,
-            resistance: 0.6,
+            color: LedColor::Yellow,
+            threshold: LedColor::Yellow.threshold(),
+            max_current: 0.02,
+            resistance: 1.0,
         }
     }
 }
@@ -107,8 +96,11 @@ impl SevenSegment {
     fn set_color(&mut self, v: PropValue) -> Result<(), PropError> {
         let color_name = expect_string("Color", v)?;
         self.color = LedColor::from_str_name(&color_name);
-        self.threshold = self.color.threshold();
         Ok(())
+    }
+
+    fn color_sets_threshold(display: &mut Self, _: &PropValue) {
+        display.threshold = display.color.threshold();
     }
 
     fn get_threshold(&self) -> PropValue {
@@ -183,8 +175,12 @@ impl Component for SevenSegment {
             p.structural = true;
             p
         };
+        const COLOR_UPDATES: &[PropUpdate<SevenSegment>] =
+            &[PropUpdate::always(SevenSegment::color_sets_threshold)];
         static PROPS: &[PropDef<SevenSegment>] = &[
-            PropDef::enumeration("Color", "Color", LED_COLOR_OPTIONS, SevenSegment::get_color, SevenSegment::set_color).with_info("Led color."),
+            PropDef::enumeration("Color", "Color", LED_COLOR_OPTIONS, SevenSegment::get_color, SevenSegment::set_color)
+                .updates(COLOR_UPDATES)
+                .with_info("Led color. Sets the forward voltage for that color."),
             ANODE,
             NUM_DISP,
             VERT_PINS,
@@ -315,7 +311,7 @@ impl crate::canvas::Scene {
     pub fn add_seven_segment(&mut self, x: f64, y: f64) -> String {
         let id = format!("SevenSegment-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::seven_segment(&id, x, y, false));
+            .push(crate::canvas::Item::new(&id, x, y, SevenSegment::default()));
         id
     }
 }
@@ -331,10 +327,10 @@ mod tests {
         assert!(!s.common_anode);
         assert_eq!(s.num_displays, 1);
         assert!(!s.vertical_pins);
-        assert_eq!(s.color, LedColor::Red);
-        assert_eq!(s.threshold, 2.0);
-        assert_eq!(s.max_current, 0.03);
-        assert_eq!(s.resistance, 0.6);
+        assert_eq!(s.color, LedColor::Yellow);
+        assert_eq!(s.threshold, LedColor::Yellow.threshold());
+        assert_eq!(s.max_current, 0.02);
+        assert_eq!(s.resistance, 1.0);
         assert_eq!(s.body(), Rect::new(-18.0, -28.0, 36.0, 56.0));
         assert_eq!(s.pin_geoms().len(), 9);
     }

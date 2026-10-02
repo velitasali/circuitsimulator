@@ -52,13 +52,32 @@ impl DiodeState {
         )
     }
 
+    pub fn set_forward_voltage(&mut self, v_crit: f64) {
+        if let Some(sat) = sat_current_for_forward_voltage(v_crit, self.em_coef) {
+            self.sat_cur = sat.max(1e-18);
+        }
+        self.threshold = forward_voltage(self.sat_cur, self.em_coef);
+    }
+
+    pub fn set_sat_cur(&mut self, sat_cur: f64) {
+        self.sat_cur = sat_cur.max(1e-18);
+        self.threshold = forward_voltage(self.sat_cur, self.em_coef);
+    }
+
+    pub fn set_em_coef(&mut self, em_coef: f64) {
+        self.em_coef = em_coef.max(0.01);
+        self.threshold = forward_voltage(self.sat_cur, self.em_coef);
+    }
+
     pub fn from_model(sat_cur: f64, em_coef: f64, bk_down: f64, series_r: f64) -> Self {
+        let sat_cur = sat_cur.max(1e-18);
+        let em_coef = em_coef.max(0.01);
         let mut s = Self {
-            sat_cur: sat_cur.max(1e-18),
-            em_coef: em_coef.max(0.01),
+            sat_cur,
+            em_coef,
             series_r: series_r.max(1e-12),
             bk_down: bk_down.max(0.0),
-            threshold: if bk_down > 0.0 { 4.7 } else { 0.7 },
+            threshold: forward_voltage(sat_cur, em_coef),
             max_current: 1.0,
             volt_pn: 0.0,
             admit: 0.0,
@@ -82,8 +101,7 @@ impl DiodeState {
     }
 
     fn v_crit(self) -> f64 {
-        let vs = self.v_scale();
-        vs * (vs / (std::f64::consts::SQRT_2 * self.sat_cur)).ln()
+        forward_voltage(self.sat_cur, self.em_coef)
     }
 
     pub fn reset_stamp(&mut self) {
@@ -159,6 +177,25 @@ impl DiodeState {
     fn z_offset(self) -> f64 {
         self.bk_down - VT * (-(1.0 - 0.005 / self.sat_cur)).ln()
     }
+}
+
+/// Shockley critical voltage, SimulIDE `eDiode::m_vCriti`.
+pub fn forward_voltage(sat_cur: f64, em_coef: f64) -> f64 {
+    let vs = em_coef.max(0.01) * VT;
+    let is = sat_cur.max(1e-18);
+    vs * (vs / (std::f64::consts::SQRT_2 * is)).ln()
+}
+
+/// Inverse of [`forward_voltage`], SimulIDE `eDiode::setThreshold`.
+///
+/// Voltages below 0.01 V are rejected, matching the C++ setter.
+pub fn sat_current_for_forward_voltage(v_crit: f64, em_coef: f64) -> Option<f64> {
+    if v_crit < 0.01 {
+        return None;
+    }
+    let vs = em_coef.max(0.01) * VT;
+    let sat = vs / ((v_crit / vs).exp() * std::f64::consts::SQRT_2);
+    (sat.is_finite() && sat > 0.0).then_some(sat)
 }
 
 fn limit_step(vnew: f64, vold: f64, scale: f64, vc: f64) -> f64 {

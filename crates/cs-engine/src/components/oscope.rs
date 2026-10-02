@@ -36,24 +36,9 @@ pub struct Oscope {
 
 impl crate::canvas::Item {
     pub fn oscope(id: impl Into<String>, x: f64, y: f64, connect_gnd: bool) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Oscope {
-                basic_x: 135,
-                basic_y: 135,
-                buffer_size: 600000,
-                connect_gnd,
-                input_imped: 10.0,
-                test_time: 0.0,
-                do_test: false,
-                tunnel1: String::new(),
-                tunnel2: String::new(),
-                tunnel3: String::new(),
-                tunnel4: String::new(),
-            },
-        )
+        let mut scope = Oscope::default();
+        scope.connect_gnd = connect_gnd;
+        Self::new(id, x, y, scope)
     }
 }
 
@@ -368,7 +353,7 @@ impl crate::canvas::Scene {
         let id = format!("Oscope-{}", self.next_oscope);
         self.next_oscope += 1;
         self.items
-            .push(crate::canvas::Item::oscope(&id, x, y, true));
+            .push(crate::canvas::Item::new(&id, x, y, Oscope::default()));
         id
     }
 }

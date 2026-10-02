@@ -410,6 +410,21 @@ impl LatchState {
         }
     }
 
+    pub fn apply_family(&mut self) {
+        let f = self.family.clone();
+        for p in self
+            .inputs
+            .iter_mut()
+            .chain([&mut self.clk, &mut self.reset, &mut self.oe])
+        {
+            p.set_thresholds(f.inp_high_v, f.inp_low_v);
+            p.set_input_imp(f.inp_imp);
+        }
+        for o in &mut self.outputs {
+            apply_family_out(&f, o);
+        }
+    }
+
     pub fn stamp_init(&mut self, slope_steps: i32) {
         for p in self
             .inputs

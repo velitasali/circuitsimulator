@@ -68,7 +68,11 @@ impl crate::canvas::Item {
         width: u32,
         height: u32,
     ) -> Self {
-        Self::tft_display_with(id, x, y, controller, width, height, 1.0, false)
+        let mut display = TftDisplay::default();
+        display.controller = TftController::from_str_name(controller.as_ref());
+        display.width = width;
+        display.height = height;
+        Self::new(id, x, y, display)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -82,18 +86,13 @@ impl crate::canvas::Item {
         scale: f64,
         bgr: bool,
     ) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            TftDisplay {
-                controller: TftController::from_str_name(controller.as_ref()),
-                width,
-                height,
-                scale,
-                bgr,
-            },
-        )
+        let mut display = TftDisplay::default();
+        display.controller = TftController::from_str_name(controller.as_ref());
+        display.width = width;
+        display.height = height;
+        display.scale = scale;
+        display.bgr = bgr;
+        Self::new(id, x, y, display)
     }
 }
 
@@ -110,8 +109,8 @@ impl Default for TftDisplay {
     fn default() -> Self {
         Self {
             controller: TftController::Ili9341,
-            width: 320,
-            height: 240,
+            width: 240,
+            height: 320,
             scale: 1.0,
             bgr: false,
         }
@@ -358,9 +357,12 @@ impl crate::canvas::Scene {
         height: u32,
     ) -> String {
         let id = format!("{}-{}", controller, self.items.len() + 1);
-        self.items.push(crate::canvas::Item::tft_display_with(
-            &id, x, y, controller, width, height, 1.0, false,
-        ));
+        let mut display = TftDisplay::default();
+        display.controller = TftController::from_str_name(controller);
+        display.width = width;
+        display.height = height;
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, display));
         id
     }
 }
@@ -375,16 +377,16 @@ mod tests {
         let d = TftDisplay::default();
         assert_eq!(d.type_id(), "TftDisplay");
         assert_eq!(d.controller, TftController::Ili9341);
-        assert_eq!(d.width, 320);
-        assert_eq!(d.height, 240);
+        assert_eq!(d.width, 240);
+        assert_eq!(d.height, 320);
         assert_eq!(d.scale, 1.0);
         assert!(!d.bgr);
         let pins = d.pin_geoms();
         assert_eq!(pins.len(), 6);
-        assert_eq!(pins[0].local, Point::new(-20.0, 144.0));
+        assert_eq!(pins[0].local, Point::new(-20.0, 184.0));
         assert_eq!(pins[0].angle, 270);
-        assert_eq!(pins[5].local, Point::new(20.0, 144.0));
+        assert_eq!(pins[5].local, Point::new(20.0, 184.0));
         assert_eq!(pins[5].angle, 270);
-        assert_eq!(d.body(), Rect::new(-166.0, -126.0, 332.0, 262.0));
+        assert_eq!(d.body(), Rect::new(-126.0, -166.0, 252.0, 342.0));
     }
 }

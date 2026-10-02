@@ -1,7 +1,9 @@
 //! LED: light emitting diode with color, forward drop, and optional internal ground.
 
 use super::component::{stamp_to_ground, stamp_two_terminal};
-use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float, expect_string};
+use super::props::{
+    PropDef, PropError, PropUpdate, PropValue, expect_bool, expect_float, expect_string,
+};
 use super::{CompPin, Component, Stampable, TwoTerminal};
 use crate::canvas::Rect;
 use crate::elements::Kind;
@@ -18,18 +20,7 @@ const MAX_OHMS: f64 = 1e12;
 
 impl crate::canvas::Item {
     pub fn led(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Led {
-                color: LedColor::Yellow,
-                grounded: false,
-                threshold: 2.4,
-                max_current: 0.03,
-                resistance: 0.6,
-            },
-        )
+        Self::new(id, x, y, Led::default())
     }
 }
 
@@ -131,8 +122,11 @@ impl Led {
     fn set_color(&mut self, v: PropValue) -> Result<(), PropError> {
         let color_name = expect_string("Color", v)?;
         self.color = LedColor::from_str_name(&color_name);
-        self.threshold = self.color.threshold();
         Ok(())
+    }
+
+    fn color_sets_threshold(led: &mut Self, _: &PropValue) {
+        led.threshold = led.color.threshold();
     }
     fn get_grounded(&self) -> PropValue {
         PropValue::Bool(self.grounded)
@@ -179,8 +173,11 @@ impl Component for Led {
             p.structural = true;
             p
         };
+        const COLOR_UPDATES: &[PropUpdate<Led>] = &[PropUpdate::always(Led::color_sets_threshold)];
         static PROPS: &[PropDef<Led>] = &[
-            PropDef::enumeration("Color", "Color", LED_COLOR_OPTIONS, Led::get_color, Led::set_color).with_info("Led color."),
+            PropDef::enumeration("Color", "Color", LED_COLOR_OPTIONS, Led::get_color, Led::set_color)
+                .updates(COLOR_UPDATES)
+                .with_info("Led color. Sets the forward voltage for that color."),
             GROUNDED,
             PropDef::float(
                 "Threshold",
@@ -332,7 +329,8 @@ impl crate::canvas::Scene {
     pub fn add_led(&mut self, x: f64, y: f64) -> String {
         let id = format!("Led-{}", self.next_led);
         self.next_led += 1;
-        self.items.push(crate::canvas::Item::led(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Led::default()));
         id
     }
 }

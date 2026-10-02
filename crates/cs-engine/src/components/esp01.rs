@@ -31,7 +31,7 @@ impl Default for Esp01 {
     fn default() -> Self {
         Self {
             baud_rate: 115200,
-            debug: false,
+            debug: true,
         }
     }
 }
@@ -157,7 +157,7 @@ impl crate::canvas::Scene {
     pub fn add_esp01(&mut self, x: f64, y: f64) -> String {
         let id = format!("Esp01-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::esp01(&id, x, y, 115200, false));
+            .push(crate::canvas::Item::new(&id, x, y, Esp01::default()));
         id
     }
 }
@@ -171,7 +171,7 @@ mod tests {
         let e = Esp01::default();
         assert_eq!(e.type_id(), "Esp01");
         assert_eq!(e.baud_rate, 115200);
-        assert!(!e.debug);
+        assert!(e.debug);
         assert_eq!(e.pin_geoms().len(), 2);
     }
 }

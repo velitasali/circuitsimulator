@@ -183,7 +183,7 @@ impl crate::canvas::Scene {
     pub fn add_clock(&mut self, x: f64, y: f64) -> String {
         let id = format!("Clock-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::clock(&id, x, y, 5.0, 1.0));
+            .push(crate::canvas::Item::new(&id, x, y, Clock::default()));
         id
     }
 }

@@ -34,15 +34,9 @@ pub fn resistor_hit_rect() -> Rect {
 
 impl crate::canvas::Item {
     pub fn resistor(id: impl Into<String>, x: f64, y: f64, resistance: f64) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Resistor {
-                resistance,
-                show_bands: true,
-            },
-        )
+        let mut resistor = Resistor::default();
+        resistor.resistance = resistance;
+        Self::new(id, x, y, resistor)
     }
 }
 

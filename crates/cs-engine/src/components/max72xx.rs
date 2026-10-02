@@ -24,18 +24,9 @@ const MAX_OHMS: f64 = 1e12;
 
 impl crate::canvas::Item {
     pub fn max72xx(id: impl Into<String>, x: f64, y: f64, modules: usize) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Max72xx {
-                modules,
-                color: LedColor::Red,
-                threshold: 1.8,
-                max_current: 0.03,
-                resistance: 0.6,
-            },
-        )
+        let mut display = Max72xx::default();
+        display.modules = modules.max(1);
+        Self::new(id, x, y, display)
     }
 }
 
@@ -51,9 +42,9 @@ pub struct Max72xx {
 impl Default for Max72xx {
     fn default() -> Self {
         Self {
-            modules: 1,
-            color: LedColor::Red,
-            threshold: 1.8,
+            modules: 4,
+            color: LedColor::Yellow,
+            threshold: LedColor::Yellow.threshold(),
             max_current: 0.03,
             resistance: 0.6,
         }
@@ -83,7 +74,6 @@ impl Max72xx {
     fn set_color(&mut self, v: PropValue) -> Result<(), PropError> {
         let color_name = expect_string("Color", v)?;
         self.color = LedColor::from_str_name(&color_name);
-        self.threshold = self.color.threshold();
         Ok(())
     }
 
@@ -223,7 +213,8 @@ impl Drawable for Max72xx {
 impl crate::canvas::Scene {
     pub fn add_max72xx(&mut self, x: f64, y: f64) -> String {
         let id = format!("Max72xx-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::max72xx(&id, x, y, 1));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Max72xx::default()));
         id
     }
 }
@@ -236,10 +227,11 @@ mod tests {
     fn default_max72xx() {
         let m = Max72xx::default();
         assert_eq!(m.type_id(), "Max72xx");
-        assert_eq!(m.modules, 1);
-        assert_eq!(m.color, LedColor::Red);
+        assert_eq!(m.modules, 4);
+        assert_eq!(m.color, LedColor::Yellow);
+        assert_eq!(m.threshold, LedColor::Yellow.threshold());
         assert_eq!(m.pin_geoms().len(), 5);
-        assert_eq!(m.body(), Rect::new(-36.0, -44.0, 72.0, 88.0));
+        assert_eq!(m.body(), Rect::new(-36.0, -44.0, 264.0, 88.0));
     }
 }
 

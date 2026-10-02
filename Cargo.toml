@@ -18,3 +18,8 @@ debug = true
 [profile.dev.package."*"]
 opt-level = 3
 
+# Vello 0.5 sizes its GPU scratch buffers for the paris-30k demo.
+# third_party/vello_encoding cuts the five large buffers by 4×.
+[patch.crates-io]
+vello_encoding = { path = "third_party/vello_encoding" }
+

@@ -21,7 +21,9 @@ pub const SCOPE_TIME_DIV_DEFAULT: f64 = 1e-3;
 pub const LA_THRESHOLD_DEFAULT: f64 = 2.5;
 pub const SCOPE_CHANNELS: usize = 4;
 pub const LA_CHANNELS: usize = 8;
-const RING: usize = 1048576;
+/// Retained samples per channel. On-canvas traces draw 256 points and the
+/// expanded plot draws 512; the rest is scrollback.
+const RING: usize = 65536;
 const DISPLAY_N: usize = 512;
 pub const SCOPE_CANVAS_DISPLAY_N: usize = 256;
 

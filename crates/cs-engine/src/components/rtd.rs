@@ -17,7 +17,10 @@ const MAX_R: f64 = 1e9;
 
 impl crate::canvas::Item {
     pub fn rtd(id: impl Into<String>, x: f64, y: f64, resistance: f64, temp_c: f64) -> Self {
-        Self::rtd_with(id, x, y, temp_c, resistance, 0.00385, 5.0)
+        let mut rtd = Rtd::default();
+        rtd.temp_c = temp_c;
+        rtd.r0 = resistance;
+        Self::new(id, x, y, rtd)
     }
 
     pub fn rtd_with(
@@ -57,16 +60,38 @@ impl Default for Rtd {
             temp_c: 25.0,
             r0: 100.0,
             alpha: 0.00385,
-            dial_step: 1.0,
+            dial_step: 0.0,
         }
     }
 }
 
 impl Rtd {
     pub const TYPE_ID: &'static str = "Rtd";
+
+    /// Linear Callendar coefficient from the Alpha property: R = R0 * (1 + α T).
+    /// SimulIDE uses a fixed quadratic on top of a similar linear term.
+    pub fn resistance_of(temp_c: f64, r0: f64, alpha: f64) -> f64 {
+        const B: f64 = -5.775e-7;
+        const C: f64 = -4.183e-12;
+        let t = temp_c;
+        let mut res = r0 * (1.0 + alpha * t + B * t * t);
+        if t < 0.0 {
+            res += r0 * C * (t - 100.0) * t.powi(3);
+        }
+        if res.is_finite() && res > 0.0 {
+            res.max(1e-12)
+        } else {
+            r0.max(1e-12)
+        }
+    }
+
+    pub fn resistance(&self) -> f64 {
+        Self::resistance_of(self.temp_c, self.r0, self.alpha)
+    }
+
     pub fn to_element_kind(&self) -> Kind {
         Kind::Rtd {
-            resistance: self.r0,
+            resistance: self.resistance(),
             temp_c: self.temp_c,
         }
     }
@@ -99,7 +124,7 @@ impl Rtd {
         PropValue::Float(self.dial_step)
     }
     fn set_dial_step(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.dial_step = expect_float("DialStep", v)?.clamp(0.01, 100.0);
+        self.dial_step = expect_float("DialStep", v)?.clamp(0.0, 100.0);
         Ok(())
     }
 }
@@ -141,7 +166,7 @@ impl Component for Rtd {
                 "DialStep",
                 "Dial Step",
                 "°C",
-                0.01,
+                0.0,
                 100.0,
                 Rtd::get_dial_step,
                 Rtd::set_dial_step,
@@ -164,7 +189,7 @@ impl TwoTerminal for Rtd {}
 
 impl Stampable for Rtd {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
-        stamp_two_terminal(matrix, pin_nodes, resistor_g(self.r0), 0.0);
+        stamp_two_terminal(matrix, pin_nodes, resistor_g(self.resistance()), 0.0);
     }
 }
 
@@ -179,7 +204,7 @@ impl crate::canvas::Scene {
     pub fn add_rtd(&mut self, x: f64, y: f64) -> String {
         let id = format!("RTD-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::rtd(&id, x, y, 100.0, 25.0));
+            .push(crate::canvas::Item::new(&id, x, y, Rtd::default()));
         id
     }
 }
@@ -195,8 +220,17 @@ mod tests {
         assert_eq!(r.temp_c, 25.0);
         assert_eq!(r.r0, 100.0);
         assert_eq!(r.alpha, 0.00385);
-        assert_eq!(r.dial_step, 1.0);
+        assert_eq!(r.dial_step, 0.0);
         assert_eq!(r.pin_geoms().len(), 2);
         assert_eq!(r.body(), Rect::new(-11.0, -4.5, 22.0, 9.0));
+        let at_25 = Rtd::resistance_of(25.0, 100.0, 0.00385);
+        assert!((r.resistance() - at_25).abs() < 1e-9);
+        assert!(at_25 > 100.0);
+    }
+
+    #[test]
+    fn resistance_is_r0_at_zero_celsius() {
+        let res = Rtd::resistance_of(0.0, 100.0, 0.00385);
+        assert!((res - 100.0).abs() < 1e-9, "{res}");
     }
 }

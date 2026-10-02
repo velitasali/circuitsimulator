@@ -18,16 +18,7 @@ const MAX_IMP: f64 = 1e6;
 
 impl crate::canvas::Item {
     pub fn comparator(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::comparator_with(
-            id,
-            x,
-            y,
-            COMPARATOR_DEFAULT_OUT_HIGH,
-            COMPARATOR_DEFAULT_OUT_LOW,
-            COMPARATOR_DEFAULT_OUT_IMP,
-            false,
-            false,
-        )
+        Self::new(id, x, y, Comparator::default())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -231,7 +222,8 @@ impl crate::canvas::Scene {
     pub fn add_comparator(&mut self, x: f64, y: f64) -> String {
         let id = format!("Comparator-{}", self.next_comparator);
         self.next_comparator += 1;
-        self.items.push(crate::canvas::Item::comparator(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Comparator::default()));
         id
     }
 }

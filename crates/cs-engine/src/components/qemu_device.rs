@@ -128,7 +128,11 @@ impl QemuDevice {
         PropValue::Bool(self.logic_symbol)
     }
     fn set_logic_symbol(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.logic_symbol = expect_bool("LogicSymbol", v)?;
+        let ls = expect_bool("LogicSymbol", v)?;
+        let (pkg, is_ls) =
+            crate::package::retarget_package(&self.package, &self.packages, ls, None);
+        self.logic_symbol = is_ls;
+        self.package = pkg;
         Ok(())
     }
 
@@ -136,7 +140,15 @@ impl QemuDevice {
         PropValue::String(self.package.name.clone())
     }
     fn set_package(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.package.name = expect_string("Package", v)?;
+        let name = expect_string("Package", v)?;
+        let (pkg, is_ls) = crate::package::retarget_package(
+            &self.package,
+            &self.packages,
+            self.logic_symbol,
+            Some(&name),
+        );
+        self.logic_symbol = is_ls;
+        self.package = pkg;
         Ok(())
     }
 
@@ -345,6 +357,32 @@ mod tests {
 
         qemu.set_prop_text("Active", "false").unwrap();
         assert_eq!(qemu.active, false);
+    }
+
+    #[test]
+    fn qemu_logic_symbol_selects_package() {
+        use crate::package::Package;
+
+        let mut dip = Package::default();
+        dip.pins.push(PkgPin::new("1", "IO", "", -8, 8, 180));
+        let mut ls = Package::default();
+        ls.pins.push(PkgPin::new("A", "IO", "", -8, 8, 180));
+        let mut packages = BTreeMap::new();
+        packages.insert("1- demo_DIP".into(), dip);
+        packages.insert("2- demo_LS".into(), ls);
+
+        let mut qemu = QemuDevice::default();
+        qemu.packages = packages;
+        qemu.package.name = "1- demo_DIP".into();
+        qemu.set_prop_text("LogicSymbol", "true").unwrap();
+        assert!(qemu.logic_symbol);
+        assert_eq!(qemu.package.name, "2- demo_LS");
+        assert_eq!(qemu.pin_geoms()[0].suffix, "A");
+
+        qemu.set_prop_text("Package", "1- demo_DIP").unwrap();
+        assert!(!qemu.logic_symbol);
+        assert_eq!(qemu.package.name, "1- demo_DIP");
+        assert_eq!(qemu.pin_geoms()[0].suffix, "1");
     }
 
     #[test]

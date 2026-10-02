@@ -206,8 +206,11 @@ impl Drawable for SevenSegmentBCD {
 impl crate::canvas::Scene {
     pub fn add_seven_segment_bcd(&mut self, x: f64, y: f64) -> String {
         let id = format!("SevenSegmentBCD-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::seven_segment_bcd(
-            &id, x, y, "Red", false,
+        self.items.push(crate::canvas::Item::new(
+            &id,
+            x,
+            y,
+            SevenSegmentBCD::default(),
         ));
         id
     }

@@ -185,7 +185,7 @@ impl crate::canvas::Scene {
     pub fn add_serial_term(&mut self, x: f64, y: f64) -> String {
         let id = format!("SerialTerm-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::serial_term(&id, x, y, 9600));
+            .push(crate::canvas::Item::new(&id, x, y, SerialTerm::default()));
         id
     }
 }

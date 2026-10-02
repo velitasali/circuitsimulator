@@ -255,7 +255,7 @@ impl crate::canvas::Scene {
     pub fn add_transformer(&mut self, x: f64, y: f64) -> String {
         let id = format!("Transformer-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::transformer(&id, x, y, 1.0, 1.0, 0.99));
+            .push(crate::canvas::Item::new(&id, x, y, Transformer::default()));
         id
     }
 }

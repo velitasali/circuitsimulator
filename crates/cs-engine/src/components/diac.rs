@@ -188,7 +188,8 @@ impl Drawable for Diac {
 impl crate::canvas::Scene {
     pub fn add_diac(&mut self, x: f64, y: f64) -> String {
         let id = format!("Diac-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::diac(&id, x, y, 30.0));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Diac::default()));
         id
     }
 }

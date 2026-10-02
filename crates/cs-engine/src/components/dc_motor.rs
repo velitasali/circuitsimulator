@@ -20,7 +20,7 @@ const MAX_R: f64 = 1e9;
 
 impl crate::canvas::Item {
     pub fn dc_motor(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::dc_motor_with(id, x, y, 3000, 12.0, 100.0)
+        Self::new(id, x, y, DcMotor::default())
     }
 
     pub fn dcmotor(
@@ -42,18 +42,11 @@ impl crate::canvas::Item {
         volt_nominal: f64,
         resistance: f64,
     ) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            DcMotor {
-                rpm_nominal,
-                volt_nominal,
-                resistance,
-                speed: 0.0,
-                angle: 0.0,
-            },
-        )
+        let mut motor = DcMotor::default();
+        motor.rpm_nominal = rpm_nominal;
+        motor.volt_nominal = volt_nominal;
+        motor.resistance = resistance;
+        Self::new(id, x, y, motor)
     }
 }
 
@@ -206,7 +199,8 @@ impl Drawable for DcMotor {
 impl crate::canvas::Scene {
     pub fn add_dcmotor(&mut self, x: f64, y: f64) -> String {
         let id = format!("DcMotor-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::dc_motor(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, DcMotor::default()));
         id
     }
 }

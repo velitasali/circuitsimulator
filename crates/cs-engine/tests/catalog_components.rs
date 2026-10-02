@@ -215,7 +215,7 @@ fn test_scene_catalog_roundtrip() {
     assert!(
         matches!(
             &kp.kind,
-            cs_engine::components::Part::KeyPad(p) if p.rows == 4 && p.cols == 4
+            cs_engine::components::Part::KeyPad(p) if p.rows == 4 && p.cols == 3
         ),
         "KeyPad item should remain KeyPad after loading from sim1, but got {:?}",
         kp.kind
@@ -241,7 +241,7 @@ fn test_scene_catalog_roundtrip() {
     assert!(
         matches!(
             &max.kind,
-            cs_engine::components::Part::Max72xx(p) if p.modules == 1
+            cs_engine::components::Part::Max72xx(p) if p.modules == 4
         ),
         "Max72xx item should remain Max72xx after loading from sim1, but got {:?}",
         max.kind
@@ -254,7 +254,7 @@ fn test_scene_catalog_roundtrip() {
     assert!(
         matches!(
             &ws.kind,
-            cs_engine::components::Part::Ws2812(p) if p.count == 8
+            cs_engine::components::Part::Ws2812(p) if p.count == 1
         ),
         "WS2812 item should remain Ws2812 after loading from sim1, but got {:?}",
         ws.kind

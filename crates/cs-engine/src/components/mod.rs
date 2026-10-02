@@ -78,6 +78,7 @@ mod pcd8544;
 mod pcf8833;
 mod potentiometer;
 mod probe;
+mod prop_links;
 pub(crate) mod props;
 mod push;
 mod qemu_device;
@@ -205,7 +206,7 @@ pub use pcd8544::Pcd8544;
 pub use pcf8833::Pcf8833;
 pub use potentiometer::Potentiometer;
 pub use probe::Probe;
-pub use props::{PropDef, PropError, PropKind, PropValue};
+pub use props::{PropDef, PropError, PropKind, PropUpdate, PropValue};
 pub use push::Push;
 pub use qemu_device::QemuDevice;
 pub use rail::Rail;
@@ -1279,7 +1280,7 @@ impl Part {
                 c.add_diode_with(
                     id,
                     p.zener,
-                    p.threshold,
+                    p.threshold(),
                     p.max_current,
                     p.resistance,
                     p.brkdown_v,
@@ -1369,6 +1370,7 @@ impl Part {
                     p.logic_symbol,
                     Some(p.package.name.as_str()),
                     0,
+                    p.simulation_logic(),
                 ) {
                     for comp in inst.components {
                         c.add_comp(comp);
@@ -1752,7 +1754,7 @@ impl Part {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
                     kind: crate::elements::Kind::Thermistor {
-                        resistance: p.r0,
+                        resistance: p.resistance(),
                         temp_c: p.temp_c,
                     },
                 });
@@ -1761,7 +1763,7 @@ impl Part {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
                     kind: crate::elements::Kind::Rtd {
-                        resistance: p.r0,
+                        resistance: p.resistance(),
                         temp_c: p.temp_c,
                     },
                 });
@@ -1770,7 +1772,7 @@ impl Part {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
                     kind: crate::elements::Kind::Strain {
-                        resistance: p.r0,
+                        resistance: p.resistance(),
                         strain: p.strain,
                     },
                 });

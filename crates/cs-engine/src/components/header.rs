@@ -144,7 +144,8 @@ impl Drawable for Header {
 impl crate::canvas::Scene {
     pub fn add_header(&mut self, x: f64, y: f64) -> String {
         let id = format!("Header-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::header(&id, x, y, 8));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Header::default()));
         id
     }
 }

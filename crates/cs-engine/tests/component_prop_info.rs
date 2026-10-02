@@ -35,7 +35,10 @@ fn test_diode_property_info() {
         .iter()
         .find(|r| r.name == "Threshold")
         .expect("Threshold row");
-    assert_eq!(thresh_row.info, "Voltage drop when forward biased.");
+    assert_eq!(
+        thresh_row.info,
+        "Forward voltage, computed from the saturation current and emission coefficient. Editing it changes the saturation current."
+    );
 
     let res_row = rows
         .iter()

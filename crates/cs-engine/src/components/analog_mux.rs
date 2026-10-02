@@ -55,8 +55,8 @@ impl crate::canvas::Item {
 impl Default for AnalogMux {
     fn default() -> Self {
         Self {
-            channels: 4,
-            on_resistance: 50.0,
+            channels: 8,
+            on_resistance: 0.001,
         }
     }
 }
@@ -219,7 +219,7 @@ impl crate::canvas::Scene {
     pub fn add_analog_mux(&mut self, x: f64, y: f64) -> String {
         let id = format!("AnalogMux-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::analog_mux(&id, x, y, 4, 100.0));
+            .push(crate::canvas::Item::new(&id, x, y, AnalogMux::default()));
         id
     }
 }
@@ -232,9 +232,9 @@ mod tests {
     fn default_analog_mux() {
         let m = AnalogMux::default();
         assert_eq!(m.type_id(), "AnalogMux");
-        assert_eq!(m.channels, 4);
-        assert_eq!(m.on_resistance, 50.0);
-        // 1 in + 2 addr + 1 en + 4 y = 8 pins
-        assert_eq!(m.pin_geoms().len(), 8);
+        assert_eq!(m.channels, 8);
+        assert_eq!(m.on_resistance, 0.001);
+        // 1 in + 3 addr + 1 en + 8 y = 13 pins
+        assert_eq!(m.pin_geoms().len(), 13);
     }
 }

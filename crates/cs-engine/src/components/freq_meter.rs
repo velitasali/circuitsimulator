@@ -22,7 +22,7 @@ impl crate::canvas::Item {
 
 impl Default for FreqMeter {
     fn default() -> Self {
-        Self { filter: 2.5 }
+        Self { filter: 0.1 }
     }
 }
 
@@ -118,7 +118,7 @@ impl crate::canvas::Scene {
         let id = format!("FreqMeter-{}", self.next_freqmeter);
         self.next_freqmeter += 1;
         self.items
-            .push(crate::canvas::Item::freq_meter(&id, x, y, 0.1));
+            .push(crate::canvas::Item::new(&id, x, y, FreqMeter::default()));
         id
     }
 }
@@ -131,7 +131,7 @@ mod tests {
     fn default_freq_meter() {
         let fm = FreqMeter::default();
         assert_eq!(fm.type_id(), "FreqMeter");
-        assert_eq!(fm.filter, 2.5);
+        assert_eq!(fm.filter, 0.1);
         assert_eq!(fm.pin_geoms().len(), 1);
     }
 }

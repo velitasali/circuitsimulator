@@ -30,23 +30,18 @@ impl crate::canvas::Item {
         n_inputs: usize,
         expression: impl Into<String>,
     ) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Function {
-                n_inputs,
-                expression: expression.into(),
-            },
-        )
+        let mut function = Function::default();
+        function.n_inputs = n_inputs;
+        function.expression = expression.into();
+        Self::new(id, x, y, function)
     }
 }
 
 impl Default for Function {
     fn default() -> Self {
         Self {
-            n_inputs: 3,
-            expression: String::new(),
+            n_inputs: 2,
+            expression: "A | B".to_string(),
         }
     }
 }
@@ -138,7 +133,7 @@ impl crate::canvas::Scene {
     pub fn add_function(&mut self, x: f64, y: f64) -> String {
         let id = format!("Function-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::function(&id, x, y, 2, "A & B"));
+            .push(crate::canvas::Item::new(&id, x, y, Function::default()));
         id
     }
 }
@@ -151,10 +146,10 @@ mod tests {
     fn default_function() {
         let f = Function::default();
         assert_eq!(f.type_id(), "Function");
-        assert_eq!(f.n_inputs, 3);
-        assert_eq!(f.expression, "");
-        // 3 in + 1 out = 4 pins
-        assert_eq!(f.pin_geoms().len(), 4);
+        assert_eq!(f.n_inputs, 2);
+        assert_eq!(f.expression, "A | B");
+        // 2 in + 1 out = 3 pins
+        assert_eq!(f.pin_geoms().len(), 3);
         assert_eq!(f.body(), Rect::new(-16.0, -12.0, 32.0, 24.0));
     }
 

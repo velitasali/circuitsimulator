@@ -21,7 +21,7 @@ pub struct Probe {
 
 impl crate::canvas::Item {
     pub fn probe(id: impl Into<String>, x: f64, y: f64, threshold: f64, small: bool) -> Self {
-        Self::probe_with(id, x, y, threshold, small, false)
+        Self::probe_with(id, x, y, threshold, small, true)
     }
 
     pub fn probe_with(
@@ -32,17 +32,11 @@ impl crate::canvas::Item {
         small: bool,
         show_volt: bool,
     ) -> Self {
-        let mut it = Self::new(
-            id,
-            x,
-            y,
-            Probe {
-                threshold,
-                small,
-                show_volt,
-                pause_at_change: false,
-            },
-        );
+        let mut probe = Probe::default();
+        probe.threshold = threshold;
+        probe.small = small;
+        probe.show_volt = show_volt;
+        let mut it = Self::new(id, x, y, probe);
         it.rotation = -45.0;
         it
     }
@@ -53,7 +47,7 @@ impl Default for Probe {
         Self {
             threshold: 2.5,
             small: false,
-            show_volt: false,
+            show_volt: true,
             pause_at_change: false,
         }
     }
@@ -204,13 +198,9 @@ impl crate::canvas::Scene {
     pub fn add_probe(&mut self, x: f64, y: f64) -> String {
         let id = format!("Probe-{}", self.next_probe);
         self.next_probe += 1;
-        self.items.push(crate::canvas::Item::probe(
-            &id,
-            x,
-            y,
-            crate::PROBE_DEFAULT_THRESHOLD,
-            false,
-        ));
+        let mut probe = crate::canvas::Item::new(&id, x, y, Probe::default());
+        probe.rotation = -45.0;
+        self.items.push(probe);
         id
     }
 }
@@ -225,6 +215,7 @@ mod tests {
         assert_eq!(p.type_id(), "Probe");
         assert_eq!(p.threshold, 2.5);
         assert!(!p.small);
+        assert!(p.show_volt);
         assert_eq!(p.pin_geoms().len(), 1);
         assert_eq!(p.pin_geoms()[0].length, 16.0);
         assert_eq!(p.body(), Rect::new(-8.0, -8.0, 16.0, 16.0));

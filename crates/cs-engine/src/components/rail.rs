@@ -17,7 +17,9 @@ pub struct Rail {
 
 impl crate::canvas::Item {
     pub fn rail(id: impl Into<String>, x: f64, y: f64, voltage: f64) -> Self {
-        Self::new(id, x, y, Rail { voltage })
+        let mut rail = Rail::default();
+        rail.voltage = voltage;
+        Self::new(id, x, y, rail)
     }
 }
 
@@ -32,7 +34,9 @@ impl Default for Rail {
 impl Rail {
     pub const TYPE_ID: &'static str = "Rail";
     pub fn new(voltage: f64) -> Self {
-        Self { voltage }
+        let mut rail = Self::default();
+        rail.voltage = voltage;
+        rail
     }
 
     pub fn to_element_kind(&self) -> Kind {
@@ -106,7 +110,8 @@ impl Drawable for Rail {
 impl crate::canvas::Scene {
     pub fn add_rail(&mut self, x: f64, y: f64) -> String {
         let id = format!("Rail-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::rail(&id, x, y, 5.0));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Rail::default()));
         id
     }
 }

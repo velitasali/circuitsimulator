@@ -24,15 +24,7 @@ pub struct Lm555 {
 
 impl crate::canvas::Item {
     pub fn lm555(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Lm555 {
-                out_high_v: 5.0,
-                out_low_v: 0.0,
-            },
-        )
+        Self::new(id, x, y, Lm555::default())
     }
 }
 
@@ -126,7 +118,8 @@ impl Drawable for Lm555 {
 impl crate::canvas::Scene {
     pub fn add_lm555(&mut self, x: f64, y: f64) -> String {
         let id = format!("Lm555-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::lm555(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Lm555::default()));
         id
     }
 }

@@ -56,8 +56,8 @@ impl Default for KeyPad {
     fn default() -> Self {
         Self {
             rows: 4,
-            cols: 4,
-            key: Self::default_labels_for_cols(4).to_string(),
+            cols: 3,
+            key: Self::default_labels_for_cols(3).to_string(),
             diodes: false,
             dir: false,
             pressed: None,
@@ -298,7 +298,7 @@ impl crate::canvas::Scene {
     pub fn add_keypad(&mut self, x: f64, y: f64) -> String {
         let id = format!("KeyPad-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::keypad(&id, x, y, 4, 4));
+            .push(crate::canvas::Item::new(&id, x, y, KeyPad::default()));
         id
     }
 
@@ -390,15 +390,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_4x4() {
+    fn default_4x3() {
         let k = KeyPad::default();
         assert_eq!(k.rows, 4);
-        assert_eq!(k.cols, 4);
+        assert_eq!(k.cols, 3);
         assert!(k.pressed.is_none());
-        assert_eq!(k.pin_geoms().len(), 8);
+        assert_eq!(k.pin_geoms().len(), 7);
         assert_eq!(k.get_prop_text("Rows").unwrap(), "4");
-        assert_eq!(k.get_prop_text("Cols").unwrap(), "4");
-        assert_eq!(k.get_prop_text("Key_Labels").unwrap(), "123A456B789C*0#D");
+        assert_eq!(k.get_prop_text("Cols").unwrap(), "3");
+        assert_eq!(k.get_prop_text("Key_Labels").unwrap(), "123456789*0#");
         assert_eq!(
             k.prop_rows()
                 .iter()
@@ -408,8 +408,8 @@ mod tests {
         );
         // Verify key labels
         assert_eq!(k.key_label(0, 0), Some('1'));
-        assert_eq!(k.key_label(0, 3), Some('A'));
-        assert_eq!(k.key_label(3, 3), Some('D'));
+        assert_eq!(k.key_label(0, 2), Some('3'));
+        assert_eq!(k.key_label(3, 2), Some('#'));
     }
 
     #[test]
@@ -449,6 +449,6 @@ mod tests {
         let mut k = KeyPad::default();
         let c = k.set_prop_text("Rows", "3").unwrap();
         assert!(c.structural);
-        assert_eq!(k.pin_geoms().len(), 7);
+        assert_eq!(k.pin_geoms().len(), 6);
     }
 }

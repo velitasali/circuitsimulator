@@ -2,7 +2,8 @@
 
 use super::component::stamp_to_ground;
 use super::drawable::{Drawable, paint_var_source_body};
-use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float};
+use super::prop_links;
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_bool, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable};
 use crate::canvas::PinDirection;
 use crate::canvas::Rect;
@@ -72,12 +73,6 @@ impl VoltSource {
         }
     }
 
-    fn clamp_value(&mut self) {
-        let lo = self.min_value.min(self.max_value);
-        let hi = self.min_value.max(self.max_value);
-        self.value = self.value.clamp(lo, hi);
-    }
-
     pub fn to_element_kind(&self) -> Kind {
         Kind::VoltSource {
             value: self.value,
@@ -90,30 +85,30 @@ impl VoltSource {
     }
     fn set_value_prop(&mut self, v: PropValue) -> Result<(), PropError> {
         self.value = expect_float("Value", v)?.clamp(MIN_V, MAX_V);
-        self.clamp_value();
         Ok(())
+    }
+    fn value_adjusts(src: &mut Self, _: &PropValue) {
+        prop_links::source_value(src.value, &mut src.min_value, &mut src.max_value);
     }
     fn get_max(&self) -> PropValue {
         PropValue::Float(self.max_value)
     }
     fn set_max(&mut self, v: PropValue) -> Result<(), PropError> {
         self.max_value = expect_float("MaxValue", v)?.clamp(MIN_V, MAX_V);
-        if self.max_value < self.min_value {
-            self.min_value = self.max_value;
-        }
-        self.clamp_value();
         Ok(())
+    }
+    fn max_adjusts(src: &mut Self, _: &PropValue) {
+        prop_links::source_max(&mut src.max_value, src.min_value, &mut src.value, MAX_V);
     }
     fn get_min(&self) -> PropValue {
         PropValue::Float(self.min_value)
     }
     fn set_min(&mut self, v: PropValue) -> Result<(), PropError> {
         self.min_value = expect_float("MinValue", v)?.clamp(MIN_V, MAX_V);
-        if self.min_value > self.max_value {
-            self.max_value = self.min_value;
-        }
-        self.clamp_value();
         Ok(())
+    }
+    fn min_adjusts(src: &mut Self, _: &PropValue) {
+        prop_links::source_min(&mut src.min_value, src.max_value, &mut src.value, MIN_V);
     }
     fn get_running(&self) -> PropValue {
         PropValue::Bool(self.running)
@@ -132,6 +127,12 @@ impl Component for VoltSource {
         "Adjustable voltage source."
     }
     fn props() -> &'static [PropDef<Self>] {
+        const VALUE_UPDATES: &[PropUpdate<VoltSource>] =
+            &[PropUpdate::always(VoltSource::value_adjusts)];
+        const MAX_UPDATES: &[PropUpdate<VoltSource>] =
+            &[PropUpdate::always(VoltSource::max_adjusts)];
+        const MIN_UPDATES: &[PropUpdate<VoltSource>] =
+            &[PropUpdate::always(VoltSource::min_adjusts)];
         static PROPS: &[PropDef<VoltSource>] = &[
             PropDef::float(
                 "Value",
@@ -142,7 +143,8 @@ impl Component for VoltSource {
                 VoltSource::get_value,
                 VoltSource::set_value_prop,
             )
-            .with_info("Output value."),
+            .updates(VALUE_UPDATES)
+            .with_info("Output value. A value outside the min/max range moves that end."),
             PropDef::float(
                 "MaxValue",
                 "Max Voltage",
@@ -152,6 +154,7 @@ impl Component for VoltSource {
                 VoltSource::get_max,
                 VoltSource::set_max,
             )
+            .updates(MAX_UPDATES)
             .with_info("Maximum voltage (positive or negative value).\nMust be > Minimum Voltage."),
             PropDef::float(
                 "MinValue",
@@ -162,6 +165,7 @@ impl Component for VoltSource {
                 VoltSource::get_min,
                 VoltSource::set_min,
             )
+            .updates(MIN_UPDATES)
             .with_info("Minimum voltage (positive or negative value).\nMust be < Maximum Voltage."),
             PropDef::bool(
                 "Running",
@@ -219,7 +223,7 @@ impl crate::canvas::Scene {
     pub fn add_volt_source(&mut self, x: f64, y: f64) -> String {
         let id = format!("VoltSource-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::volt_source(&id, x, y, 5.0, true));
+            .push(crate::canvas::Item::new(&id, x, y, VoltSource::default()));
         id
     }
 }
@@ -282,6 +286,20 @@ mod tests {
         let c = v.set_value(2.5);
         assert!(c.saved && c.sim);
         assert_eq!(v.get_prop_text("Value").unwrap(), "2.5 V");
+    }
+
+    #[test]
+    fn property_value_moves_the_range_and_a_limit_pulls_the_output() {
+        let mut v = VoltSource::default();
+        v.set_prop_text("Value", "12 V").unwrap();
+        assert!((v.value - 12.0).abs() < 1e-9);
+        assert!((v.max_value - 12.0).abs() < 1e-9);
+        v.set_prop_text("MaxValue", "4 V").unwrap();
+        assert!((v.max_value - 4.0).abs() < 1e-9);
+        assert!((v.value - 4.0).abs() < 1e-9);
+        v.set_prop_text("MinValue", "6 V").unwrap();
+        assert!((v.min_value - 3.999).abs() < 1e-6);
+        assert!((v.value - 4.0).abs() < 1e-9);
     }
 
     #[test]

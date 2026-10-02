@@ -1126,7 +1126,7 @@ pub fn write_component_item<T: Component>(
 ) -> String {
     let mut attrs = Vec::new();
     for def in T::props() {
-        if !def.persist {
+        if !def.persist || !part.saves_prop(def.id) {
             continue;
         }
         let val = (def.get)(part);

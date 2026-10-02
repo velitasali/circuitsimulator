@@ -125,7 +125,8 @@ impl Drawable for Dac {
 impl crate::canvas::Scene {
     pub fn add_dac(&mut self, x: f64, y: f64) -> String {
         let id = format!("DAC-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::dac(&id, x, y, 8, 5.0));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Dac::default()));
         id
     }
 }

@@ -13,20 +13,14 @@ const MAX_DIM: i64 = 4096;
 
 impl crate::canvas::Item {
     pub fn ks0108(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::ks0108_display(id, x, y, 128, 64)
+        Self::new(id, x, y, Ks0108::default())
     }
 
     pub fn ks0108_display(id: impl Into<String>, x: f64, y: f64, width: u32, height: u32) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Ks0108 {
-                width,
-                height,
-                cs_act_low: false,
-            },
-        )
+        let mut display = Ks0108::default();
+        display.width = width;
+        display.height = height;
+        Self::new(id, x, y, display)
     }
 }
 
@@ -221,7 +215,8 @@ impl super::drawable::Drawable for Ks0108 {
 impl crate::canvas::Scene {
     pub fn add_ks0108(&mut self, x: f64, y: f64) -> String {
         let id = format!("KS0108-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::ks0108(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Ks0108::default()));
         id
     }
 }

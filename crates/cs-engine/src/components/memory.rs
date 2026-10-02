@@ -179,15 +179,8 @@ impl Drawable for Memory {
 impl crate::canvas::Scene {
     pub fn add_memory(&mut self, x: f64, y: f64) -> String {
         let id = format!("Memory-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::memory(
-            &id,
-            x,
-            y,
-            8,
-            8,
-            false,
-            Vec::new(),
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Memory::default()));
         id
     }
 }

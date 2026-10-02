@@ -21,23 +21,9 @@ const MAX_OHMS: f64 = 1e6;
 
 impl crate::canvas::Item {
     pub fn rgb_led(id: impl Into<String>, x: f64, y: f64, common_anode: bool) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            RgbLed {
-                common_anode,
-                v_th_r: 2.0,
-                i_max_r: 0.03,
-                r_res_r: 0.6,
-                v_th_g: 3.0,
-                i_max_g: 0.03,
-                r_res_g: 0.6,
-                v_th_b: 3.0,
-                i_max_b: 0.03,
-                r_res_b: 0.6,
-            },
-        )
+        let mut led = RgbLed::default();
+        led.common_anode = common_anode;
+        Self::new(id, x, y, led)
     }
 }
 
@@ -59,13 +45,13 @@ impl Default for RgbLed {
     fn default() -> Self {
         Self {
             common_anode: false,
-            v_th_r: 2.0,
+            v_th_r: 2.4,
             i_max_r: 0.03,
             r_res_r: 0.6,
-            v_th_g: 3.0,
+            v_th_g: 3.5,
             i_max_g: 0.03,
             r_res_g: 0.6,
-            v_th_b: 3.0,
+            v_th_b: 3.5,
             i_max_b: 0.03,
             r_res_b: 0.6,
         }
@@ -406,7 +392,7 @@ impl crate::canvas::Scene {
     pub fn add_rgb_led(&mut self, x: f64, y: f64) -> String {
         let id = format!("RGBLed-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::rgb_led(&id, x, y, false));
+            .push(crate::canvas::Item::new(&id, x, y, RgbLed::default()));
         id
     }
 }
@@ -420,9 +406,9 @@ mod tests {
         let r = RgbLed::default();
         assert_eq!(r.type_id(), "RgbLed");
         assert!(!r.common_anode);
-        assert_eq!(r.v_th_r, 2.0);
-        assert_eq!(r.v_th_g, 3.0);
-        assert_eq!(r.v_th_b, 3.0);
+        assert_eq!(r.v_th_r, 2.4);
+        assert_eq!(r.v_th_g, 3.5);
+        assert_eq!(r.v_th_b, 3.5);
         assert_eq!(r.pin_geoms().len(), 4);
         assert_eq!(r.body(), Rect::new(-10.0, -10.0, 20.0, 20.0));
     }

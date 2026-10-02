@@ -256,9 +256,8 @@ impl Drawable for ResistorDip {
 impl crate::canvas::Scene {
     pub fn add_resistor_dip(&mut self, x: f64, y: f64) -> String {
         let id = format!("ResistorDip-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::resistor_dip(
-            &id, x, y, 8, 100.0, false,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, ResistorDip::default()));
         id
     }
 }

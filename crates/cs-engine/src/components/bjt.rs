@@ -5,7 +5,7 @@ use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Rect;
 use crate::elements::Kind;
-use crate::elements::transistor::{BJT_DEFAULT_GAIN, BjtState};
+use crate::elements::transistor::{BJT_DEFAULT_GAIN, BjtState, default_v_crit};
 use crate::matrix::CircMatrix;
 
 const MIN_GAIN: f64 = 1e-6;
@@ -15,7 +15,9 @@ const MAX_VCRIT: f64 = 10.0;
 
 impl crate::canvas::Item {
     pub fn bjt(id: impl Into<String>, x: f64, y: f64, pnp: bool) -> Self {
-        Self::bjt_with(id, x, y, pnp, BJT_DEFAULT_GAIN, 0.7)
+        let mut transistor = Bjt::default();
+        transistor.pnp = pnp;
+        Self::new(id, x, y, transistor)
     }
 
     pub fn bjt_with(
@@ -51,7 +53,7 @@ impl Default for Bjt {
         Self {
             pnp: false,
             gain: BJT_DEFAULT_GAIN,
-            threshold: 0.7,
+            threshold: default_v_crit(),
         }
     }
 }
@@ -219,7 +221,7 @@ mod tests {
         assert!(!b.pnp);
         assert_eq!(b.type_id(), "Bjt");
         assert_eq!(b.gain, BJT_DEFAULT_GAIN);
-        assert_eq!(b.threshold, 0.7);
+        assert_eq!(b.threshold, default_v_crit());
         assert_eq!(b.pin_geoms().len(), 3);
     }
 

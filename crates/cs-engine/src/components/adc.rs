@@ -165,7 +165,7 @@ impl crate::canvas::Scene {
     pub fn add_adc(&mut self, x: f64, y: f64) -> String {
         let id = format!("ADC-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::adc(&id, x, y, 8, 5.0, 0.0));
+            .push(crate::canvas::Item::new(&id, x, y, Adc::default()));
         id
     }
 }

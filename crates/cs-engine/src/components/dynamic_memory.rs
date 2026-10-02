@@ -116,12 +116,11 @@ impl Drawable for DynamicMemory {
 impl crate::canvas::Scene {
     pub fn add_dynamic_memory(&mut self, x: f64, y: f64) -> String {
         let id = format!("DynamicMemory-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::dynamic_memory(
+        self.items.push(crate::canvas::Item::new(
             &id,
             x,
             y,
-            8,
-            Vec::new(),
+            DynamicMemory::default(),
         ));
         id
     }

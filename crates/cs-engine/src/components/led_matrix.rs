@@ -2,7 +2,7 @@
 
 use super::drawable::Drawable;
 use super::props::{
-    PropDef, PropError, PropValue, expect_bool, expect_float, expect_int, expect_string,
+    PropDef, PropError, PropUpdate, PropValue, expect_bool, expect_float, expect_int, expect_string,
 };
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
@@ -28,20 +28,10 @@ use super::led::{LED_COLOR_OPTIONS, LedColor};
 
 impl crate::canvas::Item {
     pub fn led_matrix(id: impl Into<String>, x: f64, y: f64, rows: usize, cols: usize) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            LedMatrix {
-                rows,
-                cols,
-                vertical_pins: false,
-                color: LedColor::Red,
-                threshold: 2.0,
-                max_current: 0.03,
-                resistance: 0.6,
-            },
-        )
+        let mut matrix = LedMatrix::default();
+        matrix.rows = rows.max(1);
+        matrix.cols = cols.max(1);
+        Self::new(id, x, y, matrix)
     }
 }
 
@@ -62,9 +52,9 @@ impl Default for LedMatrix {
             rows: 8,
             cols: 8,
             vertical_pins: false,
-            color: LedColor::Red,
-            threshold: 2.0,
-            max_current: 0.03,
+            color: LedColor::Yellow,
+            threshold: LedColor::Yellow.threshold(),
+            max_current: 0.02,
             resistance: 0.6,
         }
     }
@@ -114,8 +104,11 @@ impl LedMatrix {
     fn set_color(&mut self, v: PropValue) -> Result<(), PropError> {
         let color_name = expect_string("Color", v)?;
         self.color = LedColor::from_str_name(&color_name);
-        self.threshold = self.color.threshold();
         Ok(())
+    }
+
+    fn color_sets_threshold(matrix: &mut Self, _: &PropValue) {
+        matrix.threshold = matrix.color.threshold();
     }
 
     fn get_threshold(&self) -> PropValue {
@@ -190,8 +183,12 @@ impl Component for LedMatrix {
             p.structural = true;
             p
         };
+        const COLOR_UPDATES: &[PropUpdate<LedMatrix>] =
+            &[PropUpdate::always(LedMatrix::color_sets_threshold)];
         static PROPS: &[PropDef<LedMatrix>] = &[
-            PropDef::enumeration("Color", "Color", LED_COLOR_OPTIONS, LedMatrix::get_color, LedMatrix::set_color).with_info("Led color."),
+            PropDef::enumeration("Color", "Color", LED_COLOR_OPTIONS, LedMatrix::get_color, LedMatrix::set_color)
+                .updates(COLOR_UPDATES)
+                .with_info("Led color. Sets the forward voltage for that color."),
             ROWS,
             COLS,
             VERT_PINS,
@@ -315,7 +312,7 @@ impl crate::canvas::Scene {
     pub fn add_led_matrix(&mut self, x: f64, y: f64) -> String {
         let id = format!("LedMatrix-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::led_matrix(&id, x, y, 8, 8));
+            .push(crate::canvas::Item::new(&id, x, y, LedMatrix::default()));
         id
     }
 }
@@ -331,9 +328,9 @@ mod tests {
         assert_eq!(m.rows, 8);
         assert_eq!(m.cols, 8);
         assert!(!m.vertical_pins);
-        assert_eq!(m.color, LedColor::Red);
-        assert_eq!(m.threshold, 2.0);
-        assert_eq!(m.max_current, 0.03);
+        assert_eq!(m.color, LedColor::Yellow);
+        assert_eq!(m.threshold, LedColor::Yellow.threshold());
+        assert_eq!(m.max_current, 0.02);
         assert_eq!(m.resistance, 0.6);
         assert_eq!(m.pin_geoms().len(), 16);
         assert_eq!(m.body(), Rect::new(-8.0, -8.0, 72.0, 72.0));

@@ -22,13 +22,15 @@ pub struct Mux {
 
 impl crate::canvas::Item {
     pub fn mux(id: impl Into<String>, x: f64, y: f64, addr_bits: usize) -> Self {
-        Self::new(id, x, y, Mux { addr_bits })
+        let mut mux = Mux::default();
+        mux.addr_bits = addr_bits;
+        Self::new(id, x, y, mux)
     }
 }
 
 impl Default for Mux {
     fn default() -> Self {
-        Self { addr_bits: 2 }
+        Self { addr_bits: 3 }
     }
 }
 
@@ -104,7 +106,8 @@ impl Drawable for Mux {
 impl crate::canvas::Scene {
     pub fn add_mux(&mut self, x: f64, y: f64) -> String {
         let id = format!("Mux-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::mux(&id, x, y, 3));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Mux::default()));
         id
     }
 }
@@ -117,9 +120,9 @@ mod tests {
     fn default_mux() {
         let m = Mux::default();
         assert_eq!(m.type_id(), "Mux");
-        assert_eq!(m.addr_bits, 2);
-        // 4 inputs + 2 addr + 1 enable + 2 outputs = 9 pins
-        assert_eq!(m.pin_geoms().len(), 9);
+        assert_eq!(m.addr_bits, 3);
+        // 8 inputs + 3 addr + 1 enable + 2 outputs = 14 pins
+        assert_eq!(m.pin_geoms().len(), 14);
     }
 }
 

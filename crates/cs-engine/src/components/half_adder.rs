@@ -104,7 +104,7 @@ impl crate::canvas::Scene {
     pub fn add_half_adder(&mut self, x: f64, y: f64) -> String {
         let id = format!("HalfAdder-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::half_adder(&id, x, y, 4));
+            .push(crate::canvas::Item::new(&id, x, y, HalfAdder::default()));
         id
     }
 }

@@ -17,7 +17,7 @@ const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
 const DEFAULT_ION: f64 = 0.02;
 const DEFAULT_IOFF: f64 = 0.01;
-const DEFAULT_L: f64 = 1e-3;
+const DEFAULT_L: f64 = 0.1;
 const DEFAULT_R: f64 = 100.0;
 
 impl crate::canvas::Item {
@@ -43,7 +43,7 @@ impl crate::canvas::Item {
             poles,
             i_on,
             i_off,
-            1e-3,
+            DEFAULT_L,
             100.0,
         )
     }
@@ -360,9 +360,8 @@ impl Drawable for Relay {
 impl crate::canvas::Scene {
     pub fn add_relay(&mut self, x: f64, y: f64) -> String {
         let id = format!("Relay-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::relay(
-            &id, x, y, false, false, 1, 0.02, 0.005, false,
-        ));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Relay::default()));
         id
     }
 }

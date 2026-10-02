@@ -36,17 +36,11 @@ impl crate::canvas::Item {
         steps: i32,
         resistance: f64,
     ) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Stepper {
-                bipolar,
-                steps,
-                resistance,
-                angle: 0.0,
-            },
-        )
+        let mut motor = Stepper::default();
+        motor.bipolar = bipolar;
+        motor.steps = steps;
+        motor.resistance = resistance;
+        Self::new(id, x, y, motor)
     }
 }
 
@@ -203,7 +197,7 @@ impl crate::canvas::Scene {
     pub fn add_stepper(&mut self, x: f64, y: f64) -> String {
         let id = format!("Stepper-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::stepper(&id, x, y, true, 32, 100.0));
+            .push(crate::canvas::Item::new(&id, x, y, Stepper::default()));
         id
     }
 }

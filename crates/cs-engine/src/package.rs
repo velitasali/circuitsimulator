@@ -706,30 +706,86 @@ pub fn select_package<'a>(
     logic_symbol: bool,
     named: Option<&str>,
 ) -> Option<&'a Package> {
+    select_package_key(packages, logic_symbol, named).map(|(_, pkg)| pkg)
+}
+
+/// Same choice as [`select_package`], keeping the map key `Chip::setPackage` stores.
+pub fn select_package_key<'a>(
+    packages: &'a BTreeMap<String, Package>,
+    logic_symbol: bool,
+    named: Option<&str>,
+) -> Option<(&'a String, &'a Package)> {
     if packages.is_empty() {
         return None;
     }
     if let Some(name) = named {
-        if let Some(p) = packages.get(name) {
-            return Some(p);
+        if let Some(entry) = packages.get_key_value(name) {
+            return Some(entry);
         }
     }
     let mut dip = None;
     let mut ls = None;
-    for (key, pkg) in packages {
-        if key.ends_with("DIP") {
-            dip = Some(pkg);
+    for entry in packages {
+        if entry.0.ends_with("DIP") {
+            dip = Some(entry);
         } else {
-            ls = Some(pkg);
+            ls = Some(entry);
         }
     }
-    let first = packages.values().next();
+    let first = packages.iter().next();
     if logic_symbol {
         ls.or(first)
     } else if packages.len() > 1 {
         dip.or(first)
     } else {
         first
+    }
+}
+
+/// `Chip::setPackage` sets the logic-symbol flag from the package name.
+/// A logic-symbol key ends in `LS`. A DIP key ends in `DIP` or contains `DIP`.
+/// Any other name keeps `current`.
+pub fn logic_symbol_for_package_name(name: &str, current: bool) -> bool {
+    if name.ends_with("LS") || name.ends_with("_LS") || name.ends_with("-LS") {
+        true
+    } else if name.ends_with("DIP")
+        || name.ends_with("_DIP")
+        || name.ends_with("-DIP")
+        || name.contains("DIP")
+    {
+        false
+    } else {
+        current
+    }
+}
+
+/// Apply a package choice to a chip that keeps its package list.
+/// `named` is `Chip::setPackage`. `None` is the Logic Symbol property, which
+/// picks the LS or DIP entry. An empty list only updates the flag and name.
+pub fn retarget_package(
+    current: &Package,
+    packages: &BTreeMap<String, Package>,
+    logic_symbol: bool,
+    named: Option<&str>,
+) -> (Package, bool) {
+    let requested = named.filter(|n| !n.is_empty());
+    let want_ls = requested.map_or(logic_symbol, |n| {
+        logic_symbol_for_package_name(n, logic_symbol)
+    });
+    if let Some((key, src)) = select_package_key(packages, want_ls, requested) {
+        let name = requested.unwrap_or(key.as_str());
+        let is_ls = logic_symbol_for_package_name(name, want_ls);
+        let mut pkg = src.clone();
+        pkg.name = name.to_string();
+        pkg.logic_symbol = is_ls;
+        (pkg, is_ls)
+    } else {
+        let mut pkg = current.clone();
+        if let Some(name) = named {
+            pkg.name = name.to_string();
+        }
+        pkg.logic_symbol = want_ls;
+        (pkg, want_ls)
     }
 }
 

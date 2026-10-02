@@ -45,7 +45,7 @@ impl Default for SR04 {
     fn default() -> Self {
         Self {
             distance: 0.5,
-            use_slider: true,
+            use_slider: false,
         }
     }
 }
@@ -119,7 +119,7 @@ impl crate::canvas::Scene {
     pub fn add_sr04(&mut self, x: f64, y: f64) -> String {
         let id = format!("SR04-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::sr04(&id, x, y, 100.0, true));
+            .push(crate::canvas::Item::new(&id, x, y, SR04::default()));
         id
     }
 
@@ -204,7 +204,7 @@ mod tests {
         let s = SR04::default();
         assert_eq!(s.type_id(), "SR04");
         assert_eq!(s.distance, 0.5);
-        assert!(s.use_slider);
+        assert!(!s.use_slider);
         assert_eq!(s.pin_geoms().len(), 5);
     }
 }

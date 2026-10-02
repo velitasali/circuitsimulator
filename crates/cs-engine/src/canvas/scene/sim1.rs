@@ -310,6 +310,7 @@ impl Scene {
                         Some(&subc.package.name),
                     ) {
                         subc.package = view.package;
+                        subc.packages = view.packages;
                         subc.nested_src = view.nested_src;
                         subc.nested_path = view.nested_path;
                         subc.logic_symbol = view.logic_symbol;

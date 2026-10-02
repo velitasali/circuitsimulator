@@ -196,7 +196,7 @@ impl crate::canvas::Scene {
     pub fn add_hd44780(&mut self, x: f64, y: f64) -> String {
         let id = format!("Hd44780-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::hd44780(&id, x, y, 2, 16));
+            .push(crate::canvas::Item::new(&id, x, y, Hd44780::default()));
         id
     }
 }

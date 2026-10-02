@@ -1,7 +1,8 @@
 //! Variable inductor: companion stamp plus a dial on Inductance.
 
 use super::component::{DialState, stamp_two_terminal, two_terminal_pins};
-use super::props::{PropDef, PropError, PropValue, expect_float};
+use super::prop_links;
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable, TwoTerminal};
 use crate::canvas::Rect;
 use crate::elements::Kind;
@@ -11,12 +12,22 @@ const MIN_L: f64 = 1e-12;
 const MAX_L: f64 = 1e6;
 const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
-const DEFAULT_L: f64 = 1e-3;
-const DEFAULT_R: f64 = 1e-3;
+const DEFAULT_MAX_L: f64 = 10e-3;
+const DEFAULT_R: f64 = 1e-6;
 
 impl crate::canvas::Item {
     pub fn var_inductor(id: impl Into<String>, x: f64, y: f64, inductance: f64) -> Self {
-        Self::var_inductor_with(id, x, y, inductance, 0.0, inductance * 2.0, 1e-3, 0.0, 0.0)
+        Self::var_inductor_with(
+            id,
+            x,
+            y,
+            inductance,
+            0.0,
+            inductance * 2.0,
+            DEFAULT_R,
+            0.0,
+            0.0,
+        )
     }
 
     pub fn var_inductor_with(
@@ -62,12 +73,12 @@ pub struct VarInductor {
 impl Default for VarInductor {
     fn default() -> Self {
         Self {
-            inductance: DEFAULT_L,
+            inductance: 0.0,
             min_l: 0.0,
-            max_l: DEFAULT_L * 2.0,
+            max_l: DEFAULT_MAX_L,
             resistance: DEFAULT_R,
             init_curr: 0.0,
-            dial: DialState::new(1e-6),
+            dial: DialState::new(0.0),
         }
     }
 }
@@ -91,12 +102,6 @@ impl VarInductor {
         }
     }
 
-    fn clamp_l(&mut self) {
-        let lo = self.min_l.min(self.max_l).max(MIN_L);
-        let hi = self.min_l.max(self.max_l).max(lo);
-        self.inductance = self.inductance.clamp(lo, hi);
-    }
-
     pub fn to_element_kind(&self) -> Kind {
         Kind::VarInductor {
             inductance: self.inductance.max(MIN_L),
@@ -108,25 +113,31 @@ impl VarInductor {
         PropValue::Float(self.inductance)
     }
     fn set_inductance(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.inductance = expect_float("Inductance", v)?.clamp(MIN_L, MAX_L);
-        self.clamp_l();
+        self.inductance = expect_float("Inductance", v)?.clamp(0.0, MAX_L);
         Ok(())
+    }
+    fn value_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_value(&mut part.inductance, part.min_l, part.max_l);
     }
     fn get_min_l(&self) -> PropValue {
         PropValue::Float(self.min_l)
     }
     fn set_min_l(&mut self, v: PropValue) -> Result<(), PropError> {
         self.min_l = expect_float("MinInductance", v)?.clamp(0.0, MAX_L);
-        self.clamp_l();
         Ok(())
+    }
+    fn min_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_min(&mut part.min_l, part.max_l, &mut part.inductance);
     }
     fn get_max_l(&self) -> PropValue {
         PropValue::Float(self.max_l)
     }
     fn set_max_l(&mut self, v: PropValue) -> Result<(), PropError> {
         self.max_l = expect_float("MaxInductance", v)?.clamp(MIN_L, MAX_L);
-        self.clamp_l();
         Ok(())
+    }
+    fn max_adjusts(part: &mut Self, _: &PropValue) {
+        prop_links::dialed_max(&mut part.max_l, part.min_l, &mut part.inductance);
     }
     fn get_resistance(&self) -> PropValue {
         PropValue::Float(self.resistance)
@@ -146,7 +157,7 @@ impl VarInductor {
         PropValue::Float(self.dial.step)
     }
     fn set_dial_step(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.dial.step = expect_float("DialStep", v)?.clamp(MIN_L, MAX_L);
+        self.dial.step = expect_float("DialStep", v)?.clamp(0.0, MAX_L);
         Ok(())
     }
 }
@@ -159,16 +170,23 @@ impl Component for VarInductor {
         "Variable inductor."
     }
     fn props() -> &'static [PropDef<Self>] {
+        const IND_UPDATES: &[PropUpdate<VarInductor>] =
+            &[PropUpdate::always(VarInductor::value_adjusts)];
+        const MIN_UPDATES: &[PropUpdate<VarInductor>] =
+            &[PropUpdate::always(VarInductor::min_adjusts)];
+        const MAX_UPDATES: &[PropUpdate<VarInductor>] =
+            &[PropUpdate::always(VarInductor::max_adjusts)];
         const IND: PropDef<VarInductor> = {
             let mut p = PropDef::float(
                 "Inductance",
                 "Inductance",
                 "H",
-                MIN_L,
+                0.0,
                 MAX_L,
                 VarInductor::get_inductance,
                 VarInductor::set_inductance,
             )
+            .updates(IND_UPDATES)
             .with_info("Value determined by dial position.");
             p.required = true;
             p
@@ -184,6 +202,7 @@ impl Component for VarInductor {
                 VarInductor::get_min_l,
                 VarInductor::set_min_l,
             )
+            .updates(MIN_UPDATES)
             .with_info("Inductance with dial at the left end."),
             PropDef::float(
                 "MaxInductance",
@@ -194,6 +213,7 @@ impl Component for VarInductor {
                 VarInductor::get_max_l,
                 VarInductor::set_max_l,
             )
+            .updates(MAX_UPDATES)
             .with_info("Inductance with dial at the right end."),
             PropDef::float(
                 "Resistance",
@@ -219,7 +239,7 @@ impl Component for VarInductor {
                 "DialStep",
                 "Dial Step",
                 "H",
-                MIN_L,
+                0.0,
                 MAX_L,
                 VarInductor::get_dial_step,
                 VarInductor::set_dial_step,
@@ -275,7 +295,7 @@ impl crate::canvas::Scene {
     pub fn add_var_inductor(&mut self, x: f64, y: f64) -> String {
         let id = format!("VarInductor-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::var_inductor(&id, x, y, 0.001));
+            .push(crate::canvas::Item::new(&id, x, y, VarInductor::default()));
         id
     }
 }
@@ -301,10 +321,10 @@ impl Dialed for VarInductor {
         self.inductance
     }
     fn min(&self) -> f64 {
-        self.min_l.min(self.max_l).max(MIN_L)
+        self.min_l.min(self.max_l)
     }
     fn max(&self) -> f64 {
-        self.min_l.max(self.max_l).max(MIN_L)
+        self.min_l.max(self.max_l)
     }
 }
 
@@ -357,11 +377,14 @@ mod tests {
     #[test]
     fn default_and_dial() {
         let mut v = VarInductor::default();
-        assert_eq!(v.inductance, DEFAULT_L);
-        assert_eq!(
-            v.get_prop_text("Inductance").unwrap(),
-            format_si(DEFAULT_L, "H")
-        );
+        assert_eq!(v.inductance, 0.0);
+        assert_eq!(v.max_l, DEFAULT_MAX_L);
+        assert_eq!(v.resistance, DEFAULT_R);
+        assert_eq!(v.dial.step, 0.0);
+        assert_eq!(v.get_prop_text("Inductance").unwrap(), format_si(0.0, "H"));
+        assert_eq!(v.min(), 0.0);
+        v.set_value(0.0);
+        assert_eq!(v.inductance, 0.0);
         v.set_value(500e-6);
         assert_eq!(v.get_prop_text("Inductance").unwrap(), "500 µH");
     }

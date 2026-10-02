@@ -92,7 +92,7 @@ impl crate::canvas::Scene {
     pub fn add_bin_counter(&mut self, x: f64, y: f64) -> String {
         let id = format!("BinCounter-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::bin_counter(&id, x, y, false));
+            .push(crate::canvas::Item::new(&id, x, y, BinCounter::default()));
         id
     }
 }

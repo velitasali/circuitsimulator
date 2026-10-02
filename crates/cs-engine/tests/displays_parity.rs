@@ -21,8 +21,18 @@ fn test_graphic_and_character_displays_canvas_and_sim1_roundtrip() {
     // Verify properties
     let ili = canvas.scene().items()[0].clone();
     assert_eq!(ili.controller(), "ILI9341");
-    assert_eq!(ili.disp_width(), 320);
-    assert_eq!(ili.disp_height(), 240);
+    assert_eq!(ili.disp_width(), 240);
+    assert_eq!(ili.disp_height(), 320);
+
+    let st7789 = canvas.scene().items()[1].clone();
+    assert_eq!(st7789.controller(), "ST7789");
+    assert_eq!(st7789.disp_width(), 240);
+    assert_eq!(st7789.disp_height(), 320);
+
+    let st7735 = canvas.scene().items()[2].clone();
+    assert_eq!(st7735.controller(), "ST7735");
+    assert_eq!(st7735.disp_width(), 132);
+    assert_eq!(st7735.disp_height(), 162);
 
     let pcd = canvas.scene().items()[4].clone();
     assert_eq!(pcd.disp_width(), 84);

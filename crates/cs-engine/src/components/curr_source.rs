@@ -2,7 +2,8 @@
 
 use super::component::stamp_current;
 use super::drawable::{Drawable, paint_var_source_body};
-use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float};
+use super::prop_links;
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_bool, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable};
 use crate::canvas::PinDirection;
 use crate::canvas::Rect;
@@ -73,12 +74,6 @@ impl CurrSource {
         }
     }
 
-    fn clamp_value(&mut self) {
-        let lo = self.min_value.min(self.max_value);
-        let hi = self.min_value.max(self.max_value);
-        self.value = self.value.clamp(lo, hi);
-    }
-
     pub fn to_element_kind(&self) -> Kind {
         Kind::CurrSource {
             value: self.value,
@@ -91,30 +86,30 @@ impl CurrSource {
     }
     fn set_value_prop(&mut self, v: PropValue) -> Result<(), PropError> {
         self.value = expect_float("Value", v)?.clamp(MIN_A, MAX_A);
-        self.clamp_value();
         Ok(())
+    }
+    fn value_adjusts(src: &mut Self, _: &PropValue) {
+        prop_links::source_value(src.value, &mut src.min_value, &mut src.max_value);
     }
     fn get_max(&self) -> PropValue {
         PropValue::Float(self.max_value)
     }
     fn set_max(&mut self, v: PropValue) -> Result<(), PropError> {
         self.max_value = expect_float("MaxValue", v)?.clamp(MIN_A, MAX_A);
-        if self.max_value < self.min_value {
-            self.min_value = self.max_value;
-        }
-        self.clamp_value();
         Ok(())
+    }
+    fn max_adjusts(src: &mut Self, _: &PropValue) {
+        prop_links::source_max(&mut src.max_value, src.min_value, &mut src.value, MAX_A);
     }
     fn get_min(&self) -> PropValue {
         PropValue::Float(self.min_value)
     }
     fn set_min(&mut self, v: PropValue) -> Result<(), PropError> {
         self.min_value = expect_float("MinValue", v)?.clamp(MIN_A, MAX_A);
-        if self.min_value > self.max_value {
-            self.max_value = self.min_value;
-        }
-        self.clamp_value();
         Ok(())
+    }
+    fn min_adjusts(src: &mut Self, _: &PropValue) {
+        prop_links::source_min(&mut src.min_value, src.max_value, &mut src.value, MIN_A);
     }
     fn get_running(&self) -> PropValue {
         PropValue::Bool(self.running)
@@ -133,6 +128,12 @@ impl Component for CurrSource {
         "Adjustable current source."
     }
     fn props() -> &'static [PropDef<Self>] {
+        const VALUE_UPDATES: &[PropUpdate<CurrSource>] =
+            &[PropUpdate::always(CurrSource::value_adjusts)];
+        const MAX_UPDATES: &[PropUpdate<CurrSource>] =
+            &[PropUpdate::always(CurrSource::max_adjusts)];
+        const MIN_UPDATES: &[PropUpdate<CurrSource>] =
+            &[PropUpdate::always(CurrSource::min_adjusts)];
         static PROPS: &[PropDef<CurrSource>] = &[
             PropDef::float(
                 "Value",
@@ -143,7 +144,8 @@ impl Component for CurrSource {
                 CurrSource::get_value,
                 CurrSource::set_value_prop,
             )
-            .with_info("Output value."),
+            .updates(VALUE_UPDATES)
+            .with_info("Output value. A value outside the min/max range moves that end."),
             PropDef::float(
                 "MaxValue",
                 "Max Current",
@@ -153,6 +155,7 @@ impl Component for CurrSource {
                 CurrSource::get_max,
                 CurrSource::set_max,
             )
+            .updates(MAX_UPDATES)
             .with_info("Maximum current (must be a positive value)."),
             PropDef::float(
                 "MinValue",
@@ -163,6 +166,7 @@ impl Component for CurrSource {
                 CurrSource::get_min,
                 CurrSource::set_min,
             )
+            .updates(MIN_UPDATES)
             .with_info("Minimum current. Must be less than Maximum Current."),
             PropDef::bool(
                 "Running",
@@ -220,7 +224,7 @@ impl crate::canvas::Scene {
     pub fn add_curr_source(&mut self, x: f64, y: f64) -> String {
         let id = format!("CurrSource-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::curr_source(&id, x, y, 0.01, true));
+            .push(crate::canvas::Item::new(&id, x, y, CurrSource::default()));
         id
     }
 }

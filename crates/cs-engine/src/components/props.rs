@@ -1,7 +1,7 @@
 //! Typed property table: dialog, undo, file, and tests share one list.
 
 use super::ComponentChange;
-use crate::units::{format_si, parse_si};
+use crate::units::{format_si_precision, parse_si};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropValue {
@@ -21,9 +21,35 @@ pub enum PropKind {
     String,
 }
 
+/// One rule that runs after a property is stored.
+///
+/// `when` sees the part after the setter. `apply` writes other fields. It must
+/// not call `set_prop`; the engine does not re-enter itself.
+pub struct PropUpdate<T> {
+    when: fn(&T) -> bool,
+    apply: fn(&mut T, &PropValue),
+}
+
+fn prop_update_always<T>(_: &T) -> bool {
+    true
+}
+
+impl<T> PropUpdate<T> {
+    pub const fn always(apply: fn(&mut T, &PropValue)) -> Self {
+        Self {
+            when: prop_update_always::<T>,
+            apply,
+        }
+    }
+
+    pub const fn when(when: fn(&T) -> bool, apply: fn(&mut T, &PropValue)) -> Self {
+        Self { when, apply }
+    }
+}
+
 /// One row in a type's property table. Ids are PascalCase English (`PChannel`,
 /// not `P_Channel`).
-pub struct PropDef<T> {
+pub struct PropDef<T: 'static> {
     pub id: &'static str,
     pub caption: &'static str,
     pub unit: &'static str,
@@ -35,6 +61,9 @@ pub struct PropDef<T> {
     pub structural: bool,
     pub get: fn(&T) -> PropValue,
     pub set: fn(&mut T, PropValue) -> Result<(), PropError>,
+    /// Fractional digits for a float that has a unit. Empty-unit floats keep full precision.
+    pub decimals: u8,
+    updates: &'static [PropUpdate<T>],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,6 +145,8 @@ impl<T> PropDef<T> {
             structural: false,
             get,
             set,
+            decimals: 2,
+            updates: &[],
         }
     }
 
@@ -137,6 +168,8 @@ impl<T> PropDef<T> {
             structural: false,
             get,
             set,
+            decimals: 2,
+            updates: &[],
         }
     }
 
@@ -160,6 +193,8 @@ impl<T> PropDef<T> {
             structural: false,
             get,
             set,
+            decimals: 2,
+            updates: &[],
         }
     }
 
@@ -182,6 +217,8 @@ impl<T> PropDef<T> {
             structural: false,
             get,
             set,
+            decimals: 2,
+            updates: &[],
         }
     }
 
@@ -203,6 +240,26 @@ impl<T> PropDef<T> {
             structural: false,
             get,
             set,
+            decimals: 2,
+            updates: &[],
+        }
+    }
+
+    pub const fn with_decimals(mut self, decimals: u8) -> Self {
+        self.decimals = decimals;
+        self
+    }
+
+    pub const fn updates(mut self, updates: &'static [PropUpdate<T>]) -> Self {
+        self.updates = updates;
+        self
+    }
+
+    pub fn run_updates(&self, part: &mut T, value: &PropValue) {
+        for update in self.updates {
+            if (update.when)(part) {
+                (update.apply)(part, value);
+            }
         }
     }
 
@@ -269,7 +326,7 @@ impl<T> PropDef<T> {
                         "mΩ" | "kΩ" | "MΩ" => "Ω",
                         other => other,
                     };
-                    format_si(*v, base_unit)
+                    format_si_precision(*v, base_unit, self.decimals as usize)
                 }
             }
             (PropKind::Bool, PropValue::Bool(v)) => {
@@ -292,7 +349,8 @@ impl<T> PropDef<T> {
     pub fn change(&self) -> ComponentChange {
         if self.structural {
             ComponentChange::structural("")
-        } else if self.persist {
+        } else if self.persist || !self.updates.is_empty() {
+            // A rule writes other fields. Those fields are the saved state.
             ComponentChange::document("")
         } else {
             ComponentChange::live("")
@@ -306,6 +364,8 @@ pub(crate) struct Harness {
     pub enabled: bool,
     pub mode: String,
     pub note: String,
+    /// Written by the Resistance update rule while Enabled is true.
+    pub coupled: f64,
 }
 
 #[cfg(test)]
@@ -372,6 +432,16 @@ impl Harness {
             }),
         }
     }
+
+    fn is_enabled(h: &Self) -> bool {
+        h.enabled
+    }
+
+    fn resistance_scales_coupled(h: &mut Self, v: &PropValue) {
+        if let PropValue::Float(resistance) = v {
+            h.coupled = resistance * 2.0;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -382,6 +452,7 @@ impl Default for Harness {
             enabled: true,
             mode: "A".into(),
             note: String::new(),
+            coupled: 0.0,
         }
     }
 }
@@ -401,6 +472,10 @@ impl super::Component for Harness {
             p.show_by_default = false;
             p
         };
+        const RES_UPDATES: &[PropUpdate<Harness>] = &[PropUpdate::when(
+            Harness::is_enabled,
+            Harness::resistance_scales_coupled,
+        )];
         const RES: PropDef<Harness> = {
             let mut p = PropDef::float(
                 "Resistance",
@@ -410,7 +485,8 @@ impl super::Component for Harness {
                 1e12,
                 Harness::get_resistance,
                 Harness::set_resistance,
-            );
+            )
+            .updates(RES_UPDATES);
             p.required = true;
             p
         };
@@ -495,6 +571,19 @@ mod tests {
         assert!(!c.saved);
         assert!(!c.undo);
         assert_eq!(h.get_prop_text("Note").unwrap(), "scratch");
+    }
+
+    #[test]
+    fn update_rule_runs_only_when_its_condition_holds() {
+        let mut h = Harness::default();
+        h.set_prop_text("Resistance", "10 Ω").unwrap();
+        assert_eq!(h.resistance, 10.0);
+        assert_eq!(h.coupled, 20.0);
+
+        h.set_prop_text("Enabled", "false").unwrap();
+        h.set_prop_text("Resistance", "5 Ω").unwrap();
+        assert_eq!(h.resistance, 5.0);
+        assert_eq!(h.coupled, 20.0);
     }
 
     #[test]

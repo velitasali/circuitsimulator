@@ -190,7 +190,7 @@ impl crate::canvas::Scene {
     pub fn add_triac(&mut self, x: f64, y: f64) -> String {
         let id = format!("Triac-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::triac(&id, x, y, 0.7, 0.0082));
+            .push(crate::canvas::Item::new(&id, x, y, Triac::default()));
         id
     }
 }

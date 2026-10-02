@@ -19,15 +19,7 @@ const MAX_LAMBDA_INV: f64 = 1e6;
 
 impl crate::canvas::Item {
     pub fn jfet(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::jfet_with(
-            id,
-            x,
-            y,
-            false,
-            JFET_DEFAULT_IDSS,
-            JFET_DEFAULT_VP,
-            JFET_DEFAULT_LAMBDA_INV,
-        )
+        Self::new(id, x, y, Jfet::default())
     }
 
     pub fn jfet_with(
@@ -221,7 +213,8 @@ impl crate::canvas::Scene {
     pub fn add_jfet(&mut self, x: f64, y: f64) -> String {
         let id = format!("Jfet-{}", self.next_jfet);
         self.next_jfet += 1;
-        self.items.push(crate::canvas::Item::jfet(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Jfet::default()));
         id
     }
 }

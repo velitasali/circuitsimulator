@@ -235,7 +235,7 @@ impl crate::canvas::Scene {
     pub fn add_audio_out(&mut self, x: f64, y: f64) -> String {
         let id = format!("AudioOut-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::audio_out(&id, x, y, 8.0));
+            .push(crate::canvas::Item::new(&id, x, y, AudioOut::default()));
         id
     }
 }

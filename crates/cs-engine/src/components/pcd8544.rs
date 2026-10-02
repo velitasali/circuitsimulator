@@ -15,7 +15,7 @@ const MAX_BIAS: i64 = 7;
 
 impl crate::canvas::Item {
     pub fn pcd8544(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::pcd8544_display(id, x, y, 50, 4)
+        Self::new(id, x, y, Pcd8544::default())
     }
 
     pub fn pcd8544_display(id: impl Into<String>, x: f64, y: f64, contrast: u8, bias: u8) -> Self {
@@ -177,7 +177,8 @@ impl super::drawable::Drawable for Pcd8544 {
 impl crate::canvas::Scene {
     pub fn add_pcd8544(&mut self, x: f64, y: f64) -> String {
         let id = format!("PCD8544-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::pcd8544(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Pcd8544::default()));
         id
     }
 }

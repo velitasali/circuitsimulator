@@ -3,7 +3,7 @@
 use super::component::{stamp_conductance_between, stamp_to_ground};
 use super::drawable::Drawable;
 use super::props::{
-    PropDef, PropError, PropValue, expect_bool, expect_float, expect_int, expect_string,
+    PropDef, PropError, PropUpdate, PropValue, expect_bool, expect_float, expect_int, expect_string,
 };
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
@@ -30,19 +30,9 @@ const MAX_OHMS: f64 = 1e12;
 
 impl crate::canvas::Item {
     pub fn led_bar(id: impl Into<String>, x: f64, y: f64, segments: usize) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            LedBar {
-                segments,
-                color: LedColor::Red,
-                grounded: false,
-                threshold: 1.8,
-                max_current: 0.03,
-                resistance: 0.6,
-            },
-        )
+        let mut bar = LedBar::default();
+        bar.segments = segments.max(1);
+        Self::new(id, x, y, bar)
     }
 }
 
@@ -59,10 +49,10 @@ pub struct LedBar {
 impl Default for LedBar {
     fn default() -> Self {
         Self {
-            segments: 10,
-            color: LedColor::Red,
+            segments: 8,
+            color: LedColor::Yellow,
             grounded: false,
-            threshold: 1.8,
+            threshold: LedColor::Yellow.threshold(),
             max_current: 0.03,
             resistance: 0.6,
         }
@@ -93,8 +83,11 @@ impl LedBar {
     fn set_color(&mut self, v: PropValue) -> Result<(), PropError> {
         let color_name = expect_string("Color", v)?;
         self.color = LedColor::from_str_name(&color_name);
-        self.threshold = self.color.threshold();
         Ok(())
+    }
+
+    fn color_sets_threshold(bar: &mut Self, _: &PropValue) {
+        bar.threshold = bar.color.threshold();
     }
 
     fn get_grounded(&self) -> PropValue {
@@ -163,9 +156,12 @@ impl Component for LedBar {
             p.structural = true;
             p
         };
+        const COLOR_UPDATES: &[PropUpdate<LedBar>] =
+            &[PropUpdate::always(LedBar::color_sets_threshold)];
         static PROPS: &[PropDef<LedBar>] = &[
             PropDef::enumeration("Color", "Color", LED_COLOR_OPTIONS, LedBar::get_color, LedBar::set_color)
-                .with_info("Led color."),
+                .updates(COLOR_UPDATES)
+                .with_info("Led color. Sets the forward voltage for that color."),
             SEGS,
             GND,
             PropDef::float(
@@ -300,7 +296,8 @@ impl Drawable for LedBar {
 impl crate::canvas::Scene {
     pub fn add_led_bar(&mut self, x: f64, y: f64) -> String {
         let id = format!("LedBar-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::led_bar(&id, x, y, 10));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, LedBar::default()));
         id
     }
 }
@@ -313,18 +310,19 @@ mod tests {
     fn default_led_bar() {
         let b = LedBar::default();
         assert_eq!(b.type_id(), "LedBar");
-        assert_eq!(b.segments, 10);
-        assert_eq!(b.color, LedColor::Red);
+        assert_eq!(b.segments, 8);
+        assert_eq!(b.color, LedColor::Yellow);
+        assert_eq!(b.threshold, LedColor::Yellow.threshold());
         assert!(!b.grounded);
-        assert_eq!(b.pin_geoms().len(), 20);
-        assert_eq!(b.body(), Rect::new(-8.0, -28.0, 16.0, 80.0));
+        assert_eq!(b.pin_geoms().len(), 16);
+        assert_eq!(b.body(), Rect::new(-8.0, -28.0, 16.0, 64.0));
     }
 
     #[test]
     fn grounded_led_bar_half_pins() {
         let mut b = LedBar::default();
         b.grounded = true;
-        assert_eq!(b.pin_geoms().len(), 10);
+        assert_eq!(b.pin_geoms().len(), 8);
     }
 }
 

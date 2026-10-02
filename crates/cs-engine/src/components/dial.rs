@@ -1,16 +1,17 @@
 //! Dial: rotary schematic control with value, min, max, and step.
 
 use super::drawable::{Drawable, paint_dial};
-use super::props::{PropDef, PropError, PropValue, expect_float};
+use super::prop_links;
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable};
 use crate::canvas::Rect;
 use crate::canvas::draw::{Draw, PaintCtx};
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 
-const DEFAULT_VAL: f64 = 0.0;
+const DEFAULT_VAL: f64 = 500.0;
 const DEFAULT_MIN: f64 = 0.0;
-const DEFAULT_MAX: f64 = 100.0;
+const DEFAULT_MAX: f64 = 999.0;
 const DEFAULT_STEP: f64 = 1.0;
 
 /// Rotary control dial.
@@ -24,17 +25,9 @@ pub struct Dial {
 
 impl crate::canvas::Item {
     pub fn dial(id: impl Into<String>, x: f64, y: f64, val: f64) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Dial {
-                value: val,
-                min_val: 0.0,
-                max_val: 100.0,
-                step: 1.0,
-            },
-        )
+        let mut dial = Dial::default();
+        dial.value = val;
+        Self::new(id, x, y, dial)
     }
 }
 
@@ -57,12 +50,9 @@ impl Dial {
     }
 
     pub fn new(val: f64) -> Self {
-        Self {
-            value: val,
-            min_val: DEFAULT_MIN,
-            max_val: DEFAULT_MAX,
-            step: DEFAULT_STEP,
-        }
+        let mut dial = Self::default();
+        dial.value = val;
+        dial
     }
 
     pub fn to_element_kind(&self) -> Kind {
@@ -74,20 +64,15 @@ impl Dial {
         }
     }
 
-    fn clamp_val(&mut self) {
-        let lo = self.min_val.min(self.max_val);
-        let hi = self.min_val.max(self.max_val);
-        self.value = self.value.clamp(lo, hi);
-    }
-
     fn get_value(&self) -> PropValue {
         PropValue::Float(self.value)
     }
     fn set_value_prop(&mut self, v: PropValue) -> Result<(), PropError> {
-        let val = expect_float("Value", v)?;
-        self.value = val;
-        self.clamp_val();
+        self.value = expect_float("Value", v)?;
         Ok(())
+    }
+    fn value_adjusts(dial: &mut Self, _: &PropValue) {
+        prop_links::dialed_value(&mut dial.value, dial.min_val, dial.max_val);
     }
 
     fn get_min_val(&self) -> PropValue {
@@ -95,8 +80,10 @@ impl Dial {
     }
     fn set_min_val(&mut self, v: PropValue) -> Result<(), PropError> {
         self.min_val = expect_float("MinVal", v)?;
-        self.clamp_val();
         Ok(())
+    }
+    fn min_adjusts(dial: &mut Self, _: &PropValue) {
+        prop_links::dialed_min(&mut dial.min_val, dial.max_val, &mut dial.value);
     }
 
     fn get_max_val(&self) -> PropValue {
@@ -104,8 +91,10 @@ impl Dial {
     }
     fn set_max_val(&mut self, v: PropValue) -> Result<(), PropError> {
         self.max_val = expect_float("MaxVal", v)?;
-        self.clamp_val();
         Ok(())
+    }
+    fn max_adjusts(dial: &mut Self, _: &PropValue) {
+        prop_links::dialed_max(&mut dial.max_val, dial.min_val, &mut dial.value);
     }
 
     fn get_step(&self) -> PropValue {
@@ -148,6 +137,9 @@ impl Component for Dial {
     }
 
     fn props() -> &'static [PropDef<Self>] {
+        const VALUE_UPDATES: &[PropUpdate<Dial>] = &[PropUpdate::always(Dial::value_adjusts)];
+        const MIN_UPDATES: &[PropUpdate<Dial>] = &[PropUpdate::always(Dial::min_adjusts)];
+        const MAX_UPDATES: &[PropUpdate<Dial>] = &[PropUpdate::always(Dial::max_adjusts)];
         static PROPS: &[PropDef<Dial>] = &[
             PropDef::float(
                 "Value",
@@ -158,6 +150,7 @@ impl Component for Dial {
                 Dial::get_value,
                 Dial::set_value_prop,
             )
+            .updates(VALUE_UPDATES)
             .with_info("Output value."),
             PropDef::float(
                 "MinVal",
@@ -168,6 +161,7 @@ impl Component for Dial {
                 Dial::get_min_val,
                 Dial::set_min_val,
             )
+            .updates(MIN_UPDATES)
             .with_info("Value with dial at the left end."),
             PropDef::float(
                 "MaxVal",
@@ -178,6 +172,7 @@ impl Component for Dial {
                 Dial::get_max_val,
                 Dial::set_max_val,
             )
+            .updates(MAX_UPDATES)
             .with_info("Value with dial at the right end."),
             PropDef::float(
                 "Step",
@@ -234,7 +229,8 @@ impl Component for Dial {
 impl crate::canvas::Scene {
     pub fn add_dial(&mut self, x: f64, y: f64) -> String {
         let id = format!("Dial-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::dial(&id, x, y, 50.0));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Dial::default()));
         id
     }
 
@@ -293,9 +289,9 @@ mod tests {
     fn dial_defaults_and_props() {
         let mut dial = Dial::default();
         assert_eq!(dial.type_id(), "Dial");
-        assert_eq!(dial.get_prop_text("Value").unwrap(), "0");
+        assert_eq!(dial.get_prop_text("Value").unwrap(), "500");
         assert_eq!(dial.get_prop_text("MinVal").unwrap(), "0");
-        assert_eq!(dial.get_prop_text("MaxVal").unwrap(), "100");
+        assert_eq!(dial.get_prop_text("MaxVal").unwrap(), "999");
         assert_eq!(dial.get_prop_text("Step").unwrap(), "1");
 
         dial.set_prop_text("Value", "42").unwrap();
@@ -306,6 +302,15 @@ mod tests {
         assert_eq!(dial.max_val, 200.0);
         dial.set_prop_text("Step", "5").unwrap();
         assert_eq!(dial.step, 5.0);
+
+        dial.set_prop_text("MaxVal", "20").unwrap();
+        assert_eq!(dial.max_val, 20.0);
+        assert_eq!(dial.value, 20.0);
+        dial.set_prop_text("Value", "80").unwrap();
+        assert_eq!(dial.value, 20.0);
+        dial.set_prop_text("MinVal", "40").unwrap();
+        assert_eq!(dial.min_val, 20.0);
+        assert_eq!(dial.value, 20.0);
     }
 
     #[test]
@@ -316,8 +321,8 @@ mod tests {
         assert_eq!(dial.value(), 55.0);
 
         // Clamping to [min, max]
-        dial.set_value(150.0);
-        assert_eq!(dial.value(), 100.0);
+        dial.set_value(1500.0);
+        assert_eq!(dial.value(), 999.0);
         dial.set_value(-10.0);
         assert_eq!(dial.value(), 0.0);
     }
@@ -334,9 +339,9 @@ mod tests {
                 max_val,
                 step,
             } => {
-                assert_eq!(value, 0.0);
+                assert_eq!(value, 500.0);
                 assert_eq!(min_val, 0.0);
-                assert_eq!(max_val, 100.0);
+                assert_eq!(max_val, 999.0);
                 assert_eq!(step, 1.0);
             }
             other => panic!("expected Kind::Dial, got {other:?}"),

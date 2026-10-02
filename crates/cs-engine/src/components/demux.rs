@@ -23,22 +23,17 @@ pub struct Demux {
 
 impl crate::canvas::Item {
     pub fn demux(id: impl Into<String>, x: f64, y: f64, addr_bits: usize, inverted: bool) -> Self {
-        Self::new(
-            id,
-            x,
-            y,
-            Demux {
-                addr_bits,
-                inverted,
-            },
-        )
+        let mut demux = Demux::default();
+        demux.addr_bits = addr_bits;
+        demux.inverted = inverted;
+        Self::new(id, x, y, demux)
     }
 }
 
 impl Default for Demux {
     fn default() -> Self {
         Self {
-            addr_bits: 2,
+            addr_bits: 3,
             inverted: false,
         }
     }
@@ -133,7 +128,7 @@ impl crate::canvas::Scene {
     pub fn add_demux(&mut self, x: f64, y: f64) -> String {
         let id = format!("Demux-{}", self.items.len() + 1);
         self.items
-            .push(crate::canvas::Item::demux(&id, x, y, 3, false));
+            .push(crate::canvas::Item::new(&id, x, y, Demux::default()));
         id
     }
 }
@@ -146,10 +141,10 @@ mod tests {
     fn default_demux() {
         let d = Demux::default();
         assert_eq!(d.type_id(), "Demux");
-        assert_eq!(d.addr_bits, 2);
+        assert_eq!(d.addr_bits, 3);
         assert!(!d.inverted);
-        // 1 in + 2 addr + 1 enable + 4 outputs = 8 pins
-        assert_eq!(d.pin_geoms().len(), 8);
+        // 1 in + 3 addr + 1 enable + 8 outputs = 13 pins
+        assert_eq!(d.pin_geoms().len(), 13);
     }
 }
 

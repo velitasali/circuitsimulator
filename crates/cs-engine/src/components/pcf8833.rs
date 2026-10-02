@@ -11,7 +11,7 @@ const MAX_DIM: i64 = 4096;
 
 impl crate::canvas::Item {
     pub fn pcf8833(id: impl Into<String>, x: f64, y: f64) -> Self {
-        Self::pcf8833_display(id, x, y, 132, 132)
+        Self::new(id, x, y, Pcf8833::default())
     }
 
     pub fn pcf8833_display(id: impl Into<String>, x: f64, y: f64, width: u32, height: u32) -> Self {
@@ -178,7 +178,8 @@ impl super::drawable::Drawable for Pcf8833 {
 impl crate::canvas::Scene {
     pub fn add_pcf8833(&mut self, x: f64, y: f64) -> String {
         let id = format!("PCF8833-{}", self.items.len() + 1);
-        self.items.push(crate::canvas::Item::pcf8833(&id, x, y));
+        self.items
+            .push(crate::canvas::Item::new(&id, x, y, Pcf8833::default()));
         id
     }
 }

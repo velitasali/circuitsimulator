@@ -1,7 +1,6 @@
 //! Circuit simulation unit and integration test suite.
 
 use super::*;
-use crate::Error;
 use crate::digital::PinMode;
 use crate::elements::Kind;
 use crate::subcircuit::SubcSearch;
@@ -84,13 +83,47 @@ fn series_chain_uses_lu() {
 }
 
 #[test]
-fn floating_battery_is_singular() {
+fn floating_battery_holds_voltage() {
     let mut c = Circuit::new();
     c.add_battery("B1", 5.0, 1e-3)
         .add_resistor("R1", 100.0)
         .connect("B1-lPin", "R1-lPin")
         .connect("B1-rPin", "R1-rPin");
-    assert!(matches!(c.solve(), Err(Error::Singular)));
+    c.solve().unwrap();
+    let vp = c.pin_voltage("B1-lPin").unwrap();
+    let vn = c.pin_voltage("B1-rPin").unwrap();
+    let g_bat = 1.0 / 1e-3;
+    let expected = 5.0 * g_bat / (g_bat + 1.0 / 100.0);
+    approx(vp - vn, expected);
+}
+
+#[test]
+fn floating_charged_capacitor_discharges() {
+    let mut c = Circuit::new();
+    c.dt = 1e-6;
+    c.add_resistor("R1", 100.0).add_capacitor("C1", 10e-6);
+    for comp in c.components_mut() {
+        if let Kind::Capacitor { volt, .. } = &mut comp.kind {
+            *volt = 5.0;
+        }
+    }
+    c.connect("R1-lPin", "C1-lPin")
+        .connect("R1-rPin", "C1-rPin");
+    c.solve().unwrap();
+    let diff = c.pin_voltage("C1-lPin").unwrap() - c.pin_voltage("C1-rPin").unwrap();
+    let g_c = 10e-6 / c.dt;
+    let ratio = g_c / (g_c + 1.0 / 100.0);
+    approx(diff, 5.0 * ratio);
+
+    c.run_ps(1_000_000_000).unwrap();
+    let v = c.pin_voltage("C1-lPin").unwrap() - c.pin_voltage("C1-rPin").unwrap();
+    let be = 5.0 * ratio.powi(1000);
+    approx(v, be);
+    let analytic = 5.0 * (-1.0_f64).exp();
+    assert!(
+        (v - analytic).abs() < 0.01,
+        "discharge {v} analytic {analytic}"
+    );
 }
 
 #[test]

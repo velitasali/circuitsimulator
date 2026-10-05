@@ -1,8 +1,10 @@
 //! Admittance-matrix solver, ported from `src/simulator/circmatrix.cpp`.
 //!
 //! Islands of interconnected nodes are grouped. Size-1 groups solve as
-//! `V = I / G`. Size-2 groups use the closed-form 2×2. Larger groups use
-//! Crout LU.
+//! `V = I / G`. Size-2 and size-3 groups use a closed form. Larger groups
+//! use Crout LU. A floating group has a zero pivot: one node is held at 0 V
+//! and the other voltages are solved. A zero pivot with a nonzero residual
+//! is singular.
 
 #[derive(Clone, Debug)]
 struct Group {
@@ -118,7 +120,11 @@ impl CircMatrix {
         }
     }
 
-    /// Solve into `volts`. Returns `false` if any group was singular.
+    /// Solve into `volts`. Returns `false` if any group has no solution.
+    ///
+    /// A group with no path to the implicit ground is still solved. One node
+    /// in that group is the 0 V reference, the same rule as a zero pivot in
+    /// the LU factorization.
     pub fn solve(&mut self, volts: &mut [f64]) -> bool {
         debug_assert_eq!(volts.len(), self.n);
         let mut ok = true;
@@ -139,7 +145,9 @@ impl CircMatrix {
                 let a11 = self.a[i1 * self.n + i1];
                 let det = a00 * a11 - a01 * a10;
                 if det == 0.0 {
-                    ok = false;
+                    if !self.solve_group_lu(g_idx, volts) {
+                        ok = false;
+                    }
                 } else {
                     let bi0 = self.b[i0];
                     let bi1 = self.b[i1];
@@ -169,7 +177,9 @@ impl CircMatrix {
 
                 let det = a00 * c00 + a01 * c01 + a02 * c02;
                 if det == 0.0 {
-                    ok = false;
+                    if !self.solve_group_lu(g_idx, volts) {
+                        ok = false;
+                    }
                 } else {
                     let c10 = a02 * a21 - a01 * a22;
                     let c11 = a00 * a22 - a02 * a20;
@@ -187,28 +197,31 @@ impl CircMatrix {
                     volts[i1] = (b0 * c01 + b1 * c11 + b2 * c21) / det;
                     volts[i2] = (b0 * c02 + b1 * c12 + b2 * c22) / det;
                 }
-            } else {
-                let group_nodes = &self.groups[g_idx].nodes;
-                if self.scratch_a.len() < n * n {
-                    self.scratch_a.resize(n * n, 0.0);
-                }
-                if self.scratch_b.len() < n {
-                    self.scratch_b.resize(n, 0.0);
-                }
-                if !lu_group(
-                    &self.a,
-                    self.n,
-                    &self.b,
-                    group_nodes,
-                    volts,
-                    &mut self.scratch_a,
-                    &mut self.scratch_b,
-                ) {
-                    ok = false;
-                }
+            } else if !self.solve_group_lu(g_idx, volts) {
+                ok = false;
             }
         }
         ok
+    }
+
+    fn solve_group_lu(&mut self, g_idx: usize, volts: &mut [f64]) -> bool {
+        let group = self.groups[g_idx].nodes.clone();
+        let n = group.len();
+        if self.scratch_a.len() < n * n {
+            self.scratch_a.resize(n * n, 0.0);
+        }
+        if self.scratch_b.len() < n {
+            self.scratch_b.resize(n, 0.0);
+        }
+        lu_group(
+            &self.a,
+            self.n,
+            &self.b,
+            &group,
+            volts,
+            &mut self.scratch_a,
+            &mut self.scratch_b,
+        )
     }
 
     pub fn group_sizes(&self) -> Vec<usize> {
@@ -293,8 +306,12 @@ fn lu_group(
             tot -= scratch_a[i * n + j] * b[j];
         }
         let div = scratch_a[i * n + i];
+        // A zero pivot with a zero residual is a free reference. Hold that
+        // node at 0 V. A nonzero residual has no solution.
         let volt = if div != 0.0 {
             tot / div
+        } else if tot == 0.0 {
+            0.0
         } else {
             is_ok = false;
             0.0
@@ -392,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn singular_2x2() {
+    fn floating_2x2_uses_one_node_as_reference() {
         let mut m = CircMatrix::new(2);
         m.analyze(&[vec![1], vec![0]]);
         m.stamp_diagonal(0, 1.0);
@@ -402,6 +419,43 @@ mod tests {
         m.stamp_coef(0, 1.0);
         m.stamp_coef(1, -1.0);
         let mut v = vec![0.0; 2];
+        assert!(m.solve(&mut v));
+        approx(v[0], 1.0);
+        approx(v[1], 0.0);
+    }
+
+    #[test]
+    fn inconsistent_2x2_is_singular() {
+        let mut m = CircMatrix::new(2);
+        m.analyze(&[vec![1], vec![0]]);
+        m.stamp_diagonal(0, 1.0);
+        m.stamp_matrix(0, 1, -1.0);
+        m.stamp_diagonal(1, 1.0);
+        m.stamp_matrix(1, 0, -1.0);
+        m.stamp_coef(0, 1.0);
+        m.stamp_coef(1, 1.0);
+        let mut v = vec![0.0; 2];
         assert!(!m.solve(&mut v));
+    }
+
+    #[test]
+    fn floating_3x3_chain() {
+        // 1 A through two series 1 Ω, no path to ground. Last node is 0 V.
+        let mut m = CircMatrix::new(3);
+        m.analyze(&[vec![1], vec![0, 2], vec![1]]);
+        m.stamp_diagonal(0, 1.0);
+        m.stamp_matrix(0, 1, -1.0);
+        m.stamp_coef(0, 1.0);
+        m.stamp_diagonal(1, 2.0);
+        m.stamp_matrix(1, 0, -1.0);
+        m.stamp_matrix(1, 2, -1.0);
+        m.stamp_diagonal(2, 1.0);
+        m.stamp_matrix(2, 1, -1.0);
+        m.stamp_coef(2, -1.0);
+        let mut v = vec![0.0; 3];
+        assert!(m.solve(&mut v));
+        approx(v[0], 2.0);
+        approx(v[1], 1.0);
+        approx(v[2], 0.0);
     }
 }

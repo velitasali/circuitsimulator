@@ -250,6 +250,9 @@ fn compile_canvas_item() {
         build.include(p.join("QtGui"));
         build.include(p.join("QtQuick"));
         build.include(p.join("QtQml"));
+        if let Some(rhi) = qtgui_rhi_header_include(&p) {
+            build.include(rhi);
+        }
     }
 
     build.compile("cs_canvas_item");
@@ -282,6 +285,27 @@ fn qtgui_rhi_include(libs: &Path) -> Option<PathBuf> {
         let candidate = entry.path().join("QtGui");
         if candidate.join("rhi/qrhi.h").exists() {
             return Some(candidate);
+        }
+    }
+    None
+}
+
+fn qtgui_rhi_header_include(inc: &Path) -> Option<PathBuf> {
+    if inc.join("rhi/qrhi.h").exists() {
+        return Some(inc.to_path_buf());
+    }
+    let qtgui = inc.join("QtGui");
+    if qtgui.join("rhi/qrhi.h").exists() {
+        return Some(qtgui);
+    }
+    let entries = std::fs::read_dir(&qtgui).ok()?;
+    for entry in entries.flatten() {
+        let candidate = entry.path().join("QtGui");
+        if candidate.join("rhi/qrhi.h").exists() {
+            return Some(candidate);
+        }
+        if entry.path().join("rhi/qrhi.h").exists() {
+            return Some(entry.path());
         }
     }
     None

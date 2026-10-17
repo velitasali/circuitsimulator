@@ -1,8 +1,13 @@
 //! Admittance-matrix solver, ported from `src/simulator/circmatrix.cpp`.
 //!
 //! Islands of interconnected nodes are grouped. Size-1 groups solve as
-//! `V = I / G`. Size-2 groups use the closed-form 2×2. Larger groups use
-//! Crout LU.
+//! `V = I / G`. Larger groups use Crout LU. A floating group has a zero
+//! pivot: one node is held at 0 V and the other voltages are solved. A zero
+//! pivot with a nonzero residual is singular.
+//!
+//! An expanded 2×2 or 3×3 determinant is not used. It cancels when a stiff
+//! companion (`C/dt`) shares a group with a tiny conductance to ground, and
+//! the leftover microvolts flip a threshold device on and off forever.
 
 #[derive(Clone, Debug)]
 struct Group {
@@ -118,7 +123,11 @@ impl CircMatrix {
         }
     }
 
-    /// Solve into `volts`. Returns `false` if any group was singular.
+    /// Solve into `volts`. Returns `false` if any group has no solution.
+    ///
+    /// A group with no path to the implicit ground is still solved. One node
+    /// in that group is the 0 V reference, the same rule as a zero pivot in
+    /// the LU factorization.
     pub fn solve(&mut self, volts: &mut [f64]) -> bool {
         debug_assert_eq!(volts.len(), self.n);
         let mut ok = true;
@@ -128,84 +137,24 @@ impl CircMatrix {
             volts[i] = if g > 0.0 { self.b[i] / g } else { 0.0 };
         }
 
-        for g_idx in 0..self.groups.len() {
-            let n = self.groups[g_idx].nodes.len();
-            if n == 2 {
-                let i0 = self.groups[g_idx].nodes[0];
-                let i1 = self.groups[g_idx].nodes[1];
-                let a00 = self.a[i0 * self.n + i0];
-                let a01 = self.a[i0 * self.n + i1];
-                let a10 = self.a[i1 * self.n + i0];
-                let a11 = self.a[i1 * self.n + i1];
-                let det = a00 * a11 - a01 * a10;
-                if det == 0.0 {
-                    ok = false;
-                } else {
-                    let bi0 = self.b[i0];
-                    let bi1 = self.b[i1];
-                    let b0 = bi0 * a11 - a01 * bi1;
-                    let b1 = a00 * bi1 - bi0 * a10;
-                    volts[i0] = b0 / det;
-                    volts[i1] = b1 / det;
-                }
-            } else if n == 3 {
-                let i0 = self.groups[g_idx].nodes[0];
-                let i1 = self.groups[g_idx].nodes[1];
-                let i2 = self.groups[g_idx].nodes[2];
-
-                let a00 = self.a[i0 * self.n + i0];
-                let a01 = self.a[i0 * self.n + i1];
-                let a02 = self.a[i0 * self.n + i2];
-                let a10 = self.a[i1 * self.n + i0];
-                let a11 = self.a[i1 * self.n + i1];
-                let a12 = self.a[i1 * self.n + i2];
-                let a20 = self.a[i2 * self.n + i0];
-                let a21 = self.a[i2 * self.n + i1];
-                let a22 = self.a[i2 * self.n + i2];
-
-                let c00 = a11 * a22 - a12 * a21;
-                let c01 = a12 * a20 - a10 * a22;
-                let c02 = a10 * a21 - a11 * a20;
-
-                let det = a00 * c00 + a01 * c01 + a02 * c02;
-                if det == 0.0 {
-                    ok = false;
-                } else {
-                    let c10 = a02 * a21 - a01 * a22;
-                    let c11 = a00 * a22 - a02 * a20;
-                    let c12 = a01 * a20 - a00 * a21;
-
-                    let c20 = a01 * a12 - a02 * a11;
-                    let c21 = a02 * a10 - a00 * a12;
-                    let c22 = a00 * a11 - a01 * a10;
-
-                    let b0 = self.b[i0];
-                    let b1 = self.b[i1];
-                    let b2 = self.b[i2];
-
-                    volts[i0] = (b0 * c00 + b1 * c10 + b2 * c20) / det;
-                    volts[i1] = (b0 * c01 + b1 * c11 + b2 * c21) / det;
-                    volts[i2] = (b0 * c02 + b1 * c12 + b2 * c22) / det;
-                }
-            } else {
-                let group_nodes = &self.groups[g_idx].nodes;
-                if self.scratch_a.len() < n * n {
-                    self.scratch_a.resize(n * n, 0.0);
-                }
-                if self.scratch_b.len() < n {
-                    self.scratch_b.resize(n, 0.0);
-                }
-                if !lu_group(
-                    &self.a,
-                    self.n,
-                    &self.b,
-                    group_nodes,
-                    volts,
-                    &mut self.scratch_a,
-                    &mut self.scratch_b,
-                ) {
-                    ok = false;
-                }
+        for group in &self.groups {
+            let n = group.nodes.len();
+            if self.scratch_a.len() < n * n {
+                self.scratch_a.resize(n * n, 0.0);
+            }
+            if self.scratch_b.len() < n {
+                self.scratch_b.resize(n, 0.0);
+            }
+            if !lu_group(
+                &self.a,
+                self.n,
+                &self.b,
+                &group.nodes,
+                volts,
+                &mut self.scratch_a,
+                &mut self.scratch_b,
+            ) {
+                ok = false;
             }
         }
         ok
@@ -256,7 +205,8 @@ fn lu_group(
         }
         if col != n - 1 {
             let div = scratch_a[col * n + col];
-            if div != 0.0 {
+            let diag = a_full[group[col] * n_full + group[col]].abs();
+            if div.abs() > 16.0 * f64::EPSILON * diag {
                 for row in col + 1..n {
                     scratch_a[row * n + col] /= div;
                 }
@@ -286,6 +236,12 @@ fn lu_group(
         i += 1;
     }
 
+    let max_b = group
+        .iter()
+        .map(|&gi| b_full[gi].abs())
+        .fold(0.0_f64, f64::max);
+    let rhs_tol = 64.0 * f64::EPSILON * max_b;
+
     let mut is_ok = true;
     for i in (0..n).rev() {
         let mut tot = b[i];
@@ -293,8 +249,14 @@ fn lu_group(
             tot -= scratch_a[i * n + j] * b[j];
         }
         let div = scratch_a[i * n + i];
-        let volt = if div != 0.0 {
+        let diag = a_full[group[i] * n_full + group[i]].abs();
+        let pivot_tol = 16.0 * f64::EPSILON * diag;
+        // A zero pivot with a zero residual is a free reference. Hold that
+        // node at 0 V. A nonzero residual has no solution.
+        let volt = if div.abs() > pivot_tol {
             tot / div
+        } else if tot.abs() <= rhs_tol {
+            0.0
         } else {
             is_ok = false;
             0.0
@@ -392,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn singular_2x2() {
+    fn floating_2x2_uses_one_node_as_reference() {
         let mut m = CircMatrix::new(2);
         m.analyze(&[vec![1], vec![0]]);
         m.stamp_diagonal(0, 1.0);
@@ -402,6 +364,117 @@ mod tests {
         m.stamp_coef(0, 1.0);
         m.stamp_coef(1, -1.0);
         let mut v = vec![0.0; 2];
+        assert!(m.solve(&mut v));
+        approx(v[0], 1.0);
+        approx(v[1], 0.0);
+    }
+
+    #[test]
+    fn inconsistent_2x2_is_singular() {
+        let mut m = CircMatrix::new(2);
+        m.analyze(&[vec![1], vec![0]]);
+        m.stamp_diagonal(0, 1.0);
+        m.stamp_matrix(0, 1, -1.0);
+        m.stamp_diagonal(1, 1.0);
+        m.stamp_matrix(1, 0, -1.0);
+        m.stamp_coef(0, 1.0);
+        m.stamp_coef(1, 1.0);
+        let mut v = vec![0.0; 2];
         assert!(!m.solve(&mut v));
+    }
+
+    #[test]
+    fn stiff_led_knee_stays_above_threshold() {
+        // capacitor.circ1, right island, one step before the green LED should
+        // turn off. G_c = 1 mF / 1 µs. The scope's 10 MΩ is the only path to
+        // ground. The expanded 3×3 determinant reported Vled = 3.499998 V
+        // here, which the piecewise LED reads as off, and the next iteration
+        // turns it back on.
+        let mut m = CircMatrix::new(3);
+        m.analyze(&[vec![1, 2], vec![0, 2], vec![0, 1]]);
+        let g_c = 1000.0;
+        let v_prev = 3.500926;
+        let g_r = 0.01;
+        let g_scope = 1e-7;
+        let g_led = 10.0;
+        let i_led = 35.0;
+        m.add_matrix(0, 0, g_c);
+        m.add_matrix(2, 2, g_c);
+        m.add_matrix(0, 2, -g_c);
+        m.add_matrix(2, 0, -g_c);
+        m.add_coef(0, v_prev * g_c);
+        m.add_coef(2, -v_prev * g_c);
+        m.add_matrix(0, 0, g_r);
+        m.add_matrix(2, 2, g_r);
+        m.add_matrix(0, 2, -g_r);
+        m.add_matrix(2, 0, -g_r);
+        m.add_matrix(0, 0, g_r);
+        m.add_matrix(1, 1, g_r);
+        m.add_matrix(0, 1, -g_r);
+        m.add_matrix(1, 0, -g_r);
+        m.add_matrix(0, 0, g_scope);
+        m.add_matrix(1, 1, g_scope);
+        m.add_matrix(1, 1, g_led);
+        m.add_matrix(2, 2, g_led);
+        m.add_matrix(1, 2, -g_led);
+        m.add_matrix(2, 1, -g_led);
+        m.add_coef(1, i_led);
+        m.add_coef(2, -i_led);
+        let mut v = vec![0.0; 3];
+        assert!(m.solve(&mut v));
+        let v_led = v[1] - v[2];
+        assert!(
+            v_led > 3.5,
+            "forward companion must stay above 3.5 V, got {v_led}"
+        );
+    }
+
+    #[test]
+    fn floating_3x3_chain() {
+        // 1 A through two series 1 Ω, no path to ground. Last node is 0 V.
+        let mut m = CircMatrix::new(3);
+        m.analyze(&[vec![1], vec![0, 2], vec![1]]);
+        m.stamp_diagonal(0, 1.0);
+        m.stamp_matrix(0, 1, -1.0);
+        m.stamp_coef(0, 1.0);
+        m.stamp_diagonal(1, 2.0);
+        m.stamp_matrix(1, 0, -1.0);
+        m.stamp_matrix(1, 2, -1.0);
+        m.stamp_diagonal(2, 1.0);
+        m.stamp_matrix(2, 1, -1.0);
+        m.stamp_coef(2, -1.0);
+        let mut v = vec![0.0; 3];
+        assert!(m.solve(&mut v));
+        approx(v[0], 2.0);
+        approx(v[1], 1.0);
+        approx(v[2], 0.0);
+    }
+
+    #[test]
+    fn floating_3x3_triangle_with_ulp_residual() {
+        // Floating resistor triangle (G01 = 1, G02 = 2, G12 = 1) with a 0.7 A
+        // source between nodes 0 and 1. Elimination by 1/3 leaves a 1-ULP
+        // residual (~5.55e-17) on the zero-pivot row that must still solve.
+        let mut m = CircMatrix::new(3);
+        m.analyze(&[vec![1, 2], vec![0, 2], vec![0, 1]]);
+        m.stamp_diagonal(0, 3.0);
+        m.stamp_matrix(0, 1, -1.0);
+        m.stamp_matrix(0, 2, -2.0);
+        m.stamp_coef(0, 0.7);
+        m.stamp_diagonal(1, 2.0);
+        m.stamp_matrix(1, 0, -1.0);
+        m.stamp_matrix(1, 2, -1.0);
+        m.stamp_coef(1, -0.7);
+        m.stamp_diagonal(2, 3.0);
+        m.stamp_matrix(2, 0, -2.0);
+        m.stamp_matrix(2, 1, -1.0);
+        m.stamp_coef(2, 0.0);
+        let mut v = vec![0.0; 3];
+        assert!(m.solve(&mut v));
+        // Equivalent conductance between 0 and 1 is 1 + (2*1)/(2+1) = 5/3 S,
+        // so V0 - V1 = 0.7 / (5/3) = 0.42 V, and V2 - V1 = (2/3) * 0.42 = 0.28 V.
+        approx(v[0] - v[1], 0.42);
+        approx(v[2] - v[1], 0.28);
+        approx(v[1], 0.0);
     }
 }

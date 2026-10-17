@@ -1746,6 +1746,12 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let k = prop(&properties, PROP_COUPLING)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(0.99);
+                let r1 = prop(&properties, "Rcoil1")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(0.1);
+                let r2 = prop(&properties, "Rcoil2")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(0.1);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
@@ -1753,6 +1759,10 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                             inductance1: l1,
                             inductance2: l2,
                             coupling: k,
+                            r_coil1: r1,
+                            r_coil2: r2,
+                            i1: 0.0,
+                            i2: 0.0,
                         },
                     },
                     &properties,

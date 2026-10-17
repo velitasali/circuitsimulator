@@ -1,7 +1,7 @@
 //! Dynamic time sources and Trapezoidal / Euler numerical integration for reactive elements.
 
 use crate::digital::secs_to_ps;
-use crate::elements::Kind;
+use crate::elements::{Kind, transformer_companion};
 
 use super::Circuit;
 
@@ -10,7 +10,12 @@ impl Circuit {
         self.components.iter().any(|c| {
             matches!(
                 &c.kind,
-                Kind::Capacitor { .. } | Kind::ElCapacitor { .. } | Kind::Inductor { .. }
+                Kind::Capacitor { .. }
+                    | Kind::ElCapacitor { .. }
+                    | Kind::VarCapacitor { .. }
+                    | Kind::Inductor { .. }
+                    | Kind::VarInductor { .. }
+                    | Kind::Transformer { .. }
             )
         })
     }
@@ -62,16 +67,17 @@ impl Circuit {
         let nodes = &self.nodes;
         let mut changed = false;
         for (c, cache) in self.components.iter_mut().zip(&self.pin_caches) {
-            let (Some(n0), Some(n1)) = (cache.left, cache.right) else {
-                continue;
-            };
-            if n0 >= nodes.len() || n1 >= nodes.len() {
-                continue;
-            }
-            let (v0, v1) = (nodes[n0].volt, nodes[n1].volt);
             match &mut c.kind {
-                Kind::Capacitor { volt, .. } | Kind::ElCapacitor { volt, .. } => {
-                    let new_volt = v0 - v1;
+                Kind::Capacitor { volt, .. }
+                | Kind::ElCapacitor { volt, .. }
+                | Kind::VarCapacitor { volt, .. } => {
+                    let (Some(n0), Some(n1)) = (cache.left, cache.right) else {
+                        continue;
+                    };
+                    if n0 >= nodes.len() || n1 >= nodes.len() {
+                        continue;
+                    }
+                    let new_volt = nodes[n0].volt - nodes[n1].volt;
                     if (*volt - new_volt).abs() > 1e-6 {
                         changed = true;
                     }
@@ -79,13 +85,69 @@ impl Circuit {
                 }
                 Kind::Inductor {
                     inductance, ieq, ..
+                }
+                | Kind::VarInductor {
+                    inductance, ieq, ..
                 } => {
+                    let (Some(n0), Some(n1)) = (cache.left, cache.right) else {
+                        continue;
+                    };
+                    if n0 >= nodes.len() || n1 >= nodes.len() {
+                        continue;
+                    }
                     let g = dt / *inductance;
-                    let di = (v0 - v1) * g;
+                    let di = (nodes[n0].volt - nodes[n1].volt) * g;
                     if di.abs() > 1e-8 {
                         changed = true;
                     }
                     *ieq -= di;
+                }
+                Kind::Transformer {
+                    inductance1,
+                    inductance2,
+                    coupling,
+                    r_coil1,
+                    r_coil2,
+                    i1,
+                    i2,
+                } => {
+                    let vp1 = cache.left.and_then(|n| nodes.get(n)).map(|nd| nd.volt);
+                    let vp2 = cache.right.and_then(|n| nodes.get(n)).map(|nd| nd.volt);
+                    let vs1 = cache.in0.and_then(|n| nodes.get(n)).map(|nd| nd.volt);
+                    let vs2 = cache.in1.and_then(|n| nodes.get(n)).map(|nd| nd.volt);
+                    let p_closed = vp1.is_some() && vp2.is_some();
+                    let s_closed = vs1.is_some() && vs2.is_some();
+                    if !p_closed && !s_closed {
+                        continue;
+                    }
+                    let eff_k = if p_closed && s_closed { *coupling } else { 0.0 };
+                    let (g11, g22, g12, i_hist1, i_hist2) = transformer_companion(
+                        *inductance1,
+                        *inductance2,
+                        eff_k,
+                        *r_coil1,
+                        *r_coil2,
+                        if p_closed { *i1 } else { 0.0 },
+                        if s_closed { *i2 } else { 0.0 },
+                        dt,
+                    );
+                    let v1 = vp1.zip(vp2).map(|(a, b)| a - b).unwrap_or(0.0);
+                    let v2 = vs1.zip(vs2).map(|(a, b)| a - b).unwrap_or(0.0);
+                    let new_i1 = if p_closed {
+                        g11 * v1 + g12 * v2 + i_hist1
+                    } else {
+                        0.0
+                    };
+                    let new_i2 = if s_closed {
+                        g12 * v1 + g22 * v2 + i_hist2
+                    } else {
+                        0.0
+                    };
+                    if (*i1 - new_i1).abs() > 1e-8 || (*i2 - new_i2).abs() > 1e-8 {
+                        changed = true;
+                    }
+                    *i1 = new_i1;
+                    *i2 = new_i2;
                 }
                 _ => {}
             }

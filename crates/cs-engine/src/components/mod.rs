@@ -1780,11 +1780,7 @@ impl Part {
             Self::Transformer(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Transformer {
-                        inductance1: p.inductance1,
-                        inductance2: p.inductance2,
-                        coupling: p.coupling,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Scr(p) => {

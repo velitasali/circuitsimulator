@@ -63,6 +63,10 @@ pub const PIN_YP: &str = "YP";
 pub const PIN_YM: &str = "YM";
 pub const PIN_COM: &str = "com";
 pub const PIN_EN: &str = "en";
+pub const PIN_P1: &str = "p1";
+pub const PIN_P2: &str = "p2";
+pub const PIN_S1: &str = "s1";
+pub const PIN_S2: &str = "s2";
 
 /// Strongly-typed categorization of component pin suffixes.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -96,6 +100,10 @@ pub enum PinSuffix<'a> {
     RgbG,
     RgbB,
     RgbC,
+    TransformerP1,
+    TransformerP2,
+    TransformerS1,
+    TransformerS2,
     SwitchP(usize),
     SwitchN(usize),
     IndexedLeft(usize),
@@ -136,6 +144,10 @@ impl<'a> PinSuffix<'a> {
             PIN_INPIN => PinSuffix::ProbeIn,
             PIN_RGB_C => PinSuffix::RgbC,
             PIN_RGB_B => PinSuffix::RgbB,
+            PIN_P1 => PinSuffix::TransformerP1,
+            PIN_P2 => PinSuffix::TransformerP2,
+            PIN_S1 => PinSuffix::TransformerS1,
+            PIN_S2 => PinSuffix::TransformerS2,
             _ => {
                 if let Some(rest) = suffix.strip_prefix("pinP") {
                     if let Ok(idx) = rest.parse::<usize>() {
@@ -450,10 +462,10 @@ impl Comp {
                 }
             }
             Kind::Transformer { .. } => vec![
-                format!("{}-p1", self.id),
-                format!("{}-p2", self.id),
-                format!("{}-s1", self.id),
-                format!("{}-s2", self.id),
+                self.transformer_p1_pin(),
+                self.transformer_p2_pin(),
+                self.transformer_s1_pin(),
+                self.transformer_s2_pin(),
             ],
             Kind::Scr { .. } => vec![
                 format!("{}-lPin", self.id),
@@ -952,6 +964,26 @@ impl Comp {
         format!("{}-pinY{i}", self.id)
     }
 
+    /// Transformer primary positive pin (`id + "-p1"`).
+    pub fn transformer_p1_pin(&self) -> String {
+        format!("{}-{PIN_P1}", self.id)
+    }
+
+    /// Transformer primary reference pin (`id + "-p2"`).
+    pub fn transformer_p2_pin(&self) -> String {
+        format!("{}-{PIN_P2}", self.id)
+    }
+
+    /// Transformer secondary positive pin (`id + "-s1"`).
+    pub fn transformer_s1_pin(&self) -> String {
+        format!("{}-{PIN_S1}", self.id)
+    }
+
+    /// Transformer secondary reference pin (`id + "-s2"`).
+    pub fn transformer_s2_pin(&self) -> String {
+        format!("{}-{PIN_S2}", self.id)
+    }
+
     pub fn build_pin_cache(&self, pin_net: &rustc_hash::FxHashMap<String, usize>) -> PinCache {
         let (oscope_gnd, oscope_pins, la_pins) = match self.kind {
             Kind::Oscope { .. } => {
@@ -1023,6 +1055,11 @@ impl Comp {
                 pin_net.get(&format!("{}-PinGnd", self.id)).copied(),
                 pin_net.get(&format!("{}-PinSig", self.id)).copied(),
             ),
+            Kind::Transformer { .. } => (
+                pin_net.get(&self.transformer_p1_pin()).copied(),
+                None,
+                pin_net.get(&self.transformer_p2_pin()).copied(),
+            ),
             _ => (
                 pin_net.get(&self.left_pin()).copied(),
                 pin_net.get(&self.mid_pin()).copied(),
@@ -1051,7 +1088,12 @@ impl Comp {
         };
         let in0 = match self.kind {
             Kind::Adc { .. } => pin_net.get(&format!("{}-vin", self.id)).copied(),
+            Kind::Transformer { .. } => pin_net.get(&self.transformer_s1_pin()).copied(),
             _ => pin_net.get(&self.comparator_in0_pin()).copied(),
+        };
+        let in1 = match self.kind {
+            Kind::Transformer { .. } => pin_net.get(&self.transformer_s2_pin()).copied(),
+            _ => pin_net.get(&self.comparator_in1_pin()).copied(),
         };
         let out = match self.kind {
             Kind::RgbLed { .. } => pin_net.get(&format!("{}-cPin", self.id)).copied(),
@@ -1088,7 +1130,7 @@ impl Comp {
             out,
             mid,
             in0,
-            in1: pin_net.get(&self.comparator_in1_pin()).copied(),
+            in1,
             collector: pin_net.get(&self.collector_pin()).copied(),
             emitter: pin_net.get(&self.emitter_pin()).copied(),
             base: pin_net.get(&self.base_pin()).copied(),

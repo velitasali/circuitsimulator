@@ -397,6 +397,10 @@ pub enum Kind {
         inductance1: f64,
         inductance2: f64,
         coupling: f64,
+        r_coil1: f64,
+        r_coil2: f64,
+        i1: f64,
+        i2: f64,
     },
     Scr {
         v_gate_th: f64,
@@ -870,7 +874,9 @@ impl Kind {
             }
             (Kind::Junction, _) => None,
             (
-                Kind::Capacitor { capacitance, volt } | Kind::ElCapacitor { capacitance, volt },
+                Kind::Capacitor { capacitance, volt }
+                | Kind::ElCapacitor { capacitance, volt }
+                | Kind::VarCapacitor { capacitance, volt },
                 PinSuffix::Left | PinSuffix::Right,
             ) => {
                 let v0 = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt)?;
@@ -879,12 +885,67 @@ impl Kind {
                 let i = (v0 - v1) * g - *volt * g;
                 Some(if suffix == PinSuffix::Left { -i } else { i })
             }
-            (Kind::Inductor { inductance, ieq }, PinSuffix::Left | PinSuffix::Right) => {
+            (
+                Kind::Inductor { inductance, ieq } | Kind::VarInductor { inductance, ieq },
+                PinSuffix::Left | PinSuffix::Right,
+            ) => {
                 let v0 = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt)?;
                 let v1 = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt)?;
                 let g = dt / inductance.max(1e-18);
                 let i = (v0 - v1) * g - *ieq;
                 Some(if suffix == PinSuffix::Left { -i } else { i })
+            }
+            (
+                Kind::Transformer {
+                    inductance1,
+                    inductance2,
+                    coupling,
+                    r_coil1,
+                    r_coil2,
+                    i1,
+                    i2,
+                },
+                PinSuffix::TransformerP1
+                | PinSuffix::TransformerP2
+                | PinSuffix::TransformerS1
+                | PinSuffix::TransformerS2,
+            ) => {
+                let vp1 = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
+                let vp2 = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
+                let vs1 = cache.in0.and_then(|i| nodes.get(i)).map(|n| n.volt);
+                let vs2 = cache.in1.and_then(|i| nodes.get(i)).map(|n| n.volt);
+                let p_closed = vp1.is_some() && vp2.is_some();
+                let s_closed = vs1.is_some() && vs2.is_some();
+                let eff_k = if p_closed && s_closed { *coupling } else { 0.0 };
+                let (g11, g22, g12, i_hist1, i_hist2) = transformer_companion(
+                    *inductance1,
+                    *inductance2,
+                    eff_k,
+                    *r_coil1,
+                    *r_coil2,
+                    if p_closed { *i1 } else { 0.0 },
+                    if s_closed { *i2 } else { 0.0 },
+                    dt,
+                );
+                let v1 = vp1.zip(vp2).map(|(a, b)| a - b).unwrap_or(0.0);
+                let v2 = vs1.zip(vs2).map(|(a, b)| a - b).unwrap_or(0.0);
+                let ip = if p_closed {
+                    g11 * v1 + g12 * v2 + i_hist1
+                } else {
+                    0.0
+                };
+                let is = if s_closed {
+                    g12 * v1 + g22 * v2 + i_hist2
+                } else {
+                    0.0
+                };
+                match suffix {
+                    PinSuffix::TransformerP1 => Some(-ip),
+                    PinSuffix::TransformerP2 => Some(ip),
+                    PinSuffix::TransformerS1 => Some(-is),
+                    PinSuffix::TransformerS2 => Some(is),
+                    _ => None,
+                }
             }
             (
                 Kind::Switch {
@@ -1273,4 +1334,47 @@ impl Kind {
             _ => None,
         }
     }
+}
+
+/// Coupled-inductor Backward-Euler 2-port companion model parameters:
+/// `(g11, g22, g12, i_hist1, i_hist2)` such that:
+/// `i_p = g11 * v1 + g12 * v2 + i_hist1`
+/// `i_s = g12 * v1 + g22 * v2 + i_hist2`
+/// where `v1 = V(p1) - V(p2)` and `v2 = V(s1) - V(s2)`.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn transformer_companion(
+    inductance1: f64,
+    inductance2: f64,
+    coupling: f64,
+    r_coil1: f64,
+    r_coil2: f64,
+    i1: f64,
+    i2: f64,
+    dt: f64,
+) -> (f64, f64, f64, f64, f64) {
+    let r1 = r_coil1.max(1e-6);
+    let r2 = r_coil2.max(1e-6);
+    if dt <= 0.0 {
+        return (1.0 / r1, 1.0 / r2, 0.0, 0.0, 0.0);
+    }
+    let l1 = inductance1.max(1e-12);
+    let l2 = inductance2.max(1e-12);
+    let k = coupling.clamp(0.0, 1.0);
+    let m = k * (l1 * l2).sqrt();
+    let l2_eff = if k > 0.0 { k * k * l2 } else { l2 };
+    let zl1 = l1 / dt;
+    let zl2 = l2_eff / dt;
+    let zm = m / dt;
+    let z11 = r1 + zl1;
+    let z22 = r2 + zl2;
+    let det = (z11 * z22 - zm * zm).max(1e-30);
+    let g11 = z22 / det;
+    let g22 = z11 / det;
+    let g12 = -zm / det;
+    let e1 = zl1 * i1 + zm * i2;
+    let e2 = zm * i1 + zl2 * i2;
+    let i_hist1 = g11 * e1 + g12 * e2;
+    let i_hist2 = g12 * e1 + g22 * e2;
+    (g11, g22, g12, i_hist1, i_hist2)
 }

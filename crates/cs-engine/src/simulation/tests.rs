@@ -1,7 +1,6 @@
 //! Circuit simulation unit and integration test suite.
 
 use super::*;
-use crate::Error;
 use crate::digital::PinMode;
 use crate::elements::Kind;
 use crate::subcircuit::SubcSearch;
@@ -84,13 +83,114 @@ fn series_chain_uses_lu() {
 }
 
 #[test]
-fn floating_battery_is_singular() {
+fn floating_battery_holds_voltage() {
     let mut c = Circuit::new();
     c.add_battery("B1", 5.0, 1e-3)
         .add_resistor("R1", 100.0)
         .connect("B1-lPin", "R1-lPin")
         .connect("B1-rPin", "R1-rPin");
-    assert!(matches!(c.solve(), Err(Error::Singular)));
+    c.solve().unwrap();
+    let vp = c.pin_voltage("B1-lPin").unwrap();
+    let vn = c.pin_voltage("B1-rPin").unwrap();
+    let g_bat = 1.0 / 1e-3;
+    let expected = 5.0 * g_bat / (g_bat + 1.0 / 100.0);
+    approx(vp - vn, expected);
+}
+
+#[test]
+fn floating_charged_capacitor_discharges() {
+    let mut c = Circuit::new();
+    c.dt = 1e-6;
+    c.add_resistor("R1", 100.0).add_capacitor("C1", 10e-6);
+    for comp in c.components_mut() {
+        if let Kind::Capacitor { volt, .. } = &mut comp.kind {
+            *volt = 5.0;
+        }
+    }
+    c.connect("R1-lPin", "C1-lPin")
+        .connect("R1-rPin", "C1-rPin");
+    c.solve().unwrap();
+    let diff = c.pin_voltage("C1-lPin").unwrap() - c.pin_voltage("C1-rPin").unwrap();
+    let g_c = 10e-6 / c.dt;
+    let ratio = g_c / (g_c + 1.0 / 100.0);
+    approx(diff, 5.0 * ratio);
+
+    c.run_ps(1_000_000_000).unwrap();
+    let v = c.pin_voltage("C1-lPin").unwrap() - c.pin_voltage("C1-rPin").unwrap();
+    let be = 5.0 * ratio.powi(1000);
+    approx(v, be);
+    let analytic = 5.0 * (-1.0_f64).exp();
+    assert!(
+        (v - analytic).abs() < 0.01,
+        "discharge {v} analytic {analytic}"
+    );
+}
+
+#[test]
+fn two_islands_led_knee_does_not_stall() {
+    // capacitor.circ1: a floating RC on the left, and on the right a 1 mF
+    // capacitor precharged to 5 V feeding a 100 Ω resistor and a 3.5 V LED.
+    // The scope's 10 MΩ to ground makes the right island's 3×3 matrix
+    // nonsingular but ill-conditioned. At about 33 ms the old determinant
+    // solver flipped the LED every iteration and `NLsteps=20` aborted.
+    let mut c = Circuit::new();
+    c.dt = 1e-6;
+    c.max_nl_steps = 20;
+    c.add_resistor("R9", 100.0).add_capacitor("C3", 1e-3);
+    c.connect("R9-lPin", "C3-lPin")
+        .connect("R9-rPin", "C3-rPin");
+    c.add_resistor("R1", 100.0)
+        .add_resistor("R4", 100.0)
+        .add_capacitor("C6", 1e-3)
+        .add_led("LED")
+        .add_tunnel("T1", "t1", "T1-pin")
+        .add_tunnel("T2", "t2", "T2-pin")
+        .add_oscope_full(
+            "OSC",
+            true,
+            10.0,
+            ["t1".into(), "t2".into(), String::new(), String::new()],
+        );
+    assert!(c.configure_led("LED", 3.5, 0.03, 0.1, false));
+    for comp in c.components_mut() {
+        if let Kind::Capacitor { volt, .. } = &mut comp.kind {
+            *volt = 5.0;
+        }
+    }
+    // Net A: cap+, both resistor left pins, scope channel t1.
+    // Net B: R1 right, LED anode, scope channel t2.
+    // Net C: cap−, R4 right, LED cathode.
+    c.connect("C6-lPin", "R1-lPin")
+        .connect("C6-lPin", "R4-lPin")
+        .connect("C6-lPin", "T1-pin")
+        .connect("R1-rPin", "LED-lPin")
+        .connect("R1-rPin", "T2-pin")
+        .connect("C6-rPin", "R4-rPin")
+        .connect("C6-rPin", "LED-rPin");
+
+    c.solve().unwrap();
+    c.run_ps(50_000_000_000).unwrap();
+
+    let left = c.pin_voltage("C3-lPin").unwrap() - c.pin_voltage("C3-rPin").unwrap();
+    let right = c.pin_voltage("C6-lPin").unwrap() - c.pin_voltage("C6-rPin").unwrap();
+    let analytic = 5.0 * (-0.5_f64).exp();
+    assert!(
+        (left - analytic).abs() < 0.01,
+        "left RC {left} analytic {analytic}"
+    );
+    assert!(
+        right < 3.5 && right > 1.0,
+        "right cap should be past the LED knee, got {right}"
+    );
+    let led = c.components().iter().find(|comp| comp.id == "LED").unwrap();
+    let Kind::Led { state } = &led.kind else {
+        panic!("missing LED");
+    };
+    assert!(
+        state.current.abs() < 1e-4,
+        "LED should be off, I={}",
+        state.current
+    );
 }
 
 #[test]

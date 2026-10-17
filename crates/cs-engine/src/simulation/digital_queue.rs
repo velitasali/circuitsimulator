@@ -17,7 +17,69 @@ impl Circuit {
     pub fn update_component_kind(&mut self, id: &str, kind: &Kind) -> bool {
         for c in &mut self.components {
             if c.id == id {
-                c.kind = kind.clone();
+                match (&mut c.kind, kind) {
+                    (
+                        Kind::Transformer {
+                            inductance1,
+                            inductance2,
+                            coupling,
+                            r_coil1,
+                            r_coil2,
+                            ..
+                        },
+                        Kind::Transformer {
+                            inductance1: l1,
+                            inductance2: l2,
+                            coupling: k,
+                            r_coil1: r1,
+                            r_coil2: r2,
+                            ..
+                        },
+                    ) => {
+                        *inductance1 = *l1;
+                        *inductance2 = *l2;
+                        *coupling = *k;
+                        *r_coil1 = *r1;
+                        *r_coil2 = *r2;
+                    }
+                    (
+                        Kind::Capacitor { capacitance, .. },
+                        Kind::Capacitor {
+                            capacitance: cap, ..
+                        },
+                    )
+                    | (
+                        Kind::ElCapacitor { capacitance, .. },
+                        Kind::ElCapacitor {
+                            capacitance: cap, ..
+                        },
+                    )
+                    | (
+                        Kind::VarCapacitor { capacitance, .. },
+                        Kind::VarCapacitor {
+                            capacitance: cap, ..
+                        },
+                    ) => {
+                        *capacitance = *cap;
+                    }
+                    (
+                        Kind::Inductor { inductance, .. },
+                        Kind::Inductor {
+                            inductance: ind, ..
+                        },
+                    )
+                    | (
+                        Kind::VarInductor { inductance, .. },
+                        Kind::VarInductor {
+                            inductance: ind, ..
+                        },
+                    ) => {
+                        *inductance = *ind;
+                    }
+                    _ => {
+                        c.kind = kind.clone();
+                    }
+                }
                 return true;
             }
         }

@@ -95,6 +95,8 @@ mod gpu {
     use vello::wgpu;
     #[cfg(target_os = "macos")]
     use vello::wgpu::hal::api::Metal;
+    #[cfg(windows)]
+    use vello::wgpu::{Backends, Instance, InstanceDescriptor};
     use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
 
     unsafe extern "C" {
@@ -331,7 +333,7 @@ mod gpu {
             Err(std::sync::TryLockError::WouldBlock) => return false,
             Err(std::sync::TryLockError::Poisoned(err)) => err.into_inner(),
         };
-        if slot.failed || slot.stop || !matches!(slot.phase, Phase::Idle) {
+        if slot.failed || slot.stop || matches!(slot.phase, Phase::Waiting(_)) {
             return false;
         }
         if slot.gpu.is_none() {
@@ -446,7 +448,6 @@ mod gpu {
                 #[cfg(any(windows, target_os = "linux"))]
                 if slot.gpu.as_ref().is_some_and(|gpu| gpu.shared) {
                     forget_share(&mut slot);
-                    slot.phase = Phase::Idle;
                     log_share_fallback(&err);
                     continue;
                 }
@@ -646,6 +647,13 @@ mod gpu {
 
     fn init_gpu(width: u32, height: u32) -> Result<Gpu, String> {
         let mut cx = RenderContext::new();
+        #[cfg(windows)]
+        {
+            cx.instance = Instance::new(&InstanceDescriptor {
+                backends: Backends::from_env().unwrap_or(Backends::DX12),
+                ..Default::default()
+            });
+        }
         let dev_id = block_on(cx.device(None)).ok_or_else(|| "no gpu device".to_string())?;
         let renderer = {
             let device = &cx.devices[dev_id].device;

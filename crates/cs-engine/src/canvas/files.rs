@@ -966,7 +966,6 @@ impl Canvas {
         path: Option<String>,
         mark_saved: bool,
     ) -> crate::Result<Change> {
-        let off_c = self.power_off();
         let mut search = crate::subcircuit::SubcSearch::from_circuit_path(path.as_deref());
         search.catalog = if self.catalog.is_empty() {
             crate::catalog::standard()

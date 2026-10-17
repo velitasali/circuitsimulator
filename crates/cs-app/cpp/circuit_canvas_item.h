@@ -13,6 +13,8 @@ public:
 signals:
     // The canvas item has a size. QML asks for the first Vello frame.
     void hostReady();
+    // A background Vello frame finished; QML can flush any deferred dirty set.
+    void frameReady();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;

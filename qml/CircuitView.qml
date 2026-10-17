@@ -79,6 +79,7 @@ Item {
         id: nativeCanvas
         anchors.fill: parent
         onHostReady: CircuitCanvas.render()
+        onFrameReady: CircuitCanvas.flushDirty()
     }
 
     MouseArea {

@@ -51,6 +51,7 @@ extern "C" void cs_canvas_item_request_update() {
         [item]() {
             if (item) {
                 item->update();
+                emit item->frameReady();
             }
         },
         Qt::QueuedConnection);
@@ -178,6 +179,16 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
             node->setTexture(static_cast<QSGTexture *>(native));
             node->setSourceRect(QRectF(0, 0, tw, th));
             m_last_generation = share_gen;
+        } else if (cs_vello_share_generation() == 0) {
+            QPointer<CircuitCanvasItem> self = this;
+            QMetaObject::invokeMethod(
+                this,
+                [self]() {
+                    if (self) {
+                        emit self->hostReady();
+                    }
+                },
+                Qt::QueuedConnection);
         }
     }
     // generation() is 0 until a shared frame exists, and again after adopt()

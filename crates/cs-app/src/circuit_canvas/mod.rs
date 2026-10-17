@@ -470,7 +470,9 @@ impl CircuitCanvas {
 
     /// Full frame. A busy presenter marks the canvas so the next tick retries.
     fn redraw_or_mark_full(&mut self) {
-        if !self.render_canvas() {
+        if self.render_canvas() {
+            let _ = self.inner.take_dirty();
+        } else {
             self.inner.mark_full_dirty();
         }
     }
@@ -2212,6 +2214,20 @@ impl CircuitCanvas {
     #[qslot]
     fn render(&mut self) {
         self.redraw_or_mark_full();
+    }
+
+    #[qslot]
+    fn flush_dirty(&mut self) {
+        let dirty = self.inner.take_dirty();
+        if dirty.is_empty() {
+            return;
+        }
+        let (vw, vh) = self.inner.viewport().view_size();
+        if vw <= 0.0 || vh <= 0.0 {
+            self.inner.restore_dirty(dirty);
+            return;
+        }
+        self.paint_vello(dirty, Change::default());
     }
 
     #[qslot]

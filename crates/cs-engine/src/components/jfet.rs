@@ -71,6 +71,7 @@ impl Jfet {
         state.set_idss(self.idss);
         state.set_vp(self.vp);
         state.set_lambda_inv(self.lambda_inv);
+        state.set_p_channel(self.p_channel);
         Kind::Jfet { state }
     }
 

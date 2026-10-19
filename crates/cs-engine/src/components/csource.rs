@@ -27,6 +27,8 @@ pub struct Csource {
     pub gain: f64,
     pub volt: f64,
     pub current: f64,
+    /// Ohms of the current-control sense branch.
+    pub sense_ohms: f64,
 }
 
 impl crate::canvas::Item {
@@ -52,6 +54,7 @@ impl crate::canvas::Item {
                 gain,
                 volt,
                 current,
+                sense_ohms: 1.0,
             },
         )
     }
@@ -66,6 +69,7 @@ impl Default for Csource {
             gain: 1.0,
             volt: 5.0,
             current: 1.0,
+            sense_ohms: 1.0,
         }
     }
 }
@@ -80,6 +84,8 @@ impl Csource {
             gain: self.gain,
             volt: self.volt,
             current: self.current,
+            ctrl: 0.0,
+            sense_ohms: self.sense_ohms,
         }
     }
 
@@ -128,6 +134,14 @@ impl Csource {
     }
     fn set_current(&mut self, v: PropValue) -> Result<(), PropError> {
         self.current = expect_float("Current", v)?.clamp(MIN_I, MAX_I);
+        Ok(())
+    }
+
+    fn get_sense(&self) -> PropValue {
+        PropValue::Float(self.sense_ohms)
+    }
+    fn set_sense(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.sense_ohms = expect_float("Sense", v)?.clamp(1e-6, 1e9);
         Ok(())
     }
 }
@@ -188,6 +202,15 @@ impl Component for Csource {
                 Csource::get_current,
                 Csource::set_current,
             ).with_info("Fixed current value for current source.\nOnly active when not controlled by Pins."),
+            PropDef::float(
+                "Sense",
+                "Sense Resistance",
+                "Ω",
+                1e-6,
+                1e9,
+                Csource::get_sense,
+                Csource::set_sense,
+            ).with_info("Resistance of the current-sense branch between the control pins."),
         ];
         PROPS
     }

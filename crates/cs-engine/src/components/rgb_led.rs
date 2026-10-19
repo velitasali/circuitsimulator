@@ -7,8 +7,8 @@ use super::{CompPin, Component, Stampable};
 use crate::canvas::PinGeom;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Color, Draw, PaintCtx};
-use crate::elements::Kind;
 use crate::elements::pins::{PIN_RGB_B, PIN_RGB_C, PIN_RGB_G, PIN_RGB_R};
+use crate::elements::{Kind, LedState};
 use crate::matrix::CircMatrix;
 use crate::theme::{COMPONENT_BORDER_WIDTH, COMPONENT_FILL_ALPHA};
 
@@ -63,9 +63,11 @@ impl RgbLed {
     pub fn to_element_kind(&self) -> Kind {
         Kind::RgbLed {
             common_anode: self.common_anode,
-            state_r: 0.0,
-            state_g: 0.0,
-            state_b: 0.0,
+            leds: [
+                LedState::configured(self.v_th_r, self.r_res_r, self.i_max_r, false),
+                LedState::configured(self.v_th_g, self.r_res_g, self.i_max_g, false),
+                LedState::configured(self.v_th_b, self.r_res_b, self.i_max_b, false),
+            ],
         }
     }
 
@@ -276,7 +278,7 @@ impl Component for RgbLed {
 
 impl Stampable for RgbLed {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
-        stamp_two_terminal(matrix, pin_nodes, 1.0 / 100.0, 1.8 / 100.0);
+        stamp_two_terminal(matrix, pin_nodes, 1e-9, 0.0);
     }
 }
 

@@ -34,6 +34,7 @@ impl DS1307 {
             sqw_state: false,
             sda_low: false,
             scl_low: false,
+            bus: crate::digital::Ds1307Bus::default(),
         }
     }
 

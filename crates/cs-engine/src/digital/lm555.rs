@@ -10,6 +10,8 @@ pub struct Lm555State {
     pub prop_delay_ps: u64, // Propagation delay in picoseconds (default 10ns = 10,000ps)
     pub out_high_v: f64,    // VCC - 1.3V
     pub out_low_v: f64,     // 0.0V
+    /// When set, `step` keeps the property voltages. The part default follows the rails.
+    pub follow_rails: bool,
     pub queue: OutQueue,
 }
 
@@ -22,6 +24,7 @@ impl Lm555State {
             prop_delay_ps: 10_000, // 10 ns
             out_high_v: 3.7,       // 5V - 1.3V
             out_low_v: 0.0,
+            follow_rails: true,
             queue: OutQueue::new(),
         }
     }
@@ -81,8 +84,10 @@ impl Lm555State {
             }
         }
 
-        self.out_high_v = (v_vcc - 1.3).max(v_gnd);
-        self.out_low_v = v_gnd + 0.1;
+        if self.follow_rails {
+            self.out_high_v = (v_vcc - 1.3).max(v_gnd);
+            self.out_low_v = v_gnd + 0.1;
+        }
 
         (self.out_state, self.discharge_on)
     }

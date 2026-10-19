@@ -8,8 +8,9 @@ use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
 use crate::canvas::Point;
 use crate::canvas::Rect;
-use crate::canvas::with_pin_id_idx;
-use crate::elements::Kind;
+use crate::canvas::{with_pin_id, with_pin_id_idx};
+use crate::elements::pins::seven_segment_die_count;
+use crate::elements::{Kind, LedState};
 use crate::matrix::CircMatrix;
 
 const MIN_DISPLAYS: i64 = 1;
@@ -59,9 +60,17 @@ impl Default for SevenSegment {
 impl SevenSegment {
     pub const TYPE_ID: &'static str = "SevenSegment";
     pub fn to_element_kind(&self) -> Kind {
+        let num_displays = self.num_displays.clamp(1, 8);
         Kind::SevenSegment {
             common_anode: self.common_anode,
-            segments: 0,
+            num_displays,
+            leds: LedState::dies(
+                seven_segment_die_count(num_displays),
+                self.threshold,
+                self.resistance,
+                self.max_current,
+                false,
+            ),
         }
     }
 
@@ -242,7 +251,7 @@ impl Component for SevenSegment {
 
 impl Stampable for SevenSegment {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
-        stamp_two_terminal(matrix, pin_nodes, 1.0 / 100.0, 1.8 / 100.0);
+        stamp_two_terminal(matrix, pin_nodes, 1e-9, 0.0);
     }
 }
 
@@ -274,34 +283,99 @@ impl Drawable for SevenSegment {
         let lit_c = Color::rgb(lit_rgba.0, lit_rgba.1, lit_rgba.2);
         let unlit_c = Color::rgb(unlit_rgba.0, unlit_rgba.1, unlit_rgba.2);
         let sim_running = ctx.canvas.sim_running();
+        let threshold = if self.threshold > 0.1 {
+            self.threshold
+        } else {
+            1.4
+        };
+        let seg_pins = [
+            "pin_a", "pin_b", "pin_c", "pin_d", "pin_e", "pin_f", "pin_g", "pin_dot",
+        ];
 
         for idx in 0..n {
             let x_off = 32.0 * idx as f64;
-            let seg_color = |seg_name: &str| -> Color {
-                if sim_running {
-                    let v = with_pin_id_idx(ctx.item_id, seg_name, idx, |pin_id| {
-                        ctx.canvas.pin_voltage(pin_id)
-                    });
-                    if let Some(v) = v {
-                        let is_on = if self.common_anode { v < 1.0 } else { v > 1.5 };
-                        if is_on {
-                            return lit_c;
-                        }
-                    }
-                    unlit_c
-                } else {
-                    lit_c
+            let com_ch = (b'a' + idx as u8) as char;
+            let v_com = if sim_running {
+                with_pin_id_idx(ctx.item_id, "pin_common", com_ch, |pin_id| {
+                    ctx.canvas.pin_voltage(pin_id)
+                })
+                .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            let seg_color = |pin_suffix: &str| -> Color {
+                if !sim_running {
+                    return lit_c;
                 }
+                let v_seg = with_pin_id(ctx.item_id, pin_suffix, |pin_id| {
+                    ctx.canvas.pin_voltage(pin_id)
+                })
+                .unwrap_or(0.0);
+                let is_on = if self.common_anode {
+                    (v_com - v_seg) >= threshold
+                } else {
+                    (v_seg - v_com) >= threshold
+                };
+                if is_on { lit_c } else { unlit_c }
             };
 
-            d.line(x_off - 5.0, -18.0, x_off + 7.0, -18.0, seg_color("a"), 3.5);
-            d.line(x_off + 11.0, -14.0, x_off + 10.0, -4.0, seg_color("b"), 3.5);
-            d.line(x_off + 10.0, 4.0, x_off + 9.0, 14.0, seg_color("c"), 3.5);
-            d.line(x_off + 5.0, 18.0, x_off - 7.0, 18.0, seg_color("d"), 3.5);
-            d.line(x_off - 11.0, 14.0, x_off - 10.0, 4.0, seg_color("e"), 3.5);
-            d.line(x_off - 10.0, -4.0, x_off - 9.0, -14.0, seg_color("f"), 3.5);
-            d.line(x_off - 6.0, 0.0, x_off + 6.0, 0.0, seg_color("g"), 3.5);
-            d.fill_circle(x_off + 11.0, 18.0, 2.0, seg_color("dp"));
+            d.line(
+                x_off - 5.0,
+                -18.0,
+                x_off + 7.0,
+                -18.0,
+                seg_color(seg_pins[0]),
+                3.5,
+            );
+            d.line(
+                x_off + 11.0,
+                -14.0,
+                x_off + 10.0,
+                -4.0,
+                seg_color(seg_pins[1]),
+                3.5,
+            );
+            d.line(
+                x_off + 10.0,
+                4.0,
+                x_off + 9.0,
+                14.0,
+                seg_color(seg_pins[2]),
+                3.5,
+            );
+            d.line(
+                x_off + 5.0,
+                18.0,
+                x_off - 7.0,
+                18.0,
+                seg_color(seg_pins[3]),
+                3.5,
+            );
+            d.line(
+                x_off - 11.0,
+                14.0,
+                x_off - 10.0,
+                4.0,
+                seg_color(seg_pins[4]),
+                3.5,
+            );
+            d.line(
+                x_off - 10.0,
+                -4.0,
+                x_off - 9.0,
+                -14.0,
+                seg_color(seg_pins[5]),
+                3.5,
+            );
+            d.line(
+                x_off - 6.0,
+                0.0,
+                x_off + 6.0,
+                0.0,
+                seg_color(seg_pins[6]),
+                3.5,
+            );
+            d.fill_circle(x_off + 11.0, 18.0, 2.0, seg_color(seg_pins[7]));
         }
         true
     }

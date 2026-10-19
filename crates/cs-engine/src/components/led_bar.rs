@@ -11,8 +11,8 @@ use crate::canvas::Point;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Color, Draw, PaintCtx};
 use crate::canvas::with_pin_id_idx;
-use crate::elements::Kind;
 use crate::elements::pins::{PIN_LEFT, PIN_RGB_C, PIN_RIGHT};
+use crate::elements::{Kind, LedState};
 use crate::matrix::CircMatrix;
 use crate::theme::COMPONENT_BORDER_WIDTH;
 
@@ -64,8 +64,14 @@ impl LedBar {
     pub fn to_element_kind(&self) -> Kind {
         Kind::LedBar {
             segments: self.segments,
-            states: 0,
             grounded: self.grounded,
+            leds: LedState::dies(
+                self.segments,
+                self.threshold,
+                self.resistance,
+                self.max_current,
+                self.grounded,
+            ),
         }
     }
 
@@ -222,11 +228,11 @@ impl Stampable for LedBar {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
         if self.grounded {
             for i in 0..self.segments {
-                stamp_to_ground(matrix, pin_nodes, i, 1.8, 1.0 / 100.0);
+                stamp_to_ground(matrix, pin_nodes, i, 0.0, 1e-9);
             }
         } else {
             for i in 0..self.segments {
-                stamp_conductance_between(matrix, pin_nodes, 2 * i, 2 * i + 1, 1.0 / 100.0);
+                stamp_conductance_between(matrix, pin_nodes, 2 * i, 2 * i + 1, 1e-9);
             }
         }
     }

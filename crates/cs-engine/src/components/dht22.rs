@@ -115,6 +115,7 @@ impl DHT22 {
             humi: self.humi,
             out_state: true,
             pin_driven: false,
+            link: crate::digital::DhtLink::default(),
         }
     }
 

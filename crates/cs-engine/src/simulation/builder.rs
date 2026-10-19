@@ -603,7 +603,8 @@ impl Circuit {
         self
     }
 
-    pub fn add_comp(&mut self, comp: Comp) -> &mut Self {
+    pub fn add_comp(&mut self, mut comp: Comp) -> &mut Self {
+        comp.kind.rebind_id(&comp.id);
         self.components.push(comp);
         self
     }
@@ -657,13 +658,21 @@ impl Circuit {
     }
 
     /// Set analog parameters on the JFET with `id` (C++ property set).
-    pub fn configure_jfet(&mut self, id: &str, idss: f64, vp: f64, lambda_inv: f64) -> bool {
+    pub fn configure_jfet(
+        &mut self,
+        id: &str,
+        idss: f64,
+        vp: f64,
+        lambda_inv: f64,
+        p_channel: bool,
+    ) -> bool {
         for c in &mut self.components {
             if c.id == id {
                 if let Kind::Jfet { ref mut state } = c.kind {
                     state.set_idss(idss);
                     state.set_vp(vp);
                     state.set_lambda_inv(lambda_inv);
+                    state.set_p_channel(p_channel);
                     return true;
                 }
             }

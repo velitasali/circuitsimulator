@@ -1,12 +1,14 @@
 //! MAX7219/MAX7221 8x8 LED matrix display module.
 
+use super::component::stamp_to_ground;
 use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_float, expect_int, expect_string};
 use super::{CompPin, Component, Stampable};
+use crate::canvas::PinDirection;
 use crate::canvas::PinGeom;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Color, Draw, PaintCtx};
-use crate::elements::Kind;
+use crate::elements::{Kind, SOURCE_ADMIT};
 use crate::matrix::CircMatrix;
 use crate::theme::COMPONENT_BORDER_WIDTH;
 
@@ -57,6 +59,7 @@ impl Max72xx {
         Kind::Max72xx {
             modules: self.modules,
             color: self.color.as_str().to_string(),
+            fb: crate::digital::Max72Fb::new(self.modules),
         }
     }
 
@@ -171,7 +174,12 @@ impl Component for Max72xx {
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
-        max72xx_pins().iter().map(CompPin::from).collect()
+        let mut pins: Vec<CompPin> = max72xx_pins().iter().map(CompPin::from).collect();
+        let right = -36.0 + 8.0 + 64.0 * (self.modules as f64).max(1.0);
+        pins.push(
+            CompPin::new("-dout", right + 8.0, -16.0, 0, 8.0).with_direction(PinDirection::Out),
+        );
+        pins
     }
 
     fn body(&self) -> Rect {
@@ -185,7 +193,11 @@ impl Component for Max72xx {
 }
 
 impl Stampable for Max72xx {
-    fn stamp(&self, _matrix: &mut CircMatrix, _pin_nodes: &[usize], _dt: f64) {}
+    fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
+        // Idle DOUT is low. The solver uses the same Norton pair once `dout_high` is set.
+        let dout = self.pin_geoms().len().saturating_sub(1);
+        stamp_to_ground(matrix, pin_nodes, dout, 0.0, SOURCE_ADMIT);
+    }
 }
 
 impl Drawable for Max72xx {
@@ -202,11 +214,66 @@ impl Drawable for Max72xx {
             ctx.pal.border,
             COMPONENT_BORDER_WIDTH,
         );
+        let hex = ctx
+            .canvas
+            .readings()
+            .get(ctx.item_id)
+            .map(|reading| reading.text.as_str())
+            .unwrap_or("");
+        let lit = max72_rgb(self.color);
         for di in 0..disp {
             let x0 = -32.0 + (di as f64) * 64.0;
             d.stroke_rect(x0, -40.0, 60.0, 80.0, ctx.pal.border.fade(0.4), 1.0);
+            for col in 0..8 {
+                let byte = hex_byte(hex, di * 8 + col).unwrap_or(0);
+                for row in 0..8 {
+                    if byte & (1 << row) == 0 {
+                        continue;
+                    }
+                    d.fill_rect(
+                        x0 + 4.0 + (col as f64) * 6.5,
+                        -36.0 + (row as f64) * 9.0,
+                        5.0,
+                        7.0,
+                        lit,
+                    );
+                }
+            }
         }
         true
+    }
+}
+
+fn hex_byte(hex: &str, index: usize) -> Option<u8> {
+    let start = index * 2;
+    let bytes = hex.as_bytes();
+    if start + 1 >= bytes.len() {
+        return None;
+    }
+    let nib = |c: u8| match c {
+        b'0'..=b'9' => c - b'0',
+        b'a'..=b'f' => c - b'a' + 10,
+        b'A'..=b'F' => c - b'A' + 10,
+        _ => 255,
+    };
+    let hi = nib(bytes[start]);
+    let lo = nib(bytes[start + 1]);
+    if hi > 15 || lo > 15 {
+        None
+    } else {
+        Some((hi << 4) | lo)
+    }
+}
+
+fn max72_rgb(color: LedColor) -> Color {
+    match color {
+        LedColor::Red => Color::rgb(220, 32, 32),
+        LedColor::Green => Color::rgb(32, 180, 48),
+        LedColor::Blue => Color::rgb(48, 96, 220),
+        LedColor::Orange => Color::rgb(230, 120, 24),
+        LedColor::Purple => Color::rgb(160, 64, 200),
+        LedColor::White => Color::rgb(230, 230, 230),
+        LedColor::Yellow => Color::rgb(230, 190, 32),
     }
 }
 
@@ -230,7 +297,7 @@ mod tests {
         assert_eq!(m.modules, 4);
         assert_eq!(m.color, LedColor::Yellow);
         assert_eq!(m.threshold, LedColor::Yellow.threshold());
-        assert_eq!(m.pin_geoms().len(), 5);
+        assert_eq!(m.pin_geoms().len(), 6);
         assert_eq!(m.body(), Rect::new(-36.0, -44.0, 264.0, 88.0));
     }
 }

@@ -58,6 +58,7 @@ impl SR04 {
             use_slider: self.use_slider,
             trigger_high: false,
             echo_high: false,
+            echo: crate::digital::Sr04Echo::default(),
         }
     }
 

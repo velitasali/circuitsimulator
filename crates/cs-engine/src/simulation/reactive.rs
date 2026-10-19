@@ -1,7 +1,7 @@
 //! Dynamic time sources and Trapezoidal / Euler numerical integration for reactive elements.
 
 use crate::digital::secs_to_ps;
-use crate::elements::{Kind, transformer_companion};
+use crate::elements::{Kind, LAMP_THERMAL_TAU, transformer_companion};
 
 use super::Circuit;
 
@@ -16,13 +16,15 @@ impl Circuit {
                     | Kind::Inductor { .. }
                     | Kind::VarInductor { .. }
                     | Kind::Transformer { .. }
-            )
+                    | Kind::Lamp { .. }
+            ) || matches!(&c.kind, Kind::Relay { inductance, .. } if *inductance > 0.0)
         })
     }
 
     pub fn has_time_sources(&self) -> bool {
         self.components.iter().any(|c| match &c.kind {
             Kind::WaveGen { freq_hz, .. } => *freq_hz > 0.0,
+            Kind::Clock { freq_khz, .. } => *freq_khz > 0.0,
             _ => false,
         })
     }
@@ -50,6 +52,14 @@ impl Circuit {
                     if let Kind::WaveGen { v_out, .. } = &mut c.kind {
                         if (v - *v_out).abs() > 1e-12 {
                             *v_out = v;
+                            changed = true;
+                        }
+                    }
+                } else if let Kind::Clock { .. } = &c.kind {
+                    let high = c.clock_is_high(t);
+                    if let Kind::Clock { state, .. } = &mut c.kind {
+                        if *state != high {
+                            *state = high;
                             changed = true;
                         }
                     }
@@ -148,6 +158,59 @@ impl Circuit {
                     }
                     *i1 = new_i1;
                     *i2 = new_i2;
+                }
+                Kind::Relay {
+                    r_coil,
+                    inductance,
+                    coil_i,
+                    ..
+                } if *inductance > 0.0 => {
+                    let (Some(n0), Some(n1)) = (cache.left, cache.right) else {
+                        continue;
+                    };
+                    if n0 >= nodes.len() || n1 >= nodes.len() {
+                        continue;
+                    }
+                    let r = r_coil.max(1e-6);
+                    let l_over_dt = *inductance / dt;
+                    let g = 1.0 / (r + l_over_dt);
+                    let v = nodes[n0].volt - nodes[n1].volt;
+                    let new_i = g * v + g * l_over_dt * *coil_i;
+                    if (new_i - *coil_i).abs() > 1e-9 {
+                        changed = true;
+                    }
+                    *coil_i = new_i;
+                }
+                Kind::Lamp {
+                    voltage,
+                    power,
+                    r_cold,
+                    resistance,
+                    heat,
+                    tau,
+                } => {
+                    let v = match (cache.left, cache.right) {
+                        (Some(n0), Some(n1)) if n0 < nodes.len() && n1 < nodes.len() => {
+                            nodes[n0].volt - nodes[n1].volt
+                        }
+                        _ => 0.0,
+                    };
+                    let r = resistance.max(1e-6);
+                    let p_elec = v * v / r;
+                    let p_nom = power.max(1e-6);
+                    let thermal = if *tau > 0.0 { *tau } else { LAMP_THERMAL_TAU };
+                    let du = (p_elec / p_nom - *heat) * (dt / thermal);
+                    *heat = (*heat + du).clamp(0.0, 1.5);
+                    let r_hot = if *power > 1e-9 {
+                        (*voltage * *voltage / *power).max(*r_cold)
+                    } else {
+                        *r_cold
+                    };
+                    let new_r = *r_cold + (r_hot - *r_cold) * heat.clamp(0.0, 1.0);
+                    if (new_r - *resistance).abs() > 1e-4 {
+                        changed = true;
+                    }
+                    *resistance = new_r;
                 }
                 _ => {}
             }

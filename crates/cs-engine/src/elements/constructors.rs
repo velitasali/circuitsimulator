@@ -201,6 +201,7 @@ impl Comp {
             kind: Kind::Scr {
                 v_gate_th: 0.7,
                 i_hold: 0.005,
+                r_gate: 100.0,
                 conducting: false,
             },
         }
@@ -212,6 +213,7 @@ impl Comp {
             kind: Kind::Triac {
                 v_gate_th: 0.7,
                 i_hold: 0.005,
+                r_gate: 100.0,
                 conducting: false,
             },
         }
@@ -222,6 +224,9 @@ impl Comp {
             id: id.into(),
             kind: Kind::Diac {
                 v_breakover: 30.0,
+                res_on: 500.0,
+                res_off: 1e8,
+                hold_curr: 0.01,
                 conducting: false,
             },
         }
@@ -258,9 +263,12 @@ impl Comp {
         max_current: f64,
         resistance: f64,
     ) -> Self {
+        let rows = rows.max(1);
+        let cols = cols.max(1);
         Self {
             id: id.into(),
             kind: Kind::LedMatrix {
+                leds: LedState::dies(rows * cols, threshold, resistance, max_current, false),
                 rows,
                 cols,
                 vertical_pins,
@@ -276,6 +284,7 @@ impl Comp {
         Self {
             id: id.into(),
             kind: Kind::Max72xx {
+                fb: crate::digital::Max72Fb::new(modules),
                 modules,
                 color: color.into(),
             },
@@ -296,6 +305,7 @@ impl Comp {
         Self {
             id: id.into(),
             kind: Kind::Ws2812 {
+                fb: crate::digital::Ws2812Fb::new(count),
                 count,
                 rows,
                 cols,
@@ -450,6 +460,7 @@ impl Comp {
                 use_slider,
                 trigger_high: false,
                 echo_high: false,
+                echo: crate::digital::Sr04Echo::default(),
             },
         }
     }
@@ -463,6 +474,7 @@ impl Comp {
                 humi,
                 out_state: true,
                 pin_driven: false,
+                link: crate::digital::DhtLink::default(),
             },
         }
     }
@@ -474,6 +486,7 @@ impl Comp {
                 rom: rom.into(),
                 temp,
                 dq_low: false,
+                wire: crate::digital::OwLink::default(),
             },
         }
     }
@@ -489,6 +502,7 @@ impl Comp {
                 tout_high: false,
                 sda_low: false,
                 scl_low: false,
+                bus: crate::digital::Ds1621Bus::default(),
             },
         }
     }
@@ -503,6 +517,7 @@ impl Comp {
                 sqw_state: false,
                 sda_low: false,
                 scl_low: false,
+                bus: crate::digital::Ds1307Bus::default(),
             },
         }
     }
@@ -565,7 +580,11 @@ impl Comp {
     pub fn esp01(id: impl Into<String>, baud_rate: u32, debug: bool) -> Self {
         Self {
             id: id.into(),
-            kind: Kind::Esp01 { baud_rate, debug },
+            kind: Kind::Esp01 {
+                baud_rate,
+                debug,
+                uart: crate::digital::EspUart::default(),
+            },
         }
     }
 
@@ -1193,6 +1212,41 @@ impl Comp {
                 Some(dt)
             }
         }
+    }
+
+    /// Period of [`Kind::Clock`] in picoseconds. `freq_khz` is kilohertz, so
+    /// `period = 1e9 / freq_khz`.
+    fn clock_period_ps(&self) -> Option<u64> {
+        let Kind::Clock { freq_khz, .. } = &self.kind else {
+            return None;
+        };
+        if *freq_khz <= 0.0 || !freq_khz.is_finite() {
+            return None;
+        }
+        let period = (1e9 / freq_khz).round();
+        if !(2.0..u64::MAX as f64).contains(&period) {
+            return None;
+        }
+        Some(period as u64)
+    }
+
+    /// Square-wave level at `circ_time_ps`. Low for the first half period, which
+    /// matches a freshly inserted clock (`state == false` stamps 0 V).
+    pub fn clock_is_high(&self, circ_time_ps: u64) -> bool {
+        let Some(period) = self.clock_period_ps() else {
+            return false;
+        };
+        let half = period / 2;
+        (circ_time_ps % period) >= half
+    }
+
+    /// Picoseconds until the next edge. The device event wakes the solver there.
+    pub fn clock_next_event_ps(&self, circ_time_ps: u64) -> Option<u64> {
+        let period = self.clock_period_ps()?;
+        let half = period / 2;
+        let pos = circ_time_ps % period;
+        let dt = if pos < half { half - pos } else { period - pos };
+        Some(dt.max(1))
     }
 
     pub fn probe(id: impl Into<String>, threshold: f64, small: bool) -> Self {

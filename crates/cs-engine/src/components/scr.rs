@@ -71,6 +71,7 @@ impl Scr {
         Kind::Scr {
             v_gate_th: self.v_gate_th,
             i_hold: self.i_hold,
+            r_gate: self.r_gate,
             conducting: false,
         }
     }

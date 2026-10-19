@@ -93,7 +93,34 @@ pub struct IoPin {
     pub ext_int_trigger: u8,
 }
 
+/// Rewrite a pin id that was built with an empty component id.
+///
+/// Digital constructors use `format!("{id}-{suffix}")`. An empty `id` yields
+/// `-suffix`. Insert and live kind updates call this so the id becomes
+/// `{comp_id}-suffix`. An id that already starts with that prefix is left alone.
+/// Pins that do not use the leading-dash form (for example a bare `G00`) stay as they are.
+pub fn rebind_pin_id(comp_id: &str, pin_id: &mut String) {
+    if comp_id.is_empty() || pin_id.is_empty() {
+        return;
+    }
+    let prefix = format!("{comp_id}-");
+    if pin_id.starts_with(&prefix) {
+        return;
+    }
+    let Some(suffix) = pin_id.strip_prefix('-') else {
+        return;
+    };
+    if suffix.is_empty() {
+        return;
+    }
+    *pin_id = format!("{prefix}{suffix}");
+}
+
 impl IoPin {
+    pub fn rebind_id(&mut self, comp_id: &str) {
+        rebind_pin_id(comp_id, &mut self.id);
+    }
+
     pub fn input(id: impl Into<String>) -> Self {
         let mut p = Self::blank(id);
         p.apply_mode(PinMode::Input);

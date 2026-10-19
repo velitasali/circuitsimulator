@@ -1,0 +1,16 @@
+Node: no-stamp
+Push: no-stamp
+KeyPad: no-stamp
+DHT22: no-stamp
+DS18B20: no-stamp
+Tunnel: no-stamp
+Bus: no-stamp
+Socket: no-stamp
+Header: no-stamp
+SerialPort: not-inserted
+SerialTerm: not-inserted
+Subcircuit: not-inserted
+SubPackage: not-inserted
+Dial: no-pins
+Shape: no-pins
+Mcu: no-pins

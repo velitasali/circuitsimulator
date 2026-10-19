@@ -65,7 +65,15 @@ impl Default for Latch {
 impl Latch {
     pub const TYPE_ID: &'static str = "Latch";
     pub fn to_element_kind(&self) -> Kind {
-        let l = LatchState::new("", self.channels);
+        let mut l = LatchState::new("", self.channels);
+        l.use_reset = self.use_reset;
+        l.tristate = self.tristate;
+        l.clocked.trigger = self.trigger;
+        if self.invert_inputs {
+            for pin in &mut l.inputs {
+                pin.set_inverted(true);
+            }
+        }
         Kind::Latch(l)
     }
 

@@ -132,6 +132,8 @@ fn test_rail_and_lamp() {
             power: 24.0,
             r_cold: 6.0,
             resistance: 6.0,
+            heat: 0.0,
+            tau: 0.02,
         },
     });
     c.add_ground("GND");

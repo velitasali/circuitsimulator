@@ -17,6 +17,7 @@ pub struct AndGate {
     pub invert_output: bool,
     pub init_high: bool,
     pub tristate: bool,
+    pub open_col: bool,
     pub small: bool,
 }
 
@@ -46,6 +47,7 @@ impl crate::canvas::Item {
                     invert_output,
                     init_high,
                     tristate,
+                    open_col: false,
                     small,
                 },
             ),
@@ -59,6 +61,7 @@ impl crate::canvas::Item {
                     invert_output,
                     init_high,
                     tristate,
+                    open_col: false,
                     small,
                 },
             ),
@@ -72,6 +75,7 @@ impl crate::canvas::Item {
                     invert_output,
                     init_high,
                     tristate,
+                    open_col: false,
                     small,
                 },
             ),
@@ -84,6 +88,7 @@ impl crate::canvas::Item {
                     invert_output,
                     init_high,
                     tristate,
+                    open_col: false,
                     small,
                 },
             ),
@@ -96,6 +101,7 @@ impl crate::canvas::Item {
                     invert_output,
                     init_high,
                     tristate,
+                    open_col: false,
                     small,
                 },
             ),
@@ -111,6 +117,7 @@ impl Default for AndGate {
             invert_output: false,
             init_high: false,
             tristate: false,
+            open_col: false,
             small: false,
         }
     }
@@ -128,6 +135,7 @@ impl AndGate {
         st.output.set_inverted(self.invert_output);
         st.init_high = self.init_high;
         st.set_tristate(self.tristate);
+        st.set_open_col(self.open_col);
         Kind::Gate(st)
     }
 
@@ -165,6 +173,13 @@ impl AndGate {
     }
     fn set_tristate(&mut self, v: PropValue) -> Result<(), PropError> {
         self.tristate = expect_bool("Tristate", v)?;
+        Ok(())
+    }
+    fn get_open_col(&self) -> PropValue {
+        PropValue::Bool(self.open_col)
+    }
+    fn set_open_col(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.open_col = expect_bool("OpenCollector", v)?;
         Ok(())
     }
     fn get_small(&self) -> PropValue {
@@ -244,6 +259,13 @@ impl Component for AndGate {
                 AndGate::set_init_high,
             )
             .with_info("Output state at simulation start."),
+            PropDef::bool(
+                "OpenCollector",
+                "Open Collector",
+                AndGate::get_open_col,
+                AndGate::set_open_col,
+            )
+            .with_info("Output stage is open collector instead of push-pull."),
             TRISTATE,
             SMALL,
         ];
@@ -352,6 +374,7 @@ mod tests {
         assert!(!g.invert_output);
         assert!(!g.init_high);
         assert!(!g.tristate);
+        assert!(!g.open_col);
         assert!(!g.small);
         assert_eq!(g.pin_geoms().len(), 3);
     }
@@ -361,5 +384,18 @@ mod tests {
         let mut g = AndGate::default();
         g.tristate = true;
         assert_eq!(g.pin_geoms().len(), 4);
+    }
+
+    #[test]
+    fn and_gate_open_collector_reaches_the_output_pin() {
+        let mut g = AndGate::default();
+        g.open_col = true;
+        match g.to_element_kind() {
+            Kind::Gate(st) => {
+                assert!(st.open_col);
+                assert_eq!(st.output.mode, crate::digital::PinMode::OpenCo);
+            }
+            other => panic!("expected a gate, got {other:?}"),
+        }
     }
 }

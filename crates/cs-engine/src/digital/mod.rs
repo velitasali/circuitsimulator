@@ -15,23 +15,31 @@ mod hd44780;
 pub mod hd44780_font;
 mod ks0108;
 mod lm555;
+mod max72xx;
 mod mcu_pin;
 mod memory_ic;
 mod pcd8544;
 mod pin;
 mod port;
 mod queue;
+mod sensors;
 mod sh1107;
 mod spi;
 mod ssd1306;
 mod testunit;
 mod twi;
 mod usart;
+mod ws2812;
 
 pub use aip31068::Aip31068State;
 pub use ks0108::Ks0108State;
+pub use max72xx::Max72Fb;
 pub use pcd8544::Pcd8544State;
+pub use sensors::{
+    DhtLink, Drive, Ds1307Bus, Ds1621Bus, EspUart, OwLink, Sr04Echo, dht_frame, sqw_half,
+};
 pub use sh1107::Sh1107State;
+pub use ws2812::Ws2812Fb;
 
 pub use arithmetic::{
     BinCounterState, CounterState, FullAdderState, FunctionState, MagnitudeCompState, ShiftRegState,
@@ -52,7 +60,7 @@ pub use hd44780::Hd44780State;
 pub use lm555::Lm555State;
 pub use mcu_pin::McuPinState;
 pub use memory_ic::{DynamicMemoryState, I2CRamState, MemoryState};
-pub use pin::{IoPin, OC_HIGH_ADMIT, PinAction, PinMode};
+pub use pin::{IoPin, OC_HIGH_ADMIT, PinAction, PinMode, rebind_pin_id};
 pub use port::{IoPort, OutState};
 pub use queue::{OutQueue, Schedule};
 pub use spi::{SpiMode, SpiModule, SpiPins};

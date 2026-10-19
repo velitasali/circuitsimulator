@@ -20,6 +20,15 @@ impl Circuit {
                     | Kind::Triac { .. }
                     | Kind::Diac { .. }
                     | Kind::AnalogMux { .. }
+                    | Kind::Relay { .. }
+                    | Kind::Csource {
+                        control_pins: true,
+                        ..
+                    }
+                    | Kind::RgbLed { .. }
+                    | Kind::LedBar { .. }
+                    | Kind::SevenSegment { .. }
+                    | Kind::LedMatrix { .. }
             )
         })
     }
@@ -42,6 +51,12 @@ impl Circuit {
                 Kind::Jfet { state } => state.reset_stamp(),
                 Kind::Comparator { state } => state.stamp_init(slope),
                 Kind::VoltReg { state } => state.reset_stamp(),
+                Kind::RgbLed { leds, .. } => leds.iter_mut().for_each(|led| led.reset_stamp()),
+                Kind::LedBar { leds, .. } => leds.iter_mut().for_each(|led| led.reset_stamp()),
+                Kind::SevenSegment { leds, .. } => {
+                    leds.iter_mut().for_each(|led| led.reset_stamp())
+                }
+                Kind::LedMatrix { leds, .. } => leds.iter_mut().for_each(|led| led.reset_stamp()),
                 Kind::Gate(g) => g.stamp_init(slope),
                 Kind::FlipFlop(f) => f.stamp_init(slope),
                 Kind::Latch(l) => l.stamp_init(slope),

@@ -242,6 +242,25 @@ impl LedState {
         }
     }
 
+    pub fn configured(threshold: f64, impedance: f64, max_current: f64, grounded: bool) -> Self {
+        let mut state = Self::default_led();
+        state.threshold = threshold;
+        state.impedance = impedance.max(1e-9);
+        state.max_current = max_current;
+        state.grounded = grounded;
+        state
+    }
+
+    pub fn dies(
+        count: usize,
+        threshold: f64,
+        impedance: f64,
+        max_current: f64,
+        grounded: bool,
+    ) -> Vec<Self> {
+        vec![Self::configured(threshold, impedance, max_current, grounded); count]
+    }
+
     pub fn reset_stamp(&mut self) {
         self.admit = 1e-9;
         self.th_current = 0.0;
@@ -292,6 +311,36 @@ impl LedState {
             false
         }
     }
+}
+
+/// Newton step for a row of LED dice. `pairs` is `(anode node, cathode node)`.
+/// A grounded die ignores the cathode node and uses 0 V.
+pub fn update_led_dies(
+    leds: &mut [LedState],
+    pairs: &[(Option<usize>, Option<usize>)],
+    nodes: &[ENode],
+) -> bool {
+    let mut converged = true;
+    for (led, (anode, cathode)) in leds.iter_mut().zip(pairs.iter()) {
+        let va = anode.and_then(|i| nodes.get(i)).map(|n| n.volt);
+        let vk = if led.grounded {
+            Some(0.0)
+        } else {
+            cathode.and_then(|i| nodes.get(i)).map(|n| n.volt)
+        };
+        let ok = match (va, vk) {
+            (Some(va), Some(vk)) => led.volt_changed(va, vk),
+            _ => {
+                let was_off = led.th_current == 0.0 && (led.admit - 1e-9).abs() < 1e-18;
+                led.reset_stamp();
+                was_off
+            }
+        };
+        if !ok {
+            converged = false;
+        }
+    }
+    converged
 }
 
 #[cfg(test)]

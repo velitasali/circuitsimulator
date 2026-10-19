@@ -10,8 +10,8 @@ use crate::canvas::Point;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Color, Draw, PaintCtx};
 use crate::canvas::with_pin_id_idx;
-use crate::elements::Kind;
 use crate::elements::pins::{PIN_RGB_C, PIN_RIGHT};
+use crate::elements::{Kind, LedState};
 use crate::matrix::CircMatrix;
 use crate::theme::COMPONENT_BORDER_WIDTH;
 
@@ -63,14 +63,23 @@ impl Default for LedMatrix {
 impl LedMatrix {
     pub const TYPE_ID: &'static str = "LedMatrix";
     pub fn to_element_kind(&self) -> Kind {
+        let rows = self.rows.max(1);
+        let cols = self.cols.max(1);
         Kind::LedMatrix {
-            rows: self.rows,
-            cols: self.cols,
+            rows,
+            cols,
             vertical_pins: self.vertical_pins,
             color: self.color.as_str().to_string(),
             threshold: self.threshold,
             max_current: self.max_current,
             resistance: self.resistance,
+            leds: LedState::dies(
+                rows * cols,
+                self.threshold,
+                self.resistance,
+                self.max_current,
+                false,
+            ),
         }
     }
 

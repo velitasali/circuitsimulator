@@ -356,6 +356,7 @@ pub struct JfetState {
     pub admit: f64,
     pub last_current: f64,
     pub gate_v: f64,
+    pub p_channel: bool,
 }
 
 impl JfetState {
@@ -369,6 +370,7 @@ impl JfetState {
             admit: CERO_DOUB,
             last_current: CERO_DOUB,
             gate_v: CERO_DOUB,
+            p_channel: false,
         };
         s.reset_stamp();
         s
@@ -384,6 +386,10 @@ impl JfetState {
 
     pub fn set_lambda_inv(&mut self, lambda_inv: f64) {
         self.lambda_inv = lambda_inv.max(1.0);
+    }
+
+    pub fn set_p_channel(&mut self, p_channel: bool) {
+        self.p_channel = p_channel;
     }
 
     pub fn reset_stamp(&mut self) {
@@ -418,7 +424,13 @@ impl JfetState {
     /// Returns `true` when G is stable. C++ also treats `|ΔI| < 1 A` as
     /// current-converged; we still wait for admit because we restamp every
     /// Newton iteration (same reason as [`MosfetState::volt_changed`]).
-    pub fn volt_changed(&mut self, mut vd: f64, mut vs: f64, vg: f64) -> bool {
+    pub fn volt_changed(&mut self, mut vd: f64, mut vs: f64, mut vg: f64) -> bool {
+        // Run the n-channel square law on mirrored voltages, then flip the current.
+        if self.p_channel {
+            vd = -vd;
+            vs = -vs;
+            vg = -vg;
+        }
         if vd < vs {
             // LTSpice-style virtual source swap when Vd < Vs.
             std::mem::swap(&mut vd, &mut vs);
@@ -428,7 +440,7 @@ impl JfetState {
         let mut gate_v = vgs - self.vp;
         let correction = 1.0 + vds / self.lambda_inv;
 
-        let (current, temp_admit) = if vgs <= self.vp {
+        let (mut current, temp_admit) = if vgs <= self.vp {
             gate_v = CERO_DOUB;
             (CERO_DOUB, CERO_DOUB)
         } else if vds < CERO_DOUB {
@@ -442,6 +454,9 @@ impl JfetState {
             let current = self.beta * (vgs - self.vp).powi(2) * correction;
             (current, current / vds)
         };
+        if self.p_channel {
+            current = -current;
+        }
 
         if (current - self.last_current).abs() < self.accuracy {
             // G = Id/Vds varies continuously, so exact f64 equality never

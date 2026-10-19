@@ -1304,7 +1304,7 @@ impl Part {
             }
             Self::Jfet(p) => {
                 c.add_jfet(id);
-                c.configure_jfet(id, p.idss, p.vp, p.lambda_inv);
+                c.configure_jfet(id, p.idss, p.vp, p.lambda_inv, p.p_channel);
             }
             Self::Comparator(p) => {
                 c.add_comparator(id);
@@ -1445,14 +1445,7 @@ impl Part {
             Self::Csource(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Csource {
-                        control_pins: p.control_pins,
-                        curr_source: p.curr_source,
-                        curr_control: p.curr_control,
-                        gain: p.gain,
-                        volt: p.volt,
-                        current: p.current,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Push(p) => {
@@ -1490,14 +1483,7 @@ impl Part {
             Self::Relay(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Relay {
-                        norm_close: p.norm_close,
-                        double_throw: p.double_throw,
-                        poles: p.poles,
-                        i_on: p.i_on,
-                        i_off: p.i_off,
-                        active: p.active,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Potentiometer(p) => {
@@ -1555,6 +1541,7 @@ impl Part {
                         use_slider: p.use_slider,
                         trigger_high: false,
                         echo_high: false,
+                        echo: crate::digital::Sr04Echo::default(),
                     },
                 });
             }
@@ -1567,6 +1554,7 @@ impl Part {
                         humi: p.humi,
                         out_state: true,
                         pin_driven: false,
+                        link: crate::digital::DhtLink::default(),
                     },
                 });
             }
@@ -1577,6 +1565,7 @@ impl Part {
                         rom: p.rom.clone(),
                         temp: p.temp,
                         dq_low: false,
+                        wire: crate::digital::OwLink::default(),
                     },
                 });
             }
@@ -1591,6 +1580,7 @@ impl Part {
                         tout_high: false,
                         sda_low: false,
                         scl_low: false,
+                        bus: crate::digital::Ds1621Bus::default(),
                     },
                 });
             }
@@ -1604,6 +1594,7 @@ impl Part {
                         sqw_state: false,
                         sda_low: false,
                         scl_low: false,
+                        bus: crate::digital::Ds1307Bus::default(),
                     },
                 });
             }
@@ -1659,6 +1650,7 @@ impl Part {
                     kind: crate::elements::Kind::Esp01 {
                         baud_rate: p.baud_rate,
                         debug: p.debug,
+                        uart: crate::digital::EspUart::default(),
                     },
                 });
             }
@@ -1734,20 +1726,13 @@ impl Part {
             Self::ResistorDip(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::ResistorDip {
-                        size: p.size,
-                        resistance: p.resistance,
-                        bussed: false,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Ldr(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Ldr {
-                        resistance: p.r_light,
-                        lux: p.lux,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Thermistor(p) => {
@@ -1789,6 +1774,7 @@ impl Part {
                     kind: crate::elements::Kind::Scr {
                         v_gate_th: p.v_gate_th,
                         i_hold: p.i_hold,
+                        r_gate: p.r_gate,
                         conducting: false,
                     },
                 });
@@ -1798,6 +1784,9 @@ impl Part {
                     id: id.to_string(),
                     kind: crate::elements::Kind::Diac {
                         v_breakover: p.v_breakover,
+                        res_on: p.res_on,
+                        res_off: p.res_off,
+                        hold_curr: p.hold_curr,
                         conducting: false,
                     },
                 });
@@ -1808,6 +1797,7 @@ impl Part {
                     kind: crate::elements::Kind::Triac {
                         v_gate_th: p.v_gate_th,
                         i_hold: p.i_hold,
+                        r_gate: p.r_gate,
                         conducting: false,
                     },
                 });
@@ -1825,31 +1815,19 @@ impl Part {
             Self::RgbLed(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::RgbLed {
-                        common_anode: p.common_anode,
-                        state_r: 0.0,
-                        state_g: 0.0,
-                        state_b: 0.0,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::LedBar(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::LedBar {
-                        segments: p.segments,
-                        states: 0,
-                        grounded: p.grounded,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::SevenSegment(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::SevenSegment {
-                        common_anode: p.common_anode,
-                        segments: 0,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::AudioOut(p) => {
@@ -1866,12 +1844,7 @@ impl Part {
             Self::Lamp(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Lamp {
-                        voltage: p.voltage,
-                        power: p.power,
-                        r_cold: p.r_cold,
-                        resistance: p.r_cold,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Tunnel(p) => {
@@ -1884,62 +1857,45 @@ impl Part {
                 });
             }
             Self::AndGate(p) => {
-                let mut g = crate::digital::GateState::and(id, p.num_inputs);
-                g.output.set_inverted(p.invert_output);
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Gate(g),
+                    kind: p.to_element_kind(),
                 });
             }
             Self::OrGate(p) => {
-                let mut g = crate::digital::GateState::or(id, p.num_inputs);
-                g.output.set_inverted(p.invert_output);
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Gate(g),
+                    kind: p.to_element_kind(),
                 });
             }
             Self::XorGate(p) => {
-                let mut g = crate::digital::GateState::xor(id, p.num_inputs);
-                g.output.set_inverted(p.invert_output);
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Gate(g),
+                    kind: p.to_element_kind(),
                 });
             }
-            Self::NotGate(_) => {
-                let mut g = crate::digital::GateState::buffer(id);
-                g.output.set_inverted(true);
+            Self::NotGate(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Gate(g),
+                    kind: p.to_element_kind(),
                 });
             }
             Self::BufferGate(p) => {
-                let mut g = crate::digital::GateState::buffer(id);
-                g.output.set_inverted(p.invert_output);
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Gate(g),
+                    kind: p.to_element_kind(),
                 });
             }
             Self::FlipFlop(p) => {
-                let f = match p.ff_kind.as_str() {
-                    "D" => crate::digital::FlipFlopState::d(id),
-                    "JK" => crate::digital::FlipFlopState::jk(id),
-                    "RS" => crate::digital::FlipFlopState::rs(id),
-                    _ => crate::digital::FlipFlopState::t(id),
-                };
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::FlipFlop(f),
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Latch(p) => {
-                let l = crate::digital::LatchState::new(id, p.channels);
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Latch(l),
+                    kind: p.to_element_kind(),
                 });
             }
             Self::TestUnit(p) => {
@@ -2173,19 +2129,31 @@ impl Part {
                     kind: crate::elements::Kind::I2CRam(r),
                 });
             }
-            Self::Lm555(_) => {
-                let lm = crate::digital::Lm555State::new(id);
+            Self::Lm555(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Lm555(lm),
+                    kind: p.to_element_kind(),
                 });
             }
-            Self::Bus(_)
-            | Self::Socket(_)
-            | Self::Header(_)
-            | Self::SerialPort(_)
-            | Self::SerialTerm(_)
-            | Self::SubPackage(_) => {}
+            Self::Bus(p) => {
+                c.add_comp(crate::elements::Comp {
+                    id: id.to_string(),
+                    kind: p.to_element_kind(),
+                });
+            }
+            Self::Header(p) => {
+                c.add_comp(crate::elements::Comp {
+                    id: id.to_string(),
+                    kind: p.to_element_kind(),
+                });
+            }
+            Self::Socket(p) => {
+                c.add_comp(crate::elements::Comp {
+                    id: id.to_string(),
+                    kind: p.to_element_kind(),
+                });
+            }
+            Self::SerialPort(_) | Self::SerialTerm(_) | Self::SubPackage(_) => {}
         }
     }
 }

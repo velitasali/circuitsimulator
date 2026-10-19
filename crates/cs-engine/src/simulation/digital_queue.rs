@@ -1,10 +1,28 @@
 //! Event-driven digital scheduler, logic gate propagation delay queue, and MCU pin I/O.
 
 use crate::Result;
-use crate::digital::{EventTarget, GateUpdate, PinAction, PinMode};
+use crate::digital::{EventTarget, GateUpdate, IoPin, PinAction, PinMode};
 use crate::elements::Kind;
 
 use super::Circuit;
+
+/// Norton pair `(V, G)` moved enough to need another matrix stamp.
+fn norton_moved(before: (f64, f64), pin: &IoPin) -> bool {
+    let (v, g) = pin.norton();
+    (v - before.0).abs() > 1e-12 || (g - before.1).abs() > 1e-12
+}
+
+fn snap_nortons(pins: &[IoPin]) -> Vec<(f64, f64)> {
+    pins.iter().map(IoPin::norton).collect()
+}
+
+fn nortons_moved(before: &[(f64, f64)], pins: &[IoPin]) -> bool {
+    pins.len() != before.len()
+        || pins
+            .iter()
+            .zip(before)
+            .any(|(pin, &prev)| norton_moved(prev, pin))
+}
 
 impl Circuit {
     pub fn set_pin_inverted(&mut self, pin_id: &str, inverted: bool) {
@@ -15,7 +33,8 @@ impl Circuit {
 
     /// Update an existing component's Kind in-place without rebuilding nets.
     pub fn update_component_kind(&mut self, id: &str, kind: &Kind) -> bool {
-        for c in &mut self.components {
+        let mut updated = None;
+        for (index, c) in self.components.iter_mut().enumerate() {
             if c.id == id {
                 match (&mut c.kind, kind) {
                     (
@@ -77,13 +96,56 @@ impl Circuit {
                         *inductance = *ind;
                     }
                     _ => {
-                        c.kind = kind.clone();
+                        // A live edit rebuilds the kind with an empty component id.
+                        // Keep a tunnel endpoint that the replacement left blank:
+                        // `Tunnel::to_element_kind` stores an empty pin id.
+                        let keep_tunnel = match (&c.kind, kind) {
+                            (
+                                Kind::Tunnel { pin_id: old, .. },
+                                Kind::Tunnel { pin_id: new, .. },
+                            ) if new.is_empty() => Some(old.clone()),
+                            _ => None,
+                        };
+                        let prev = std::mem::replace(&mut c.kind, kind.clone());
+                        if let Some(pin_id) = keep_tunnel {
+                            if let Kind::Tunnel { pin_id: slot, .. } = &mut c.kind {
+                                *slot = pin_id;
+                            }
+                        }
+                        c.kind.adopt_runtime(&prev);
+                        c.kind.rebind_id(&c.id);
                     }
                 }
-                return true;
+                updated = Some(index);
+                break;
             }
         }
-        false
+        let Some(index) = updated else {
+            return false;
+        };
+        if matches!(self.components[index].kind, Kind::Clock { .. }) {
+            self.reschedule_clock(index);
+        }
+        true
+    }
+
+    /// Drop an armed clock edge and arm the next one for the kind's frequency.
+    /// A zero frequency stays cancelled. The level matches `clock_is_high` at the current time.
+    fn reschedule_clock(&mut self, index: usize) {
+        self.events.cancel(EventTarget::Device(index));
+        let now = self.circ_time;
+        let Some(comp) = self.components.get(index) else {
+            return;
+        };
+        let high = comp.clock_is_high(now);
+        let delta = comp.clock_next_event_ps(now);
+        if let Kind::Clock { state, .. } = &mut self.components[index].kind {
+            *state = high;
+        }
+        if let Some(dt) = delta {
+            self.events
+                .add(now.saturating_add(dt), EventTarget::Device(index));
+        }
     }
 
     /// MCU core drives a digital pin (output high/low).
@@ -316,6 +378,14 @@ impl Circuit {
                     | Kind::I2CRam(_)
                     | Kind::Lm555(_)
                     | Kind::Servo { .. }
+                    | Kind::Max72xx { .. }
+                    | Kind::Ws2812 { .. }
+                    | Kind::Sr04 { .. }
+                    | Kind::Dht22 { .. }
+                    | Kind::Ds18b20 { .. }
+                    | Kind::Ds1621 { .. }
+                    | Kind::Ds1307 { .. }
+                    | Kind::Esp01 { .. }
             )
         })
     }
@@ -368,9 +438,11 @@ impl Circuit {
         };
         let t = self.circ_time;
         let mut stamp_changed = false;
+        let mut periph_arms: Vec<(usize, crate::digital::Drive)> = Vec::new();
         let mut updates = std::mem::take(&mut self.digital_updates_buf);
         updates.clear();
         for (i, (c, cache)) in self.components.iter_mut().zip(&self.pin_caches).enumerate() {
+            let comp_id = c.id.clone();
             let (u, pin_idx) = match &mut c.kind {
                 Kind::Gate(g) => {
                     let idx = g.output_pin_index();
@@ -438,7 +510,11 @@ impl Circuit {
                     let v_sda = v_of(&a.pin_sda.id);
                     a.pin_scl.get_inp_state(v_scl);
                     a.pin_sda.get_inp_state(v_sda);
+                    let before = a.pin_sda.norton();
                     a.step(t);
+                    if norton_moved(before, &a.pin_sda) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Sh1107(s) => {
@@ -446,7 +522,11 @@ impl Circuit {
                     let v_sda = v_of(&s.pin_sda.id);
                     s.pin_scl.get_inp_state(v_scl);
                     s.pin_sda.get_inp_state(v_sda);
+                    let before = s.pin_sda.norton();
                     s.step(t);
+                    if norton_moved(before, &s.pin_sda) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Pcd8544(p) => {
@@ -496,7 +576,13 @@ impl Circuit {
                         let v = v_of(&en.id);
                         en.get_inp_state(v);
                     }
+                    let before_y = m.output.norton();
+                    let before_yn = m.out_inverted.norton();
                     m.eval();
+                    if norton_moved(before_y, &m.output) || norton_moved(before_yn, &m.out_inverted)
+                    {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Demux(d) => {
@@ -510,7 +596,11 @@ impl Circuit {
                         let v = v_of(&en.id);
                         en.get_inp_state(v);
                     }
+                    let before = snap_nortons(&d.outputs);
                     d.eval();
+                    if nortons_moved(&before, &d.outputs) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::BcdToDec(b) => {
@@ -518,7 +608,13 @@ impl Circuit {
                         let v = v_of(&p.id);
                         p.get_inp_state(v);
                     }
+                    let v_oe = v_of(&b.oe.id);
+                    b.oe.get_inp_state(v_oe);
+                    let before = snap_nortons(&b.outputs);
                     b.eval();
+                    if nortons_moved(&before, &b.outputs) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::DecToBcd(d) => {
@@ -528,7 +624,16 @@ impl Circuit {
                     }
                     let v = v_of(&d.ei.id);
                     d.ei.get_inp_state(v);
+                    let before = snap_nortons(&d.outputs);
+                    let before_gs = d.gs.norton();
+                    let before_eo = d.eo.norton();
                     d.eval();
+                    if nortons_moved(&before, &d.outputs)
+                        || norton_moved(before_gs, &d.gs)
+                        || norton_moved(before_eo, &d.eo)
+                    {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::BcdTo7S(b) => {
@@ -536,13 +641,17 @@ impl Circuit {
                         let v = v_of(&p.id);
                         p.get_inp_state(v);
                     }
-                    let v_lt = v_of(&b.lt.id);
-                    b.lt.get_inp_state(v_lt);
-                    let v_rbi = v_of(&b.rbi.id);
-                    b.rbi.get_inp_state(v_rbi);
+                    // Lamp test and ripple blanking are not external pins.
+                    // Hold them inactive (active-low).
+                    b.lt.get_inp_state(5.0);
+                    b.rbi.get_inp_state(5.0);
                     let v_bi = v_of(&b.bi_rbo.id);
                     b.bi_rbo.get_inp_state(v_bi);
+                    let before = snap_nortons(&b.segments);
                     b.eval();
+                    if nortons_moved(&before, &b.segments) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::I2CToParallel(p) => {
@@ -554,6 +663,16 @@ impl Circuit {
                         let v = v_of(&pin.id);
                         pin.get_inp_state(v);
                     }
+                    let before_ports = snap_nortons(&p.ports);
+                    let before_sda = p.sda.norton();
+                    let before_int = p.int_pin.norton();
+                    p.poll();
+                    if nortons_moved(&before_ports, &p.ports)
+                        || norton_moved(before_sda, &p.sda)
+                        || norton_moved(before_int, &p.int_pin)
+                    {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Adc(a) => {
@@ -562,11 +681,15 @@ impl Circuit {
                         .and_then(|idx| nodes.get(idx))
                         .map(|n| n.volt)
                         .unwrap_or(0.0);
-                    let v_soc = v_of(&a.soc.id);
-                    let v_oe = v_of(&a.oe.id);
-                    a.soc.get_inp_state(v_soc);
-                    a.oe.get_inp_state(v_oe);
+                    // Start-of-conversion and output-enable are not schematic pins.
+                    // Keep the outputs driven.
+                    a.oe.get_inp_state(5.0);
+                    let before = snap_nortons(&a.outputs);
+                    let before_eoc = a.eoc.norton();
                     a.convert(v_in);
+                    if nortons_moved(&before, &a.outputs) || norton_moved(before_eoc, &a.eoc) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Dac(d) => {
@@ -574,33 +697,44 @@ impl Circuit {
                         let v = v_of(&p.id);
                         p.get_inp_state(v);
                     }
+                    let before = d.vout;
                     d.eval();
+                    if (d.vout - before).abs() > 1e-12 {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Counter(c) => {
                     let v_clk = v_of(&c.clock.id);
                     let v_rst = v_of(&c.reset.id);
-                    let v_en = v_of(&c.enable.id);
                     c.clock.get_inp_state(v_clk);
                     c.reset.get_inp_state(v_rst);
-                    c.enable.get_inp_state(v_en);
+                    // Enable is not an external pin. An unconnected sample would stay low.
+                    c.enable.get_inp_state(5.0);
+                    let before_qs = snap_nortons(&c.outputs);
+                    let before_out = c.output.norton();
                     c.eval();
+                    if nortons_moved(&before_qs, &c.outputs) || norton_moved(before_out, &c.output)
+                    {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::BinCounter(b) => {
                     let v_clka = v_of(&b.clk_a.id);
-                    let v_clkb = v_of(&b.clk_b.id);
-                    let v_r0_1 = v_of(&b.r0_1.id);
-                    let v_r0_2 = v_of(&b.r0_2.id);
-                    let v_r9_1 = v_of(&b.r9_1.id);
-                    let v_r9_2 = v_of(&b.r9_2.id);
+                    let v_rst = v_of(&b.r0_1.id);
                     b.clk_a.get_inp_state(v_clka);
-                    b.clk_b.get_inp_state(v_clkb);
-                    b.r0_1.get_inp_state(v_r0_1);
-                    b.r0_2.get_inp_state(v_r0_2);
-                    b.r9_1.get_inp_state(v_r9_1);
-                    b.r9_2.get_inp_state(v_r9_2);
+                    b.r0_1.get_inp_state(v_rst);
+                    // One schematic reset must satisfy the AND of the two internal resets.
+                    // Section B is clocked from QA inside `eval`, not from this pin.
+                    b.r0_2.get_inp_state(v_rst);
+                    b.r9_1.get_inp_state(0.0);
+                    b.r9_2.get_inp_state(0.0);
+                    let before = snap_nortons(&b.outputs);
                     b.eval();
+                    if nortons_moved(&before, &b.outputs) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::FullAdder(fa) => {
@@ -614,7 +748,12 @@ impl Circuit {
                     }
                     let v_ci = v_of(&fa.ci.id);
                     fa.ci.get_inp_state(v_ci);
+                    let before = snap_nortons(&fa.sum_outputs);
+                    let before_co = fa.co.norton();
                     fa.eval();
+                    if nortons_moved(&before, &fa.sum_outputs) || norton_moved(before_co, &fa.co) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::HalfAdder(fa) => {
@@ -627,7 +766,12 @@ impl Circuit {
                         p.get_inp_state(v);
                     }
                     fa.ci.get_inp_state(0.0);
+                    let before = snap_nortons(&fa.sum_outputs);
+                    let before_co = fa.co.norton();
                     fa.eval();
+                    if nortons_moved(&before, &fa.sum_outputs) || norton_moved(before_co, &fa.co) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::MagnitudeComp(mc) => {
@@ -645,21 +789,36 @@ impl Circuit {
                     mc.cascade_gt.get_inp_state(v_gt);
                     mc.cascade_eq.get_inp_state(v_eq);
                     mc.cascade_lt.get_inp_state(v_lt);
+                    let before_gt = mc.out_gt.norton();
+                    let before_eq = mc.out_eq.norton();
+                    let before_lt = mc.out_lt.norton();
                     mc.eval();
+                    if norton_moved(before_gt, &mc.out_gt)
+                        || norton_moved(before_eq, &mc.out_eq)
+                        || norton_moved(before_lt, &mc.out_lt)
+                    {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::ShiftReg(sr) => {
                     let v_ds = v_of(&sr.ser_in.id);
                     let v_sh = v_of(&sr.clk_shift.id);
-                    let v_st = v_of(&sr.clk_latch.id);
                     let v_mr = v_of(&sr.master_reset.id);
                     let v_oe = v_of(&sr.oe.id);
                     sr.ser_in.get_inp_state(v_ds);
                     sr.clk_shift.get_inp_state(v_sh);
-                    sr.clk_latch.get_inp_state(v_st);
+                    // One schematic clock shifts and updates the stored outputs.
+                    sr.clk_latch.get_inp_state(v_sh);
                     sr.master_reset.get_inp_state(v_mr);
                     sr.oe.get_inp_state(v_oe);
+                    let before = snap_nortons(&sr.outputs);
+                    let before_ser = sr.ser_out.norton();
                     sr.eval();
+                    if nortons_moved(&before, &sr.outputs) || norton_moved(before_ser, &sr.ser_out)
+                    {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Function(f) => {
@@ -667,7 +826,11 @@ impl Circuit {
                         let v = v_of(&p.id);
                         p.get_inp_state(v);
                     }
+                    let before = f.output.norton();
                     f.eval();
+                    if norton_moved(before, &f.output) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Memory(m) => {
@@ -685,7 +848,11 @@ impl Circuit {
                     m.cs.get_inp_state(v_cs);
                     m.oe.get_inp_state(v_oe);
                     m.we.get_inp_state(v_we);
+                    let before = snap_nortons(&m.data_pins);
                     m.eval();
+                    if nortons_moved(&before, &m.data_pins) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::DynamicMemory(dm) => {
@@ -705,7 +872,11 @@ impl Circuit {
                     dm.cas.get_inp_state(v_cas);
                     dm.we.get_inp_state(v_we);
                     dm.oe.get_inp_state(v_oe);
+                    let before = snap_nortons(&dm.data_pins);
                     dm.eval();
+                    if nortons_moved(&before, &dm.data_pins) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::I2CRam(r) => {
@@ -713,7 +884,11 @@ impl Circuit {
                     let v_sda = v_of(&r.sda.id);
                     r.scl.get_inp_state(v_scl);
                     r.sda.get_inp_state(v_sda);
+                    let before = r.sda.norton();
                     r.tick();
+                    if norton_moved(before, &r.sda) {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Lm555(lm) => {
@@ -728,7 +903,13 @@ impl Circuit {
                     let v_cv = v_node(cache.la_pins[4]);
                     let v_thr = v_node(cache.la_pins[5]);
                     let v_vcc = v_node(cache.la_pins[7]);
+                    let before = (lm.out_state, lm.discharge_on, lm.out_high_v, lm.out_low_v);
                     lm.step(v_gnd, v_vcc, v_trg, v_thr, Some(v_cv), v_rst);
+                    let level_moved = (lm.out_high_v - before.2).abs() > 1e-12
+                        || (lm.out_low_v - before.3).abs() > 1e-12;
+                    if lm.out_state != before.0 || lm.discharge_on != before.1 || level_moved {
+                        stamp_changed = true;
+                    }
                     continue;
                 }
                 Kind::Servo {
@@ -771,7 +952,16 @@ impl Circuit {
                     }
                     continue;
                 }
-                _ => continue,
+                other => {
+                    let drive = super::periph_proto::on_pins(other, &comp_id, &v_of, t);
+                    if drive.changed {
+                        stamp_changed = true;
+                    }
+                    if drive.arm_at.is_some() {
+                        periph_arms.push((i, drive));
+                    }
+                    continue;
+                }
             };
             if u.stamp_changed {
                 stamp_changed = true;
@@ -780,6 +970,16 @@ impl Circuit {
         }
         for (i, u, pin_idx) in &updates {
             self.apply_update(*i, *u, *pin_idx);
+        }
+        for (i, drive) in periph_arms {
+            let Some(at) = drive.arm_at else {
+                continue;
+            };
+            let target = EventTarget::Device(i);
+            if drive.replace {
+                self.events.cancel(target);
+            }
+            self.events.add(at, target);
         }
         self.digital_updates_buf = updates;
         stamp_changed
@@ -928,6 +1128,22 @@ impl Circuit {
                         }
                         return Ok(changed);
                     }
+                    if let Kind::Clock { .. } = &c.kind {
+                        let high = c.clock_is_high(self.circ_time);
+                        let delta = c.clock_next_event_ps(self.circ_time);
+                        let mut changed = false;
+                        if let Kind::Clock { state, .. } = &mut c.kind {
+                            if *state != high {
+                                *state = high;
+                                changed = true;
+                            }
+                        }
+                        if let Some(dt) = delta {
+                            self.events
+                                .add(self.circ_time.saturating_add(dt), EventTarget::Device(i));
+                        }
+                        return Ok(changed);
+                    }
                 }
                 let qemu_step = if let Some(c) = self.components.get_mut(i) {
                     if let Kind::QemuDevice(q) = &mut c.kind {
@@ -1004,6 +1220,30 @@ impl Circuit {
                     let changed = u.stamp_changed || !matches!(u.pin_action, PinAction::None);
                     self.apply_update(i, u, pin_idx);
                     return Ok(changed);
+                }
+                let id = self
+                    .components
+                    .get(i)
+                    .map(|c| c.id.clone())
+                    .unwrap_or_default();
+                let pin_net = &self.pin_net;
+                let nodes = &self.nodes;
+                let v_of = |pin: &str| -> f64 {
+                    pin_net
+                        .get(pin)
+                        .and_then(|&j| nodes.get(j))
+                        .map(|n| n.volt)
+                        .unwrap_or(0.0)
+                };
+                let drive = self
+                    .components
+                    .get_mut(i)
+                    .and_then(|c| super::periph_proto::on_event(&mut c.kind, &id, v_of, t));
+                if let Some(drive) = drive {
+                    if let Some(at) = drive.arm_at {
+                        self.events.add(at, EventTarget::Device(i));
+                    }
+                    return Ok(drive.changed);
                 }
                 Ok(false)
             }

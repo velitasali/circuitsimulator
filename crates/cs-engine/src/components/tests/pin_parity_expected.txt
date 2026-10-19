@@ -1,0 +1,5 @@
+SerialPort: not-in-circuit schematic=[gnd, rx, tx, vcc]
+SerialTerm: not-in-circuit schematic=[rx, tx]
+SubPackage Pins=Pin; type=; xpos=0; ypos=8; angle=0; length=8; space=0; id=1; label=VCC&#xa;: not-in-circuit schematic=[1]
+SubPackage Pins=Pin; type=; xpos=40; ypos=8; angle=0; length=8; space=0; id=2; label=GND&#xa;: not-in-circuit schematic=[2]
+QemuDevice: only-solver=[G00, G01, G02, G03, G04, G05, G06, G07, G08, G09, G10, G11, G12, G13, G14, G15, G16, G17, G18, G19, G21, G22, G23, G25, G26, G27, G32, G33, G34, G35, G36, G37, G38, G39, Rst]

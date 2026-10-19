@@ -1,0 +1,79 @@
+VarResistor: idle-solve could not solve matrix
+Battery: driver 2.500 V
+Ground: implicit-return
+Node: current-gap
+FixedVolt: driver 5.000 V implicit-return
+Rail: driver 5.000 V implicit-return
+Clock: implicit-return
+VoltSource: driver 5.000 V implicit-return
+CurrSource: driver 10.000 V implicit-return
+Push: current-gap
+SwitchDip: current-gap
+Relay: current-gap
+KeyPad: current-gap
+Diode: current-gap
+Zener: current-gap
+OpAmp: implicit-return
+Comparator: implicit-return
+Voltmeter: implicit-return
+Ammeter: implicit-return
+NotGate: driver 4.808 V implicit-return
+FlipFlop: driver 4.808 V implicit-return
+Mux: driver 4.808 V current-gap
+Demux: current-gap
+AnalogMux: current-gap
+BcdToDec: driver 4.808 V current-gap
+DecToBcd: current-gap
+BcdTo7Segment: current-gap
+FullAdder: current-gap
+HalfAdder: current-gap
+TestUnit: current-gap
+TouchPad: current-gap
+KY023: driver 2.500 V current-gap
+KY040: driver 5.000 V current-gap
+SR04: current-gap
+DHT22: current-gap
+DS18B20: current-gap
+DS1621: current-gap
+DS1307: current-gap
+Stepper: current-gap
+Servo: current-gap
+Esp01: driver 3.300 V current-gap
+Pcd8544: current-gap
+Sh1107: current-gap
+Ks0108: current-gap
+Aip31068: current-gap
+Hd44780: current-gap
+Ssd1306: current-gap
+Max72xx: current-gap
+Ws2812: current-gap
+Counter: current-gap
+BinCounter: current-gap
+ShiftReg: current-gap
+MagnitudeComp: current-gap
+Adc: current-gap
+Dac: current-gap
+I2CToParallel: driver 4.808 V current-gap
+Lm555: current-gap
+Memory: driver 4.808 V current-gap
+DynamicMemory: driver 4.808 V current-gap
+I2CRam: current-gap
+Function: current-gap
+Scr: current-gap
+Diac: current-gap
+Triac: current-gap
+Csource: current-gap
+ResistorDip: current-gap
+WaveGen: implicit-return
+Tunnel: current-gap
+Bus: current-gap
+Socket: current-gap
+Header: current-gap
+SerialPort: not-inserted
+SerialTerm: not-inserted
+Subcircuit: not-inserted
+SubPackage: not-inserted
+Dial: no-pins
+Shape: no-pins
+Mcu: no-pins
+QemuDevice: driver 3.173 V implicit-return

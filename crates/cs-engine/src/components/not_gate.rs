@@ -13,6 +13,7 @@ pub struct NotGate {
     pub invert_output: bool,
     pub init_high: bool,
     pub tristate: bool,
+    pub open_col: bool,
     pub small: bool,
 }
 
@@ -23,6 +24,7 @@ impl Default for NotGate {
             invert_output: true,
             init_high: false,
             tristate: false,
+            open_col: false,
             small: false,
         }
     }
@@ -40,6 +42,7 @@ impl NotGate {
         st.output.set_inverted(self.invert_output);
         st.init_high = self.init_high;
         st.set_tristate(self.tristate);
+        st.set_open_col(self.open_col);
         Kind::Gate(st)
     }
 
@@ -69,6 +72,13 @@ impl NotGate {
     }
     fn set_tristate(&mut self, v: PropValue) -> Result<(), PropError> {
         self.tristate = expect_bool("Tristate", v)?;
+        Ok(())
+    }
+    fn get_open_col(&self) -> PropValue {
+        PropValue::Bool(self.open_col)
+    }
+    fn set_open_col(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.open_col = expect_bool("OpenCollector", v)?;
         Ok(())
     }
     fn get_small(&self) -> PropValue {
@@ -134,6 +144,13 @@ impl Component for NotGate {
                 NotGate::set_init_high,
             )
             .with_info("Output state at simulation start."),
+            PropDef::bool(
+                "OpenCollector",
+                "Open Collector",
+                NotGate::get_open_col,
+                NotGate::set_open_col,
+            )
+            .with_info("Output stage is open collector instead of push-pull."),
             TRISTATE,
             SMALL,
         ];

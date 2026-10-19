@@ -1,6 +1,6 @@
 //! Electrical nets (C++ `eNode`) and union-find over pin IDs.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 const MAX_NODE_ADMIT: usize = 8;
 
@@ -59,6 +59,13 @@ impl ENode {
     #[inline]
     pub fn add_current(&mut self, i: f64) {
         self.total_curr += i;
+    }
+
+    /// True when this node received conductance or current above the solver noise floor.
+    #[cfg(test)]
+    #[inline]
+    pub(crate) fn has_stamp(&self) -> bool {
+        self.total_admit.abs() > 1e-18 || self.total_curr.abs() > 1e-18
     }
 
     #[inline]
@@ -135,12 +142,21 @@ impl UnionFind {
     }
 
     pub fn groups(&mut self) -> Vec<Vec<String>> {
-        let keys: Vec<String> = self.parent.keys().cloned().collect();
-        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        // HashMap iteration is randomized per process. Node numbers follow this
+        // order, and an ideal compare of two grounded inputs then flips on
+        // roundoff. Sort so a circuit solves the same way every run.
+        let mut keys: Vec<String> = self.parent.keys().cloned().collect();
+        keys.sort();
+        let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for k in keys {
             let r = self.find(&k);
             map.entry(r).or_default().push(k);
         }
-        map.into_values().collect()
+        map.into_values()
+            .map(|mut pins| {
+                pins.sort();
+                pins
+            })
+            .collect()
     }
 }

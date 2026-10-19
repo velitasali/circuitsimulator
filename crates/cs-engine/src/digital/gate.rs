@@ -24,6 +24,7 @@ pub struct GateState {
     pub output: IoPin,
     pub oe: Option<IoPin>,
     pub tristate: bool,
+    pub open_col: bool,
     pub out_enable: bool,
     pub queue: OutQueue,
 }
@@ -42,13 +43,8 @@ impl GateState {
     }
 
     pub fn buffer(id: &str) -> Self {
-        let mut g = Self::new(id, GateOp::And, 1);
-        g.oe = Some(IoPin::input(format!("{id}-Pin_outEnable")));
-        if let Some(oe) = g.oe.as_mut() {
-            oe.set_inverted(true);
-        }
-        g.tristate = false;
-        g
+        // Output enable exists only while tristate is on. `set_tristate` creates the pin.
+        Self::new(id, GateOp::And, 1)
     }
 
     pub fn inverter(id: &str) -> Self {
@@ -96,6 +92,7 @@ impl GateState {
             output,
             oe: None,
             tristate: false,
+            open_col: false,
             out_enable: true,
             queue: OutQueue::new(),
         }
@@ -141,16 +138,34 @@ impl GateState {
             p.set_input_imp(f.inp_imp);
         }
         apply_family_out(&f, &mut self.output);
+        let oc = self.open_col;
+        self.set_open_col(oc);
     }
 
     pub fn set_open_col(&mut self, oc: bool) {
+        self.open_col = oc;
         self.output
             .set_pin_mode(if oc { PinMode::OpenCo } else { PinMode::Output });
     }
 
     pub fn set_tristate(&mut self, t: bool) {
         self.tristate = t;
-        if !t {
+        if t {
+            if self.oe.is_none() {
+                let comp = self
+                    .output
+                    .id
+                    .strip_suffix("-out")
+                    .unwrap_or("")
+                    .to_string();
+                let mut oe = IoPin::input(format!("{comp}-Pin_outEnable"));
+                oe.set_inverted(true);
+                oe.set_thresholds(self.family.inp_high_v, self.family.inp_low_v);
+                oe.set_input_imp(self.family.inp_imp);
+                self.oe = Some(oe);
+            }
+        } else {
+            self.oe = None;
             self.out_enable = true;
             self.output.set_state_z(false);
         }

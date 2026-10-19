@@ -69,6 +69,9 @@ impl Diac {
     pub fn to_element_kind(&self) -> Kind {
         Kind::Diac {
             v_breakover: self.v_breakover,
+            res_on: self.res_on,
+            res_off: self.res_off,
+            hold_curr: self.hold_curr,
             conducting: false,
         }
     }

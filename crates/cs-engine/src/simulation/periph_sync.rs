@@ -233,6 +233,20 @@ impl Circuit {
                 }
                 Kind::AudioOut { .. } => Some(audio_period_ps),
                 Kind::WaveGen { .. } => self.components[i].wavegen_next_event_ps(self.circ_time),
+                Kind::Clock { .. } => self.components[i].clock_next_event_ps(self.circ_time),
+                Kind::Ds1307 {
+                    sqw_enabled,
+                    sqw_freq,
+                    bus,
+                    ..
+                } => {
+                    if *sqw_enabled {
+                        bus.armed = true;
+                        crate::digital::sqw_half(*sqw_freq)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
             if let Some(ps) = ps {
@@ -298,6 +312,53 @@ impl Circuit {
                         delta
                     };
                     *pos += step;
+                }
+            } else if let Kind::Stepper {
+                bipolar,
+                steps,
+                resistance,
+                ref mut angle,
+            } = c.kind
+            {
+                let pc = pin_caches.get(i);
+                let volt = |slot: Option<usize>| -> Option<f64> {
+                    slot.and_then(|j| nodes.get(j)).map(|n| n.volt)
+                };
+                let va1 = pc.and_then(|p| volt(p.left));
+                let va2 = pc.and_then(|p| volt(p.right));
+                let vco = pc.and_then(|p| volt(p.mid));
+                let vb1 = pc.and_then(|p| volt(p.in0));
+                let vb2 = pc.and_then(|p| volt(p.in1));
+                let r = resistance.max(1e-6);
+                let coil = |a: Option<f64>, b: Option<f64>| match (a, b) {
+                    (Some(a), Some(b)) => (a - b) / r,
+                    _ => 0.0,
+                };
+                let (ia, ib) = if bipolar {
+                    (coil(va1, va2), coil(vb1, vb2))
+                } else {
+                    (
+                        coil(va1, vco) - coil(va2, vco),
+                        coil(vb1, vco) - coil(vb2, vco),
+                    )
+                };
+                let imag = (ia * ia + ib * ib).sqrt();
+                if dt_s > 0.0 && imag > 1e-4 {
+                    let pole_pairs = (steps.max(1) as f64 / 4.0).max(1.0);
+                    let period = 360.0 / pole_pairs;
+                    let field = ib.atan2(ia).to_degrees() / pole_pairs;
+                    let field_mod = field.rem_euclid(period);
+                    let rotor_mod = angle.rem_euclid(period);
+                    let mut err = field_mod - rotor_mod;
+                    if err > period * 0.5 {
+                        err -= period;
+                    }
+                    if err < -period * 0.5 {
+                        err += period;
+                    }
+                    // 5 ms to close the angle error at a given coil vector.
+                    const TAU_S: f64 = 0.005;
+                    *angle = (*angle + err * (dt_s / TAU_S).min(1.0)).rem_euclid(360.0);
                 }
             }
         }

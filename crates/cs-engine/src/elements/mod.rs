@@ -36,6 +36,12 @@ pub use volt_reg::{
 /// IoPin source-mode admittance: `1 / cero_doub` = 1e9 S (1 nΩ).
 pub const SOURCE_ADMIT: f64 = 1.0 / CERO_DOUB;
 
+/// Series sense between `cpPin` and `cmPin` of a current-controlled source.
+pub const CSOURCE_SENSE_OHMS: f64 = 1.0;
+
+/// Filament thermal time constant. Heat moves from electrical power toward nominal power.
+pub const LAMP_THERMAL_TAU: f64 = 0.02;
+
 pub const RESISTOR_DEFAULT_OHMS: f64 = 100.0;
 pub const BATTERY_DEFAULT_VOLTS: f64 = 5.0;
 /// Battery constructor sets `m_admit = 1e3` → 1 mΩ.
@@ -58,6 +64,8 @@ const IND_MIN: f64 = 1e-12;
 mod constructors;
 pub mod pins;
 pub use pins::*;
+mod rebind;
+mod runtime;
 mod stamp;
 
 #[derive(Clone, Debug)]
@@ -214,6 +222,10 @@ pub enum Kind {
         gain: f64,
         volt: f64,
         current: f64,
+        /// Last control sample (`Vcp-Vcm`, or sense current when `curr_control`).
+        ctrl: f64,
+        /// Ohms of the current-sense branch between the control pins.
+        sense_ohms: f64,
     },
     WaveGen {
         wave_type: String,
@@ -253,6 +265,12 @@ pub enum Kind {
         poles: usize,
         i_on: f64,
         i_off: f64,
+        /// Coil resistance. With `inductance == 0` the coil is that resistor.
+        r_coil: f64,
+        /// Series coil inductance. Zero keeps the resistive stamp.
+        inductance: f64,
+        /// Coil current from `lPin` to `rPin`, updated by the RL companion.
+        coil_i: f64,
         active: bool,
     },
     Potentiometer {
@@ -286,6 +304,7 @@ pub enum Kind {
         use_slider: bool,
         trigger_high: bool,
         echo_high: bool,
+        echo: crate::digital::Sr04Echo,
     },
     Dht22 {
         model: String,
@@ -293,11 +312,13 @@ pub enum Kind {
         humi: f64,
         out_state: bool,
         pin_driven: bool,
+        link: crate::digital::DhtLink,
     },
     Ds18b20 {
         rom: String,
         temp: f64,
         dq_low: bool,
+        wire: crate::digital::OwLink,
     },
     Ds1621 {
         temp: f64,
@@ -307,6 +328,7 @@ pub enum Kind {
         tout_high: bool,
         sda_low: bool,
         scl_low: bool,
+        bus: crate::digital::Ds1621Bus,
     },
     Ds1307 {
         time_updated: bool,
@@ -315,6 +337,7 @@ pub enum Kind {
         sqw_state: bool,
         sda_low: bool,
         scl_low: bool,
+        bus: crate::digital::Ds1307Bus,
     },
     DcMotor {
         rpm_nominal: i32,
@@ -345,6 +368,7 @@ pub enum Kind {
     Esp01 {
         baud_rate: u32,
         debug: bool,
+        uart: crate::digital::EspUart,
     },
     TftDisplay {
         controller: String,
@@ -405,15 +429,20 @@ pub enum Kind {
     Scr {
         v_gate_th: f64,
         i_hold: f64,
+        r_gate: f64,
         conducting: bool,
     },
     Diac {
         v_breakover: f64,
+        res_on: f64,
+        res_off: f64,
+        hold_curr: f64,
         conducting: bool,
     },
     Triac {
         v_gate_th: f64,
         i_hold: f64,
+        r_gate: f64,
         conducting: bool,
     },
     AnalogMux {
@@ -423,18 +452,20 @@ pub enum Kind {
     },
     RgbLed {
         common_anode: bool,
-        state_r: f64,
-        state_g: f64,
-        state_b: f64,
+        /// Red, green, blue dice. Anode/cathode follow `common_anode`.
+        leds: [LedState; 3],
     },
     LedBar {
         segments: usize,
-        states: u32,
         grounded: bool,
+        leds: Vec<LedState>,
     },
     SevenSegment {
         common_anode: bool,
-        segments: u8,
+        /// How many digit commons to publish (`pin_commona` …).
+        num_displays: usize,
+        /// One companion per digit segment (`pin_a` … `pin_dot` × each common).
+        leds: Vec<LedState>,
     },
     LedMatrix {
         rows: usize,
@@ -444,10 +475,13 @@ pub enum Kind {
         threshold: f64,
         max_current: f64,
         resistance: f64,
+        /// One die per row/column crosspoint. Row pin is the anode.
+        leds: Vec<LedState>,
     },
     Max72xx {
         modules: usize,
         color: String,
+        fb: crate::digital::Max72Fb,
     },
     Ws2812 {
         count: usize,
@@ -458,6 +492,7 @@ pub enum Kind {
         t0l_ns: u32,
         t1h_ns: u32,
         t1l_ns: u32,
+        fb: crate::digital::Ws2812Fb,
     },
     Dial {
         value: f64,
@@ -485,7 +520,12 @@ pub enum Kind {
         voltage: f64,
         power: f64,
         r_cold: f64,
+        /// Filament resistance at the current temperature. Starts at `r_cold`.
         resistance: f64,
+        /// 0 = cold filament, 1 = hot filament at nominal power.
+        heat: f64,
+        /// Thermal time constant in seconds. The property default is 20 ms.
+        tau: f64,
     },
     AudioOut {
         source: crate::audio::Source,
@@ -540,6 +580,8 @@ pub struct PinCache {
     pub mux_en: Option<usize>,
     pub mux_addr: [Option<usize>; 4],
     pub switch_poles: Vec<(Option<usize>, Option<usize>, Option<usize>)>,
+    /// Anode and cathode nodes for each LED die, in `led_pin_pairs` order.
+    pub led_dies: Vec<(Option<usize>, Option<usize>)>,
 }
 
 #[derive(Clone, Debug)]
@@ -564,6 +606,7 @@ impl Kind {
                 v_gate_th,
                 i_hold,
                 conducting,
+                ..
             } => {
                 let va_opt = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
                 let vk_opt = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
@@ -601,6 +644,7 @@ impl Kind {
                 v_gate_th,
                 i_hold,
                 conducting,
+                ..
             } => {
                 let v1_opt = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
                 let v2_opt = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
@@ -636,7 +680,10 @@ impl Kind {
             }
             Kind::Diac {
                 v_breakover,
+                res_on,
+                hold_curr,
                 conducting,
+                ..
             } => {
                 let v1_opt = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
                 let v2_opt = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
@@ -650,8 +697,8 @@ impl Kind {
                 let v_diff = (v1 - v2).abs();
                 let mut state = *conducting;
                 if state {
-                    let i_main = v_diff * (1.0 / 500.0);
-                    if i_main < 0.005 {
+                    let i_main = v_diff * (1.0 / res_on.max(1e-6));
+                    if i_main < *hold_curr {
                         state = false;
                     }
                 } else if v_diff > *v_breakover {
@@ -697,6 +744,84 @@ impl Kind {
                     true
                 }
             }
+            Kind::Relay {
+                i_on,
+                i_off,
+                r_coil,
+                inductance,
+                coil_i,
+                active,
+                ..
+            } => {
+                let (Some(n0), Some(n1)) = (cache.left, cache.right) else {
+                    if *active {
+                        *active = false;
+                        return false;
+                    }
+                    return true;
+                };
+                let vl = nodes.get(n0).map(|n| n.volt).unwrap_or(0.0);
+                let vr = nodes.get(n1).map(|n| n.volt).unwrap_or(0.0);
+                let i = if *inductance > 0.0 {
+                    coil_i.abs()
+                } else {
+                    (vl - vr).abs() / r_coil.max(1e-6)
+                };
+                let on_th = *i_on;
+                let off_th = i_off.min(*i_on);
+                // The coil shares its node with a finite-admit voltage source, so
+                // V/R lands a fraction of a nanoamp under a threshold set to V/R.
+                const I_EPS: f64 = 1e-9;
+                let next = if i + I_EPS >= on_th {
+                    true
+                } else if i + I_EPS < off_th {
+                    false
+                } else {
+                    *active
+                };
+                if *active != next {
+                    *active = next;
+                    false
+                } else {
+                    true
+                }
+            }
+            Kind::Csource {
+                control_pins,
+                curr_control,
+                ctrl,
+                sense_ohms,
+                ..
+            } => {
+                if !*control_pins {
+                    return true;
+                }
+                let vcp = cache
+                    .input_p
+                    .and_then(|i| nodes.get(i))
+                    .map(|n| n.volt)
+                    .unwrap_or(0.0);
+                let vcm = cache
+                    .input_n
+                    .and_then(|i| nodes.get(i))
+                    .map(|n| n.volt)
+                    .unwrap_or(0.0);
+                let sample = if *curr_control {
+                    (vcp - vcm) / sense_ohms.max(1e-9)
+                } else {
+                    vcp - vcm
+                };
+                if (sample - *ctrl).abs() > 1e-9 {
+                    *ctrl = sample;
+                    false
+                } else {
+                    true
+                }
+            }
+            Kind::RgbLed { leds, .. } => diode::update_led_dies(leds, &cache.led_dies, nodes),
+            Kind::LedBar { leds, .. } => diode::update_led_dies(leds, &cache.led_dies, nodes),
+            Kind::SevenSegment { leds, .. } => diode::update_led_dies(leds, &cache.led_dies, nodes),
+            Kind::LedMatrix { leds, .. } => diode::update_led_dies(leds, &cache.led_dies, nodes),
             _ => true,
         }
     }
@@ -1062,38 +1187,12 @@ impl Kind {
             (Kind::Diode { state, .. }, PinSuffix::Right) => Some(state.current),
             (Kind::Led { state }, PinSuffix::Right) => Some(state.current),
             (
-                Kind::RgbLed { common_anode, .. },
+                Kind::RgbLed { common_anode, leds },
                 PinSuffix::Right | PinSuffix::Ground | PinSuffix::RgbB | PinSuffix::RgbC,
             ) => {
-                let vr = cache
-                    .left
-                    .and_then(|idx| nodes.get(idx))
-                    .map(|n| n.volt)
-                    .unwrap_or(0.0);
-                let vg = cache
-                    .mid
-                    .and_then(|idx| nodes.get(idx))
-                    .map(|n| n.volt)
-                    .unwrap_or(0.0);
-                let vb = cache
-                    .right
-                    .and_then(|idx| nodes.get(idx))
-                    .map(|n| n.volt)
-                    .unwrap_or(0.0);
-                let vc = cache
-                    .out
-                    .and_then(|idx| nodes.get(idx))
-                    .map(|n| n.volt)
-                    .unwrap_or(0.0);
-                let eval_vd = |va: f64, vk: f64| -> f64 {
-                    let vd = va - vk;
-                    if vd > 1.8 { (vd - 1.8) / 100.0 } else { 0.0 }
-                };
-                let (ir, ig, ib) = if *common_anode {
-                    (eval_vd(vc, vr), eval_vd(vc, vg), eval_vd(vc, vb))
-                } else {
-                    (eval_vd(vr, vc), eval_vd(vg, vc), eval_vd(vb, vc))
-                };
+                let ir = leds.first().map(|led| led.current).unwrap_or(0.0);
+                let ig = leds.get(1).map(|led| led.current).unwrap_or(0.0);
+                let ib = leds.get(2).map(|led| led.current).unwrap_or(0.0);
                 Some(match suffix {
                     PinSuffix::Right => {
                         if *common_anode {
@@ -1126,51 +1225,11 @@ impl Kind {
                     _ => 0.0,
                 })
             }
-            (
-                Kind::LedBar {
-                    segments, grounded, ..
-                },
-                PinSuffix::IndexedLeft(i),
-            ) => {
-                if i < *segments {
-                    let va = pin_volt(pin)?;
-                    let vk = if *grounded {
-                        0.0
-                    } else {
-                        let ra = format!("{comp_id}-rPin{i}");
-                        pin_volt(&ra)?
-                    };
-                    let v_diff = va - vk;
-                    let current = if v_diff > 1.8 {
-                        (v_diff - 1.8) / 100.0
-                    } else {
-                        0.0
-                    };
-                    Some(-current)
-                } else {
-                    None
-                }
+            (Kind::LedBar { leds, .. }, PinSuffix::IndexedLeft(i)) => {
+                leds.get(i).map(|led| -led.current)
             }
-            (
-                Kind::LedBar {
-                    segments, grounded, ..
-                },
-                PinSuffix::IndexedRight(i),
-            ) if !*grounded => {
-                if i < *segments {
-                    let la = format!("{comp_id}-lPin{i}");
-                    let va = pin_volt(&la)?;
-                    let vk = pin_volt(pin)?;
-                    let v_diff = va - vk;
-                    let current = if v_diff > 1.8 {
-                        (v_diff - 1.8) / 100.0
-                    } else {
-                        0.0
-                    };
-                    Some(current)
-                } else {
-                    None
-                }
+            (Kind::LedBar { leds, grounded, .. }, PinSuffix::IndexedRight(i)) if !*grounded => {
+                leds.get(i).map(|led| led.current)
             }
             (Kind::Bjt { state }, PinSuffix::Collector) => Some(-state.ic),
             (Kind::Bjt { state }, PinSuffix::Emitter) => Some(-state.ie),
@@ -1246,7 +1305,115 @@ impl Kind {
                 let v = pin_volt(pin)?;
                 Some((*last_out - v) * crate::SOURCE_ADMIT)
             }
-            (Kind::FreqMeter { .. }, PinSuffix::Left) => Some(0.0),
+            (Kind::FreqMeter { .. }, _) => {
+                let v = pin_volt(pin).unwrap_or(0.0);
+                Some(-v * crate::instruments::PLOT_INPUT_ADMIT)
+            }
+            (
+                Kind::SevenSegmentBCD { .. }
+                | Kind::SdCard { .. }
+                | Kind::TftDisplay { .. }
+                | Kind::Pcf8833Display { .. },
+                _,
+            ) => {
+                let v = pin_volt(pin).unwrap_or(0.0);
+                Some(-v * crate::instruments::PLOT_INPUT_ADMIT)
+            }
+            (
+                Kind::LedMatrix {
+                    rows, cols, leds, ..
+                },
+                _,
+            ) => {
+                let suffix = pin
+                    .strip_prefix(comp_id)
+                    .and_then(|rest| rest.strip_prefix('-'))
+                    .unwrap_or("");
+                let r = (*rows).max(1);
+                let c = (*cols).max(1);
+                if let Some(rest) = suffix.strip_prefix("rPin") {
+                    let Ok(row) = rest.parse::<usize>() else {
+                        return None;
+                    };
+                    if row >= r {
+                        return None;
+                    }
+                    let mut sum = 0.0;
+                    for col in 0..c {
+                        if let Some(led) = leds.get(row * c + col) {
+                            sum -= led.current;
+                        }
+                    }
+                    Some(sum)
+                } else if let Some(rest) = suffix.strip_prefix("cPin") {
+                    let Ok(col) = rest.parse::<usize>() else {
+                        return None;
+                    };
+                    if col >= c {
+                        return None;
+                    }
+                    let mut sum = 0.0;
+                    for row in 0..r {
+                        if let Some(led) = leds.get(row * c + col) {
+                            sum += led.current;
+                        }
+                    }
+                    Some(sum)
+                } else {
+                    None
+                }
+            }
+            (
+                Kind::SevenSegment {
+                    common_anode,
+                    num_displays,
+                    leds,
+                },
+                _,
+            ) => {
+                let n = (*num_displays).clamp(1, 8);
+                let suffix = pin
+                    .strip_prefix(comp_id)
+                    .and_then(|rest| rest.strip_prefix('-'))
+                    .unwrap_or("");
+                const SEGS: [&str; 8] = [
+                    "pin_a", "pin_b", "pin_c", "pin_d", "pin_e", "pin_f", "pin_g", "pin_dot",
+                ];
+                if let Some(seg_i) = SEGS.iter().position(|name| *name == suffix) {
+                    let mut sum = 0.0;
+                    for digit in 0..n {
+                        if let Some(led) = leds.get(digit * 8 + seg_i) {
+                            sum += if *common_anode {
+                                led.current
+                            } else {
+                                -led.current
+                            };
+                        }
+                    }
+                    Some(sum)
+                } else if let Some(rest) = suffix.strip_prefix("pin_common") {
+                    let Some(letter) = rest.chars().next() else {
+                        return None;
+                    };
+                    let digit = (letter as u8).wrapping_sub(b'a') as usize;
+                    if digit >= n {
+                        return None;
+                    }
+                    let mut sum = 0.0;
+                    for seg_i in 0..8 {
+                        if let Some(led) = leds.get(digit * 8 + seg_i) {
+                            sum += if *common_anode {
+                                -led.current
+                            } else {
+                                led.current
+                            };
+                        }
+                    }
+                    Some(sum)
+                } else {
+                    None
+                }
+            }
             (
                 Kind::Oscope {
                     connect_gnd,

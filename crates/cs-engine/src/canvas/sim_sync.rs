@@ -357,6 +357,17 @@ impl Canvas {
                                     }
                                 }
                             }
+                        } else if let Part::Stepper(ref mut motor) = it.kind {
+                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
+                            {
+                                if let crate::elements::Kind::Stepper { angle: a, .. } = comp.kind {
+                                    if (motor.angle - a).abs() > 1e-4 {
+                                        motor.angle = a;
+                                        self.dirty.mark_item(&it.id);
+                                        motor_anim = true;
+                                    }
+                                }
+                            }
                         }
                     }
                     new_currents = compute_wire_currents(&self.scene, circuit);
@@ -916,6 +927,74 @@ impl Canvas {
                                 .and_then(|comp| {
                                     if let crate::elements::Kind::Pcd8544(p) = &comp.kind {
                                         Some(p.hex_bitmap())
+                                    } else {
+                                        None
+                                    }
+                                })
+                        })
+                        .unwrap_or_default();
+                    let changed = self.readings.get(&it.id).map(|r| &r.text) != Some(&text);
+                    if changed {
+                        self.dirty.mark_item(&it.id);
+                    }
+                    self.readings.insert(
+                        it.id.clone(),
+                        crate::instruments::ReadingView {
+                            text,
+                            max_text: String::new(),
+                            avg_text: String::new(),
+                            extra: String::new(),
+                            high: false,
+                            low: false,
+                            hz_text: String::new(),
+                        },
+                    );
+                }
+                Part::Max72xx(_) => {
+                    let text = self
+                        .running
+                        .as_ref()
+                        .and_then(|c| {
+                            c.components()
+                                .iter()
+                                .find(|comp| comp.id == it.id)
+                                .and_then(|comp| {
+                                    if let crate::elements::Kind::Max72xx { fb, .. } = &comp.kind {
+                                        Some(fb.hex())
+                                    } else {
+                                        None
+                                    }
+                                })
+                        })
+                        .unwrap_or_default();
+                    let changed = self.readings.get(&it.id).map(|r| &r.text) != Some(&text);
+                    if changed {
+                        self.dirty.mark_item(&it.id);
+                    }
+                    self.readings.insert(
+                        it.id.clone(),
+                        crate::instruments::ReadingView {
+                            text,
+                            max_text: String::new(),
+                            avg_text: String::new(),
+                            extra: String::new(),
+                            high: false,
+                            low: false,
+                            hz_text: String::new(),
+                        },
+                    );
+                }
+                Part::Ws2812(_) => {
+                    let text = self
+                        .running
+                        .as_ref()
+                        .and_then(|c| {
+                            c.components()
+                                .iter()
+                                .find(|comp| comp.id == it.id)
+                                .and_then(|comp| {
+                                    if let crate::elements::Kind::Ws2812 { fb, .. } = &comp.kind {
+                                        Some(fb.hex())
                                     } else {
                                         None
                                     }

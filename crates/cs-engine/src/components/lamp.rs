@@ -32,6 +32,7 @@ impl crate::canvas::Item {
                 voltage,
                 power,
                 r_cold,
+                tau: 0.02,
             },
         )
     }
@@ -42,6 +43,8 @@ pub struct Lamp {
     pub voltage: f64,
     pub power: f64,
     pub r_cold: f64,
+    /// Thermal time constant, seconds.
+    pub tau: f64,
 }
 
 impl Default for Lamp {
@@ -50,6 +53,7 @@ impl Default for Lamp {
             voltage: 12.0,
             power: 2.4,
             r_cold: 5.0,
+            tau: 0.02,
         }
     }
 }
@@ -62,6 +66,8 @@ impl Lamp {
             power: self.power,
             r_cold: self.r_cold,
             resistance: self.r_cold,
+            heat: 0.0,
+            tau: self.tau,
         }
     }
 
@@ -86,6 +92,14 @@ impl Lamp {
     }
     fn set_resistance(&mut self, v: PropValue) -> Result<(), PropError> {
         self.r_cold = expect_float("Resistance", v)?.clamp(MIN_R, MAX_R);
+        Ok(())
+    }
+
+    fn get_tau(&self) -> PropValue {
+        PropValue::Float(self.tau)
+    }
+    fn set_tau(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.tau = expect_float("Tau", v)?.clamp(1e-6, 100.0);
         Ok(())
     }
 }
@@ -131,6 +145,16 @@ impl Component for Lamp {
                 Lamp::set_resistance,
             )
             .with_info("Resistance of the filament."),
+            PropDef::float(
+                "Tau",
+                "Thermal Tau",
+                "s",
+                1e-6,
+                100.0,
+                Lamp::get_tau,
+                Lamp::set_tau,
+            )
+            .with_info("Filament thermal time constant."),
         ];
         PROPS
     }

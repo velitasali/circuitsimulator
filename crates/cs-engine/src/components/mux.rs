@@ -85,7 +85,7 @@ impl Component for Mux {
     }
 
     fn body(&self) -> Rect {
-        let channels = 1 << self.addr_bits.clamp(1, 4);
+        let channels = 1 << self.addr_bits.clamp(1, 5);
         let height = channels + 2;
         let h = (height as f64) * 4.0;
         Rect::new(-16.0, -h - 6.0, 32.0, (h + 6.0) * 2.0)
@@ -127,7 +127,8 @@ mod tests {
 }
 
 fn mux_pins(id: &str, addr_bits: usize) -> Vec<Pin> {
-    let num_inputs = 1 << addr_bits.clamp(1, 4);
+    let addr_bits = addr_bits.clamp(1, 5);
+    let num_inputs = 1 << addr_bits;
     let mut pins = Vec::with_capacity(num_inputs + addr_bits + 3);
     let channels = num_inputs;
     let height = channels + 2;
@@ -184,40 +185,22 @@ fn mux_pins(id: &str, addr_bits: usize) -> Vec<Pin> {
             unused: false,
         });
     } else {
-        // addr_bits >= 3 (default 3: S0 at +8, S1 at 0, S2 at -8)
-        pins.push(Pin {
-            direction: Some(PinDirection::In),
-            id: format!("{id}-addr0"),
-            item_id: id.to_string(),
-            local: Point::new(8.0, h + 8.0),
-            angle: 270,
-            length: 8.0,
-            is_bus: false,
-            label: "S0".into(),
-            unused: false,
-        });
-        pins.push(Pin {
-            direction: Some(PinDirection::In),
-            id: format!("{id}-addr1"),
-            item_id: id.to_string(),
-            local: Point::new(0.0, h + 8.0),
-            angle: 270,
-            length: 6.0,
-            is_bus: false,
-            label: "S1".into(),
-            unused: false,
-        });
-        pins.push(Pin {
-            direction: Some(PinDirection::In),
-            id: format!("{id}-addr2"),
-            item_id: id.to_string(),
-            local: Point::new(-8.0, h + 8.0),
-            angle: 270,
-            length: 4.0,
-            is_bus: false,
-            label: "S2".into(),
-            unused: false,
-        });
+        // 3 bits: S0 at +8, S1 at 0, S2 at -8. Wider address counts stay on the same 8 px grid.
+        let span = 8.0 * (addr_bits as f64 - 1.0);
+        let x0 = span / 2.0;
+        for i in 0..addr_bits {
+            pins.push(Pin {
+                direction: Some(PinDirection::In),
+                id: format!("{id}-addr{i}"),
+                item_id: id.to_string(),
+                local: Point::new(x0 - 8.0 * i as f64, h + 8.0),
+                angle: 270,
+                length: (8.0 - 2.0 * i as f64).clamp(2.0, 8.0),
+                is_bus: false,
+                label: format!("S{i}"),
+                unused: false,
+            });
+        }
     }
 
     pins.push(Pin {

@@ -1,6 +1,7 @@
 //! Digital converters matching C++ `Mux`, `Demux`, `BcdToDec`, `DecToBcd`,
 //! `BcdTo7S`, `I2CToParallel`, `ADC`, and `DAC`.
 
+use super::TwiModule;
 use super::family::LogicFamily;
 use super::pin::IoPin;
 use super::queue::OutQueue;
@@ -23,7 +24,7 @@ pub struct MuxState {
 
 impl MuxState {
     pub fn new(id: &str, addr_bits: usize) -> Self {
-        let addr_bits = addr_bits.clamp(1, 4);
+        let addr_bits = addr_bits.clamp(1, 5);
         let num_inputs = 1 << addr_bits;
         let mut inputs = Vec::with_capacity(num_inputs);
         for i in 0..num_inputs {
@@ -109,7 +110,7 @@ pub struct DemuxState {
 
 impl DemuxState {
     pub fn new(id: &str, addr_bits: usize, inverted: bool) -> Self {
-        let addr_bits = addr_bits.clamp(1, 4);
+        let addr_bits = addr_bits.clamp(1, 5);
         let num_outputs = 1 << addr_bits;
         let mut outputs = Vec::with_capacity(num_outputs);
         for i in 0..num_outputs {
@@ -181,6 +182,9 @@ impl DemuxState {
 pub struct BcdToDecState {
     pub inputs: Vec<IoPin>,  // 4 inputs: A0, A1, A2, A3
     pub outputs: Vec<IoPin>, // 10 or 16 outputs
+    /// Output enable, schematic pin `in4`. Active-low: a high level blanks
+    /// every output. Unconnected (sampled low) stays enabled.
+    pub oe: IoPin,
     pub sixteen: bool,
     pub active_low: bool,
     pub family: LogicFamily,
@@ -202,9 +206,11 @@ impl BcdToDecState {
             }
             outputs.push(pin);
         }
+        let oe = IoPin::input(format!("{id}-in4"));
         let mut st = Self {
             inputs,
             outputs,
+            oe,
             sixteen,
             active_low,
             family: LogicFamily::default(),
@@ -221,9 +227,18 @@ impl BcdToDecState {
         for pin in &mut self.outputs {
             self.family.apply(pin);
         }
+        self.family.apply(&mut self.oe);
     }
 
     pub fn eval(&mut self) {
+        // High OE disables the decoder. `set_out_state(false)` is the
+        // deasserted logical level, so active-low outputs rest high.
+        if self.oe.inp_state() {
+            for out in &mut self.outputs {
+                out.set_out_state(false);
+            }
+            return;
+        }
         let mut val = 0usize;
         for (i, p) in self.inputs.iter().enumerate() {
             if p.inp_state() {
@@ -255,7 +270,8 @@ pub struct DecToBcdState {
 
 impl DecToBcdState {
     pub fn new(id: &str, sixteen: bool, active_low: bool) -> Self {
-        let count = if sixteen { 16 } else { 10 };
+        // Schematic data pins are in0..in8 (or in0..in14). Output enable is always in15.
+        let count = if sixteen { 15 } else { 9 };
         let mut inputs = Vec::with_capacity(count);
         for i in 0..count {
             let mut pin = IoPin::input(format!("{id}-in{i}"));
@@ -274,7 +290,7 @@ impl DecToBcdState {
         }
         let gs = IoPin::output(format!("{id}-gs"));
         let eo = IoPin::output(format!("{id}-eo"));
-        let ei = IoPin::input(format!("{id}-ei"));
+        let ei = IoPin::input(format!("{id}-in15"));
 
         let mut st = Self {
             inputs,
@@ -366,14 +382,15 @@ impl BcdTo7SState {
         for i in 0..4 {
             inputs.push(IoPin::input(format!("{id}-in{i}")));
         }
+        // Lamp test and ripple-blanking input are not schematic pins.
         let lt = IoPin::input(format!("{id}-lt"));
         let rbi = IoPin::input(format!("{id}-rbi"));
-        let bi_rbo = IoPin::input(format!("{id}-bi_rbo"));
+        // Blanking / output-enable pin is schematic `in4`.
+        let bi_rbo = IoPin::input(format!("{id}-in4"));
 
-        let seg_names = ["a", "b", "c", "d", "e", "f", "g"];
         let mut segments = Vec::with_capacity(7);
-        for name in seg_names {
-            let mut pin = IoPin::output(format!("{id}-{name}"));
+        for i in 0..7 {
+            let mut pin = IoPin::output(format!("{id}-out{i}"));
             if common_anode {
                 pin.set_inverted(true);
             }
@@ -463,18 +480,21 @@ pub struct I2CToParallelState {
     pub out_latch: u8,
     pub family: LogicFamily,
     pub queue: OutQueue,
+    pub twi: TwiModule,
 }
 
 impl I2CToParallelState {
     pub fn new(id: &str, address: u8) -> Self {
         let mut ports = Vec::with_capacity(8);
         for i in 0..8 {
-            ports.push(IoPin::output(format!("{id}-p{i}")));
+            ports.push(IoPin::output(format!("{id}-out{i}")));
         }
-        let int_pin = IoPin::open_collector(format!("{id}-int"));
-        let scl = IoPin::input(format!("{id}-scl"));
-        let sda = IoPin::open_collector(format!("{id}-sda"));
+        let int_pin = IoPin::open_collector(format!("{id}-in5"));
+        let scl = IoPin::input(format!("{id}-in1"));
+        let sda = IoPin::open_collector(format!("{id}-in0"));
 
+        let mut twi = TwiModule::new();
+        twi.set_slave(address & 0x7F);
         let mut st = Self {
             address,
             ports,
@@ -485,8 +505,14 @@ impl I2CToParallelState {
             out_latch: 0xFF,
             family: LogicFamily::default(),
             queue: OutQueue::new(),
+            twi,
         };
         st.apply_family();
+        st.write_byte(0xFF);
+        // Open-collector pins are born sinking. A slave that holds SDA low
+        // hides every host bit, so the address "ack" is just a stuck bus.
+        st.sda.set_out_state(true);
+        st.int_pin.set_out_state(true);
         st
     }
 
@@ -515,6 +541,27 @@ impl I2CToParallelState {
         }
         val
     }
+
+    /// Sample the existing TWI slave. A received byte drives the port pins.
+    /// A slave read returns the sampled port byte. INT is the open-drain
+    /// alert when the port byte differs from the last bus transfer.
+    pub fn poll(&mut self) {
+        if self.twi.address != (self.address & 0x7F) {
+            self.twi.set_slave(self.address & 0x7F);
+        }
+        let tick = self.twi.volt_changed_pins(&mut self.scl, &mut self.sda);
+        if let Some(byte) = tick.byte_received {
+            self.write_byte(byte);
+            self.in_latch = byte;
+        }
+        if tick.need_slave_write {
+            let byte = self.read_byte();
+            self.twi.tx_reg = byte;
+            self.in_latch = byte;
+        }
+        let alert = self.read_byte() != self.in_latch;
+        self.int_pin.set_out_state(!alert);
+    }
 }
 
 // ============================================================================
@@ -540,7 +587,7 @@ impl AdcState {
         let bits = bits.clamp(4, 16);
         let mut outputs = Vec::with_capacity(bits);
         for i in 0..bits {
-            outputs.push(IoPin::output(format!("{id}-d{i}")));
+            outputs.push(IoPin::output(format!("{id}-out{i}")));
         }
         let soc = IoPin::input(format!("{id}-soc"));
         let eoc = IoPin::output(format!("{id}-eoc"));
@@ -606,7 +653,7 @@ impl DacState {
         let bits = bits.clamp(4, 16);
         let mut inputs = Vec::with_capacity(bits);
         for i in 0..bits {
-            inputs.push(IoPin::input(format!("{id}-d{i}")));
+            inputs.push(IoPin::input(format!("{id}-in{i}")));
         }
         let mut st = Self {
             bits,
@@ -637,5 +684,50 @@ impl DacState {
         let vout = self.vref * (val as f64 / max_val as f64);
         self.vout = vout;
         vout
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::I2CToParallelState;
+
+    /// Host levels, then one extra sample when the slave changes SDA.
+    /// That second sample is what the solver does after a stamp change.
+    fn sample(dev: &mut I2CToParallelState, scl_high: bool, host_sda_high: bool) {
+        for _ in 0..4 {
+            let sda_high = host_sda_high && dev.sda.get_out_state();
+            let before = dev.sda.get_out_state();
+            dev.scl.get_inp_state(if scl_high { 5.0 } else { 0.0 });
+            dev.sda.get_inp_state(if sda_high { 5.0 } else { 0.0 });
+            dev.poll();
+            if dev.sda.get_out_state() == before {
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn i2c_slave_releases_sda_and_a_write_updates_the_port_latch() {
+        let mut dev = I2CToParallelState::new("IO", 0x50);
+        assert!(
+            dev.sda.get_out_state(),
+            "SDA must idle released or the host cannot send a byte"
+        );
+        sample(&mut dev, true, true);
+        sample(&mut dev, true, true);
+        sample(&mut dev, true, false);
+        for byte in [0xA0u8, 0x0F] {
+            for i in (0..8).rev() {
+                let one = byte & (1 << i) != 0;
+                sample(&mut dev, false, true);
+                sample(&mut dev, false, one);
+                sample(&mut dev, true, one);
+            }
+            sample(&mut dev, false, true);
+            sample(&mut dev, true, true);
+        }
+        assert_eq!(dev.out_latch, 0x0F);
+        assert!(!dev.ports[4].get_out_state());
+        assert!(dev.ports[0].get_out_state());
     }
 }

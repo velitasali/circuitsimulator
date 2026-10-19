@@ -118,8 +118,8 @@ fn test_graphic_and_char_lcds() {
     let max = Max72xx::default();
     assert_eq!(
         max.pin_geoms().len(),
-        5,
-        "MAX72xx module has VCC, GND, DIN, CS, CLK"
+        6,
+        "MAX72xx module has VCC, GND, DIN, CS, CLK, DOUT"
     );
     let rec_max = record_part_paint(&Part::Max72xx(max));
     assert!(rec_max.is_all_finite());

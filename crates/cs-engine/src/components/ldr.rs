@@ -14,6 +14,10 @@ const MIN_LUX: f64 = 0.1;
 const MAX_LUX: f64 = 1e8;
 const MIN_R: f64 = 1e-3;
 const MAX_R: f64 = 1e12;
+/// `RLight` is the resistance at this illumination.
+const LUX_REF: f64 = 1000.0;
+/// CdS photocell exponent. There is no gamma property; this is the shared constant.
+const GAMMA: f64 = 0.85;
 
 impl crate::canvas::Item {
     pub fn ldr(id: impl Into<String>, x: f64, y: f64, resistance: f64, lux: f64) -> Self {
@@ -67,9 +71,18 @@ impl Default for Ldr {
 
 impl Ldr {
     pub const TYPE_ID: &'static str = "Ldr";
+    /// `R = RLight * (LUX_REF / lux) ^ GAMMA`, clamped to the span of `RLight` and `RDark`.
+    pub fn resistance(&self) -> f64 {
+        let lux = self.lux.max(MIN_LUX);
+        let r = self.r_light * (LUX_REF / lux).powf(GAMMA);
+        let lo = self.r_light.min(self.r_dark).max(MIN_R);
+        let hi = self.r_light.max(self.r_dark).max(lo);
+        r.clamp(lo, hi)
+    }
+
     pub fn to_element_kind(&self) -> Kind {
         Kind::Ldr {
-            resistance: self.r_light,
+            resistance: self.resistance(),
             lux: self.lux,
         }
     }
@@ -175,7 +188,7 @@ impl TwoTerminal for Ldr {}
 
 impl Stampable for Ldr {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
-        stamp_two_terminal(matrix, pin_nodes, resistor_g(self.r_light), 0.0);
+        stamp_two_terminal(matrix, pin_nodes, resistor_g(self.resistance()), 0.0);
     }
 }
 
@@ -207,6 +220,18 @@ mod tests {
         assert_eq!(l.r_dark, 1e6);
         assert_eq!(l.r_light, 1000.0);
         assert_eq!(l.dial_step, 0.0);
+        assert!(
+            (Ldr {
+                lux: super::LUX_REF,
+                ..l.clone()
+            }
+            .resistance()
+                - l.r_light)
+                .abs()
+                < 1e-9
+        );
+        assert!(l.resistance() > l.r_light);
+        assert!(l.resistance() <= l.r_dark);
         assert_eq!(l.pin_geoms().len(), 2);
         assert_eq!(l.body(), Rect::new(-11.0, -4.5, 22.0, 9.0));
     }

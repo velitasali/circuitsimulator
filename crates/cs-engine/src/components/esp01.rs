@@ -42,6 +42,7 @@ impl Esp01 {
         Kind::Esp01 {
             baud_rate: self.baud_rate,
             debug: self.debug,
+            uart: crate::digital::EspUart::default(),
         }
     }
 

@@ -127,12 +127,13 @@ impl FlipFlopState {
                 ids.push(self.k.id.clone());
             }
             FlipFlopKind::T => ids.push(self.t.id.clone()),
-            FlipFlopKind::Rs => {}
+            FlipFlopKind::Rs => {
+                ids.push(self.set.id.clone());
+                ids.push(self.rst.id.clone());
+            }
         }
-        if self.kind != FlipFlopKind::Rs {
-            ids.push(self.set.id.clone());
-            ids.push(self.rst.id.clone());
-        } else {
+        // Set and reset are extra pins on D/JK/T. RS uses them as the data pins.
+        if self.kind != FlipFlopKind::Rs && self.use_rs {
             ids.push(self.set.id.clone());
             ids.push(self.rst.id.clone());
         }
@@ -365,7 +366,7 @@ impl LatchState {
         for o in &mut outputs {
             apply_family_out(&family, o);
         }
-        let mut oe = mk_in(format!("{id}-Pin_outEnable"));
+        let mut oe = mk_in(format!("{id}-oe"));
         oe.set_inverted(true);
         let mut s = Self {
             family,
@@ -376,8 +377,8 @@ impl LatchState {
             out_enable: true,
             inputs,
             outputs,
-            clk: mk_in(format!("{id}-Pin_clock")),
-            reset: mk_in(format!("{id}-Pin_reset")),
+            clk: mk_in(format!("{id}-clk")),
+            reset: mk_in(format!("{id}-rst")),
             oe,
             queue: OutQueue::new(),
         };
@@ -388,9 +389,15 @@ impl LatchState {
     pub fn pin_ids(&self) -> Vec<String> {
         let mut ids: Vec<String> = self.inputs.iter().map(|p| p.id.clone()).collect();
         ids.extend(self.outputs.iter().map(|p| p.id.clone()));
-        ids.push(self.clk.id.clone());
-        ids.push(self.reset.id.clone());
-        ids.push(self.oe.id.clone());
+        if self.clocked.trigger != Trigger::None {
+            ids.push(self.clk.id.clone());
+        }
+        if self.use_reset {
+            ids.push(self.reset.id.clone());
+        }
+        if self.tristate {
+            ids.push(self.oe.id.clone());
+        }
         ids
     }
 

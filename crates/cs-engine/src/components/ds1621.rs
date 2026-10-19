@@ -44,6 +44,7 @@ impl DS1621 {
             tout_high: false,
             sda_low: false,
             scl_low: false,
+            bus: crate::digital::Ds1621Bus::default(),
         }
     }
 

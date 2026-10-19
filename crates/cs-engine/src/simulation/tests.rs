@@ -1,8 +1,9 @@
 //! Circuit simulation unit and integration test suite.
 
 use super::*;
-use crate::digital::PinMode;
-use crate::elements::Kind;
+use crate::digital::{BcdToDecState, CounterState, DacState, FunctionState, PinMode};
+use crate::elements::pins::seven_segment_die_count;
+use crate::elements::{Comp, Kind, LedState};
 use crate::subcircuit::SubcSearch;
 
 fn approx(a: f64, b: f64) {
@@ -1799,4 +1800,1152 @@ fn sim1_mcu_from_catalog_xml() {
         _ => panic!("expected Kind::Mcu"),
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn function_output_drives_load_in_one_solve() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VA", 5.0)
+        .add_comp(Comp {
+            id: "F1".into(),
+            kind: Kind::Function(FunctionState::new("F1", 1, "A")),
+        })
+        .add_comp(Comp {
+            id: "F2".into(),
+            kind: Kind::Function(FunctionState::new("F2", 1, "A")),
+        })
+        .add_resistor("R1", 10_000.0)
+        .add_resistor("R2", 10_000.0)
+        .add_ground("GND")
+        .connect("VA-outnod", "F1-in0")
+        .connect("F1-out0", "F2-in0")
+        .connect("F1-out0", "R1-lPin")
+        .connect("R2-lPin", "F2-out0")
+        .connect("R1-rPin", "GND-Gnd")
+        .connect("R2-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    assert!(logic_high(c.pin_voltage("F1-out0").unwrap()));
+    assert!(
+        logic_high(c.pin_voltage("F2-out0").unwrap()),
+        "second stage must restamp inside the same solve"
+    );
+}
+
+#[test]
+fn dac_full_scale_drives_output_node() {
+    let mut c = Circuit::new();
+    let dac = DacState::new("DAC", 8, 5.0);
+    c.add_fixed_volt("VA", 5.0)
+        .add_comp(Comp {
+            id: "DAC".into(),
+            kind: Kind::Dac(dac),
+        })
+        .add_resistor("RL", 10_000.0)
+        .add_ground("GND")
+        .connect("DAC-out0", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    for i in 0..8 {
+        c.connect("VA-outnod", format!("DAC-in{i}"));
+    }
+    c.solve().unwrap();
+    let v = c.pin_voltage("DAC-out0").unwrap();
+    assert!((v - 5.0).abs() < 1e-3, "dac out {v}");
+}
+
+#[test]
+fn counter_terminal_count_drives_load() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VA", 5.0)
+        .add_comp(Comp {
+            id: "CNT".into(),
+            kind: Kind::Counter(CounterState::new("CNT", 1, 1)),
+        })
+        .add_resistor("RL", 10_000.0)
+        .add_ground("GND")
+        .connect("CNT-out0", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    assert!(logic_low(c.pin_voltage("CNT-out0").unwrap()));
+    c.connect("VA-outnod", "CNT-in0");
+    c.solve().unwrap();
+    assert!(logic_high(c.pin_voltage("CNT-out0").unwrap()));
+}
+
+#[test]
+fn clock_square_wave_toggles_each_half_period() {
+    let mut c = Circuit::new();
+    c.add_comp(Comp {
+        id: "CLK".into(),
+        kind: Kind::Clock {
+            voltage: 5.0,
+            freq_khz: 1.0,
+            state: false,
+        },
+    })
+    .add_resistor("RL", 10_000.0)
+    .add_ground("GND")
+    .connect("CLK-outnod", "RL-lPin")
+    .connect("RL-rPin", "GND-Gnd");
+    assert!(c.has_time_sources());
+    c.solve().unwrap();
+    assert!(logic_low(c.pin_voltage("CLK-outnod").unwrap()));
+    // 1 kHz: period 1 ms, first edge at 0.5 ms. The level is derived from time,
+    // so the first half stays low.
+    c.run_ps(500_000_000).unwrap();
+    assert!(logic_high(c.pin_voltage("CLK-outnod").unwrap()));
+    c.run_ps(500_000_000).unwrap();
+    assert!(logic_low(c.pin_voltage("CLK-outnod").unwrap()));
+}
+
+fn relay_kind(
+    r_coil: f64,
+    i_on: f64,
+    i_off: f64,
+    norm_close: bool,
+    double_throw: bool,
+    poles: usize,
+) -> Kind {
+    Kind::Relay {
+        norm_close,
+        double_throw,
+        poles,
+        i_on,
+        i_off,
+        r_coil,
+        inductance: 0.0,
+        coil_i: 0.0,
+        active: false,
+    }
+}
+
+#[test]
+fn relay_pulls_in_from_coil_current_and_holds() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VC", 1.0)
+        .add_fixed_volt("VS", 5.0)
+        .add_comp(Comp {
+            id: "RY".into(),
+            kind: relay_kind(50.0, 0.02, 0.01, false, false, 1),
+        })
+        .add_resistor("RL", 1_000.0)
+        .add_ground("GND")
+        .connect("VC-outnod", "RY-lPin")
+        .connect("RY-rPin", "GND-Gnd")
+        .connect("VS-outnod", "RY-c1")
+        .connect("RY-c2", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    // 1 V / 50 Ω = 20 mA, which is i_on. A 100 Ω coil would stay open.
+    c.solve().unwrap();
+    let closed = c.pin_voltage("RL-lPin").unwrap();
+    assert!(closed > 4.5, "contact should close, got {closed}");
+
+    if let Kind::FixedVolt { voltage } = &mut c.comp_mut("VC").unwrap().kind {
+        *voltage = 0.75;
+    }
+    // 0.75 V / 50 Ω = 15 mA, between i_off and i_on.
+    c.re_solve().unwrap();
+    let held = c.pin_voltage("RL-lPin").unwrap();
+    assert!(held > 4.5, "hysteresis should hold the contact, got {held}");
+
+    if let Kind::FixedVolt { voltage } = &mut c.comp_mut("VC").unwrap().kind {
+        *voltage = 0.2;
+    }
+    c.re_solve().unwrap();
+    let open = c.pin_voltage("RL-lPin").unwrap();
+    assert!(open.abs() < 0.05, "contact should drop out, got {open}");
+}
+
+#[test]
+fn relay_inductance_delays_pull_in_until_the_coil_current_rises() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VC", 5.0)
+        .add_fixed_volt("VS", 5.0)
+        .add_comp(Comp {
+            id: "RY".into(),
+            kind: Kind::Relay {
+                norm_close: false,
+                double_throw: false,
+                poles: 1,
+                i_on: 0.02,
+                i_off: 0.01,
+                r_coil: 100.0,
+                inductance: 0.1,
+                coil_i: 0.0,
+                active: false,
+            },
+        })
+        .add_resistor("RL", 1_000.0)
+        .add_ground("GND")
+        .connect("VC-outnod", "RY-lPin")
+        .connect("RY-rPin", "GND-Gnd")
+        .connect("VS-outnod", "RY-c1")
+        .connect("RY-c2", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    assert!(
+        c.pin_voltage("RL-lPin").unwrap().abs() < 0.05,
+        "a 0.1 H coil should not pull in on the first DC solve"
+    );
+    // tau = L/R = 1 ms. 20 mA is about half a time constant of the 50 mA steady current.
+    c.run_ps(2_000_000_000).unwrap();
+    let closed = c.pin_voltage("RL-lPin").unwrap();
+    assert!(
+        closed > 4.5,
+        "coil current should pull in by 2 ms, got {closed}"
+    );
+}
+
+#[test]
+fn relay_normally_closed_and_second_pole() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VS", 5.0)
+        .add_comp(Comp {
+            id: "RY".into(),
+            kind: relay_kind(100.0, 0.02, 0.01, true, false, 2),
+        })
+        .add_resistor("RL0", 1_000.0)
+        .add_resistor("RL1", 1_000.0)
+        .add_ground("GND")
+        .connect("VS-outnod", "RY-c1")
+        .connect("VS-outnod", "RY-c1p1")
+        .connect("RY-c2", "RL0-lPin")
+        .connect("RY-c2p1", "RL1-lPin")
+        .connect("RL0-rPin", "GND-Gnd")
+        .connect("RL1-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    assert!(c.pin_voltage("RL0-lPin").unwrap() > 4.5);
+    assert!(c.pin_voltage("RL1-lPin").unwrap() > 4.5);
+
+    c.add_fixed_volt("VC", 5.0)
+        .connect("VC-outnod", "RY-lPin")
+        .connect("RY-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    assert!(
+        c.pin_voltage("RL0-lPin").unwrap().abs() < 0.05,
+        "coil current should open a normally-closed contact"
+    );
+    assert!(c.pin_voltage("RL1-lPin").unwrap().abs() < 0.05);
+}
+
+#[test]
+fn relay_double_throw_swaps_contacts() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VS", 5.0)
+        .add_comp(Comp {
+            id: "RY".into(),
+            kind: relay_kind(100.0, 0.02, 0.01, false, true, 1),
+        })
+        .add_resistor("RNO", 1_000.0)
+        .add_resistor("RNC", 1_000.0)
+        .add_ground("GND")
+        .connect("VS-outnod", "RY-c1")
+        .connect("RY-c2", "RNO-lPin")
+        .connect("RY-c3", "RNC-lPin")
+        .connect("RNO-rPin", "GND-Gnd")
+        .connect("RNC-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    assert!(c.pin_voltage("RNO-lPin").unwrap().abs() < 0.05);
+    assert!(c.pin_voltage("RNC-lPin").unwrap() > 4.5);
+
+    c.add_fixed_volt("VC", 5.0)
+        .connect("VC-outnod", "RY-lPin")
+        .connect("RY-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    assert!(c.pin_voltage("RNO-lPin").unwrap() > 4.5);
+    assert!(c.pin_voltage("RNC-lPin").unwrap().abs() < 0.05);
+}
+
+#[test]
+fn csource_scales_control_voltage_and_current() {
+    let mut voltage = Circuit::new();
+    voltage
+        .add_fixed_volt("VCTRL", 1.5)
+        .add_comp(Comp {
+            id: "CS".into(),
+            kind: Kind::Csource {
+                control_pins: true,
+                curr_source: false,
+                curr_control: false,
+                gain: 2.0,
+                volt: 9.0,
+                current: 1.0,
+                ctrl: 0.0,
+                sense_ohms: 1.0,
+            },
+        })
+        .add_resistor("RL", 1_000.0)
+        .add_ground("GND")
+        .connect("VCTRL-outnod", "CS-cpPin")
+        .connect("CS-cmPin", "GND-Gnd")
+        .connect("CS-s2Pin", "GND-Gnd")
+        .connect("CS-s1Pin", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    voltage.solve().unwrap();
+    let v = voltage.pin_voltage("CS-s1Pin").unwrap();
+    assert!((v - 3.0).abs() < 1e-3, "vcvs out {v}");
+
+    let mut current = Circuit::new();
+    current
+        .add_fixed_volt("VCTRL", 2.0)
+        .add_comp(Comp {
+            id: "CS".into(),
+            kind: Kind::Csource {
+                control_pins: true,
+                curr_source: true,
+                curr_control: false,
+                gain: 0.01,
+                volt: 0.0,
+                current: 1.0,
+                ctrl: 0.0,
+                sense_ohms: 1.0,
+            },
+        })
+        .add_resistor("RL", 100.0)
+        .add_ground("GND")
+        .connect("VCTRL-outnod", "CS-cpPin")
+        .connect("CS-cmPin", "GND-Gnd")
+        .connect("CS-s2Pin", "GND-Gnd")
+        .connect("CS-s1Pin", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    current.solve().unwrap();
+    let v = current.pin_voltage("CS-s1Pin").unwrap();
+    assert!(
+        (v - 2.0).abs() < 1e-3,
+        "vccs into 100 Ω should be 2 V, got {v}"
+    );
+
+    let mut fixed = Circuit::new();
+    fixed
+        .add_comp(Comp {
+            id: "CS".into(),
+            kind: Kind::Csource {
+                control_pins: false,
+                curr_source: false,
+                curr_control: false,
+                gain: 10.0,
+                volt: 3.3,
+                current: 1.0,
+                ctrl: 0.0,
+                sense_ohms: 1.0,
+            },
+        })
+        .add_resistor("RL", 1_000.0)
+        .add_ground("GND")
+        .connect("CS-s2Pin", "GND-Gnd")
+        .connect("CS-s1Pin", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    fixed.solve().unwrap();
+    let v = fixed.pin_voltage("CS-s1Pin").unwrap();
+    assert!((v - 3.3).abs() < 1e-3, "fixed source {v}");
+}
+
+#[test]
+fn csource_current_control_uses_sense_branch() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VCTRL", 5.0)
+        .add_resistor("RS", 4.0)
+        .add_comp(Comp {
+            id: "CS".into(),
+            kind: Kind::Csource {
+                control_pins: true,
+                curr_source: true,
+                curr_control: true,
+                gain: 0.1,
+                volt: 0.0,
+                current: 0.0,
+                ctrl: 0.0,
+                sense_ohms: 1.0,
+            },
+        })
+        .add_resistor("RL", 10.0)
+        .add_ground("GND")
+        .connect("VCTRL-outnod", "RS-lPin")
+        .connect("RS-rPin", "CS-cpPin")
+        .connect("CS-cmPin", "GND-Gnd")
+        .connect("CS-s2Pin", "GND-Gnd")
+        .connect("CS-s1Pin", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    // 5 V across 4 Ω + 1 Ω sense is 1 A. Gain 0.1 A/A into 10 Ω is 1 V.
+    let v = c.pin_voltage("CS-s1Pin").unwrap();
+    assert!((v - 1.0).abs() < 1e-2, "cccs out {v}");
+}
+
+fn rgb_kind() -> Kind {
+    Kind::RgbLed {
+        common_anode: false,
+        leds: [
+            LedState::configured(2.4, 0.6, 0.03, false),
+            LedState::configured(2.4, 0.6, 0.03, false),
+            LedState::configured(2.4, 0.6, 0.03, false),
+        ],
+    }
+}
+
+#[test]
+fn led_arrays_stay_dark_until_forward_biased() {
+    let mut idle = Circuit::new();
+    idle.add_comp(Comp {
+        id: "RGB".into(),
+        kind: rgb_kind(),
+    })
+    .add_resistor("R", 10_000.0)
+    .add_ground("GND")
+    .connect("RGB-cPin", "GND-Gnd")
+    .connect("RGB-rPin", "R-lPin")
+    .connect("R-rPin", "GND-Gnd");
+    idle.solve().unwrap();
+    let v = idle.pin_voltage("RGB-rPin").unwrap();
+    assert!(v.abs() < 0.05, "unpowered rgb pin injected {v} V");
+
+    let mut forward = Circuit::new();
+    forward
+        .add_fixed_volt("V", 5.0)
+        .add_resistor("R", 220.0)
+        .add_comp(Comp {
+            id: "RGB".into(),
+            kind: rgb_kind(),
+        })
+        .add_ground("GND")
+        .connect("V-outnod", "R-lPin")
+        .connect("R-rPin", "RGB-rPin")
+        .connect("RGB-cPin", "GND-Gnd");
+    forward.solve().unwrap();
+    let v = forward.pin_voltage("RGB-rPin").unwrap();
+    assert!(
+        (2.2..2.8).contains(&v),
+        "forward drop should sit near 2.4 V, got {v}"
+    );
+
+    let mut bar = Circuit::new();
+    bar.add_fixed_volt("V", 5.0)
+        .add_resistor("R", 220.0)
+        .add_comp(Comp {
+            id: "BAR".into(),
+            kind: Kind::LedBar {
+                segments: 2,
+                grounded: true,
+                leds: LedState::dies(2, 2.4, 0.6, 0.03, true),
+            },
+        })
+        .add_ground("GND")
+        .connect("V-outnod", "R-lPin")
+        .connect("R-rPin", "BAR-lPin0")
+        .connect("BAR-lPin1", "GND-Gnd");
+    bar.solve().unwrap();
+    let von = bar.pin_voltage("BAR-lPin0").unwrap();
+    let voff = bar.pin_voltage("BAR-lPin1").unwrap();
+    assert!((2.2..2.8).contains(&von), "bar segment {von}");
+    assert!(voff.abs() < 0.05, "undriven bar segment {voff}");
+
+    let mut seg = Circuit::new();
+    seg.add_fixed_volt("V", 5.0)
+        .add_resistor("R", 220.0)
+        .add_comp(Comp {
+            id: "SS".into(),
+            kind: Kind::SevenSegment {
+                common_anode: false,
+                num_displays: 1,
+                leds: LedState::dies(seven_segment_die_count(1), 2.4, 0.6, 0.02, false),
+            },
+        })
+        .add_ground("GND")
+        .connect("V-outnod", "R-lPin")
+        .connect("R-rPin", "SS-a")
+        .connect("SS-com", "GND-Gnd")
+        .connect("SS-pin_b", "GND-Gnd");
+    seg.solve().unwrap();
+    let va = seg.pin_voltage("SS-a").unwrap();
+    let vb = seg.pin_voltage("SS-pin_b").unwrap();
+    assert!((2.2..2.8).contains(&va), "alias segment {va}");
+    assert!(vb.abs() < 0.05, "undriven canonical segment {vb}");
+}
+
+#[test]
+fn stepper_angle_follows_energized_coil() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("V", 5.0)
+        .add_comp(Comp {
+            id: "M".into(),
+            kind: Kind::Stepper {
+                bipolar: false,
+                steps: 32,
+                resistance: 100.0,
+                angle: 0.0,
+            },
+        })
+        .add_ground("GND")
+        .connect("M-PinA1", "GND-Gnd")
+        .connect("M-PinA2", "GND-Gnd")
+        .connect("M-PinB2", "GND-Gnd")
+        .connect("M-PinCo", "GND-Gnd")
+        .connect("V-outnod", "M-PinB1");
+    c.solve().unwrap();
+    let angle = |c: &Circuit| match c.comp("M").unwrap().kind {
+        Kind::Stepper { angle, .. } => angle,
+        _ => panic!("stepper"),
+    };
+    assert!(angle(&c).abs() < 1e-6);
+    c.run_ps(1_000_000_000).unwrap();
+    let mid = angle(&c);
+    assert!(
+        (1.5..4.0).contains(&mid),
+        "1 ms should move part of one step, got {mid}"
+    );
+    c.run_ps(50_000_000_000).unwrap();
+    let settled = angle(&c);
+    assert!(
+        (10.0..12.5).contains(&settled),
+        "B coil should settle one step (11.25°), got {settled}"
+    );
+}
+
+#[test]
+fn lamp_filament_warms_from_cold_resistance() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("V", 12.0)
+        .add_comp(Comp {
+            id: "L".into(),
+            kind: Kind::Lamp {
+                voltage: 12.0,
+                power: 2.4,
+                r_cold: 5.0,
+                resistance: 5.0,
+                heat: 0.0,
+                tau: 0.02,
+            },
+        })
+        .add_ground("GND")
+        .connect("V-outnod", "L-lPin")
+        .connect("L-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    let resistance = |c: &Circuit| match c.comp("L").unwrap().kind {
+        Kind::Lamp { resistance, .. } => resistance,
+        _ => panic!("lamp"),
+    };
+    assert!((resistance(&c) - 5.0).abs() < 1e-6);
+    c.dt = 1e-3;
+    c.run_ps(200_000_000_000).unwrap();
+    let hot = resistance(&c);
+    assert!(
+        (50.0..65.0).contains(&hot),
+        "hot resistance should approach V²/P = 60 Ω, got {hot}"
+    );
+    c.re_solve().unwrap();
+    let i = c.current_out_of_pin("L-lPin").unwrap().abs();
+    assert!(i < 0.4, "warm filament current {i}");
+}
+
+fn set_volt(c: &mut Circuit, id: &str, volts: f64) {
+    if let Kind::FixedVolt { voltage } = &mut c.comp_mut(id).unwrap().kind {
+        *voltage = volts;
+    }
+}
+
+#[test]
+fn pcd8544_spi_byte_lands_in_ram() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VR", 5.0)
+        .add_fixed_volt("VC", 0.0)
+        .add_fixed_volt("VD", 5.0)
+        .add_fixed_volt("VS", 0.0)
+        .add_fixed_volt("VK", 0.0)
+        .add_comp(Comp::pcd8544("LCD", 50, 4))
+        .connect("VR-outnod", "LCD-PinRst")
+        .connect("VC-outnod", "LCD-PinCs")
+        .connect("VD-outnod", "LCD-PinDc")
+        .connect("VS-outnod", "LCD-PinSi")
+        .connect("VK-outnod", "LCD-PinScl");
+    c.solve().unwrap();
+    let byte = 0xA5u8;
+    for i in (0..8).rev() {
+        set_volt(&mut c, "VS", if byte & (1 << i) == 0 { 0.0 } else { 5.0 });
+        c.re_solve().unwrap();
+        set_volt(&mut c, "VK", 5.0);
+        c.re_solve().unwrap();
+        set_volt(&mut c, "VK", 0.0);
+        c.re_solve().unwrap();
+    }
+    match &c.comp("LCD").unwrap().kind {
+        Kind::Pcd8544(p) => assert_eq!(p.ram[0][0], 0xA5),
+        _ => panic!("pcd8544"),
+    }
+}
+
+#[test]
+fn ks0108_parallel_write_lands_in_left_ram() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VR", 5.0)
+        .add_fixed_volt("VC1", 5.0)
+        .add_fixed_volt("VC2", 0.0)
+        .add_fixed_volt("VRW", 0.0)
+        .add_fixed_volt("VD", 5.0)
+        .add_fixed_volt("VE", 0.0)
+        .add_comp(Comp::ks0108("GL", 128, 64))
+        .connect("VR-outnod", "GL-PinRst")
+        .connect("VC1-outnod", "GL-PinCs1")
+        .connect("VC2-outnod", "GL-PinCs2")
+        .connect("VRW-outnod", "GL-PinRW")
+        .connect("VD-outnod", "GL-PinDC")
+        .connect("VE-outnod", "GL-PinEn");
+    let byte = 0xA5u8;
+    for bit in 0..8 {
+        let id = format!("D{bit}");
+        c.add_fixed_volt(&id, if byte & (1 << bit) == 0 { 0.0 } else { 5.0 });
+        c.connect(format!("{id}-outnod"), format!("GL-dataPin{bit}"));
+    }
+    c.solve().unwrap();
+    set_volt(&mut c, "VE", 5.0);
+    c.re_solve().unwrap();
+    set_volt(&mut c, "VE", 0.0);
+    c.re_solve().unwrap();
+    match &c.comp("GL").unwrap().kind {
+        Kind::Ks0108(k) => assert_eq!(k.left_ram[0][0], 0xA5),
+        _ => panic!("ks0108"),
+    }
+}
+
+fn i2c_start(c: &mut Circuit) {
+    c.solve().unwrap();
+    c.re_solve().unwrap();
+    set_volt(c, "VSDA", 0.0);
+    c.re_solve().unwrap();
+}
+
+fn i2c_bit(c: &mut Circuit, one: bool) {
+    set_volt(c, "VSCL", 0.0);
+    c.re_solve().unwrap();
+    set_volt(c, "VSDA", if one { 5.0 } else { 0.0 });
+    c.re_solve().unwrap();
+    set_volt(c, "VSCL", 5.0);
+    c.re_solve().unwrap();
+}
+
+fn i2c_byte(c: &mut Circuit, byte: u8, sda_pin: &str) -> f64 {
+    for i in (0..8).rev() {
+        i2c_bit(c, byte & (1 << i) != 0);
+    }
+    set_volt(c, "VSCL", 0.0);
+    set_volt(c, "VSDA", 5.0);
+    c.re_solve().unwrap();
+    let ack = c.pin_voltage(sda_pin).unwrap();
+    set_volt(c, "VSCL", 5.0);
+    c.re_solve().unwrap();
+    ack
+}
+
+fn i2c_stop(c: &mut Circuit) {
+    set_volt(c, "VSCL", 0.0);
+    set_volt(c, "VSDA", 0.0);
+    c.re_solve().unwrap();
+    set_volt(c, "VSCL", 5.0);
+    c.re_solve().unwrap();
+    set_volt(c, "VSDA", 5.0);
+    c.re_solve().unwrap();
+}
+
+#[test]
+fn aip31068_i2c_writes_a_character_and_acks() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VSCL", 5.0)
+        .add_fixed_volt("VSDA", 5.0)
+        .add_resistor("RP", 4_700.0)
+        .add_comp(Comp::aip31068("LCD", 2, 16))
+        .connect("VSCL-outnod", "LCD-PinSCL")
+        .connect("VSDA-outnod", "RP-lPin")
+        .connect("RP-rPin", "LCD-PinSDA");
+    i2c_start(&mut c);
+    let ack = i2c_byte(&mut c, 0x7C, "LCD-PinSDA");
+    assert!(ack < 0.25, "address ack should pull SDA, got {ack}");
+    let _ = i2c_byte(&mut c, 0x40, "LCD-PinSDA");
+    let _ = i2c_byte(&mut c, b'A', "LCD-PinSDA");
+    i2c_stop(&mut c);
+    match &c.comp("LCD").unwrap().kind {
+        Kind::Aip31068(a) => assert_eq!(a.hd44780.ddram[0], b'A'),
+        _ => panic!("aip31068"),
+    }
+}
+
+#[test]
+fn sh1107_i2c_writes_a_ram_byte() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VSCL", 5.0)
+        .add_fixed_volt("VSDA", 5.0)
+        .add_resistor("RP", 4_700.0)
+        .add_comp(Comp::sh1107("OLED", 128, 128))
+        .connect("VSCL-outnod", "OLED-PinSck")
+        .connect("VSDA-outnod", "RP-lPin")
+        .connect("RP-rPin", "OLED-PinSda");
+    i2c_start(&mut c);
+    let ack = i2c_byte(&mut c, 0x78, "OLED-PinSda");
+    assert!(ack < 0.25, "address ack should pull SDA, got {ack}");
+    let _ = i2c_byte(&mut c, 0x40, "OLED-PinSda");
+    let _ = i2c_byte(&mut c, 0xA5, "OLED-PinSda");
+    i2c_stop(&mut c);
+    match &c.comp("OLED").unwrap().kind {
+        Kind::Sh1107(s) => assert_eq!(s.ddram[32][0], 0xA5),
+        _ => panic!("sh1107"),
+    }
+}
+
+#[test]
+fn i2c_to_parallel_write_drives_the_port_pins() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VSCL", 5.0)
+        .add_fixed_volt("VSDA", 5.0)
+        .add_resistor("RP", 4_700.0)
+        .add_resistor("R0", 10_000.0)
+        .add_resistor("R4", 10_000.0)
+        .add_ground("GND")
+        .add_comp(Comp {
+            id: "IO".to_string(),
+            kind: Kind::I2CToParallel(crate::digital::I2CToParallelState::new("IO", 0x50)),
+        })
+        .connect("VSCL-outnod", "IO-in1")
+        .connect("VSDA-outnod", "RP-lPin")
+        .connect("RP-rPin", "IO-in0")
+        .connect("IO-out0", "R0-lPin")
+        .connect("R0-rPin", "GND-Gnd")
+        .connect("IO-out4", "R4-lPin")
+        .connect("R4-rPin", "GND-Gnd");
+    i2c_start(&mut c);
+    let ack = i2c_byte(&mut c, 0xA0, "IO-in0");
+    assert!(ack < 0.25, "address ack should pull SDA, got {ack}");
+    let _ = i2c_byte(&mut c, 0x0F, "IO-in0");
+    i2c_stop(&mut c);
+    let low = c.pin_voltage("IO-out4").unwrap();
+    let high = c.pin_voltage("IO-out0").unwrap();
+    let latch = match &c.comp("IO").unwrap().kind {
+        Kind::I2CToParallel(p) => p.out_latch,
+        _ => 0,
+    };
+    assert_eq!(latch, 0x0F, "written byte should land in the port latch");
+    assert!(low < 0.5, "bit 4 should be driven low, got {low}");
+    assert!(high > 4.0, "bit 0 should be driven high, got {high}");
+}
+
+#[test]
+fn max72xx_latches_a_digit_and_ws2812_stores_a_pixel() {
+    let mut mx = Circuit::new();
+    mx.add_fixed_volt("VD", 0.0)
+        .add_fixed_volt("VK", 0.0)
+        .add_fixed_volt("VC", 5.0)
+        .add_comp(Comp::max72xx("MX", 1, "Yellow"))
+        .add_ground("GND")
+        .connect("VD-outnod", "MX-din")
+        .connect("VK-outnod", "MX-clk")
+        .connect("VC-outnod", "MX-cs")
+        .connect("MX-gnd", "GND-Gnd");
+    mx.solve().unwrap();
+    set_volt(&mut mx, "VC", 0.0);
+    mx.re_solve().unwrap();
+    let word = 0x01A5u16;
+    for i in (0..16).rev() {
+        set_volt(&mut mx, "VD", if word & (1 << i) == 0 { 0.0 } else { 5.0 });
+        mx.re_solve().unwrap();
+        set_volt(&mut mx, "VK", 5.0);
+        mx.re_solve().unwrap();
+        set_volt(&mut mx, "VK", 0.0);
+        mx.re_solve().unwrap();
+    }
+    set_volt(&mut mx, "VC", 5.0);
+    mx.re_solve().unwrap();
+    match &mx.comp("MX").unwrap().kind {
+        Kind::Max72xx { fb, .. } => {
+            assert_eq!(fb.digits[0][0], 0xA5);
+            assert!(fb.hex().starts_with("A5"));
+        }
+        _ => panic!("max72xx"),
+    }
+
+    let mut px = Circuit::new();
+    px.add_fixed_volt("VD", 0.0)
+        .add_resistor("RL", 10_000.0)
+        .add_comp(Comp::ws2812("PX", 1, 1, 1, 50_000, 400, 850, 850, 400))
+        .add_ground("GND")
+        .connect("VD-outnod", "PX-din")
+        .connect("PX-gnd", "GND-Gnd")
+        .connect("PX-dout", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    px.run_ps(1).unwrap();
+    let bits = [false; 8].into_iter().chain([true; 8]).chain([false; 8]);
+    for bit in bits {
+        set_volt(&mut px, "VD", 5.0);
+        px.update().unwrap();
+        px.circ_time += if bit { 800_000 } else { 400_000 };
+        set_volt(&mut px, "VD", 0.0);
+        px.update().unwrap();
+        px.circ_time += 200_000;
+    }
+    match &px.comp("PX").unwrap().kind {
+        Kind::Ws2812 { fb, .. } => assert_eq!(fb.pixels[0], [255, 0, 0]),
+        _ => panic!("ws2812"),
+    }
+    set_volt(&mut px, "VD", 5.0);
+    px.update().unwrap();
+    px.circ_time += 800_000;
+    set_volt(&mut px, "VD", 0.0);
+    px.update().unwrap();
+    assert!(
+        px.pin_voltage("PX-dout").unwrap() > 4.0,
+        "forwarded 1 should drive DOUT"
+    );
+    px.run_ps(60_000_000).unwrap();
+    match &px.comp("PX").unwrap().kind {
+        Kind::Ws2812 { fb, .. } => {
+            assert_eq!(fb.bit_index, 0);
+            assert_eq!(fb.pixels[0], [255, 0, 0]);
+        }
+        _ => panic!("ws2812"),
+    }
+}
+
+#[test]
+fn sr04_echo_width_follows_slider_and_in_pin() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VCC", 5.0)
+        .add_fixed_volt("VT", 0.0)
+        .add_fixed_volt("VI", 0.10)
+        .add_resistor("RL", 10_000.0)
+        .add_comp(Comp::sr04("SR", 0.5, true))
+        .add_ground("GND")
+        .connect("VCC-outnod", "SR-vccpin")
+        .connect("VT-outnod", "SR-trigpin")
+        .connect("VI-outnod", "SR-inpin")
+        .connect("SR-gndpin", "GND-Gnd")
+        .connect("SR-outpin", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    c.run_ps(1).unwrap();
+    set_volt(&mut c, "VT", 5.0);
+    c.update().unwrap();
+    assert!(c.pin_voltage("SR-outpin").unwrap() > 4.5);
+    let half = (0.5_f64 / 343.0 * 1e12).round() as u64;
+    c.run_ps(half).unwrap();
+    assert!(c.pin_voltage("SR-outpin").unwrap() > 4.5, "echo still high");
+    c.run_ps(half.saturating_mul(3)).unwrap();
+    assert!(c.pin_voltage("SR-outpin").unwrap() < 0.1, "echo should end");
+
+    if let Kind::Sr04 { use_slider, .. } = &mut c.comp_mut("SR").unwrap().kind {
+        *use_slider = false;
+    }
+    set_volt(&mut c, "VT", 0.0);
+    c.update().unwrap();
+    set_volt(&mut c, "VT", 5.0);
+    c.update().unwrap();
+    let short = (0.1_f64 / 343.0 * 1e12).round() as u64;
+    c.run_ps(short).unwrap();
+    assert!(c.pin_voltage("SR-outpin").unwrap() > 4.5);
+    c.run_ps(short.saturating_mul(3)).unwrap();
+    assert!(c.pin_voltage("SR-outpin").unwrap() < 0.1);
+}
+
+#[test]
+fn dht22_drives_the_sensirion_frame() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VH", 5.0)
+        .add_resistor("RP", 4_700.0)
+        .add_comp(Comp::dht22("DH", "DHT22", 22.5, 68.5))
+        .connect("VH-outnod", "RP-lPin")
+        .connect("RP-rPin", "DH-inPin");
+    c.run_ps(1).unwrap();
+    set_volt(&mut c, "VH", 0.0);
+    c.update().unwrap();
+    c.run_ps(1_500_000_000).unwrap();
+    set_volt(&mut c, "VH", 5.0);
+    c.update().unwrap();
+    match &c.comp("DH").unwrap().kind {
+        Kind::Dht22 { link, .. } => {
+            assert_eq!(link.frame, crate::digital::dht_frame("DHT22", 22.5, 68.5));
+        }
+        _ => panic!("dht"),
+    }
+    c.run_ps(40_000_000).unwrap();
+    assert!(
+        c.pin_voltage("DH-inPin").unwrap() < 0.2,
+        "response starts low"
+    );
+    c.run_ps(20_000_000_000).unwrap();
+    match &c.comp("DH").unwrap().kind {
+        Kind::Dht22 { pin_driven, .. } => assert!(!pin_driven),
+        _ => panic!("dht"),
+    }
+    assert!(c.pin_voltage("DH-inPin").unwrap() > 4.0);
+}
+
+#[test]
+fn ds18b20_presence_and_scratchpad_follow_the_one_wire() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VH", 5.0)
+        .add_resistor("RP", 4_700.0)
+        .add_comp(Comp::ds18b20("OW", "28FF2B450000", 22.0))
+        .connect("VH-outnod", "RP-lPin")
+        .connect("RP-rPin", "OW-inPin");
+    c.run_ps(1).unwrap();
+
+    let hold = |c: &mut Circuit, ps: u64| {
+        set_volt(c, "VH", 0.0);
+        c.update().unwrap();
+        c.run_ps(ps).unwrap();
+    };
+    let release = |c: &mut Circuit| {
+        set_volt(c, "VH", 5.0);
+        c.update().unwrap();
+    };
+    hold(&mut c, 500_000_000);
+    release(&mut c);
+    c.run_ps(40_000_000).unwrap();
+    assert!(c.pin_voltage("OW-inPin").unwrap() < 0.2, "presence pulse");
+    c.run_ps(120_000_000).unwrap();
+    assert!(c.pin_voltage("OW-inPin").unwrap() > 4.0);
+
+    let write = |c: &mut Circuit, one: bool| {
+        hold(c, if one { 5_000_000 } else { 60_000_000 });
+        release(c);
+        c.run_ps(10_000_000).unwrap();
+    };
+    for byte in [0xCCu8, 0xBE] {
+        for bit in 0..8 {
+            write(&mut c, byte & (1 << bit) != 0);
+        }
+    }
+    match &c.comp("OW").unwrap().kind {
+        Kind::Ds18b20 { wire, .. } => {
+            assert_eq!(wire.scratch[0], 0x60);
+            assert_eq!(wire.scratch[1], 0x01);
+        }
+        _ => panic!("ds18"),
+    }
+    let mut raw = 0u16;
+    for i in 0..16 {
+        hold(&mut c, 2_000_000);
+        release(&mut c);
+        if c.pin_voltage("OW-inPin").unwrap() > 2.0 {
+            raw |= 1 << i;
+        }
+        c.run_ps(60_000_000).unwrap();
+    }
+    assert_eq!(raw, 0x0160);
+}
+
+#[test]
+fn ds1621_tout_tracks_the_thresholds() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VDD", 5.0)
+        .add_resistor("RL", 10_000.0)
+        .add_comp(Comp::ds1621("TS", 22.5))
+        .add_ground("GND")
+        .connect("VDD-outnod", "TS-PinVdd")
+        .connect("TS-PinGnd", "GND-Gnd")
+        .connect("TS-outPin0", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    assert!(c.pin_voltage("TS-outPin0").unwrap() < 0.1);
+    if let Kind::Ds1621 { temp, .. } = &mut c.comp_mut("TS").unwrap().kind {
+        *temp = 31.0;
+    }
+    c.re_solve().unwrap();
+    assert!(c.pin_voltage("TS-outPin0").unwrap() > 4.5);
+    if let Kind::Ds1621 { temp, .. } = &mut c.comp_mut("TS").unwrap().kind {
+        *temp = 9.0;
+    }
+    c.re_solve().unwrap();
+    assert!(c.pin_voltage("TS-outPin0").unwrap() < 0.1);
+}
+
+#[test]
+fn ds1307_sqw_toggles_at_its_frequency() {
+    let mut c = Circuit::new();
+    c.add_resistor("RL", 10_000.0)
+        .add_comp(Comp::ds1307("RTC", true))
+        .add_ground("GND")
+        .connect("RTC-PinSQW", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    if let Kind::Ds1307 { sqw_freq, bus, .. } = &mut c.comp_mut("RTC").unwrap().kind {
+        *sqw_freq = 1_000.0;
+        assert!(!bus.seeded);
+    }
+    c.run_ps(1).unwrap();
+    assert!(c.pin_voltage("RTC-PinSQW").unwrap() < 0.1);
+    match &c.comp("RTC").unwrap().kind {
+        Kind::Ds1307 { bus, .. } => assert!(bus.seeded),
+        _ => panic!("rtc"),
+    }
+    c.run_ps(500_000_000).unwrap();
+    assert!(c.pin_voltage("RTC-PinSQW").unwrap() > 4.5);
+    c.run_ps(500_000_000).unwrap();
+    assert!(c.pin_voltage("RTC-PinSQW").unwrap() < 0.1);
+}
+
+#[test]
+fn esp01_answers_at_with_ok() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VRX", 5.0)
+        .add_resistor("RR", 4_700.0)
+        .add_resistor("RT", 10_000.0)
+        .add_comp(Comp::esp01("ESP", 500_000, false))
+        .add_ground("GND")
+        .connect("VRX-outnod", "RR-lPin")
+        .connect("RR-rPin", "ESP-pin1")
+        .connect("ESP-pin0", "RT-lPin")
+        .connect("RT-rPin", "GND-Gnd");
+    c.run_ps(1).unwrap();
+    let idle = c.pin_voltage("ESP-pin0").unwrap();
+    assert!((idle - 3.3).abs() < 0.05, "TX idles high, got {idle}");
+    let bit = 2_000_000u64;
+    for byte in [b'A', b'T', b'\r', b'\n'] {
+        set_volt(&mut c, "VRX", 0.0);
+        c.update().unwrap();
+        for i in 0..8 {
+            let one = byte & (1 << i) != 0;
+            set_volt(&mut c, "VRX", if one { 5.0 } else { 0.0 });
+            c.update().unwrap();
+            c.run_ps(if i == 0 { bit + bit / 2 } else { bit }).unwrap();
+        }
+        set_volt(&mut c, "VRX", 5.0);
+        c.update().unwrap();
+        c.run_ps(bit).unwrap();
+    }
+    assert!(c.pin_voltage("ESP-pin0").unwrap() < 0.2, "OK start bit");
+    let mut seen = 0u8;
+    for i in 0..8 {
+        c.run_ps(bit).unwrap();
+        if c.pin_voltage("ESP-pin0").unwrap() > 2.0 {
+            seen |= 1 << i;
+        }
+    }
+    assert_eq!(seen, b'O');
+}
+
+#[test]
+fn bcd_to_dec_output_enable_blanks_the_selected_line() {
+    fn decoder(active_low: bool) -> Circuit {
+        let mut c = Circuit::new();
+        c.add_comp(Comp {
+            id: "U1".into(),
+            kind: Kind::BcdToDec(BcdToDecState::new("U1", false, active_low)),
+        })
+        .add_resistor("RL", 10_000.0)
+        .add_ground("GND")
+        .connect("U1-out0", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+        c
+    }
+
+    let mut enabled = decoder(false);
+    enabled.solve().unwrap();
+    assert!(
+        logic_high(enabled.pin_voltage("U1-out0").unwrap()),
+        "unconnected OE stays enabled"
+    );
+    enabled
+        .add_fixed_volt("OE", 5.0)
+        .connect("OE-outnod", "U1-in4");
+    enabled.solve().unwrap();
+    assert!(logic_low(enabled.pin_voltage("U1-out0").unwrap()));
+
+    let mut active_low = decoder(true);
+    active_low.solve().unwrap();
+    assert!(
+        logic_low(active_low.pin_voltage("U1-out0").unwrap()),
+        "active-low selected output rests low"
+    );
+    active_low
+        .add_fixed_volt("OE", 5.0)
+        .connect("OE-outnod", "U1-in4");
+    active_low.solve().unwrap();
+    assert!(
+        logic_high(active_low.pin_voltage("U1-out0").unwrap()),
+        "blanked active-low outputs rest high"
+    );
+}
+
+#[test]
+fn header_and_socket_rows_pass_voltage_and_stay_apart() {
+    for (id, kind) in [
+        ("H", Kind::Header { pins_count: 2 }),
+        ("S", Kind::Socket { pins_count: 2 }),
+    ] {
+        let mut c = Circuit::new();
+        c.add_comp(Comp {
+            id: id.into(),
+            kind,
+        })
+        .add_fixed_volt("VA", 5.0)
+        .add_fixed_volt("VB", 3.0)
+        .add_ground("GND")
+        .connect("VA-outnod", format!("{id}-pin0"))
+        .connect("VB-outnod", format!("{id}-pin1"))
+        .add_resistor("R0", 1_000.0)
+        .connect(format!("{id}-pin2"), "R0-lPin")
+        .connect("R0-rPin", "GND-Gnd")
+        .add_resistor("R1", 1_000.0)
+        .connect(format!("{id}-pin3"), "R1-lPin")
+        .connect("R1-rPin", "GND-Gnd");
+        c.solve().unwrap();
+        approx(c.pin_voltage(&format!("{id}-pin2")).unwrap(), 5.0);
+        approx(c.pin_voltage(&format!("{id}-pin3")).unwrap(), 3.0);
+    }
+}
+
+#[test]
+fn bus_trunk_is_one_spine_and_lines_stay_apart() {
+    let mut c = Circuit::new();
+    c.add_comp(Comp {
+        id: "B".into(),
+        kind: Kind::Bus { width: 2 },
+    })
+    .add_fixed_volt("VLINE", 5.0)
+    .add_fixed_volt("VTRUNK", 2.0)
+    .add_ground("GND")
+    .connect("VLINE-outnod", "B-ePin1")
+    .connect("VTRUNK-outnod", "B-ePin0")
+    .add_resistor("RL", 1_000.0)
+    .connect("B-ePin2", "RL-lPin")
+    .connect("RL-rPin", "GND-Gnd")
+    .add_resistor("RT", 1_000.0)
+    .connect("B-busPinI", "RT-lPin")
+    .connect("RT-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    approx(c.pin_voltage("B-ePin1").unwrap(), 5.0);
+    approx(c.pin_voltage("B-ePin2").unwrap(), 0.0);
+    approx(c.pin_voltage("B-ePin0").unwrap(), 2.0);
+    approx(c.pin_voltage("B-busPinI").unwrap(), 2.0);
+}
+
+#[test]
+fn chained_buses_share_overlapping_lines_only() {
+    let mut c = Circuit::new();
+    c.add_comp(Comp {
+        id: "A".into(),
+        kind: Kind::Bus { width: 2 },
+    })
+    .add_comp(Comp {
+        id: "B".into(),
+        kind: Kind::Bus { width: 2 },
+    })
+    .add_comp(Comp {
+        id: "C".into(),
+        kind: Kind::Bus { width: 1 },
+    })
+    .add_fixed_volt("V0", 5.0)
+    .add_fixed_volt("V1", 3.0)
+    .add_ground("GND")
+    .connect("A-busPinI", "B-ePin0")
+    .connect("B-busPinI", "C-ePin0")
+    .connect("V0-outnod", "A-ePin1")
+    .connect("V1-outnod", "A-ePin2")
+    .add_resistor("R1", 1_000.0)
+    .connect("C-ePin1", "R1-lPin")
+    .connect("R1-rPin", "GND-Gnd")
+    .add_resistor("R2", 1_000.0)
+    .connect("B-ePin2", "R2-lPin")
+    .connect("R2-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    approx(c.pin_voltage("B-ePin1").unwrap(), 5.0);
+    approx(c.pin_voltage("C-ePin1").unwrap(), 5.0);
+    approx(c.pin_voltage("A-ePin2").unwrap(), 3.0);
+    approx(c.pin_voltage("B-ePin2").unwrap(), 3.0);
+    assert!(c.pin_voltage("C-ePin2").is_none());
+    approx(c.pin_voltage("A-ePin0").unwrap(), 0.0);
+    approx(c.pin_voltage("C-busPinI").unwrap(), 0.0);
 }

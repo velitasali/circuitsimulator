@@ -1,6 +1,6 @@
 //! WS2812 addressable RGB LED chain or matrix.
 
-use super::component::PropGroup;
+use super::component::{PropGroup, stamp_to_ground};
 use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_int};
 use super::{CompPin, Component, Stampable};
@@ -8,7 +8,7 @@ use crate::canvas::Pin;
 use crate::canvas::Point;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Color, Draw, PaintCtx};
-use crate::elements::Kind;
+use crate::elements::{Kind, SOURCE_ADMIT};
 use crate::matrix::CircMatrix;
 use crate::theme::COMPONENT_BORDER_WIDTH;
 
@@ -77,6 +77,7 @@ impl Ws2812 {
             t0l_ns: self.t0l_ns,
             t1h_ns: self.t1h_ns,
             t1l_ns: self.t1l_ns,
+            fb: crate::digital::Ws2812Fb::new(self.count),
         }
     }
 
@@ -229,7 +230,10 @@ impl Component for Ws2812 {
 }
 
 impl Stampable for Ws2812 {
-    fn stamp(&self, _matrix: &mut CircMatrix, _pin_nodes: &[usize], _dt: f64) {}
+    fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
+        // din, vcc, dout, gnd. Idle DOUT is low, same Norton pair as the solver.
+        stamp_to_ground(matrix, pin_nodes, 2, 0.0, SOURCE_ADMIT);
+    }
 }
 
 impl Drawable for Ws2812 {
@@ -248,18 +252,45 @@ impl Drawable for Ws2812 {
             ctx.pal.border,
             COMPONENT_BORDER_WIDTH,
         );
+        let hex = ctx
+            .canvas
+            .readings()
+            .get(ctx.item_id)
+            .map(|reading| reading.text.as_str())
+            .unwrap_or("");
         for row in 0..r {
             for col in 0..c {
-                d.fill_circle(
-                    (col as f64) * 12.0,
-                    (row as f64) * 12.0,
-                    3.5,
-                    Color::rgb(200, 200, 200),
-                );
+                let idx = row * c + col;
+                let color = ws_pixel(hex, idx).unwrap_or(Color::rgb(200, 200, 200));
+                d.fill_circle((col as f64) * 12.0, (row as f64) * 12.0, 3.5, color);
             }
         }
         true
     }
+}
+
+fn ws_pixel(hex: &str, index: usize) -> Option<Color> {
+    let start = index * 6;
+    let bytes = hex.as_bytes();
+    if start + 5 >= bytes.len() {
+        return None;
+    }
+    let nib = |c: u8| match c {
+        b'0'..=b'9' => c - b'0',
+        b'a'..=b'f' => c - b'a' + 10,
+        b'A'..=b'F' => c - b'A' + 10,
+        _ => 255,
+    };
+    let byte = |i: usize| {
+        let hi = nib(bytes[start + i * 2]);
+        let lo = nib(bytes[start + i * 2 + 1]);
+        if hi > 15 || lo > 15 {
+            None
+        } else {
+            Some((hi << 4) | lo)
+        }
+    };
+    Some(Color::rgb(byte(0)?, byte(1)?, byte(2)?))
 }
 
 impl crate::canvas::Scene {

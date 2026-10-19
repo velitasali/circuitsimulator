@@ -250,20 +250,29 @@ impl Comp {
                 format!("{}-rPin", self.id),
                 self.mid_pin(),
             ],
-            Kind::Led { .. } => {
-                vec![format!("{}-lPin", self.id), format!("{}-rPin", self.id)]
+            Kind::Led { state } => {
+                if state.grounded {
+                    vec![format!("{}-lPin", self.id)]
+                } else {
+                    vec![format!("{}-lPin", self.id), format!("{}-rPin", self.id)]
+                }
             }
             Kind::Bjt { .. } => vec![self.collector_pin(), self.emitter_pin(), self.base_pin()],
             Kind::Mosfet { .. } | Kind::Jfet { .. } => {
                 vec![self.drain_pin(), self.source_pin(), self.gate_pin()]
             }
-            Kind::OpAmp { .. } => vec![
-                self.input_p_pin(),
-                self.input_n_pin(),
-                self.output_amp_pin(),
-                self.power_pos_pin(),
-                self.power_neg_pin(),
-            ],
+            Kind::OpAmp { state } => {
+                let mut pins = vec![
+                    self.input_p_pin(),
+                    self.input_n_pin(),
+                    self.output_amp_pin(),
+                ];
+                if state.power_pins {
+                    pins.push(self.power_pos_pin());
+                    pins.push(self.power_neg_pin());
+                }
+                pins
+            }
             Kind::Comparator { .. } => vec![
                 self.comparator_in0_pin(),
                 self.comparator_in1_pin(),
@@ -330,19 +339,19 @@ impl Comp {
                     .map(|i| format!("{}-Pin{i}", self.id))
                     .collect()
             }
-            Kind::Relay { .. } => vec![
-                format!("{}-lPin", self.id),
-                format!("{}-rPin", self.id),
-                format!("{}-c1", self.id),
-                format!("{}-c2", self.id),
-            ],
+            Kind::Relay {
+                poles,
+                double_throw,
+                ..
+            } => {
+                let mut pins = vec![format!("{}-lPin", self.id), format!("{}-rPin", self.id)];
+                pins.extend(relay_contact_ids(&self.id, *poles, *double_throw));
+                pins
+            }
             Kind::Potentiometer { .. } => vec![
                 format!("{}-lPin", self.id),
                 format!("{}-rPin", self.id),
                 format!("{}-wPin", self.id),
-                format!("{}-PinA", self.id),
-                format!("{}-PinB", self.id),
-                format!("{}-PinM", self.id),
             ],
             Kind::TouchPad { .. } => vec![
                 format!("{}-vrx_p", self.id),
@@ -468,31 +477,26 @@ impl Comp {
                 self.transformer_s2_pin(),
             ],
             Kind::Scr { .. } => vec![
-                format!("{}-lPin", self.id),
-                format!("{}-rPin", self.id),
-                format!("{}-gPin", self.id),
                 format!("{}-aPin", self.id),
                 format!("{}-kPin", self.id),
+                format!("{}-gPin", self.id),
             ],
             Kind::Triac { .. } => vec![
                 format!("{}-lPin", self.id),
                 format!("{}-rPin", self.id),
                 format!("{}-gPin", self.id),
-                format!("{}-mt1Pin", self.id),
-                format!("{}-mt2Pin", self.id),
             ],
             Kind::AnalogMux { channels, .. } => {
-                let mut v = Vec::new();
+                let ch = (*channels).max(2);
+                let bits = ((ch as f64).log2().ceil() as usize).max(1);
+                let mut v = Vec::with_capacity(ch + bits + 2);
                 v.push(format!("{}-PinInput", self.id));
-                v.push(format!("{}-com", self.id));
                 v.push(format!("{}-PinEnable", self.id));
-                v.push(format!("{}-en", self.id));
-                for i in 0..4 {
+                for i in 0..bits {
                     v.push(format!("{}-pinAddr{i}", self.id));
                 }
-                for i in 0..*channels {
+                for i in 0..ch {
                     v.push(format!("{}-pinY{i}", self.id));
-                    v.push(format!("{}-ch{i}", self.id));
                 }
                 v
             }
@@ -516,29 +520,20 @@ impl Comp {
                     }
                 })
                 .collect(),
-            Kind::SevenSegment { .. } => [
-                "pin_a",
-                "pin_b",
-                "pin_c",
-                "pin_d",
-                "pin_e",
-                "pin_f",
-                "pin_g",
-                "pin_dot",
-                "pin_commona",
-                "a",
-                "b",
-                "c",
-                "d",
-                "e",
-                "f",
-                "g",
-                "dp",
-                "com",
-            ]
-            .iter()
-            .map(|s| format!("{}-{s}", self.id))
-            .collect(),
+            Kind::SevenSegment { num_displays, .. } => {
+                let n = (*num_displays).clamp(1, 8);
+                let mut pins: Vec<String> = [
+                    "pin_a", "pin_b", "pin_c", "pin_d", "pin_e", "pin_f", "pin_g", "pin_dot",
+                ]
+                .iter()
+                .map(|s| format!("{}-{s}", self.id))
+                .collect();
+                for i in 0..n {
+                    let letter = (b'a' + i as u8) as char;
+                    pins.push(format!("{}-pin_common{letter}", self.id));
+                }
+                pins
+            }
             Kind::LedMatrix { rows, cols, .. } => {
                 let r = (*rows).max(1);
                 let c = (*cols).max(1);
@@ -562,7 +557,7 @@ impl Comp {
             Kind::Ws2812 { .. } => vec![
                 format!("{}-din", self.id),
                 format!("{}-dout", self.id),
-                format!("{}-vdd", self.id),
+                format!("{}-vcc", self.id),
                 format!("{}-gnd", self.id),
             ],
             Kind::Dial { .. } | Kind::Shape { .. } | Kind::SubPackage => Vec::new(),
@@ -572,10 +567,20 @@ impl Comp {
                 format!("{}-in2", self.id),
                 format!("{}-in3", self.id),
             ],
-            Kind::Header { pins_count, .. } | Kind::Socket { pins_count, .. } => (0..*pins_count)
-                .map(|i| format!("{}-pin{i}", self.id))
-                .collect(),
-            Kind::Bus { width, .. } => (0..*width).map(|i| format!("{}-pin{i}", self.id)).collect(),
+            Kind::Header { pins_count } | Kind::Socket { pins_count } => {
+                let n = (*pins_count).max(1);
+                (0..n * 2).map(|i| format!("{}-pin{i}", self.id)).collect()
+            }
+            Kind::Bus { width } => {
+                let n = (*width).max(1);
+                let mut pins = Vec::with_capacity(n + 2);
+                pins.push(format!("{}-ePin0", self.id));
+                for i in 1..=n {
+                    pins.push(format!("{}-ePin{i}", self.id));
+                }
+                pins.push(format!("{}-busPinI", self.id));
+                pins
+            }
             Kind::SerialPort { .. } => vec![
                 format!("{}-rx", self.id),
                 format!("{}-tx", self.id),
@@ -613,22 +618,19 @@ impl Comp {
                 .inputs
                 .iter()
                 .chain(b.outputs.iter())
+                .chain(std::iter::once(&b.oe))
                 .map(|p| p.id.clone())
                 .collect(),
             Kind::DecToBcd(d) => d
                 .inputs
                 .iter()
                 .chain(d.outputs.iter())
-                .chain(std::iter::once(&d.gs))
-                .chain(std::iter::once(&d.eo))
                 .chain(std::iter::once(&d.ei))
                 .map(|p| p.id.clone())
                 .collect(),
             Kind::BcdTo7S(b) => b
                 .inputs
                 .iter()
-                .chain(std::iter::once(&b.lt))
-                .chain(std::iter::once(&b.rbi))
                 .chain(std::iter::once(&b.bi_rbo))
                 .chain(b.segments.iter())
                 .map(|p| p.id.clone())
@@ -640,42 +642,30 @@ impl Comp {
                 .chain(std::iter::once(&p.scl))
                 .chain(std::iter::once(&p.sda))
                 .map(|p| p.id.clone())
+                .chain(
+                    ["in2", "in3", "in4"]
+                        .into_iter()
+                        .map(|s| format!("{}-{s}", self.id)),
+                )
                 .collect(),
             Kind::Adc(a) => a
                 .outputs
                 .iter()
-                .chain(std::iter::once(&a.soc))
-                .chain(std::iter::once(&a.eoc))
-                .chain(std::iter::once(&a.oe))
                 .map(|p| p.id.clone())
+                .chain(std::iter::once(format!("{}-in0", self.id)))
                 .collect(),
             Kind::Dac(d) => d
                 .inputs
                 .iter()
                 .map(|p| p.id.clone())
-                .chain(std::iter::once(format!("{}-vout", self.id)))
-                .chain(std::iter::once(format!("{}-vref", self.id)))
+                .chain(std::iter::once(format!("{}-out0", self.id)))
                 .collect(),
-            Kind::Counter(c) => c
-                .outputs
-                .iter()
-                .chain(std::iter::once(&c.clock))
-                .chain(std::iter::once(&c.reset))
-                .chain(std::iter::once(&c.enable))
-                .chain(std::iter::once(&c.output))
-                .map(|p| p.id.clone())
-                .collect(),
-            Kind::BinCounter(b) => b
-                .outputs
-                .iter()
-                .chain(std::iter::once(&b.clk_a))
-                .chain(std::iter::once(&b.clk_b))
-                .chain(std::iter::once(&b.r0_1))
-                .chain(std::iter::once(&b.r0_2))
-                .chain(std::iter::once(&b.r9_1))
-                .chain(std::iter::once(&b.r9_2))
-                .map(|p| p.id.clone())
-                .collect(),
+            Kind::Counter(c) => vec![c.clock.id.clone(), c.reset.id.clone(), c.output.id.clone()],
+            Kind::BinCounter(b) => {
+                let mut ids = vec![b.clk_a.id.clone(), b.r0_1.id.clone()];
+                ids.extend(b.outputs.iter().map(|p| p.id.clone()));
+                ids
+            }
             Kind::FullAdder(fa) => fa
                 .a_inputs
                 .iter()
@@ -705,17 +695,16 @@ impl Comp {
                 .chain(std::iter::once(&mc.out_lt))
                 .map(|p| p.id.clone())
                 .collect(),
-            Kind::ShiftReg(sr) => sr
-                .outputs
-                .iter()
-                .chain(std::iter::once(&sr.ser_in))
-                .chain(std::iter::once(&sr.clk_shift))
-                .chain(std::iter::once(&sr.clk_latch))
-                .chain(std::iter::once(&sr.master_reset))
-                .chain(std::iter::once(&sr.oe))
-                .chain(std::iter::once(&sr.ser_out))
-                .map(|p| p.id.clone())
-                .collect(),
+            Kind::ShiftReg(sr) => {
+                let mut ids = vec![
+                    sr.ser_in.id.clone(),
+                    sr.clk_shift.id.clone(),
+                    sr.master_reset.id.clone(),
+                    sr.oe.id.clone(),
+                ];
+                ids.extend(sr.outputs.iter().map(|p| p.id.clone()));
+                ids
+            }
             Kind::Function(f) => f
                 .inputs
                 .iter()
@@ -741,7 +730,13 @@ impl Comp {
                 .chain(std::iter::once(&dm.oe))
                 .map(|p| p.id.clone())
                 .collect(),
-            Kind::I2CRam(r) => vec![r.scl.id.clone(), r.sda.id.clone()],
+            Kind::I2CRam(r) => vec![
+                r.sda.id.clone(),
+                r.scl.id.clone(),
+                format!("{}-in2", self.id),
+                format!("{}-in3", self.id),
+                format!("{}-in4", self.id),
+            ],
             Kind::Lm555(_) => (0..8).map(|i| format!("{}-ePin{i}", self.id)).collect(),
             Kind::Tunnel { pin_id, .. } => vec![pin_id.clone()],
             Kind::Subcircuit { .. } => Vec::new(),
@@ -914,14 +909,14 @@ impl Comp {
             .or_else(|| pin_net.get(&format!("{}-PinB", self.id)).copied())
     }
 
-    /// SCR anode pin.
+    /// SCR anode pin. Older wires used `lPin`; net build unions that alias onto this id.
     pub fn scr_anode_pin(&self) -> String {
-        format!("{}-lPin", self.id)
+        format!("{}-aPin", self.id)
     }
 
-    /// SCR cathode pin.
+    /// SCR cathode pin. Older wires used `rPin`; net build unions that alias onto this id.
     pub fn scr_cathode_pin(&self) -> String {
-        format!("{}-rPin", self.id)
+        format!("{}-kPin", self.id)
     }
 
     /// SCR gate pin.
@@ -1025,13 +1020,13 @@ impl Comp {
             ),
             Kind::Scr { .. } => (
                 pin_net
-                    .get(&format!("{}-lPin", self.id))
-                    .or_else(|| pin_net.get(&format!("{}-aPin", self.id)))
+                    .get(&format!("{}-aPin", self.id))
+                    .or_else(|| pin_net.get(&format!("{}-lPin", self.id)))
                     .copied(),
                 None,
                 pin_net
-                    .get(&format!("{}-rPin", self.id))
-                    .or_else(|| pin_net.get(&format!("{}-kPin", self.id)))
+                    .get(&format!("{}-kPin", self.id))
+                    .or_else(|| pin_net.get(&format!("{}-rPin", self.id)))
                     .copied(),
             ),
             Kind::Triac { .. } => (
@@ -1049,6 +1044,16 @@ impl Comp {
                 pin_net.get(&format!("{}-rPin", self.id)).copied(),
                 pin_net.get(&format!("{}-gPin", self.id)).copied(),
                 pin_net.get(&format!("{}-bPin", self.id)).copied(),
+            ),
+            Kind::Csource { .. } => (
+                pin_net.get(&format!("{}-s1Pin", self.id)).copied(),
+                None,
+                pin_net.get(&format!("{}-s2Pin", self.id)).copied(),
+            ),
+            Kind::Stepper { .. } => (
+                pin_net.get(&format!("{}-PinA1", self.id)).copied(),
+                pin_net.get(&format!("{}-PinCo", self.id)).copied(),
+                pin_net.get(&format!("{}-PinA2", self.id)).copied(),
             ),
             Kind::Servo { .. } => (
                 pin_net.get(&format!("{}-PinV+", self.id)).copied(),
@@ -1087,12 +1092,14 @@ impl Comp {
             _ => (None, [None; 4]),
         };
         let in0 = match self.kind {
-            Kind::Adc { .. } => pin_net.get(&format!("{}-vin", self.id)).copied(),
+            Kind::Adc(_) => pin_net.get(&format!("{}-in0", self.id)).copied(),
             Kind::Transformer { .. } => pin_net.get(&self.transformer_s1_pin()).copied(),
+            Kind::Stepper { .. } => pin_net.get(&format!("{}-PinB1", self.id)).copied(),
             _ => pin_net.get(&self.comparator_in0_pin()).copied(),
         };
         let in1 = match self.kind {
             Kind::Transformer { .. } => pin_net.get(&self.transformer_s2_pin()).copied(),
+            Kind::Stepper { .. } => pin_net.get(&format!("{}-PinB2", self.id)).copied(),
             _ => pin_net.get(&self.comparator_in1_pin()).copied(),
         };
         let out = match self.kind {
@@ -1137,8 +1144,14 @@ impl Comp {
             drain: pin_net.get(&self.drain_pin()).copied(),
             source: pin_net.get(&self.source_pin()).copied(),
             gate,
-            input_p: pin_net.get(&self.input_p_pin()).copied(),
-            input_n: pin_net.get(&self.input_n_pin()).copied(),
+            input_p: match &self.kind {
+                Kind::Csource { .. } => pin_net.get(&format!("{}-cpPin", self.id)).copied(),
+                _ => pin_net.get(&self.input_p_pin()).copied(),
+            },
+            input_n: match &self.kind {
+                Kind::Csource { .. } => pin_net.get(&format!("{}-cmPin", self.id)).copied(),
+                _ => pin_net.get(&self.input_n_pin()).copied(),
+            },
             output_amp: pin_net.get(&self.output_amp_pin()).copied(),
             power_pos: pin_net.get(&self.power_pos_pin()).copied(),
             power_neg: pin_net.get(&self.power_neg_pin()).copied(),
@@ -1152,6 +1165,126 @@ impl Comp {
             mux_en,
             mux_addr,
             switch_poles,
+            led_dies: self
+                .led_pin_pairs()
+                .into_iter()
+                .map(|(anode, cathode)| {
+                    (
+                        pin_net.get(&anode).copied(),
+                        cathode.as_ref().and_then(|name| pin_net.get(name).copied()),
+                    )
+                })
+                .collect(),
         }
     }
+
+    /// Anode pin and optional cathode pin for each LED die.
+    /// `None` cathode means the die is grounded.
+    pub(crate) fn led_pin_pairs(&self) -> Vec<(String, Option<String>)> {
+        match &self.kind {
+            Kind::RgbLed { common_anode, .. } => {
+                let common = format!("{}-cPin", self.id);
+                ["rPin", "gPin", "bPin"]
+                    .into_iter()
+                    .map(|color| {
+                        let pin = format!("{}-{color}", self.id);
+                        if *common_anode {
+                            (common.clone(), Some(pin))
+                        } else {
+                            (pin, Some(common.clone()))
+                        }
+                    })
+                    .collect()
+            }
+            Kind::LedBar {
+                segments, grounded, ..
+            } => (0..*segments)
+                .map(|i| {
+                    let anode = format!("{}-lPin{i}", self.id);
+                    if *grounded {
+                        (anode, None)
+                    } else {
+                        (anode, Some(format!("{}-rPin{i}", self.id)))
+                    }
+                })
+                .collect(),
+            Kind::SevenSegment {
+                common_anode,
+                num_displays,
+                ..
+            } => {
+                let n = (*num_displays).clamp(1, 8);
+                let mut pairs = Vec::with_capacity(seven_segment_die_count(n));
+                for i in 0..n {
+                    let letter = (b'a' + i as u8) as char;
+                    let com = format!("{}-pin_common{letter}", self.id);
+                    for seg in SEVEN_SEG_TERMINALS {
+                        let seg_pin = format!("{}-{seg}", self.id);
+                        if *common_anode {
+                            pairs.push((com.clone(), Some(seg_pin)));
+                        } else {
+                            pairs.push((seg_pin, Some(com.clone())));
+                        }
+                    }
+                }
+                pairs
+            }
+            Kind::LedMatrix { rows, cols, .. } => {
+                let r = (*rows).max(1);
+                let c = (*cols).max(1);
+                let mut pairs = Vec::with_capacity(r * c);
+                for row in 0..r {
+                    let anode = format!("{}-rPin{row}", self.id);
+                    for col in 0..c {
+                        pairs.push((anode.clone(), Some(format!("{}-cPin{col}", self.id))));
+                    }
+                }
+                pairs
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+const SEVEN_SEG_TERMINALS: [&str; 8] = [
+    "pin_a", "pin_b", "pin_c", "pin_d", "pin_e", "pin_f", "pin_g", "pin_dot",
+];
+
+pub(crate) fn seven_segment_die_count(num_displays: usize) -> usize {
+    num_displays.clamp(1, 8) * SEVEN_SEG_TERMINALS.len()
+}
+
+pub(crate) fn relay_common_suffix(pole: usize) -> String {
+    if pole == 0 {
+        "-c1".to_string()
+    } else {
+        format!("-c1p{pole}")
+    }
+}
+
+pub(crate) fn relay_throw_suffix(pole: usize, throw_idx: usize) -> String {
+    if pole == 0 {
+        if throw_idx == 0 {
+            "-c2".to_string()
+        } else {
+            "-c3".to_string()
+        }
+    } else if throw_idx == 0 {
+        format!("-c2p{pole}")
+    } else {
+        format!("-c3p{pole}")
+    }
+}
+
+pub(crate) fn relay_contact_ids(id: &str, poles: usize, double_throw: bool) -> Vec<String> {
+    let n = poles.max(1);
+    let mut pins = Vec::with_capacity(n * if double_throw { 3 } else { 2 });
+    for i in 0..n {
+        pins.push(format!("{id}{}", relay_common_suffix(i)));
+        pins.push(format!("{id}{}", relay_throw_suffix(i, 0)));
+        if double_throw {
+            pins.push(format!("{id}{}", relay_throw_suffix(i, 1)));
+        }
+    }
+    pins
 }

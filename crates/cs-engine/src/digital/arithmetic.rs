@@ -5,6 +5,15 @@ use super::family::LogicFamily;
 use super::pin::IoPin;
 use super::queue::OutQueue;
 
+/// Low `bits` of a `u32`. `bits >= 32` is every bit, so a 32-bit counter does not overflow the shift.
+fn bit_mask(bits: usize) -> u32 {
+    if bits >= 32 {
+        u32::MAX
+    } else {
+        (1u32 << bits) - 1
+    }
+}
+
 // ============================================================================
 // Simple Clock Counter / Frequency Divider (Counter)
 // ============================================================================
@@ -26,20 +35,22 @@ pub struct CounterState {
 
 impl CounterState {
     pub fn new(id: &str, bits: usize, max_count: u32) -> Self {
-        let bits = bits.clamp(1, 16);
+        let bits = bits.clamp(1, 32);
         let mut outputs = Vec::with_capacity(bits);
         for i in 0..bits {
+            // Per-bit Q pins stay internal. The schematic publishes one `out0`.
             outputs.push(IoPin::output(format!("{id}-q{i}")));
         }
-        let clock = IoPin::input(format!("{id}-clk"));
-        let reset = IoPin::input(format!("{id}-rst"));
+        let clock = IoPin::input(format!("{id}-in0"));
+        let reset = IoPin::input(format!("{id}-in1"));
+        // Enable is not a schematic pin. The queue treats it as tied high.
         let enable = IoPin::input(format!("{id}-en"));
-        let output = IoPin::output(format!("{id}-out"));
+        let output = IoPin::output(format!("{id}-out0"));
 
         let mut st = Self {
             bits,
             max_count: if max_count == 0 {
-                (1u32 << bits) - 1
+                bit_mask(bits)
             } else {
                 max_count
             },
@@ -123,11 +134,13 @@ impl BinCounterState {
     pub fn new(id: &str, is_decade: bool) -> Self {
         let mut outputs = Vec::with_capacity(4);
         for i in 0..4 {
-            outputs.push(IoPin::output(format!("{id}-q{i}")));
+            outputs.push(IoPin::output(format!("{id}-out{i}")));
         }
-        let clk_a = IoPin::input(format!("{id}-clka"));
+        // One schematic clock. Section B is clocked internally by QA so the
+        // part binary-counts (or decade-counts) without an external QA→CLKB jumper.
+        let clk_a = IoPin::input(format!("{id}-Pin_clk"));
         let clk_b = IoPin::input(format!("{id}-clkb"));
-        let r0_1 = IoPin::input(format!("{id}-r0_1"));
+        let r0_1 = IoPin::input(format!("{id}-Pin_rst"));
         let r0_2 = IoPin::input(format!("{id}-r0_2"));
         let r9_1 = IoPin::input(format!("{id}-r9_1"));
         let r9_2 = IoPin::input(format!("{id}-r9_2"));
@@ -173,27 +186,26 @@ impl BinCounterState {
             self.count_a = 0;
             self.count_b = 0;
         } else {
-            // Negative-edge triggered Clock A
+            // Negative-edge clock. QA falling edge clocks section B (the
+            // datasheet cascade, done inside the part for the single clock pin).
             let clk_a = self.clk_a.inp_state();
             if !clk_a && self.last_clk_a {
+                let q0_was_high = self.count_a != 0;
                 self.count_a = (self.count_a + 1) & 1;
-            }
-            self.last_clk_a = clk_a;
-
-            // Negative-edge triggered Clock B
-            let clk_b = self.clk_b.inp_state();
-            if !clk_b && self.last_clk_b {
-                if self.is_decade {
-                    self.count_b = if self.count_b >= 4 {
-                        0
+                if q0_was_high {
+                    if self.is_decade {
+                        self.count_b = if self.count_b >= 4 {
+                            0
+                        } else {
+                            self.count_b + 1
+                        };
                     } else {
-                        self.count_b + 1
-                    };
-                } else {
-                    self.count_b = (self.count_b + 1) & 7;
+                        self.count_b = (self.count_b + 1) & 7;
+                    }
                 }
             }
-            self.last_clk_b = clk_b;
+            self.last_clk_a = clk_a;
+            self.last_clk_b = self.count_a != 0;
         }
 
         let q0 = self.count_a != 0;
@@ -226,14 +238,14 @@ pub struct FullAdderState {
 
 impl FullAdderState {
     pub fn new(id: &str, bits: usize) -> Self {
-        let bits = bits.clamp(1, 16);
+        let bits = bits.clamp(1, 32);
         let mut a_inputs = Vec::with_capacity(bits);
         let mut b_inputs = Vec::with_capacity(bits);
         let mut sum_outputs = Vec::with_capacity(bits);
         for i in 0..bits {
-            a_inputs.push(IoPin::input(format!("{id}-a{i}")));
-            b_inputs.push(IoPin::input(format!("{id}-b{i}")));
-            sum_outputs.push(IoPin::output(format!("{id}-s{i}")));
+            a_inputs.push(IoPin::input(format!("{id}-in{}", 1 + i)));
+            b_inputs.push(IoPin::input(format!("{id}-in{}", 1 + bits + i)));
+            sum_outputs.push(IoPin::output(format!("{id}-out{}", 1 + i)));
         }
         let ci = IoPin::input(format!("{id}-ci"));
         let co = IoPin::output(format!("{id}-co"));
@@ -304,16 +316,16 @@ impl MagnitudeCompState {
         let mut a_inputs = Vec::with_capacity(bits);
         let mut b_inputs = Vec::with_capacity(bits);
         for i in 0..bits {
-            a_inputs.push(IoPin::input(format!("{id}-a{i}")));
-            b_inputs.push(IoPin::input(format!("{id}-b{i}")));
+            a_inputs.push(IoPin::input(format!("{id}-in{}", 3 + i)));
+            b_inputs.push(IoPin::input(format!("{id}-in{}", 3 + bits + i)));
         }
-        let cascade_gt = IoPin::input(format!("{id}-in_gt"));
-        let cascade_eq = IoPin::input(format!("{id}-in_eq"));
-        let cascade_lt = IoPin::input(format!("{id}-in_lt"));
+        let cascade_gt = IoPin::input(format!("{id}-in0"));
+        let cascade_eq = IoPin::input(format!("{id}-in1"));
+        let cascade_lt = IoPin::input(format!("{id}-in2"));
 
-        let out_gt = IoPin::output(format!("{id}-out_gt"));
-        let out_eq = IoPin::output(format!("{id}-out_eq"));
-        let out_lt = IoPin::output(format!("{id}-out_lt"));
+        let out_gt = IoPin::output(format!("{id}-out0"));
+        let out_eq = IoPin::output(format!("{id}-out1"));
+        let out_lt = IoPin::output(format!("{id}-out2"));
 
         let mut st = Self {
             bits,
@@ -412,13 +424,15 @@ impl ShiftRegState {
         let bits = bits.clamp(1, 32);
         let mut outputs = Vec::with_capacity(bits);
         for i in 0..bits {
-            outputs.push(IoPin::output(format!("{id}-q{i}")));
+            outputs.push(IoPin::output(format!("{id}-out{i}")));
         }
-        let ser_in = IoPin::input(format!("{id}-ds"));
-        let clk_shift = IoPin::input(format!("{id}-sh_cp"));
+        let ser_in = IoPin::input(format!("{id}-in0"));
+        let clk_shift = IoPin::input(format!("{id}-in1"));
+        let master_reset = IoPin::input(format!("{id}-in2"));
+        let oe = IoPin::input(format!("{id}-in3"));
+        // Storage clock and cascade output are not schematic pins.
+        // The queue copies the shift clock onto the latch clock.
         let clk_latch = IoPin::input(format!("{id}-st_cp"));
-        let master_reset = IoPin::input(format!("{id}-mr"));
-        let oe = IoPin::input(format!("{id}-oe"));
         let ser_out = IoPin::output(format!("{id}-q7s"));
 
         let mut st = Self {
@@ -461,7 +475,7 @@ impl ShiftRegState {
             let clk_s = self.clk_shift.inp_state();
             if clk_s && !self.last_clk_shift {
                 let bit = if self.ser_in.inp_state() { 1 } else { 0 };
-                let mask = (1u32 << self.bits) - 1;
+                let mask = bit_mask(self.bits);
                 self.shift_reg = ((self.shift_reg << 1) | bit) & mask;
             }
             self.last_clk_shift = clk_s;
@@ -502,10 +516,9 @@ impl FunctionState {
         let n_inputs = n_inputs.clamp(1, 8);
         let mut inputs = Vec::with_capacity(n_inputs);
         for i in 0..n_inputs {
-            let ch = (b'A' + i as u8) as char;
-            inputs.push(IoPin::input(format!("{id}-{ch}")));
+            inputs.push(IoPin::input(format!("{id}-in{i}")));
         }
-        let output = IoPin::output(format!("{id}-out"));
+        let output = IoPin::output(format!("{id}-out0"));
 
         let mut st = Self {
             expression: expression.to_string(),

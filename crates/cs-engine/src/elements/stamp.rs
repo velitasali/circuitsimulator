@@ -325,7 +325,14 @@ impl Comp {
                 );
                 stamp_cached_pin_to_gnd(cache.out, nodes, *last_out, SOURCE_ADMIT);
             }
-            Kind::FreqMeter { .. } => {}
+            Kind::FreqMeter { .. } => {
+                stamp_cached_pin_to_gnd(
+                    cache.left,
+                    nodes,
+                    0.0,
+                    crate::instruments::PLOT_INPUT_ADMIT,
+                );
+            }
             Kind::Oscope {
                 connect_gnd,
                 input_imped,
@@ -646,7 +653,15 @@ impl Comp {
                 );
                 stamp_pin_to_gnd(pin_net, nodes, &self.out_pin(), *last_out, SOURCE_ADMIT);
             }
-            Kind::FreqMeter { .. } => {}
+            Kind::FreqMeter { .. } => {
+                stamp_pin_to_gnd(
+                    pin_net,
+                    nodes,
+                    &self.left_pin(),
+                    0.0,
+                    crate::instruments::PLOT_INPUT_ADMIT,
+                );
+            }
             Kind::Oscope {
                 connect_gnd,
                 input_imped,
@@ -773,7 +788,12 @@ impl Comp {
                 }
             }
             Kind::BcdToDec(b) => {
-                for p in b.inputs.iter().chain(b.outputs.iter()) {
+                for p in b
+                    .inputs
+                    .iter()
+                    .chain(b.outputs.iter())
+                    .chain(std::iter::once(&b.oe))
+                {
                     stamp_iopin(pin_net, nodes, p);
                 }
             }
@@ -999,23 +1019,37 @@ impl Comp {
                 }
             }
             Kind::Csource {
+                control_pins,
                 curr_source,
+                curr_control,
+                gain,
                 volt,
                 current,
-                ..
+                ctrl,
+                sense_ohms,
             } => {
-                stamp_between(
-                    pin_net,
-                    nodes,
-                    &format!("{}-s1Pin", self.id),
-                    &format!("{}-s2Pin", self.id),
-                    if *curr_source { 1e-6 } else { SOURCE_ADMIT },
+                let s1 = format!("{}-s1Pin", self.id);
+                let s2 = format!("{}-s2Pin", self.id);
+                let (g, i_src) = if *control_pins {
+                    // `clear_stamps` zeroes node volts before this stamp, so the
+                    // output uses the control sample saved by `update_nonlinear`.
+                    if *curr_control {
+                        let cp = format!("{}-cpPin", self.id);
+                        let cm = format!("{}-cmPin", self.id);
+                        stamp_between(pin_net, nodes, &cp, &cm, 1.0 / sense_ohms.max(1e-9), 0.0);
+                    }
+                    let out = *gain * *ctrl;
                     if *curr_source {
-                        *current
+                        (1e-6, out)
                     } else {
-                        *volt * SOURCE_ADMIT
-                    },
-                );
+                        (SOURCE_ADMIT, out * SOURCE_ADMIT)
+                    }
+                } else if *curr_source {
+                    (1e-6, *current)
+                } else {
+                    (SOURCE_ADMIT, *volt * SOURCE_ADMIT)
+                };
+                stamp_between(pin_net, nodes, &s1, &s2, g, i_src);
             }
             Kind::WaveGen {
                 amplitude,
@@ -1106,31 +1140,83 @@ impl Comp {
                     }
                 }
             }
-            Kind::LedMatrix { .. }
-            | Kind::Max72xx { .. }
-            | Kind::Ws2812 { .. }
-            | Kind::Dial { .. }
-            | Kind::Shape { .. }
-            | Kind::SubPackage
-            | Kind::SevenSegmentBCD { .. } => {}
-            Kind::Relay { active, .. } => {
+            Kind::Max72xx { fb, .. } => {
+                let v = if fb.dout_high { 5.0 } else { 0.0 };
+                stamp_pin_to_gnd(
+                    pin_net,
+                    nodes,
+                    &format!("{}-dout", self.id),
+                    v,
+                    SOURCE_ADMIT,
+                );
+            }
+            Kind::Ws2812 { fb, .. } => {
+                let v = if fb.dout_high { 5.0 } else { 0.0 };
+                stamp_pin_to_gnd(
+                    pin_net,
+                    nodes,
+                    &format!("{}-dout", self.id),
+                    v,
+                    SOURCE_ADMIT,
+                );
+            }
+            Kind::LedMatrix { leds, .. } => {
+                stamp_led_list(self, pin_net, nodes, leds);
+            }
+            Kind::Dial { .. } | Kind::Shape { .. } | Kind::SubPackage => {}
+            Kind::Relay {
+                norm_close,
+                double_throw,
+                poles,
+                r_coil,
+                inductance,
+                coil_i,
+                active,
+                ..
+            } => {
+                let r = r_coil.max(1e-6);
+                let (g, i_src) = if *inductance <= 0.0 || dt <= 0.0 {
+                    (1.0 / r, 0.0)
+                } else {
+                    let l_over_dt = *inductance / dt;
+                    let g = 1.0 / (r + l_over_dt);
+                    // Branch current l→r is `g*(Vl-Vr) + g*(L/dt)*coil_i`.
+                    // `stamp_between` injects `i_src` into the left node, so the
+                    // history term is stamped with the opposite sign.
+                    (g, -(g * l_over_dt * *coil_i))
+                };
                 stamp_between(
                     pin_net,
                     nodes,
                     &format!("{}-lPin", self.id),
                     &format!("{}-rPin", self.id),
-                    1.0 / 100.0,
-                    0.0,
+                    g,
+                    i_src,
                 );
-                if *active {
-                    stamp_between(
-                        pin_net,
-                        nodes,
-                        &format!("{}-c1", self.id),
-                        &format!("{}-c2", self.id),
-                        SWITCH_CLOSED_ADMIT,
-                        0.0,
+                let pulled = relay_pulled(*active, *norm_close);
+                let n = (*poles).max(1);
+                for i in 0..n {
+                    let common = format!(
+                        "{}{}",
+                        self.id,
+                        crate::elements::pins::relay_common_suffix(i)
                     );
+                    if *double_throw {
+                        let throw_idx = if pulled { 0 } else { 1 };
+                        let throw = format!(
+                            "{}{}",
+                            self.id,
+                            crate::elements::pins::relay_throw_suffix(i, throw_idx)
+                        );
+                        stamp_between(pin_net, nodes, &common, &throw, SWITCH_CLOSED_ADMIT, 0.0);
+                    } else if pulled {
+                        let throw = format!(
+                            "{}{}",
+                            self.id,
+                            crate::elements::pins::relay_throw_suffix(i, 0)
+                        );
+                        stamp_between(pin_net, nodes, &common, &throw, SWITCH_CLOSED_ADMIT, 0.0);
+                    }
                 }
             }
             Kind::Potentiometer { resistance, wiper } => {
@@ -1440,17 +1526,22 @@ impl Comp {
                 // High input impedance on Sig pin
                 stamp_pin_to_gnd(pin_net, nodes, &format!("{}-PinSig", self.id), 0.0, 1e-7);
             }
-            Kind::SdCard { .. } => {}
-            Kind::Esp01 { .. } => {
+            Kind::SevenSegmentBCD { .. }
+            | Kind::SdCard { .. }
+            | Kind::TftDisplay { .. }
+            | Kind::Pcf8833Display { .. } => {
+                stamp_cmos_pins(self, pin_net, nodes);
+            }
+            Kind::Esp01 { uart, .. } => {
+                let v = if uart.tx_high { 3.3 } else { 0.0 };
                 stamp_pin_to_gnd(
                     pin_net,
                     nodes,
                     &format!("{}-pin0", self.id),
-                    3.3,
+                    v,
                     SOURCE_ADMIT,
                 );
             }
-            Kind::TftDisplay { .. } | Kind::Pcf8833Display { .. } => {}
             Kind::VarResistor { resistance }
             | Kind::Ldr { resistance, .. }
             | Kind::Thermistor { resistance, .. }
@@ -1532,11 +1623,13 @@ impl Comp {
                     dt,
                 );
             }
-            Kind::Scr { conducting, .. } => {
+            Kind::Scr {
+                conducting, r_gate, ..
+            } => {
                 let a = self.scr_anode_pin();
                 let k = self.scr_cathode_pin();
                 let g = self.scr_gate_pin();
-                stamp_between(pin_net, nodes, &g, &k, 1.0 / 100.0, 0.0);
+                stamp_between(pin_net, nodes, &g, &k, 1.0 / r_gate.max(1e-6), 0.0);
                 if *conducting {
                     stamp_between(
                         pin_net,
@@ -1550,25 +1643,33 @@ impl Comp {
                     stamp_between(pin_net, nodes, &a, &k, 1e-9, 0.0);
                 }
             }
-            Kind::Triac { conducting, .. } => {
+            Kind::Triac {
+                conducting, r_gate, ..
+            } => {
                 let mt1 = self.triac_mt1_pin();
                 let mt2 = self.triac_mt2_pin();
                 let g = self.triac_gate_pin();
-                stamp_between(pin_net, nodes, &g, &mt1, 1.0 / 100.0, 0.0);
+                stamp_between(pin_net, nodes, &g, &mt1, 1.0 / r_gate.max(1e-6), 0.0);
                 if *conducting {
                     stamp_between(pin_net, nodes, &mt1, &mt2, SWITCH_CLOSED_ADMIT, 0.0);
                 } else {
                     stamp_between(pin_net, nodes, &mt1, &mt2, 1e-9, 0.0);
                 }
             }
-            Kind::Diac { conducting, .. } => {
+            Kind::Diac {
+                conducting,
+                res_on,
+                res_off,
+                ..
+            } => {
                 let l = self.left_pin();
                 let r = self.right_pin();
-                if *conducting {
-                    stamp_between(pin_net, nodes, &l, &r, 1.0 / 500.0, 0.0);
+                let g = if *conducting {
+                    1.0 / res_on.max(1e-6)
                 } else {
-                    stamp_between(pin_net, nodes, &l, &r, 1e-8, 0.0);
-                }
+                    1.0 / res_off.max(1.0)
+                };
+                stamp_between(pin_net, nodes, &l, &r, g, 0.0);
             }
             Kind::AnalogMux {
                 selected,
@@ -1586,51 +1687,14 @@ impl Comp {
                     }
                 }
             }
-            Kind::LedBar {
-                segments, grounded, ..
-            } => {
-                for i in 0..*segments {
-                    let la = format!("{}-lPin{i}", self.id);
-                    if *grounded {
-                        stamp_pin_to_gnd(pin_net, nodes, &la, 1.8, 1.0 / 100.0);
-                    } else {
-                        let ra = format!("{}-rPin{i}", self.id);
-                        stamp_between(pin_net, nodes, &la, &ra, 1.0 / 100.0, 1.8 / 100.0);
-                    }
-                }
+            Kind::LedBar { leds, .. } => {
+                stamp_led_list(self, pin_net, nodes, leds);
             }
-            Kind::RgbLed { common_anode, .. } => {
-                let r_pin = format!("{}-rPin", self.id);
-                let g_pin = format!("{}-gPin", self.id);
-                let b_pin = format!("{}-bPin", self.id);
-                let c_pin = format!("{}-cPin", self.id);
-                if *common_anode {
-                    stamp_between(pin_net, nodes, &c_pin, &r_pin, 1.0 / 100.0, 1.8 / 100.0);
-                    stamp_between(pin_net, nodes, &c_pin, &g_pin, 1.0 / 100.0, 1.8 / 100.0);
-                    stamp_between(pin_net, nodes, &c_pin, &b_pin, 1.0 / 100.0, 1.8 / 100.0);
-                } else {
-                    stamp_between(pin_net, nodes, &r_pin, &c_pin, 1.0 / 100.0, 1.8 / 100.0);
-                    stamp_between(pin_net, nodes, &g_pin, &c_pin, 1.0 / 100.0, 1.8 / 100.0);
-                    stamp_between(pin_net, nodes, &b_pin, &c_pin, 1.0 / 100.0, 1.8 / 100.0);
-                }
+            Kind::RgbLed { leds, .. } => {
+                stamp_led_list(self, pin_net, nodes, leds);
             }
-            Kind::SevenSegment { common_anode, .. } => {
-                let segs = [
-                    "pin_a", "pin_b", "pin_c", "pin_d", "pin_e", "pin_f", "pin_g", "pin_dot", "a",
-                    "b", "c", "d", "e", "f", "g", "dp",
-                ];
-                let com_a = format!("{}-pin_commona", self.id);
-                let com_b = format!("{}-com", self.id);
-                for seg in segs {
-                    let seg_pin = format!("{}-{seg}", self.id);
-                    if *common_anode {
-                        stamp_between(pin_net, nodes, &com_a, &seg_pin, 1.0 / 100.0, 1.8 / 100.0);
-                        stamp_between(pin_net, nodes, &com_b, &seg_pin, 1.0 / 100.0, 1.8 / 100.0);
-                    } else {
-                        stamp_between(pin_net, nodes, &seg_pin, &com_a, 1.0 / 100.0, 1.8 / 100.0);
-                        stamp_between(pin_net, nodes, &seg_pin, &com_b, 1.0 / 100.0, 1.8 / 100.0);
-                    }
-                }
+            Kind::SevenSegment { leds, .. } => {
+                stamp_led_list(self, pin_net, nodes, leds);
             }
             Kind::AudioOut { source, .. } => {
                 stamp_two_terminal(self, pin_net, nodes, source.stamp_admit(), 0.0);
@@ -1641,6 +1705,49 @@ impl Comp {
             | Kind::Header { .. }
             | Kind::Socket { .. } => {}
             Kind::Tunnel { .. } | Kind::Subcircuit { .. } | Kind::McuItem(_) => {}
+        }
+    }
+}
+
+fn relay_pulled(active: bool, norm_close: bool) -> bool {
+    if norm_close { !active } else { active }
+}
+
+/// CMOS input impedance on every published pin. No Norton voltage.
+fn stamp_cmos_pins(
+    comp: &Comp,
+    pin_net: &rustc_hash::FxHashMap<String, usize>,
+    nodes: &mut [ENode],
+) {
+    let g = crate::instruments::PLOT_INPUT_ADMIT;
+    for pin in comp.pin_ids() {
+        stamp_pin_to_gnd(pin_net, nodes, &pin, 0.0, g);
+    }
+}
+
+fn stamp_led_list(
+    comp: &Comp,
+    pin_net: &rustc_hash::FxHashMap<String, usize>,
+    nodes: &mut [ENode],
+    leds: &[LedState],
+) {
+    for (state, (anode, cathode)) in leds.iter().zip(comp.led_pin_pairs()) {
+        if cathode.is_none() || state.grounded {
+            if let Some(&n0) = pin_net.get(&anode) {
+                nodes[n0].add_admit(None, state.admit);
+                if state.th_current != 0.0 {
+                    nodes[n0].add_current(state.th_current);
+                }
+            }
+        } else if let Some(cathode) = cathode {
+            stamp_between(
+                pin_net,
+                nodes,
+                &anode,
+                &cathode,
+                state.admit,
+                state.th_current,
+            );
         }
     }
 }
@@ -1707,6 +1814,7 @@ fn stamp_to_gnd(
 ) {
     let pin = match comp.kind {
         Kind::Ground => comp.gnd_pin(),
+        Kind::Dac(_) => format!("{}-out0", comp.id),
         _ => comp.out_pin(),
     };
     stamp_pin_to_gnd(pin_net, nodes, &pin, volts, g);
@@ -1740,6 +1848,11 @@ fn stamp_between(
     let Some(&n1) = pin_net.get(b) else {
         return;
     };
+    // A self-stamp records an off-diagonal onto the diagonal. `stamp_into`
+    // writes that entry over the summed diagonal and drops the ground admit.
+    if n0 == n1 {
+        return;
+    }
     nodes[n0].add_admit(Some(n1), g);
     nodes[n1].add_admit(Some(n0), g);
     if i_src != 0.0 {

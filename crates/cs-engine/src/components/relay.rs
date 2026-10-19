@@ -124,6 +124,9 @@ impl Relay {
             poles: self.poles.max(1),
             i_on: self.i_on,
             i_off: self.i_off,
+            r_coil: self.r_coil,
+            inductance: self.inductance,
+            coil_i: 0.0,
             active: self.active,
         }
     }
@@ -276,12 +279,37 @@ impl Component for Relay {
         )
     }
     fn pin_geoms(&self) -> Vec<CompPin> {
-        vec![
-            CompPin::new("-lPin", -16.0, 0.0, 180, 4.0),
-            CompPin::new("-rPin", 16.0, 0.0, 0, 4.0),
-            CompPin::new("-c1", -16.0, -16.0, 180, 4.0),
-            CompPin::new("-c2", 16.0, -16.0, 0, 4.0),
-        ]
+        let n = self.poles.max(1);
+        let mut pins = Vec::with_capacity(2 + n * if self.double_throw { 3 } else { 2 });
+        pins.push(CompPin::new("-lPin", -16.0, 0.0, 180, 4.0));
+        pins.push(CompPin::new("-rPin", 16.0, 0.0, 0, 4.0));
+        for i in 0..n {
+            let y = -16.0 * ((i + 1) as f64);
+            pins.push(CompPin::new(
+                crate::elements::pins::relay_common_suffix(i),
+                -16.0,
+                y,
+                180,
+                4.0,
+            ));
+            pins.push(CompPin::new(
+                crate::elements::pins::relay_throw_suffix(i, 0),
+                16.0,
+                y,
+                0,
+                4.0,
+            ));
+            if self.double_throw {
+                pins.push(CompPin::new(
+                    crate::elements::pins::relay_throw_suffix(i, 1),
+                    16.0,
+                    y - 8.0,
+                    0,
+                    4.0,
+                ));
+            }
+        }
+        pins
     }
     fn body(&self) -> Rect {
         let p = self.poles.max(1) as f64;
@@ -294,8 +322,33 @@ impl Component for Relay {
 impl Stampable for Relay {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
         stamp_conductance_between(matrix, pin_nodes, 0, 1, resistor_g(self.r_coil));
-        if self.active {
-            stamp_conductance_between(matrix, pin_nodes, 2, 3, SWITCH_CLOSED_ADMIT);
+        let pulled = if self.norm_close {
+            !self.active
+        } else {
+            self.active
+        };
+        let n = self.poles.max(1);
+        let mut idx = 2;
+        for _ in 0..n {
+            let common = idx;
+            let throw0 = idx + 1;
+            if self.double_throw {
+                let throw1 = idx + 2;
+                idx += 3;
+                let target = if pulled { throw0 } else { throw1 };
+                stamp_conductance_between(matrix, pin_nodes, common, target, SWITCH_CLOSED_ADMIT);
+            } else {
+                idx += 2;
+                if pulled {
+                    stamp_conductance_between(
+                        matrix,
+                        pin_nodes,
+                        common,
+                        throw0,
+                        SWITCH_CLOSED_ADMIT,
+                    );
+                }
+            }
         }
     }
 }
@@ -338,6 +391,9 @@ impl Drawable for Relay {
                 );
             }
             d.line(6.0, sy, 12.0, sy, ctx.pal.border, COMPONENT_BORDER_WIDTH);
+            if self.double_throw {
+                d.fill_circle(12.0, sy - 8.0, 1.2, ctx.pal.border);
+            }
         }
 
         // Inductor coil leads at y = 0

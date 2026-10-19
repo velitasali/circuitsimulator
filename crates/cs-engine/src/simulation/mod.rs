@@ -15,6 +15,7 @@ mod builder;
 mod digital_queue;
 mod matrix_solver;
 mod nonlinear;
+mod periph_proto;
 mod periph_sync;
 mod reactive;
 #[cfg(test)]

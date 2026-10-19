@@ -1,8 +1,9 @@
 //! Line-oriented `.sim1` / `.sim2` load/save matching `Circuit::loadStrDoc`.
 
 use crate::circ1::{GraphicAttrs, ParsedCirc1, ParsedCirc1Item};
+use crate::elements::pins::seven_segment_die_count;
 use crate::elements::pins::*;
-use crate::elements::{Comp, Kind};
+use crate::elements::{Comp, Kind, LedState};
 use crate::settings::CircSettings;
 use crate::units::{format_si, parse_si};
 use crate::{Error, Result};
@@ -1236,6 +1237,10 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                             gain,
                             volt: 0.0,
                             current: 0.0,
+                            ctrl: 0.0,
+                            sense_ohms: prop(&properties, "Sense")
+                                .map(|v| parse_si(v, "Ω"))
+                                .unwrap_or(1.0),
                         },
                     },
                     &properties,
@@ -1298,6 +1303,12 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let i_off = prop(&properties, PROP_I_OFF)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(0.01);
+                let r_coil = prop(&properties, "Rcoil")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(100.0);
+                let inductance = prop(&properties, PROP_INDUCTANCE)
+                    .map(|v| parse_si(v, "H"))
+                    .unwrap_or(0.1);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
@@ -1307,6 +1318,9 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                             poles,
                             i_on,
                             i_off,
+                            r_coil,
+                            inductance,
+                            coil_i: 0.0,
                             active: false,
                         },
                     },
@@ -1620,13 +1634,23 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let lux = prop(&properties, PROP_LUX)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(100.0);
+                let r_light = prop(&properties, "RLight")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(1000.0);
+                let r_dark = prop(&properties, "RDark")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(1e6);
+                let resistance = crate::components::Ldr {
+                    lux,
+                    r_dark,
+                    r_light,
+                    dial_step: 0.0,
+                }
+                .resistance();
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
-                        kind: Kind::Ldr {
-                            resistance: 1000.0,
-                            lux,
-                        },
+                        kind: Kind::Ldr { resistance, lux },
                     },
                     &properties,
                 ));
@@ -1776,12 +1800,16 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let i_hold = prop(&properties, PROP_HOLDCURR)
                     .map(|v| parse_si(v, "A"))
                     .unwrap_or(0.0082);
+                let r_gate = prop(&properties, "GateRes")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(100.0);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::Scr {
                             v_gate_th,
                             i_hold,
+                            r_gate,
                             conducting: false,
                         },
                     },
@@ -1794,11 +1822,23 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                     .or_else(|| prop(&properties, PROP_BRKVOLT))
                     .map(|v| parse_si(v, "V"))
                     .unwrap_or(30.0);
+                let res_off = prop(&properties, "ResOff")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(1e8);
+                let res_on = prop(&properties, "ResOn")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(500.0);
+                let hold_curr = prop(&properties, PROP_HOLDCURR)
+                    .map(|v| parse_si(v, "A"))
+                    .unwrap_or(0.01);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::Diac {
                             v_breakover,
+                            res_on,
+                            res_off,
+                            hold_curr,
                             conducting: false,
                         },
                     },
@@ -1813,12 +1853,16 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let i_hold = prop(&properties, PROP_HOLDCURR)
                     .map(|v| parse_si(v, "A"))
                     .unwrap_or(0.0082);
+                let r_gate = prop(&properties, "GateRes")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(100.0);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::Triac {
                             v_gate_th,
                             i_hold,
+                            r_gate,
                             conducting: false,
                         },
                     },
@@ -1851,14 +1895,30 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let ca = prop(&properties, PROP_COMMON_ANODE)
                     .map(parse_bool)
                     .unwrap_or(false);
+                let die = |th: &str, res: &str, imax: &str| {
+                    LedState::configured(
+                        prop(&properties, th)
+                            .map(|v| parse_si(v, "V"))
+                            .unwrap_or(2.4),
+                        prop(&properties, res)
+                            .map(|v| parse_si(v, "Ω"))
+                            .unwrap_or(0.6),
+                        prop(&properties, imax)
+                            .map(|v| parse_si(v, "A"))
+                            .unwrap_or(0.03),
+                        false,
+                    )
+                };
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::RgbLed {
                             common_anode: ca,
-                            state_r: 0.0,
-                            state_g: 0.0,
-                            state_b: 0.0,
+                            leds: [
+                                die("ThresholdR", "ResR", "MaxCurrentR"),
+                                die("ThresholdG", "ResG", "MaxCurrentG"),
+                                die("ThresholdB", "ResB", "MaxCurrentB"),
+                            ],
                         },
                     },
                     &properties,
@@ -1872,13 +1932,22 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let grounded = prop(&properties, PROP_GROUNDED)
                     .map(parse_bool)
                     .unwrap_or(false);
+                let threshold = prop(&properties, PROP_THRESHOLD)
+                    .map(|v| parse_si(v, "V"))
+                    .unwrap_or(2.4);
+                let resistance = prop(&properties, PROP_RESISTANCE)
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(0.6);
+                let max_current = prop(&properties, PROP_MAXCURRENT)
+                    .map(|v| parse_si(v, "A"))
+                    .unwrap_or(0.03);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::LedBar {
                             segments: seg,
-                            states: 0,
                             grounded,
+                            leds: LedState::dies(seg, threshold, resistance, max_current, grounded),
                         },
                     },
                     &properties,
@@ -1889,12 +1958,32 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let ca = prop(&properties, PROP_COMMON_ANODE)
                     .map(parse_bool)
                     .unwrap_or(false);
+                let num_displays = prop(&properties, PROP_NUMDISPLAYS)
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(1usize);
+                let threshold = prop(&properties, PROP_THRESHOLD)
+                    .map(|v| parse_si(v, "V"))
+                    .unwrap_or(2.4);
+                let resistance = prop(&properties, PROP_RESISTANCE)
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(1.0);
+                let max_current = prop(&properties, PROP_MAXCURRENT)
+                    .map(|v| parse_si(v, "A"))
+                    .unwrap_or(0.02);
+                let num_displays = num_displays.clamp(1, 8);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::SevenSegment {
                             common_anode: ca,
-                            segments: 0,
+                            num_displays,
+                            leds: LedState::dies(
+                                seven_segment_die_count(num_displays),
+                                threshold,
+                                resistance,
+                                max_current,
+                                false,
+                            ),
                         },
                     },
                     &properties,
@@ -2070,6 +2159,10 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                             power: p,
                             r_cold: 6.0,
                             resistance: 6.0,
+                            heat: 0.0,
+                            tau: prop(&properties, "Tau")
+                                .map(|val| parse_si(val, "s"))
+                                .unwrap_or(0.02),
                         },
                     },
                     &properties,

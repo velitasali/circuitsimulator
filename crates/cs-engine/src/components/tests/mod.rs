@@ -1,6 +1,10 @@
 //! Comprehensive component property, geometry, and circuit view test suite.
 
+mod live_update;
+mod passivity;
+mod pin_parity;
 pub mod recorder;
+mod stamp_registry;
 mod test_actives;
 mod test_displays;
 mod test_generic_matrix;

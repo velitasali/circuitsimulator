@@ -32,15 +32,15 @@ impl MemoryState {
 
         let mut addr_pins = Vec::with_capacity(addr_bits);
         for i in 0..addr_bits {
-            addr_pins.push(IoPin::input(format!("{id}-a{i}")));
+            addr_pins.push(IoPin::input(format!("{id}-in{i}")));
         }
         let mut data_pins = Vec::with_capacity(data_bits);
         for i in 0..data_bits {
-            data_pins.push(IoPin::output(format!("{id}-d{i}")));
+            data_pins.push(IoPin::output(format!("{id}-out{i}")));
         }
-        let cs = IoPin::input(format!("{id}-cs"));
-        let oe = IoPin::input(format!("{id}-oe"));
-        let we = IoPin::input(format!("{id}-we"));
+        let cs = IoPin::input(format!("{id}-Pin_Cs"));
+        let oe = IoPin::input(format!("{id}-Pin_outEnable"));
+        let we = IoPin::input(format!("{id}-Pin_We"));
 
         let mut st = Self {
             addr_bits,
@@ -145,16 +145,16 @@ impl DynamicMemoryState {
 
         let mut addr_pins = Vec::with_capacity(addr_bits);
         for i in 0..addr_bits {
-            addr_pins.push(IoPin::input(format!("{id}-a{i}")));
+            addr_pins.push(IoPin::input(format!("{id}-in{i}")));
         }
         let mut data_pins = Vec::with_capacity(data_bits);
         for i in 0..data_bits {
-            data_pins.push(IoPin::output(format!("{id}-d{i}")));
+            data_pins.push(IoPin::output(format!("{id}-out{i}")));
         }
-        let ras = IoPin::input(format!("{id}-ras"));
-        let cas = IoPin::input(format!("{id}-cas"));
-        let we = IoPin::input(format!("{id}-we"));
-        let oe = IoPin::input(format!("{id}-oe"));
+        let ras = IoPin::input(format!("{id}-Pin_Ras"));
+        let cas = IoPin::input(format!("{id}-Pin_Cas"));
+        let we = IoPin::input(format!("{id}-Pin_We"));
+        let oe = IoPin::input(format!("{id}-Pin_outEnable"));
 
         let mut st = Self {
             addr_bits,
@@ -271,8 +271,8 @@ impl I2CRamState {
     pub fn new(id: &str, size_bytes: usize, dev_address: u8) -> Self {
         let size_bytes = size_bytes.clamp(128, 65536);
         let data = vec![0u8; size_bytes];
-        let scl = IoPin::input(format!("{id}-scl"));
-        let sda = IoPin::open_collector(format!("{id}-sda"));
+        let scl = IoPin::input(format!("{id}-in1"));
+        let sda = IoPin::open_collector(format!("{id}-in0"));
 
         let mut st = Self {
             size_bytes,

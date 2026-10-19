@@ -40,7 +40,13 @@ impl Default for Lm555 {
 impl Lm555 {
     pub const TYPE_ID: &'static str = "Lm555";
     pub fn to_element_kind(&self) -> Kind {
-        Kind::Lm555(Lm555State::new(""))
+        let mut st = Lm555State::new("");
+        st.out_high_v = self.out_high_v;
+        st.out_low_v = self.out_low_v;
+        // The property defaults are 5 V / 0 V. Those still track the supply.
+        // Any other pair is the voltage the user asked for.
+        st.follow_rails = (self.out_high_v - 5.0).abs() < 1e-9 && self.out_low_v.abs() < 1e-9;
+        Kind::Lm555(st)
     }
 
     fn get_out_high_v(&self) -> PropValue {

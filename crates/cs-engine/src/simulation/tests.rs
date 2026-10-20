@@ -2949,3 +2949,153 @@ fn chained_buses_share_overlapping_lines_only() {
     approx(c.pin_voltage("A-ePin0").unwrap(), 0.0);
     approx(c.pin_voltage("C-busPinI").unwrap(), 0.0);
 }
+
+#[test]
+fn named_net_regroup_keeps_voltage_stamps_and_other_channels() {
+    let mut c = Circuit::new();
+    c.add_fixed_volt("V1", 5.0)
+        .add_resistor("R1", 1_000.0)
+        .add_fixed_volt("V2", 2.0)
+        .add_resistor("R2", 1_000.0)
+        .add_ground("GND")
+        .add_voltmeter("VM1", false)
+        .add_voltmeter("VM2", false)
+        .add_oscope("Scope1")
+        .add_tunnel("T1", "SIG", "T1-pin")
+        .add_tunnel("Tm", "SIG", "Tm-pin")
+        .add_tunnel("T2", "OTHER", "T2-pin")
+        .add_flipflop_d("FF1")
+        .connect("V1-outnod", "R1-lPin")
+        .connect("R1-rPin", "GND-Gnd")
+        .connect("V2-outnod", "R2-lPin")
+        .connect("R2-rPin", "GND-Gnd")
+        .connect("VM1-lPin", "V1-outnod")
+        .connect("VM1-rPin", "GND-Gnd")
+        .connect("VM2-lPin", "Tm-pin")
+        .connect("VM2-rPin", "GND-Gnd")
+        .connect("V1-outnod", "T1-pin")
+        .connect("V2-outnod", "T2-pin");
+    c.solve().unwrap();
+    approx(c.pin_voltage("R1-lPin").unwrap(), 5.0);
+    approx(c.pin_voltage("VM2-lPin").unwrap(), 5.0);
+    let vm1_n = c.instruments.meters.get("VM1").unwrap().n;
+    let vm2_n = c.instruments.meters.get("VM2").unwrap().n;
+    assert!(vm1_n > 0 && vm2_n > 0);
+
+    if let Kind::FlipFlop(ff) = &mut c.comp_mut("FF1").unwrap().kind {
+        assert!(!ff.q0);
+        ff.q.set_out_state(true);
+    }
+    {
+        let scope = c.instruments.scopes.get_mut("Scope1").unwrap();
+        // Two changes, so the earlier one stays readable after the next sample
+        // extends the last stamp.
+        scope.push(
+            0.001,
+            &[1.0, 2.0, 0.0, 0.0],
+            &[true, true, false, false],
+            -1,
+            0.0,
+            true,
+            0.1,
+        );
+        scope.push(
+            0.002,
+            &[1.5, 2.5, 0.0, 0.0],
+            &[true, true, false, false],
+            -1,
+            0.0,
+            true,
+            0.1,
+        );
+    }
+
+    let joined = Kind::Oscope {
+        connect_gnd: true,
+        input_imped: 10.0,
+        tunnels: [
+            "SIG".to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ],
+    };
+    assert!(c.update_component_kind("Scope1", &joined));
+    approx(c.pin_voltage("R1-lPin").unwrap(), 5.0);
+    let scope = c.instruments.scopes.get("Scope1").unwrap();
+    let kept = scope.sample_at(0.002);
+    assert_eq!(
+        (scope.connected.clone(), kept),
+        (vec![false, true, false, false], vec![0.0, 2.5, 0.0, 0.0]),
+        "channel 1 should be wiped and channel 2 kept"
+    );
+    assert_eq!(c.instruments.meters.get("VM1").unwrap().n, vm1_n);
+    assert_eq!(c.instruments.meters.get("VM2").unwrap().n, vm2_n);
+    if let Kind::FlipFlop(ff) = &c.comp("FF1").unwrap().kind {
+        assert!(ff.q.get_out_state());
+    }
+
+    // The new sample is later than the kept history. `re_solve` reads `time`.
+    c.time = 0.003;
+    c.re_solve().unwrap();
+    approx(c.pin_voltage("R1-lPin").unwrap(), 5.0);
+    if let Kind::FlipFlop(ff) = &c.comp("FF1").unwrap().kind {
+        assert!(
+            ff.q.get_out_state(),
+            "regroup must not re-init the flip-flop"
+        );
+    }
+    let scope = c.instruments.scopes.get("Scope1").unwrap();
+    let traced = scope.sample_at(0.002);
+    approx(traced[0], 0.0);
+    approx(traced[1], 2.0);
+    let latest = scope.last_values();
+    approx(latest[0], 5.0);
+    approx(latest[1], 0.0);
+    assert!(scope.connected[0]);
+    assert!(!scope.connected[1]);
+
+    let missing = Kind::Oscope {
+        connect_gnd: true,
+        input_imped: 10.0,
+        tunnels: [
+            "NOWHERE".to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ],
+    };
+    assert!(c.update_component_kind("Scope1", &missing));
+    c.time = 0.004;
+    c.re_solve().unwrap();
+    assert!(
+        !c.instruments.scopes.get("Scope1").unwrap().connected[0],
+        "a tunnel name with no partner is an open channel"
+    );
+    if let Kind::FlipFlop(ff) = &c.comp("FF1").unwrap().kind {
+        assert!(ff.q.get_out_state());
+    }
+
+    let moved = Kind::Tunnel {
+        name: "OTHER".to_string(),
+        pin_id: String::new(),
+    };
+    let vm1_before_move = c.instruments.meters.get("VM1").unwrap().n;
+    assert!(c.update_component_kind("Tm", &moved));
+    assert_eq!(
+        c.instruments.meters.get("VM2").unwrap().n,
+        0,
+        "VM2 left SIG for OTHER"
+    );
+    assert_eq!(c.instruments.meters.get("VM1").unwrap().n, vm1_before_move);
+    approx(c.pin_voltage("R1-lPin").unwrap(), 5.0);
+    approx(c.pin_voltage("R2-lPin").unwrap(), 2.0);
+    approx(c.pin_voltage("VM2-lPin").unwrap(), 2.0);
+    c.time = 0.005;
+    c.re_solve().unwrap();
+    approx(c.pin_voltage("VM2-lPin").unwrap(), 2.0);
+    approx(c.pin_voltage("R1-lPin").unwrap(), 5.0);
+    if let Kind::FlipFlop(ff) = &c.comp("FF1").unwrap().kind {
+        assert!(ff.q.get_out_state());
+    }
+}

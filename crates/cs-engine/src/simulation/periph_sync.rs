@@ -20,20 +20,18 @@ pub(crate) enum CachedInstrument {
     Voltmeter {
         comp_idx: usize,
         comp_id: String,
-        rms: bool,
         left_node: Option<usize>,
         right_node: Option<usize>,
     },
     Ammeter {
         comp_idx: usize,
         comp_id: String,
-        rms: bool,
         left_node: Option<usize>,
         right_node: Option<usize>,
     },
     FreqMeter {
+        comp_idx: usize,
         comp_id: String,
-        filter: f64,
         left_node: Option<usize>,
     },
 }
@@ -376,7 +374,6 @@ impl Circuit {
                 CachedInstrument::Voltmeter {
                     comp_idx,
                     comp_id,
-                    rms,
                     left_node,
                     right_node,
                 } => {
@@ -387,12 +384,17 @@ impl Circuit {
                         (Some(n0), Some(n1)) => n0.volt - n1.volt,
                         _ => 0.0,
                     };
+                    // `rms` is a kind field. The cache keeps node indices only.
+                    let rms = match self.components.get(*comp_idx).map(|c| &c.kind) {
+                        Some(Kind::Voltmeter { rms, .. }) => *rms,
+                        _ => false,
+                    };
                     let stats = match self.instruments.meters.get_mut(comp_id) {
                         Some(s) => s,
                         None => self.instruments.meters.entry(comp_id.clone()).or_default(),
                     };
-                    stats.sample(v, *rms, t);
-                    let out = stats.display_value(*rms);
+                    stats.sample(v, rms, t);
+                    let out = stats.display_value(rms);
                     if let Some(c) = self.components.get_mut(*comp_idx) {
                         if let Kind::Voltmeter { last_out, .. } = &mut c.kind {
                             *last_out = out;
@@ -402,7 +404,6 @@ impl Circuit {
                 CachedInstrument::Ammeter {
                     comp_idx,
                     comp_id,
-                    rms,
                     left_node,
                     right_node,
                 } => {
@@ -415,12 +416,16 @@ impl Circuit {
                         }
                         _ => 0.0,
                     };
+                    let rms = match self.components.get(*comp_idx).map(|c| &c.kind) {
+                        Some(Kind::Ammeter { rms, .. }) => *rms,
+                        _ => false,
+                    };
                     let stats = match self.instruments.meters.get_mut(comp_id) {
                         Some(s) => s,
                         None => self.instruments.meters.entry(comp_id.clone()).or_default(),
                     };
-                    stats.sample(i, *rms, t);
-                    let out = stats.display_value(*rms);
+                    stats.sample(i, rms, t);
+                    let out = stats.display_value(rms);
                     if let Some(c) = self.components.get_mut(*comp_idx) {
                         if let Kind::Ammeter { last_out, .. } = &mut c.kind {
                             *last_out = out;
@@ -428,19 +433,23 @@ impl Circuit {
                     }
                 }
                 CachedInstrument::FreqMeter {
+                    comp_idx,
                     comp_id,
-                    filter,
                     left_node,
                 } => {
                     let v = left_node
                         .and_then(|i| nodes.get(i))
                         .map(|n| n.volt)
                         .unwrap_or(0.0);
+                    let filter = match self.components.get(*comp_idx).map(|c| &c.kind) {
+                        Some(Kind::FreqMeter { filter }) => *filter,
+                        _ => 0.1,
+                    };
                     let st = match self.instruments.freq.get_mut(comp_id) {
                         Some(s) => s,
                         None => self.instruments.freq.entry(comp_id.clone()).or_default(),
                     };
-                    st.sample(v, *filter, t);
+                    st.sample(v, filter, t);
                 }
                 CachedInstrument::Oscope {
                     comp_id,
@@ -455,9 +464,13 @@ impl Circuit {
                     let mut connected = [false; 4];
                     for (i, p_opt) in pins.iter().enumerate() {
                         if let Some(n) = p_opt {
-                            connected[i] = true;
-                            let v = nodes.get(*n).map(|nd| nd.volt).unwrap_or(0.0);
-                            vals[i] = v - g;
+                            // A name that matches nothing is this plot pin alone.
+                            let alone = nodes.get(*n).is_some_and(|nd| nd.pin_ids.len() <= 1);
+                            if !alone {
+                                connected[i] = true;
+                                let v = nodes.get(*n).map(|nd| nd.volt).unwrap_or(0.0);
+                                vals[i] = v - g;
+                            }
                         }
                     }
                     let s = match self.instruments.scopes.get_mut(comp_id) {
@@ -475,9 +488,12 @@ impl Circuit {
                     let mut connected = [false; 8];
                     for (i, p_opt) in pins.iter().enumerate() {
                         if let Some(n) = p_opt {
-                            connected[i] = true;
-                            let v = nodes.get(*n).map(|nd| nd.volt).unwrap_or(0.0);
-                            vals[i] = v;
+                            let alone = nodes.get(*n).is_some_and(|nd| nd.pin_ids.len() <= 1);
+                            if !alone {
+                                connected[i] = true;
+                                let v = nodes.get(*n).map(|nd| nd.volt).unwrap_or(0.0);
+                                vals[i] = v;
+                            }
                         }
                     }
                     let s = match self.instruments.las.get_mut(comp_id) {

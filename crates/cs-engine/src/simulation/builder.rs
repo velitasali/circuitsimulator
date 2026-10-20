@@ -869,6 +869,7 @@ impl Circuit {
             instrument_caches: Vec::new(),
             has_motors_cached: false,
             time_sources_cached: Vec::new(),
+            regroup_pending: false,
         })
     }
 

@@ -493,7 +493,6 @@ impl Canvas {
                         index,
                         press_pos,
                     };
-                    c.merge(self.refresh_sim().without_qml_model());
                 }
             }
             Drag::MoveLabel {
@@ -533,9 +532,7 @@ impl Canvas {
                     let free = mods & MOD_SHIFT != 0;
                     match mode {
                         WireEditMode::Group => {
-                            if self.move_selected(dx, dy) {
-                                c.merge(self.refresh_sim().without_qml_model());
-                            }
+                            self.move_selected(dx, dy);
                         }
                         WireEditMode::Segment(seg) => {
                             if let Some(new_seg) = self.drag_wire_segment(wire, seg, delta) {
@@ -618,7 +615,6 @@ impl Canvas {
                     self.pending = None;
                 } else if self.commit_pending() {
                     c.history = true;
-                    c.merge(self.refresh_sim());
                 }
                 self.drag = Drag::None;
                 c.merge(self.update_hover(self.last_scene, mods));
@@ -682,7 +678,6 @@ impl Canvas {
                     }
                     c.wires = true;
                     c.items = true;
-                    c.merge(self.refresh_sim());
                 }
                 self.drag = Drag::None;
                 c.merge(self.set_cursor(CursorKind::Arrow));

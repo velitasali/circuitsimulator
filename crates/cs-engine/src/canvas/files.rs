@@ -859,7 +859,7 @@ impl Canvas {
                 sim: true,
                 ..Change::default()
             };
-            c.merge(self.refresh_sim());
+            c.merge(self.refresh_sim_component(item_id));
             c
         } else {
             Change::default()

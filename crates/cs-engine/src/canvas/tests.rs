@@ -360,6 +360,55 @@ fn zoom_to_fit_centers_items() {
 }
 
 #[test]
+fn geometry_edits_keep_simulation_time() {
+    let mut c = Canvas::with_demo_divider();
+    c.set_view_size(800.0, 600.0);
+    c.power_on();
+    c.tick();
+    let started = c.circ_time();
+    assert!(started > 1, "tick should advance, t={started}");
+    let mid = c.pin_voltage("Resistor-1-rPin").unwrap();
+
+    let origin = c.scene.item_by_id("Resistor-1").unwrap().position();
+    let from = item_of(&c, origin);
+    c.mouse_press(BUTTON_LEFT, from.x, from.y, 0);
+    let to = item_of(&c, Point::new(origin.x, origin.y + 16.0));
+    c.mouse_move(to.x, to.y, BUTTON_LEFT, 0);
+    c.mouse_release(BUTTON_LEFT, to.x, to.y, 0);
+    let moved = c.scene.item_by_id("Resistor-1").unwrap().position();
+    assert!((moved.x - origin.x).abs() < 1e-6);
+    assert!((moved.y - (origin.y + 16.0)).abs() < 1e-6);
+    assert_eq!(c.circ_time(), started);
+    assert!((c.pin_voltage("Resistor-1-rPin").unwrap() - mid).abs() < 1e-6);
+
+    c.rotate_cw();
+    c.flip_h();
+    c.flip_v();
+    let turned = c.scene.item_by_id("Resistor-1").unwrap();
+    assert!((turned.rotation - 90.0).abs() < 1e-9);
+    assert_eq!(turned.hflip, -1);
+    assert_eq!(turned.vflip, -1);
+    assert_eq!(c.circ_time(), started);
+    assert!(c.sim_running());
+
+    let mut wired = two_resistors_wired();
+    wired.power_on();
+    wired.tick();
+    let wire_time = wired.circ_time();
+    assert!(wire_time > 1, "tick should advance, t={wire_time}");
+    let mid_w = item_of(&wired, Point::new(40.0, 0.0));
+    wired.mouse_press(BUTTON_LEFT, mid_w.x, mid_w.y, 0);
+    let down = item_of(&wired, Point::new(40.0, 16.0));
+    wired.mouse_move(down.x, down.y, BUTTON_LEFT, 0);
+    wired.mouse_release(BUTTON_LEFT, down.x, down.y, 0);
+    assert_eq!(wired.circ_time(), wire_time);
+    assert!(wired.scene.wires()[0].points.iter().any(|p| p.y == 16.0));
+
+    c.tick();
+    assert!(c.circ_time() > started);
+}
+
+#[test]
 fn power_on_solves_demo_divider() {
     let mut c = Canvas::with_demo_divider();
     c.power_on();

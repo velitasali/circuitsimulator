@@ -11,6 +11,26 @@ fn approx(a: f64, b: f64) {
 }
 
 #[test]
+fn re_solve_without_nodes_keeps_circuit_time() {
+    let mut c = Circuit::new();
+    c.add_resistor("R", 100.0);
+    c.solve().unwrap();
+    assert!(c.nodes.is_empty());
+    c.circ_time = 50_000;
+    c.sim_started = true;
+    if let Kind::Resistor { resistance } = &mut c.comp_mut("R").unwrap().kind {
+        *resistance = 200.0;
+    }
+    c.re_solve().unwrap();
+    assert_eq!(c.circ_time, 50_000);
+    assert!(c.sim_started);
+    match &c.comp_mut("R").unwrap().kind {
+        Kind::Resistor { resistance } => assert!((*resistance - 200.0).abs() < 1e-9),
+        other => panic!("expected resistor, got {other:?}"),
+    }
+}
+
+#[test]
 fn fixed_volt_resistor_ground() {
     let mut c = Circuit::new();
     c.add_fixed_volt("Fixed Voltage-1", 5.0)

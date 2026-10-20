@@ -106,9 +106,7 @@ impl Canvas {
             return Change::default();
         }
         self.dirty_move_footprint();
-        let mut c = Change::edit();
-        c.merge(self.refresh_sim());
-        c
+        Change::edit()
     }
 
     pub fn flip_h(&mut self) -> Change {
@@ -122,9 +120,7 @@ impl Canvas {
             return Change::default();
         }
         self.dirty_move_footprint();
-        let mut c = Change::edit();
-        c.merge(self.refresh_sim());
-        c
+        Change::edit()
     }
 
     pub fn flip_v(&mut self) -> Change {
@@ -138,9 +134,7 @@ impl Canvas {
             return Change::default();
         }
         self.dirty_move_footprint();
-        let mut c = Change::edit();
-        c.merge(self.refresh_sim());
-        c
+        Change::edit()
     }
 
     pub fn rotate_item_label(&mut self, uid: &str, angle_deg: i32) -> Change {

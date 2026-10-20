@@ -131,16 +131,14 @@ impl Circuit {
     ///
     /// A named-net regroup leaves `regroup_pending`. That solve keeps device
     /// stamps and starts from the voltages copied onto the new nodes.
+    /// With no nodes there is nothing to stamp, so the clock and device state stay.
     pub fn re_solve(&mut self) -> Result<()> {
-        let keep_stamps = std::mem::take(&mut self.regroup_pending);
         if self.nodes.is_empty() {
-            if !self.components.is_empty() {
-                return self.solve();
-            }
             self.sample_instruments();
             self.update_motors_dt(0);
             return Ok(());
         }
+        let keep_stamps = std::mem::take(&mut self.regroup_pending);
         if !keep_stamps {
             self.reset_device_stamps();
         }

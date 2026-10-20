@@ -319,3 +319,115 @@ fn test_oscope_auto_scale_and_trigger_controls() {
     canvas.set_scope_trigger(-1);
     assert_eq!(canvas.scope_trigger(), -1);
 }
+
+fn add_rail_tunnel(canvas: &mut Canvas, name: &str) -> (String, String) {
+    let rail_id = canvas.scene_mut().add_rail(0.0, 0.0);
+    let tun_id = canvas.scene_mut().add_tunnel(40.0, 0.0);
+    assert!(
+        canvas
+            .scene_mut()
+            .item_by_id_mut(&tun_id)
+            .unwrap()
+            .set_prop_text("Name", name)
+    );
+    let rail_pin = format!("{rail_id}-outnod");
+    let tun_pin = format!("{tun_id}-pin");
+    canvas
+        .scene_mut()
+        .add_saved_wire(Wire::from_saved("w-rail", rail_pin, tun_pin, vec![]));
+    (rail_id, tun_id)
+}
+
+fn channel_peak(samples: &[f64]) -> f64 {
+    samples.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+}
+
+#[test]
+fn live_oscope_tunnel_retargets_while_running() {
+    let mut canvas = Canvas::new();
+    let (_rail_id, tun_id) = add_rail_tunnel(&mut canvas, "SIG_A");
+    let osc_id = canvas.scene_mut().add_oscope(100.0, 0.0);
+
+    canvas.power_on();
+    for _ in 0..3 {
+        canvas.tick();
+    }
+    let started = canvas.circ_time();
+    assert!(
+        started > 1,
+        "simulation should have advanced before the edit, t={started}"
+    );
+
+    let idle = canvas.live_scope_traces(&osc_id).expect("oscope sampler");
+    assert!(
+        !idle.channels[0].connected,
+        "channel 1 starts on its probe pin"
+    );
+
+    canvas.set_prop_text_for(&osc_id, "Tunnel1".into(), "SIG_A".into());
+    assert!(
+        canvas.circ_time() >= started,
+        "a tunnel edit must keep the running clock"
+    );
+    let joined = canvas.live_scope_traces(&osc_id).expect("oscope sampler");
+    assert!(
+        joined.channels[0].connected,
+        "channel 1 should follow SIG_A"
+    );
+    let peak = channel_peak(&joined.channels[0].samples);
+    assert!(peak > 4.5, "expected the 5 V rail on channel 1, got {peak}");
+
+    canvas.set_prop_text_for(&osc_id, "InputImped".into(), "1 MΩ".into());
+    assert!(canvas.circ_time() >= started);
+    let held = canvas.live_scope_traces(&osc_id).expect("oscope sampler");
+    assert!(
+        held.channels[0].connected,
+        "impedance is a stamp parameter and leaves the net in place"
+    );
+
+    canvas.set_prop_text_for(&tun_id, "Name".into(), "OTHER".into());
+    let dropped = canvas.live_scope_traces(&osc_id).expect("oscope sampler");
+    let peak = channel_peak(&dropped.channels[0].samples);
+    assert!(
+        peak < 0.5,
+        "renaming the tunnel should take the rail off channel 1, got {peak}"
+    );
+
+    canvas.set_prop_text_for(&osc_id, "Tunnel1".into(), "".into());
+    let cleared = canvas.live_scope_traces(&osc_id).expect("oscope sampler");
+    assert!(
+        !cleared.channels[0].connected,
+        "an empty tunnel name returns the channel to its probe pin"
+    );
+
+    canvas.set_prop_text_for(&osc_id, "Tunnel1".into(), "OTHER".into());
+    let again = canvas.live_scope_traces(&osc_id).expect("oscope sampler");
+    assert!(again.channels[0].connected);
+    let peak = channel_peak(&again.channels[0].samples);
+    assert!(
+        peak > 4.5,
+        "expected the 5 V rail after the rename, got {peak}"
+    );
+}
+
+#[test]
+fn live_logic_analyzer_tunnel_retargets_while_running() {
+    let mut canvas = Canvas::new();
+    let (_rail_id, _tun_id) = add_rail_tunnel(&mut canvas, "SIG_A");
+    let la_id = canvas.scene_mut().add_lanalizer(100.0, 0.0);
+
+    canvas.power_on();
+    canvas.tick();
+
+    let idle = canvas.live_la_traces(&la_id).expect("analyzer sampler");
+    assert!(!idle.channels[0].connected);
+
+    canvas.set_prop_text_for(&la_id, "Tunnel1".into(), "SIG_A".into());
+    let joined = canvas.live_la_traces(&la_id).expect("analyzer sampler");
+    assert!(joined.channels[0].connected, "D0 should follow SIG_A");
+    let peak = channel_peak(&joined.channels[0].samples);
+    assert!(
+        peak > 0.5,
+        "expected a logic high from the rail, got {peak}"
+    );
+}

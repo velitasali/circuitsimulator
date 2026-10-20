@@ -70,7 +70,8 @@ impl ENode {
 
     #[inline]
     pub fn clear_stamps(&mut self) {
-        self.volt = 0.0;
+        // `volt` is the last solution. Stamp accumulators are the only
+        // quantities that belong to one Newton pass.
         self.total_admit = 0.0;
         self.total_curr = 0.0;
         self.admit_count = 0;

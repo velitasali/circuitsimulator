@@ -24,6 +24,19 @@ fn nortons_moved(before: &[(f64, f64)], pins: &[IoPin]) -> bool {
             .any(|(pin, &prev)| norton_moved(prev, pin))
 }
 
+/// A meter pin stayed when its new pin set continues the same previous net.
+/// A probe joining that net does not count. An empty pin set stays empty.
+fn meter_pin_stayed(
+    old_groups: &[(Vec<String>, f64)],
+    old_pins: &[String],
+    new_pins: &[String],
+) -> bool {
+    match super::matrix_solver::inherited_index(old_groups, new_pins) {
+        Some(i) => old_groups[i].0.as_slice() == old_pins,
+        None => old_pins.is_empty(),
+    }
+}
+
 impl Circuit {
     pub fn set_pin_inverted(&mut self, pin_id: &str, inverted: bool) {
         for c in &mut self.components {
@@ -31,8 +44,15 @@ impl Circuit {
         }
     }
 
-    /// Update an existing component's Kind in-place without rebuilding nets.
+    /// Update an existing component's Kind in place.
+    ///
+    /// Stamp parameters are picked up by the next `re_solve`. Named-net
+    /// membership ([`crate::elements::Comp::named_net_pins`]) regroups nodes,
+    /// copies voltages onto the pin sets that remain, and that `re_solve`
+    /// keeps device stamps. Pin-count changes still replace the circuit.
     pub fn update_component_kind(&mut self, id: &str, kind: &Kind) -> bool {
+        self.regroup_pending = false;
+        let links_before = self.named_net_links();
         let mut updated = None;
         for (index, c) in self.components.iter_mut().enumerate() {
             if c.id == id {
@@ -126,7 +146,154 @@ impl Circuit {
         if matches!(self.components[index].kind, Kind::Clock { .. }) {
             self.reschedule_clock(index);
         }
+        if self.nets_are_bound() && links_before != self.named_net_links() {
+            self.rebind_named_nets();
+            self.regroup_pending = true;
+        }
         true
+    }
+
+    fn named_net_links(&self) -> Vec<(String, String)> {
+        let mut links = Vec::new();
+        for c in &self.components {
+            links.extend(c.named_net_pins());
+        }
+        links.sort();
+        links
+    }
+
+    fn nets_are_bound(&self) -> bool {
+        !self.pin_net.is_empty() || !self.nodes.is_empty()
+    }
+
+    /// Rebuild union-find, pin caches, and instrument node indices.
+    /// Unchanged pin groups keep their voltage. Time, events, and device
+    /// stamps stay. A channel drops history when its pins move. A meter drops
+    /// running stats when its pins continue a different net.
+    fn rebind_named_nets(&mut self) {
+        let channels = self.instrument_net_groups();
+        let meters = self.meter_pin_groups();
+        let old_groups = self.group_volts();
+        self.rebuild_nets_keeping_volts();
+        self.blank_moved_channels(&channels);
+        self.reset_moved_meters(&meters, &old_groups);
+    }
+
+    fn pin_group(&self, pin: &str) -> Vec<String> {
+        let Some(&node) = self.pin_net.get(pin) else {
+            return Vec::new();
+        };
+        let mut pins: Vec<String> = self
+            .pin_net
+            .iter()
+            .filter_map(|(id, idx)| (*idx == node).then(|| id.clone()))
+            .collect();
+        pins.sort();
+        pins
+    }
+
+    fn instrument_net_groups(&self) -> Vec<(String, bool, Vec<Vec<String>>)> {
+        let mut out = Vec::new();
+        for c in &self.components {
+            match &c.kind {
+                Kind::Oscope { .. } => {
+                    let mut groups = Vec::with_capacity(5);
+                    for i in 0..4 {
+                        groups.push(self.pin_group(&c.plot_pin(i)));
+                    }
+                    groups.push(self.pin_group(&c.plot_gnd_pin()));
+                    out.push((c.id.clone(), true, groups));
+                }
+                Kind::LAnalizer { .. } => {
+                    let groups = (0..8).map(|i| self.pin_group(&c.plot_pin(i))).collect();
+                    out.push((c.id.clone(), false, groups));
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    fn blank_moved_channels(&mut self, previous: &[(String, bool, Vec<Vec<String>>)]) {
+        let current = self.instrument_net_groups();
+        for (id, is_scope, groups) in &current {
+            let Some((_, _, old)) = previous
+                .iter()
+                .find(|(pid, pscope, _)| pid == id && *pscope == *is_scope)
+            else {
+                continue;
+            };
+            let nch = if *is_scope { 4 } else { 8 };
+            // Scope samples are channel minus the ground pin. A new ground
+            // reference makes every channel's stored waveform stale.
+            let gnd_moved = *is_scope && old.get(4) != groups.get(4);
+            let sampler = if *is_scope {
+                self.instruments.scopes.get_mut(id)
+            } else {
+                self.instruments.las.get_mut(id)
+            };
+            let Some(sampler) = sampler else {
+                continue;
+            };
+            for ch in 0..nch {
+                if gnd_moved || old.get(ch) != groups.get(ch) {
+                    sampler.blank_channel(ch);
+                }
+            }
+        }
+    }
+
+    fn meter_pin_groups(&self) -> Vec<(String, bool, Vec<Vec<String>>)> {
+        let mut out = Vec::new();
+        for c in &self.components {
+            match &c.kind {
+                Kind::Voltmeter { .. } | Kind::Ammeter { .. } => {
+                    out.push((
+                        c.id.clone(),
+                        false,
+                        vec![
+                            self.pin_group(&c.left_pin()),
+                            self.pin_group(&c.right_pin()),
+                        ],
+                    ));
+                }
+                Kind::FreqMeter { .. } => {
+                    out.push((c.id.clone(), true, vec![self.pin_group(&c.left_pin())]));
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    fn reset_moved_meters(
+        &mut self,
+        previous: &[(String, bool, Vec<Vec<String>>)],
+        old_groups: &[(Vec<String>, f64)],
+    ) {
+        let current = self.meter_pin_groups();
+        for (id, is_freq, groups) in &current {
+            let stayed = previous
+                .iter()
+                .find(|(pid, freq, _)| pid == id && freq == is_freq)
+                .is_some_and(|(_, _, old)| {
+                    old.len() == groups.len()
+                        && old
+                            .iter()
+                            .zip(groups.iter())
+                            .all(|(old_g, new_g)| meter_pin_stayed(old_groups, old_g, new_g))
+                });
+            if stayed {
+                continue;
+            }
+            if *is_freq {
+                if let Some(state) = self.instruments.freq.get_mut(id) {
+                    *state = crate::instruments::FreqMeterState::default();
+                }
+            } else if let Some(state) = self.instruments.meters.get_mut(id) {
+                *state = crate::instruments::MeterStats::default();
+            }
+        }
     }
 
     /// Drop an armed clock edge and arm the next one for the kind's frequency.

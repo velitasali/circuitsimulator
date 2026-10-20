@@ -868,6 +868,33 @@ impl Comp {
         format!("{}-Pin{i}", self.id)
     }
 
+    /// Wireless joins: `(net name, pin id)`.
+    ///
+    /// `Circuit::build_nets` unions every pin that shares a name. A live kind
+    /// edit rebuilds nets when this list changes and leaves time and device
+    /// state in place. Add a match arm here for a new wireless pin. Pin-count
+    /// changes stay on the structural rebuild.
+    pub fn named_net_pins(&self) -> Vec<(String, String)> {
+        match &self.kind {
+            Kind::Tunnel { name, pin_id } if !name.is_empty() => {
+                vec![(name.clone(), pin_id.clone())]
+            }
+            Kind::Oscope { tunnels, .. } => tunnels
+                .iter()
+                .enumerate()
+                .filter(|(_, name)| !name.is_empty())
+                .map(|(i, name)| (name.clone(), self.plot_pin(i)))
+                .collect(),
+            Kind::LAnalizer { tunnels, .. } => tunnels
+                .iter()
+                .enumerate()
+                .filter(|(_, name)| !name.is_empty())
+                .map(|(i, name)| (name.clone(), self.plot_pin(i)))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// C++ Oscope `id + "-PinG"`.
     pub fn plot_gnd_pin(&self) -> String {
         format!("{}-PinG", self.id)

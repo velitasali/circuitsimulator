@@ -285,6 +285,23 @@ impl Circuit {
     }
 
     pub(super) fn build_nets(&mut self) {
+        self.assemble_nets(false);
+    }
+
+    /// Rebuild nodes from the same grouping as [`Self::build_nets`].
+    ///
+    /// An unchanged pin set keeps its voltage. A set that gained or lost pins
+    /// keeps the voltage of the previous set it overlaps most.
+    pub(super) fn rebuild_nets_keeping_volts(&mut self) {
+        self.assemble_nets(true);
+    }
+
+    fn assemble_nets(&mut self, inherit_volts: bool) {
+        let previous = if inherit_volts {
+            self.group_volts()
+        } else {
+            Vec::new()
+        };
         self.nodes.clear();
         self.pin_net.clear();
 
@@ -294,36 +311,8 @@ impl Circuit {
         }
         let mut tunnels: FxHashMap<String, Vec<String>> = FxHashMap::default();
         for c in &self.components {
-            match &c.kind {
-                Kind::Tunnel { name, pin_id } => {
-                    if !name.is_empty() {
-                        tunnels
-                            .entry(name.clone())
-                            .or_default()
-                            .push(pin_id.clone());
-                    }
-                }
-                Kind::Oscope {
-                    tunnels: ch_tunnels,
-                    ..
-                } => {
-                    for (i, tun) in ch_tunnels.iter().enumerate() {
-                        if !tun.is_empty() {
-                            tunnels.entry(tun.clone()).or_default().push(c.plot_pin(i));
-                        }
-                    }
-                }
-                Kind::LAnalizer {
-                    tunnels: ch_tunnels,
-                    ..
-                } => {
-                    for (i, tun) in ch_tunnels.iter().enumerate() {
-                        if !tun.is_empty() {
-                            tunnels.entry(tun.clone()).or_default().push(c.plot_pin(i));
-                        }
-                    }
-                }
-                _ => {}
+            for (name, pin) in c.named_net_pins() {
+                tunnels.entry(name).or_default().push(pin);
             }
         }
         for pins in tunnels.values() {
@@ -564,6 +553,7 @@ impl Circuit {
             }
             let num = self.nodes.len();
             let mut node = ENode::new(format!("eNodeSim-{num}"), num);
+            node.volt = inherited_volt(&previous, &pins);
             for p in &pins {
                 self.pin_net.insert(p.clone(), num);
                 node.pin_ids.push(p.clone());
@@ -573,7 +563,7 @@ impl Circuit {
 
         let n = self.nodes.len();
         self.matrix = CircMatrix::new(n);
-        self.volts_buf = vec![0.0; n];
+        self.volts_buf = self.nodes.iter().map(|node| node.volt).collect();
         let mut connections = vec![Vec::new(); n];
         for c in &self.components {
             let mut comp_nodes = Vec::with_capacity(4);
@@ -652,35 +642,33 @@ impl Circuit {
                         .entry(c.id.clone())
                         .or_insert_with(ScopeSampler::analyzer);
                 }
-                Kind::Voltmeter { rms, .. } => {
+                Kind::Voltmeter { .. } => {
                     let left_node = self.pin_net.get(&c.left_pin()).copied();
                     let right_node = self.pin_net.get(&c.right_pin()).copied();
                     instrument_caches.push(CachedInstrument::Voltmeter {
                         comp_idx: idx,
                         comp_id: c.id.clone(),
-                        rms: *rms,
                         left_node,
                         right_node,
                     });
                     self.instruments.meters.entry(c.id.clone()).or_default();
                 }
-                Kind::Ammeter { rms, .. } => {
+                Kind::Ammeter { .. } => {
                     let left_node = self.pin_net.get(&c.left_pin()).copied();
                     let right_node = self.pin_net.get(&c.right_pin()).copied();
                     instrument_caches.push(CachedInstrument::Ammeter {
                         comp_idx: idx,
                         comp_id: c.id.clone(),
-                        rms: *rms,
                         left_node,
                         right_node,
                     });
                     self.instruments.meters.entry(c.id.clone()).or_default();
                 }
-                Kind::FreqMeter { filter } => {
+                Kind::FreqMeter { .. } => {
                     let left_node = self.pin_net.get(&c.left_pin()).copied();
                     instrument_caches.push(CachedInstrument::FreqMeter {
+                        comp_idx: idx,
                         comp_id: c.id.clone(),
-                        filter: *filter,
                         left_node,
                     });
                     self.instruments.freq.entry(c.id.clone()).or_default();
@@ -699,6 +687,69 @@ impl Circuit {
             }
         }
     }
+
+    pub(crate) fn group_volts(&self) -> Vec<(Vec<String>, f64)> {
+        self.nodes
+            .iter()
+            .map(|node| {
+                let mut pins = node.pin_ids.clone();
+                pins.sort();
+                (pins, node.volt)
+            })
+            .collect()
+    }
+}
+
+/// Which previous pin set `pins` continues.
+///
+/// An exact match wins. Otherwise the previous set with the largest overlap,
+/// and a larger set wins a tie. Node order breaks the rest. No overlap returns
+/// `None`, including an empty pin set.
+pub(crate) fn inherited_index(old: &[(Vec<String>, f64)], pins: &[String]) -> Option<usize> {
+    if pins.is_empty() {
+        return None;
+    }
+    if let Some(i) = old
+        .iter()
+        .position(|(old_pins, _)| old_pins.as_slice() == pins)
+    {
+        return Some(i);
+    }
+    let mut best: Option<usize> = None;
+    let mut best_n = 0usize;
+    let mut best_size = 0usize;
+    for (i, (old_pins, _)) in old.iter().enumerate() {
+        let n = overlap_count(old_pins, pins);
+        if n > best_n || (n == best_n && n > 0 && old_pins.len() > best_size) {
+            best_n = n;
+            best_size = old_pins.len();
+            best = Some(i);
+        }
+    }
+    if best_n == 0 { None } else { best }
+}
+
+/// Voltage to put on `pins`. A brand-new set starts at 0 V.
+fn inherited_volt(old: &[(Vec<String>, f64)], pins: &[String]) -> f64 {
+    inherited_index(old, pins).map(|i| old[i].1).unwrap_or(0.0)
+}
+
+fn overlap_count(a: &[String], b: &[String]) -> usize {
+    let mut i = 0;
+    let mut j = 0;
+    let mut n = 0;
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Equal => {
+                n += 1;
+                i += 1;
+                j += 1;
+            }
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+        }
+    }
+    n
 }
 
 /// Put both names on one net when either end is already wired.

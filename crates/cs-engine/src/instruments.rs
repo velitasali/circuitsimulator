@@ -228,6 +228,22 @@ impl ScopeSampler {
         Self::with_channels(LA_CHANNELS)
     }
 
+    /// Zero one channel and leave the others in the ring.
+    pub fn blank_channel(&mut self, ch: usize) {
+        if ch >= self.nch {
+            return;
+        }
+        let start = if self.n < self.cap { 0 } else { self.i };
+        for k in 0..self.n {
+            let idx = (start + k) % self.cap;
+            self.ch[ch][idx] = 0.0;
+        }
+        self.connected[ch] = false;
+        self.prev[ch] = 0.0;
+        self.high[ch] = false;
+        self.freq_meters[ch] = FreqMeterState::default();
+    }
+
     fn with_channels(nch: usize) -> Self {
         Self {
             t: vec![0.0; RING],

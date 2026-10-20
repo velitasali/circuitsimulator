@@ -57,6 +57,9 @@ pub struct Circuit {
     instrument_caches: Vec<CachedInstrument>,
     has_motors_cached: bool,
     time_sources_cached: Vec<usize>,
+    /// The next `re_solve` keeps device stamps. Set when a named-net edit
+    /// regroups nodes and copies their voltages forward.
+    regroup_pending: bool,
 }
 
 impl Default for Circuit {
@@ -90,6 +93,7 @@ impl Default for Circuit {
             instrument_caches: Vec::new(),
             has_motors_cached: false,
             time_sources_cached: Vec::new(),
+            regroup_pending: false,
         }
     }
 }
@@ -124,7 +128,11 @@ impl Circuit {
 
     /// Fast re-solve when component parameters change in-place.
     /// Skips rebuilding nets and topology, directly re-stamps and solves the matrix.
+    ///
+    /// A named-net regroup leaves `regroup_pending`. That solve keeps device
+    /// stamps and starts from the voltages copied onto the new nodes.
     pub fn re_solve(&mut self) -> Result<()> {
+        let keep_stamps = std::mem::take(&mut self.regroup_pending);
         if self.nodes.is_empty() {
             if !self.components.is_empty() {
                 return self.solve();
@@ -133,7 +141,9 @@ impl Circuit {
             self.update_motors_dt(0);
             return Ok(());
         }
-        self.reset_device_stamps();
+        if !keep_stamps {
+            self.reset_device_stamps();
+        }
         if let Err(e) = self.solve_circuit() {
             crate::logging::log_sim(format!("Simulation solve error: {e}"));
             return Err(e);

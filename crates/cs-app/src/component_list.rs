@@ -1,8 +1,74 @@
 //! Component list façade. Rows are a flat JSON array (no `QAbstractItemModel`).
 
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::path::Path;
+use std::sync::{LazyLock, Mutex};
+
 use cs_engine::library::{Library, TYPE_COMPONENT};
 use qtbridge::qobject;
 use serde_json::{Value, json};
+
+include!(concat!(env!("OUT_DIR"), "/component_svgs.rs"));
+
+static TINTED_ICON_CACHE: LazyLock<Mutex<HashMap<(String, String), String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn svg_hex(color: &str) -> String {
+    let hex: String = color.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    // QML color.toString() is "#RRGGBB", or "#AARRGGBB" when alpha is present.
+    let rgb = match hex.len() {
+        8 => &hex[2..],
+        6 => &hex,
+        _ => "000000",
+    };
+    format!("#{rgb}")
+}
+
+fn file_url(path: &Path) -> String {
+    let p = path.to_string_lossy().replace('\\', "/");
+    if p.starts_with('/') {
+        format!("file://{p}")
+    } else {
+        format!("file:///{p}")
+    }
+}
+
+fn icon_file_name(icon_uri: &str) -> Option<&str> {
+    let name = icon_uri.rsplit(['/', '\\']).next()?;
+    if name.is_empty() || name.contains("..") || !name.to_ascii_lowercase().ends_with(".svg") {
+        return None;
+    }
+    Some(name)
+}
+
+fn tinted_icon_file(icon_uri: &str, color: &str) -> String {
+    let Some(name) = icon_file_name(icon_uri) else {
+        return icon_uri.to_string();
+    };
+    let Some(svg) = component_svg(name) else {
+        return icon_uri.to_string();
+    };
+    if !svg.contains("currentColor") {
+        return icon_uri.to_string();
+    }
+    let hex = svg_hex(color);
+    let tinted = svg.replace("currentColor", &hex);
+    let dir = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("circuitsimulator")
+        .join("drag-icons");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return icon_uri.to_string();
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    tinted.hash(&mut hasher);
+    let path = dir.join(format!("{:x}-{name}", hasher.finish()));
+    if !path.exists() && std::fs::write(&path, tinted).is_err() {
+        return icon_uri.to_string();
+    }
+    file_url(&path)
+}
 
 pub struct ComponentList {
     lib: Library,
@@ -84,6 +150,23 @@ impl ComponentList {
     #[qslot]
     fn is_item_expanded(&self, id: u32) -> bool {
         self.lib.is_expanded(id)
+    }
+
+    /// File URL of `icon_uri` with `currentColor` rewritten to `color`.
+    /// Drag.imageSource loads this the same way as the original qrc SVG.
+    #[qslot]
+    fn tinted_icon_url(&self, icon_uri: String, color: String) -> String {
+        let key = (icon_uri.clone(), color.clone());
+        if let Ok(cache) = TINTED_ICON_CACHE.lock()
+            && let Some(url) = cache.get(&key)
+        {
+            return url.clone();
+        }
+        let url = tinted_icon_file(&icon_uri, &color);
+        if let Ok(mut cache) = TINTED_ICON_CACHE.lock() {
+            cache.insert(key, url.clone());
+        }
+        url
     }
 
     #[qslot]

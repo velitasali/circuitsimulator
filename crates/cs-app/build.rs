@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -6,12 +7,58 @@ fn main() {
     let (rev, date) = compile_stamp();
     println!("cargo:rustc-env=CS_REVNO={rev}");
     println!("cargo:rustc-env=CS_BUILDDATE={date}");
+    write_component_svgs();
     compile_grid_shader();
     compile_resources();
     compile_macos();
     compile_windows();
     compile_theme();
     compile_canvas_item();
+}
+
+/// Match of component icon file name to its SVG text. `include_str!` paths
+/// are absolute because this file is compiled in via `include!` from OUT_DIR.
+fn write_component_svgs() {
+    let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let icons = manifest.join("../../resources/icons/components");
+    println!("cargo:rerun-if-changed={}", icons.display());
+
+    let mut names = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&icons) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            if !path.is_file() || !name.to_ascii_lowercase().ends_with(".svg") {
+                continue;
+            }
+            println!("cargo:rerun-if-changed={}", path.display());
+            let absolute = std::fs::canonicalize(&path)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            names.push((name, absolute));
+        }
+    }
+    names.sort();
+
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let mut out =
+        std::fs::File::create(out_dir.join("component_svgs.rs")).expect("create component_svgs.rs");
+    writeln!(
+        out,
+        "fn component_svg(name: &str) -> Option<&'static str> {{\n    match name {{"
+    )
+    .unwrap();
+    for (name, path) in names {
+        writeln!(out, "        {name:?} => Some(include_str!({path:?})),").unwrap();
+    }
+    writeln!(out, "        _ => None,\n    }}\n}}").unwrap();
 }
 
 fn compile_windows() {

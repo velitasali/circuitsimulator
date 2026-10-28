@@ -136,9 +136,14 @@ Item {
 
             readonly property bool isCategory: model.itemType !== root.typeComponent
 
+            // QQuickPixmap does not apply icon.color. Component SVGs stroke
+            // with currentColor, which Qt SVG draws as black. tintedIconUrl
+            // rewrites that to the theme color and returns a file URL.
             Drag.active: dragHandler.active
             Drag.source: row
-            Drag.imageSource: (!row.isCategory && model.iconUri) ? model.iconUri : ""
+            Drag.imageSource: ( !row.isCategory && model.iconUri )
+                ? ComponentList.tintedIconUrl( model.iconUri, appTheme.windowText.toString() )
+                : ""
             Drag.hotSpot.x: 16
             Drag.hotSpot.y: 16
             Drag.mimeData: {

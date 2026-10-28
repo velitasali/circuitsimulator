@@ -585,6 +585,9 @@ impl Circuit {
             if changed {
                 self.solve_circuit()?;
             }
+            if self.yield_frame {
+                break;
+            }
             n += 1;
         }
         Ok(())
@@ -1318,9 +1321,14 @@ impl Circuit {
                         q.run_event_nodes_buf(
                             &self.nodes,
                             self.circ_time,
+                            self.step_horizon,
+                            self.frame_deadline,
                             &mut self.mcu_actions_buf,
                         );
                         let changed = q.take_pins_dirty();
+                        if q.take_yield_frame() {
+                            self.yield_frame = true;
+                        }
                         let next = q.next_event_delay(self.circ_time);
                         Some((changed, next))
                     } else {

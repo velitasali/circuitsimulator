@@ -11,6 +11,8 @@ pub struct Arena {
     /// Circuit time in picoseconds. QEMU sets this *before* `simu_action`.
     /// Zero means "no event" on the consumer side.
     pub simu_time: u64,
+    /// Guest virtual time in picoseconds. Published on MMIO and from the
+    /// guest IRQ poll. Not a doorbell. Zero means "not published yet".
     pub qemu_time: u64,
     pub reg_data: u64,
     /// IOMEM-relative address (absolute minus the device's MMIO base).

@@ -870,6 +870,9 @@ impl Circuit {
             has_motors_cached: false,
             time_sources_cached: Vec::new(),
             regroup_pending: false,
+            frame_deadline: None,
+            step_horizon: u64::MAX,
+            yield_frame: false,
         })
     }
 

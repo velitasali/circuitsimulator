@@ -74,24 +74,29 @@
  *   - simuAction/regAddr/regData/simuTime is a single-slot mailbox: a new
  *     request may only be posted once the previous one's simuAction has been
  *     cleared back to SIM_NONE by the simulator.
- *   - simuAction carries the doorbell: the simulator spin-waits on simuAction
- *     becoming nonzero (QemuDevice::runEvent()), so it must be the LAST field
- *     written when posting a request -- simuTime/regAddr/regData must all be
- *     written before it, or the simulator can observe the doorbell and read
- *     stale/torn data.
+ *   - simuAction carries the doorbell. It is stored last, with release
+ *     ordering, after simuTime/regAddr/regData. On Windows the store is
+ *     followed by SetEvent on Local\cs-req-<shm key>. The simulator waits on
+ *     that event (and always rechecks the flag, so a lost auto-reset wake
+ *     or an older simulator that never opens the event still makes progress).
+ *   - qemuTime is the guest virtual clock in picoseconds. MMIO posts store
+ *     it before simuAction, and the IRQ poll stores it with a relaxed atomic
+ *     every ESP32CS_IRQ_POLL_NS. It is not a doorbell.
  *   - only SIM_READ produces a response (qemuAction=SIM_READ once regData is
- *     valid); SIM_WRITE is fire-and-forget, matching real posted-write MMIO
- *     semantics -- the simulator applies it whenever its own event queue
- *     reaches that circuit time, with no further QEMU-side involvement.
+ *     valid). The simulator then SetEvent on Local\cs-ack-<shm key>. SIM_WRITE
+ *     is fire-and-forget, but the next post still waits until simuAction is
+ *     cleared; that wait uses the same ack event with a short timeout.
  *   - irqNumber/irqLevel have no doorbell (deliberately unset by the
  *     simulator, see qemumodule.cpp's commented-out qemuAction=SIM_INTERRUPT)
  *     so QEMU must poll them, not wait for an edge.
+ *   - Without the named events (Unix, or a simulator that did not create
+ *     them) the waits below keep the original pause/yield spin.
  * ---------------------------------------------------------------------------
  */
 
 typedef struct Esp32CsArena {
     uint64_t simuTime; /* ps, QEMU sets before simuAction, simulator clears to 0 */
-    uint64_t qemuTime; /* ps, informational */
+    uint64_t qemuTime; /* ps, guest virtual clock; not a doorbell */
     uint64_t regData;
     uint64_t regAddr; /* IOMEM-relative, i.e. absolute - DR_REG_DPORT_BASE */
     uint64_t irqNumber; /* ESP32 intmatrix ETS_*_INTR_SOURCE id */
@@ -116,6 +121,7 @@ enum {
  * current consumer doesn't read ps_per_inst back, but keep it honest. */
 #define ESP32CS_ICOUNT_SHIFT 4
 #define ESP32CS_IRQ_POLL_NS 100000
+#define ESP32CS_EVENT_WAIT_MS 5
 
 typedef struct Esp32CsCosim {
     Esp32CsArena *arena;
@@ -142,6 +148,10 @@ static int64_t esp32cs_now_ps(void)
      * at virtual time 0 still has to post something nonzero. */
     return ps > 0 ? ps : 1;
 }
+
+#ifdef _WIN32
+static void esp32cs_open_events(const char *shm_key);
+#endif
 
 static bool esp32cs_cosim_attach(const char *shm_key, Error **errp)
 {
@@ -187,6 +197,9 @@ static bool esp32cs_cosim_attach(const char *shm_key, Error **errp)
     esp32cs_cosim.arena->ps_per_inst = 1000.0 * (double) (1 << ESP32CS_ICOUNT_SHIFT);
     fprintf(stderr, "esp32-cs: cosim attached, shm=\"%s\" arena=%p size=%zu\n",
             shm_key, (void *) esp32cs_cosim.arena, sizeof(Esp32CsArena));
+#ifdef _WIN32
+    esp32cs_open_events(shm_key);
+#endif
     return true;
 }
 
@@ -219,16 +232,75 @@ static inline void esp32cs_spin_wait_step(unsigned int *spin_count)
     }
 }
 
+#ifdef _WIN32
+/* Simulator creates these before spawn: Local\cs-req-<key>, Local\cs-ack-<key>.
+ * The key is the shm name with the leading slash removed. */
+static HANDLE esp32cs_req_event;
+static HANDLE esp32cs_ack_event;
+
+static void esp32cs_event_name(char *out, size_t n, const char *shm_key, const char *which)
+{
+    const char *body = shm_key;
+    if (body && body[0] == '/') {
+        body++;
+    }
+    snprintf(out, n, "Local\\cs-%s-%s", which, body ? body : "");
+}
+
+static void esp32cs_open_events(const char *shm_key)
+{
+    char name[160];
+    esp32cs_event_name(name, sizeof(name), shm_key, "req");
+    esp32cs_req_event = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, name);
+    esp32cs_event_name(name, sizeof(name), shm_key, "ack");
+    esp32cs_ack_event = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE, name);
+    if (!esp32cs_req_event || !esp32cs_ack_event) {
+        fprintf(stderr,
+                "esp32-cs: mailbox events unavailable (req=%p ack=%p), spinning\n",
+                (void *) esp32cs_req_event, (void *) esp32cs_ack_event);
+    }
+}
+
+static void esp32cs_signal_req(void)
+{
+    if (esp32cs_req_event) {
+        SetEvent(esp32cs_req_event);
+    }
+}
+
+static void esp32cs_wait_ack(void)
+{
+    if (esp32cs_ack_event) {
+        WaitForSingleObject(esp32cs_ack_event, ESP32CS_EVENT_WAIT_MS);
+    }
+}
+#endif
+
 /* Single-slot mailbox: don't clobber a request the simulator hasn't picked
- * up yet. Safe as a plain spin (no lock) because -icount forces QEMU's TCG
- * accelerator into single-threaded round-robin mode, so only one vCPU can
- * ever be inside this code at a time. */
+ * up yet. Safe without a lock because -icount forces QEMU's TCG accelerator
+ * into single-threaded round-robin mode, so only one vCPU can ever be inside
+ * this code at a time. The flag is checked before the ack wait so a lost
+ * auto-reset wake cannot stick. */
 static void esp32cs_wait_mailbox_free(Esp32CsArena *arena)
 {
     unsigned int spins = 0;
-    while (arena->simuAction != ESP32CS_SIM_NONE) {
+    while (__atomic_load_n(&arena->simuAction, __ATOMIC_ACQUIRE) != ESP32CS_SIM_NONE) {
+#ifdef _WIN32
+        if (esp32cs_ack_event) {
+            esp32cs_wait_ack();
+            continue;
+        }
+#endif
         esp32cs_spin_wait_step(&spins);
     }
+}
+
+static void esp32cs_post_action(Esp32CsArena *arena, uint64_t action)
+{
+    __atomic_store_n(&arena->simuAction, action, __ATOMIC_RELEASE);
+#ifdef _WIN32
+    esp32cs_signal_req();
+#endif
 }
 
 static int esp32cs_trace_budget = 0;
@@ -243,20 +315,28 @@ static uint64_t esp32cs_cosim_read(void *opaque, hwaddr addr, unsigned size)
 
     esp32cs_wait_mailbox_free(arena);
 
-    arena->regAddr = rel_base + addr;
-    arena->qemuTime = (uint64_t) esp32cs_now_ps();
-    arena->simuTime = arena->qemuTime;
-    arena->simuAction = ESP32CS_SIM_READ; /* doorbell -- must be written last, after simuTime */
+    uint64_t now_ps = (uint64_t) esp32cs_now_ps();
+    __atomic_store_n(&arena->regAddr, (uint64_t) (rel_base + addr), __ATOMIC_RELAXED);
+    __atomic_store_n(&arena->qemuTime, now_ps, __ATOMIC_RELAXED);
+    __atomic_store_n(&arena->simuTime, now_ps, __ATOMIC_RELAXED);
+    esp32cs_post_action(arena, ESP32CS_SIM_READ);
 
     if (esp32cs_trace_budget > 0) {
-        fprintf(stderr, "esp32-cs: READ  addr=0x%" PRIx64 " -- waiting for ack\n", (uint64_t) arena->regAddr);
+        fprintf(stderr, "esp32-cs: READ  addr=0x%" PRIx64 " -- waiting for ack\n",
+                (uint64_t) (rel_base + addr));
     }
     unsigned int spins = 0;
-    while (arena->qemuAction != ESP32CS_SIM_READ) {
+    while (__atomic_load_n(&arena->qemuAction, __ATOMIC_ACQUIRE) != ESP32CS_SIM_READ) {
+#ifdef _WIN32
+        if (esp32cs_ack_event) {
+            esp32cs_wait_ack();
+            continue;
+        }
+#endif
         esp32cs_spin_wait_step(&spins);
     }
-    uint32_t data = (uint32_t) arena->regData;
-    arena->qemuAction = ESP32CS_SIM_NONE;
+    uint32_t data = (uint32_t) __atomic_load_n(&arena->regData, __ATOMIC_RELAXED);
+    __atomic_store_n(&arena->qemuAction, (uint64_t) ESP32CS_SIM_NONE, __ATOMIC_RELAXED);
     if (esp32cs_trace_budget > 0) {
         fprintf(stderr, "esp32-cs: READ  addr=0x%" PRIx64 " data=0x%x\n", (uint64_t) arena->regAddr, data);
         esp32cs_trace_budget--;
@@ -274,11 +354,12 @@ static void esp32cs_cosim_write(void *opaque, hwaddr addr, uint64_t data, unsign
 
     esp32cs_wait_mailbox_free(arena);
 
-    arena->regAddr = rel_base + addr;
-    arena->regData = data;
-    arena->qemuTime = (uint64_t) esp32cs_now_ps();
-    arena->simuTime = arena->qemuTime;
-    arena->simuAction = ESP32CS_SIM_WRITE; /* doorbell -- must be written last, after simuTime; no response expected */
+    uint64_t now_ps = (uint64_t) esp32cs_now_ps();
+    __atomic_store_n(&arena->regAddr, (uint64_t) (rel_base + addr), __ATOMIC_RELAXED);
+    __atomic_store_n(&arena->regData, data, __ATOMIC_RELAXED);
+    __atomic_store_n(&arena->qemuTime, now_ps, __ATOMIC_RELAXED);
+    __atomic_store_n(&arena->simuTime, now_ps, __ATOMIC_RELAXED);
+    esp32cs_post_action(arena, ESP32CS_SIM_WRITE);
     if (esp32cs_trace_budget > 0) {
         fprintf(stderr, "esp32-cs: WRITE addr=0x%" PRIx64 " data=0x%" PRIx64 "\n", (uint64_t) arena->regAddr, data);
         esp32cs_trace_budget--;
@@ -313,9 +394,16 @@ static void esp32cs_add_cosim_window(MemoryRegion *dest, const char *name, hwadd
 static void esp32cs_irq_poll_timer_cb(void *opaque)
 {
     Esp32CsCosim *cs = &esp32cs_cosim;
+    if (cs->arena) {
+        /* Pace the simulator during delay() / WFI, when no MMIO is posted.
+         * Must not touch simuAction. */
+        __atomic_store_n(&cs->arena->qemuTime,
+                         (uint64_t) esp32cs_now_ps(),
+                         __ATOMIC_RELAXED);
+    }
     if (cs->arena && cs->intmatrix_dev) {
-        uint64_t number = cs->arena->irqNumber;
-        uint64_t level = cs->arena->irqLevel;
+        uint64_t number = __atomic_load_n(&cs->arena->irqNumber, __ATOMIC_RELAXED);
+        uint64_t level = __atomic_load_n(&cs->arena->irqLevel, __ATOMIC_RELAXED);
         if ((number != cs->last_irq_number || level != cs->last_irq_level)
             && number < ESP32_INT_MATRIX_INPUTS) {
             qemu_set_irq(qdev_get_gpio_in(cs->intmatrix_dev, (int) number), (int) level);
@@ -337,7 +425,7 @@ static void esp32cs_machine_init_done(Notifier *notifier, void *data)
 {
     fprintf(stderr, "esp32-cs: machine_init_done, arena=%p\n", (void *) esp32cs_cosim.arena);
     if (esp32cs_cosim.arena) {
-        esp32cs_cosim.arena->running = 1;
+        __atomic_store_n(&esp32cs_cosim.arena->running, (uint64_t) 1, __ATOMIC_RELEASE);
         fprintf(stderr, "esp32-cs: arena->running=1\n");
     }
 }

@@ -7,6 +7,20 @@ use crate::arena::{ARENA_SIZE, Arena};
 use crate::{Error, Result};
 use std::ffi::CString;
 use std::ptr;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// One coherent view of the mailbox. `simu_action` is loaded first with
+/// acquire so the payload written before the guest's release store is visible.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MailboxView {
+    pub simu_action: u64,
+    pub simu_time: u64,
+    pub qemu_time: u64,
+    pub reg_addr: u64,
+    pub reg_data: u64,
+    pub running: u64,
+    pub qemu_action: u64,
+}
 
 pub struct SharedArena {
     key: CString,
@@ -74,6 +88,89 @@ impl SharedArena {
     pub fn as_mut(&mut self) -> &mut Arena {
         unsafe { &mut *self.ptr }
     }
+
+    pub fn load_simu_action(&self) -> u64 {
+        unsafe { load_u64(ptr::addr_of!((*self.ptr).simu_action), Ordering::Acquire) }
+    }
+
+    pub fn load_qemu_time(&self) -> u64 {
+        unsafe { load_u64(ptr::addr_of!((*self.ptr).qemu_time), Ordering::Relaxed) }
+    }
+
+    pub fn load_running(&self) -> u64 {
+        unsafe { load_u64(ptr::addr_of!((*self.ptr).running), Ordering::Acquire) }
+    }
+
+    pub fn load_mailbox(&self) -> MailboxView {
+        unsafe {
+            let p = self.ptr;
+            // Action first: it is the release doorbell for the payload.
+            let simu_action = load_u64(ptr::addr_of!((*p).simu_action), Ordering::Acquire);
+            MailboxView {
+                simu_action,
+                simu_time: load_u64(ptr::addr_of!((*p).simu_time), Ordering::Relaxed),
+                qemu_time: load_u64(ptr::addr_of!((*p).qemu_time), Ordering::Relaxed),
+                reg_addr: load_u64(ptr::addr_of!((*p).reg_addr), Ordering::Relaxed),
+                reg_data: load_u64(ptr::addr_of!((*p).reg_data), Ordering::Relaxed),
+                running: load_u64(ptr::addr_of!((*p).running), Ordering::Relaxed),
+                qemu_action: load_u64(ptr::addr_of!((*p).qemu_action), Ordering::Acquire),
+            }
+        }
+    }
+
+    /// Publish the simulator's answer. `simu_action` is stored last with
+    /// release so the guest cannot observe a cleared doorbell with a stale
+    /// `qemu_action` or `reg_data`.
+    pub fn store_response(&mut self, arena: &Arena) {
+        unsafe {
+            let p = self.ptr;
+            store_u64(
+                ptr::addr_of_mut!((*p).reg_data),
+                arena.reg_data,
+                Ordering::Relaxed,
+            );
+            store_u64(
+                ptr::addr_of_mut!((*p).reg_addr),
+                arena.reg_addr,
+                Ordering::Relaxed,
+            );
+            store_u64(
+                ptr::addr_of_mut!((*p).irq_number),
+                arena.irq_number,
+                Ordering::Relaxed,
+            );
+            store_u64(
+                ptr::addr_of_mut!((*p).irq_level),
+                arena.irq_level,
+                Ordering::Relaxed,
+            );
+            store_u64(
+                ptr::addr_of_mut!((*p).simu_time),
+                arena.simu_time,
+                Ordering::Relaxed,
+            );
+            store_u64(
+                ptr::addr_of_mut!((*p).qemu_action),
+                arena.qemu_action,
+                Ordering::Release,
+            );
+            store_u64(
+                ptr::addr_of_mut!((*p).simu_action),
+                arena.simu_action,
+                Ordering::Release,
+            );
+        }
+    }
+}
+
+/// Mailbox words are plain `u64`s in the shared mapping. The guest uses the
+/// same atomic accesses, so the host must not mix in non-atomic reads.
+unsafe fn load_u64(p: *const u64, order: Ordering) -> u64 {
+    unsafe { (&*p.cast::<AtomicU64>()).load(order) }
+}
+
+unsafe fn store_u64(p: *mut u64, val: u64, order: Ordering) {
+    unsafe { (&*p.cast::<AtomicU64>()).store(val, order) }
 }
 
 #[cfg(unix)]

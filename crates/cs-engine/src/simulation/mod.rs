@@ -60,6 +60,14 @@ pub struct Circuit {
     /// The next `re_solve` keeps device stamps. Set when a named-net edit
     /// regroups nodes and copies their voltages forward.
     regroup_pending: bool,
+    /// Wall-clock deadline of the current [`Self::run_until_budgeted`] frame.
+    /// Cleared before that frame returns so a stale deadline cannot stall a guest.
+    frame_deadline: Option<std::time::Instant>,
+    /// Absolute picoseconds this frame may reach. Peripheral catch-up stops here.
+    step_horizon: u64,
+    /// A co-sim guest is behind this frame and the wall budget is spent.
+    /// Circuit time stays put instead of jumping to the frame end.
+    yield_frame: bool,
 }
 
 impl Default for Circuit {
@@ -94,6 +102,9 @@ impl Default for Circuit {
             has_motors_cached: false,
             time_sources_cached: Vec::new(),
             regroup_pending: false,
+            frame_deadline: None,
+            step_horizon: u64::MAX,
+            yield_frame: false,
         }
     }
 }
@@ -204,16 +215,25 @@ impl Circuit {
             }
         }
         let mut needs_solve = false;
-        let start = max_dur.map(|_| std::time::Instant::now());
-        let mut steps = 0usize;
+        self.frame_deadline = max_dur.map(|limit| std::time::Instant::now() + limit);
+        self.step_horizon = end;
+        self.yield_frame = false;
+        let mut paused = false;
         loop {
             if crate::debug::DebugSession::is_paused_global() {
+                paused = true;
+                break;
+            }
+            if self.yield_frame {
+                break;
+            }
+            if self
+                .frame_deadline
+                .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+            {
                 break;
             }
             let Some((t, target)) = self.events.pop_due(end) else {
-                if self.sim_started {
-                    self.circ_time = end;
-                }
                 break;
             };
             self.circ_time = t;
@@ -232,21 +252,25 @@ impl Circuit {
                 self.time = ps_to_secs(self.circ_time.saturating_sub(1));
                 self.sample_instruments();
             }
-            if crate::debug::DebugSession::is_paused_global() {
+            if self.yield_frame {
                 break;
-            }
-            steps += 1;
-            if steps & 0x3F == 0 {
-                if let (Some(start), Some(limit)) = (start, max_dur) {
-                    if start.elapsed() >= limit {
-                        break;
-                    }
-                }
             }
         }
         if needs_solve {
             self.solve_circuit()?;
         }
+        // An empty queue, or a next wake past this frame, means the circuit
+        // is caught up. A yielded guest is not: leave `circ_time` where the
+        // last event ran so the next frame resumes there.
+        if self.sim_started && !self.yield_frame && !paused {
+            let next = self.events.peek_time();
+            if next.is_none_or(|t| t > end) {
+                self.circ_time = end;
+            }
+        }
+        self.frame_deadline = None;
+        self.yield_frame = false;
+        self.step_horizon = u64::MAX;
         self.time = ps_to_secs(self.circ_time.saturating_sub(1));
         self.sample_instruments();
         let dt_ps = self.circ_time.saturating_sub(self.last_motor_ps);

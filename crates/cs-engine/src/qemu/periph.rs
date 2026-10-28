@@ -33,6 +33,8 @@ pub const STM32_TIM1_START: u64 = 0x0001_2C00;
 pub const STM32_SPI1_START: u64 = 0x0001_3000;
 pub const STM32_USART1_START: u64 = 0x0001_3800;
 
+/// Original ESP32 UART hardware FIFO depth (TX and RX).
+const ESP32_UART_FIFO_CAP: usize = 128;
 const SR_TXE: u16 = 1 << 7;
 const SR_TC: u16 = 1 << 6;
 const SR_RXNE: u16 = 1 << 5;
@@ -146,10 +148,11 @@ impl QemuUsart {
         }
     }
 
-    pub fn read(&mut self, offset: u64) -> u32 {
+    /// Register value, plus an IRQ edge when a FIFO read drops RX-full.
+    pub fn read(&mut self, offset: u64) -> (u32, Option<(u8, u8)>) {
         match self.family {
             UsartFamily::Esp32 => self.esp32_read(offset),
-            UsartFamily::Stm32 => self.stm32_read(offset),
+            UsartFamily::Stm32 => (self.stm32_read(offset), None),
         }
     }
 
@@ -163,7 +166,7 @@ impl QemuUsart {
     ) -> Option<(u8, u8)> {
         match offset {
             0x00 => {
-                if self.tx_fifo.len() >= 128 {
+                if self.tx_fifo.len() >= ESP32_UART_FIFO_CAP {
                     return self.update_irq();
                 }
                 self.tx_fifo.push_back(value as u8);
@@ -220,17 +223,27 @@ impl QemuUsart {
         }
     }
 
-    fn esp32_read(&mut self, offset: u64) -> u32 {
+    fn esp32_read(&mut self, offset: u64) -> (u32, Option<(u8, u8)>) {
         match offset {
-            0x00 => self.rx_fifo.pop_front().unwrap_or(0) as u32,
-            0x04 => self.int_raw,
-            0x08 => self.int_raw & self.int_en,
-            0x0C => self.int_en,
-            0x1C => (self.rx_fifo.len() as u32 & 0xFF) | ((self.tx_fifo.len() as u32 & 0xFF) << 16),
-            0x24 => {
-                ((self.rx_full_thrhd as u32) & 0x7F) | (((self.tx_empty_thrhd as u32) & 0x7F) << 8)
+            0x00 => {
+                let byte = u32::from(self.rx_fifo.pop_front().unwrap_or(0));
+                // RX-full is level-triggered. A guest that drains the FIFO
+                // must see the interrupt fall even when it does not write INT_CLR.
+                let irq = self.update_irq();
+                (byte, irq)
             }
-            _ => 0,
+            0x04 => (self.int_raw, None),
+            0x08 => (self.int_raw & self.int_en, None),
+            0x0C => (self.int_en, None),
+            0x1C => (
+                (self.rx_fifo.len() as u32 & 0xFF) | ((self.tx_fifo.len() as u32 & 0xFF) << 16),
+                None,
+            ),
+            0x24 => (
+                ((self.rx_full_thrhd as u32) & 0x7F) | (((self.tx_empty_thrhd as u32) & 0x7F) << 8),
+                None,
+            ),
+            _ => (0, None),
         }
     }
 
@@ -334,6 +347,9 @@ impl QemuUsart {
     pub fn on_byte_received(&mut self, data: u8) -> Option<(u8, u8)> {
         match self.family {
             UsartFamily::Esp32 => {
+                if self.rx_fifo.len() >= ESP32_UART_FIFO_CAP {
+                    return self.update_irq();
+                }
                 self.rx_fifo.push_back(data);
                 self.update_irq()
             }

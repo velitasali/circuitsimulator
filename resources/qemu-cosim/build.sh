@@ -43,6 +43,9 @@ echo "Overlaying esp32-cs patch tree ..."
 git apply --check "$SCRIPT_DIR/patch/hw-xtensa-register.patch" 2>/dev/null \
     || echo "  (register patch already applied, skipping)"
 git apply "$SCRIPT_DIR/patch/hw-xtensa-register.patch" 2>/dev/null || true
+git apply --check "$SCRIPT_DIR/patch/hw-xtensa-intmatrix.patch" 2>/dev/null \
+    || echo "  (intmatrix patch already applied, skipping)"
+git apply "$SCRIPT_DIR/patch/hw-xtensa-intmatrix.patch" 2>/dev/null || true
 cp "$SCRIPT_DIR/patch/hw/xtensa/esp32-cs.c" hw/xtensa/esp32-cs.c
 
 NINJA_TARGET=qemu-system-xtensa

@@ -10,11 +10,13 @@ mod arena;
 mod process;
 #[cfg(any(unix, windows))]
 mod shm;
+mod wake;
 
 pub use arena::{ARENA_SIZE, Arena, SimAction};
 pub use process::QemuProcess;
 #[cfg(any(unix, windows))]
-pub use shm::SharedArena;
+pub use shm::{MailboxView, SharedArena};
+pub use wake::{CosimWake, cosim_event_names};
 
 /// POSIX `shm_open` name: `"/" + pid + id`.
 ///

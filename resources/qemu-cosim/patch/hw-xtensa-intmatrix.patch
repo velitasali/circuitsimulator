@@ -1,0 +1,102 @@
+diff --git a/hw/xtensa/esp32_intc.c b/hw/xtensa/esp32_intc.c
+index fed7cf7..2a05a67 100644
+--- a/hw/xtensa/esp32_intc.c
++++ b/hw/xtensa/esp32_intc.c
+@@ -22,23 +22,50 @@
+ 
+ #define IRQ_MAP(cpu, input) s->irq_map[cpu][input]
+ 
+-static void esp32_intmatrix_irq_handler(void *opaque, int n, int level)
++/* One matrix per QEMU process. Latched across reset: a cosim source stays
++ * high until the simulator drops it, and reset does not replay that edge. */
++static uint8_t esp32_intmatrix_level[ESP32_INT_MATRIX_INPUTS];
++
++/* CPU line is the OR of every source currently routed to it. Route 6 is the
++ * internal CCOMPARE interrupt, not an external input, so it matches nothing. */
++static void esp32_intmatrix_update(Esp32IntMatrixState *s, int cpu, unsigned intr)
+ {
+-    Esp32IntMatrixState *s = ESP32_INTMATRIX(opaque);
+-    for (int i = 0; i < ESP32_CPU_COUNT; ++i) {
+-        if (s->outputs[i] == NULL) {
+-            continue;
++    if (cpu < 0 || cpu >= ESP32_CPU_COUNT || s->outputs[cpu] == NULL
++        || s->cpu[cpu] == NULL) {
++        return;
++    }
++    int level = 0;
++    for (int src = 0; src < ESP32_INT_MATRIX_INPUTS; ++src) {
++        if (esp32_intmatrix_level[src] && s->irq_map[cpu][src] == intr) {
++            level = 1;
++            break;
+         }
+-        int out_index = IRQ_MAP(i, n);
+-        for (int int_index = 0; int_index < s->cpu[i]->env.config->nextint; ++int_index) {
+-            if (s->cpu[i]->env.config->extint[int_index] == out_index) {
+-                qemu_set_irq(s->outputs[i][int_index], level);
+-                break;
+-            }
++    }
++    int nint = s->cpu[cpu]->env.config->nextint;
++    for (int int_index = 0; int_index < nint; ++int_index) {
++        if (s->cpu[cpu]->env.config->extint[int_index] == intr) {
++            qemu_set_irq(s->outputs[cpu][int_index], level);
++            return;
+         }
+     }
+ }
+ 
++static void esp32_intmatrix_irq_handler(void *opaque, int n, int level)
++{
++    Esp32IntMatrixState *s = ESP32_INTMATRIX(opaque);
++    if (n < 0 || n >= ESP32_INT_MATRIX_INPUTS) {
++        return;
++    }
++    uint8_t asserted = level ? 1 : 0;
++    if (esp32_intmatrix_level[n] == asserted) {
++        return;
++    }
++    esp32_intmatrix_level[n] = asserted;
++    for (int cpu = 0; cpu < ESP32_CPU_COUNT; ++cpu) {
++        esp32_intmatrix_update(s, cpu, s->irq_map[cpu][n]);
++    }
++}
++
+ static inline uint8_t* get_map_entry(Esp32IntMatrixState* s, hwaddr addr)
+ {
+     int source_index = addr / sizeof(uint32_t);
+@@ -61,10 +88,23 @@ static uint64_t esp32_intmatrix_read(void* opaque, hwaddr addr, unsigned int siz
+ static void esp32_intmatrix_write(void* opaque, hwaddr addr, uint64_t value, unsigned int size)
+ {
+     Esp32IntMatrixState *s = ESP32_INTMATRIX(opaque);
+-    uint8_t* map_entry = get_map_entry(s, addr);
+-    if (map_entry != NULL) {
+-        *map_entry = value & 0x1f;
++    int index = (int) (addr / sizeof(uint32_t));
++    if (index < 0 || index >= ESP32_INT_MATRIX_INPUTS * ESP32_CPU_COUNT) {
++        error_report("%s: source_index %d out of range", __func__, index);
++        return;
++    }
++    int cpu = index / ESP32_INT_MATRIX_INPUTS;
++    int src = index % ESP32_INT_MATRIX_INPUTS;
++    uint8_t old_route = s->irq_map[cpu][src];
++    uint8_t new_route = (uint8_t) (value & 0x1f);
++    if (old_route == new_route) {
++        return;
+     }
++    s->irq_map[cpu][src] = new_route;
++    /* Drop the old CPU line if this was its last asserted source, and raise
++     * the new line if this source is already high. */
++    esp32_intmatrix_update(s, cpu, old_route);
++    esp32_intmatrix_update(s, cpu, new_route);
+ }
+ 
+ static const MemoryRegionOps esp_intmatrix_ops = {
+@@ -77,6 +117,8 @@ static void esp32_intmatrix_reset_hold(Object *obj, ResetType type)
+ {
+     Esp32IntMatrixState *s = ESP32_INTMATRIX(obj);
+     memset(s->irq_map, INTMATRIX_UNINT_VALUE, sizeof(s->irq_map));
++    /* Source levels stay latched. Routes are back at 6, so the lowers below
++     * match the OR. A later route write raises a source that is still high. */
+     for (int i = 0; i < ESP32_CPU_COUNT; ++i) {
+         if (s->outputs[i] == NULL) {
+             continue;

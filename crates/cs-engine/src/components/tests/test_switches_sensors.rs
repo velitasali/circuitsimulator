@@ -1,6 +1,6 @@
 //! Tests for switches, relays, motors, and digital/analog sensors.
 
-use super::recorder::record_part_paint;
+use super::recorder::{DrawOp, record_part_paint};
 use crate::components::switch_dip::SwitchDip;
 use crate::components::*;
 
@@ -21,6 +21,36 @@ fn test_switch_and_push_button() {
     assert_eq!(push.pin_geoms().len(), 2);
     let rec_push = record_part_paint(&Part::Push(push));
     assert!(rec_push.is_all_finite());
+    assert!(
+        rec_push.ops.iter().any(|op| matches!(
+            op,
+            DrawOp::Line {
+                x0: -10.0,
+                x1: 10.0,
+                ..
+            }
+        )),
+        "bare push symbol draws the contact plate"
+    );
+
+    let mut shown = Push::default();
+    shown.show_button = true;
+    let rec_shown = record_part_paint(&Part::Push(shown));
+    assert!(rec_shown.is_all_finite());
+    assert!(
+        rec_shown
+            .ops
+            .iter()
+            .all(|op| !matches!(op, DrawOp::Line { .. })),
+        "shown button hides the contact plate"
+    );
+    assert!(
+        rec_shown
+            .ops
+            .iter()
+            .any(|op| matches!(op, DrawOp::FillRoundRect { .. })),
+        "shown button still draws the button body"
+    );
 }
 
 #[test]

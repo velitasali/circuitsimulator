@@ -262,6 +262,9 @@ impl Drawable for Push {
             let y = -16.0 * i as f64;
             d.fill_circle(-10.0, y, 1.2, ctx.pal.border);
             d.fill_circle(10.0, y, 1.2, ctx.pal.border);
+            if self.show_button {
+                continue;
+            }
             let plate_y = if self.norm_close {
                 if self.pressed { y + 6.0 } else { y - 1.2 }
             } else if self.pressed {
@@ -277,24 +280,22 @@ impl Drawable for Push {
                 ctx.pal.border,
                 COMPONENT_BORDER_WIDTH,
             );
-            if !self.show_button {
-                d.line(
-                    0.0,
-                    plate_y,
-                    0.0,
-                    plate_y - 5.0,
-                    ctx.pal.border,
-                    COMPONENT_BORDER_WIDTH,
-                );
-                d.line(
-                    -4.0,
-                    plate_y - 5.0,
-                    4.0,
-                    plate_y - 5.0,
-                    ctx.pal.border,
-                    COMPONENT_BORDER_WIDTH,
-                );
-            }
+            d.line(
+                0.0,
+                plate_y,
+                0.0,
+                plate_y - 5.0,
+                ctx.pal.border,
+                COMPONENT_BORDER_WIDTH,
+            );
+            d.line(
+                -4.0,
+                plate_y - 5.0,
+                4.0,
+                plate_y - 5.0,
+                ctx.pal.border,
+                COMPONENT_BORDER_WIDTH,
+            );
         }
         if self.poles > 1 && !self.show_button {
             d.polyline(

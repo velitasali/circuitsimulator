@@ -85,8 +85,9 @@ Popup {
                 HoverHandler { id: hover }
                 TapHandler {
                     onTapped: {
-                        root.activated(rowRect.index)
-                        root.close()
+                        var popup = root
+                        popup.activated(rowRect.index)
+                        popup.close()
                     }
                 }
             }

@@ -30,7 +30,7 @@ Popup {
         if (ctx) ctx.setOverloadPanelVisible(true)
     }
 
-    function toggle(pt) {
+    function toggle() {
         if (visible) {
             close()
             return
@@ -39,10 +39,6 @@ Popup {
         if (now - lastDismissTime < 300) {
             lastDismissTime = 0
             return
-        }
-        if (root.parent) {
-            x = Math.max(8, Math.min(root.parent.width - width - 8, pt.x))
-            y = pt.y
         }
         open()
     }

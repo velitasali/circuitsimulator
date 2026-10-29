@@ -33,6 +33,18 @@ Item {
     }
     function overlayZ( key ) { return rects[key + "Z"] !== undefined ? rects[key + "Z"] : 1 }
 
+    // Drop a popup under a toolbar button, 4px below the toolbar — the same
+    // gap as the sim-info card. x/y stay in this panel's coordinates, which
+    // is the popup's parent. Pass width when a closed Menu still reports 0.
+    function placeBelow( popup, anchor, alignRight, width ) {
+        var w = width > 0 ? width : popup.width
+        var localX = alignRight ? anchor.width - w : 0
+        var pt = anchor.mapToItem( root, localX, 0 )
+        var below = toolbar.mapToItem( root, 0, toolbar.height + 4 )
+        popup.x = Math.max( 8, Math.min( root.width - w - 8, pt.x ) )
+        popup.y = below.y
+    }
+
     // The overlays float over the canvas and are translucent: the QSS painted
     // them rgba(window, 0.85) so the canvas shows through.
     readonly property color overlayBg: Qt.rgba( appTheme.window.r,
@@ -698,10 +710,17 @@ Item {
             ToolTip.text: App.translate( "Zoom Options" )
             onClicked: {
                 if ( ctx ) ctx.overlayClicked( "toolbar" )
-                var leftX = zoomBtn.mapToGlobal( 0, 0 ).x
-                var bottomY = toolbar.mapToGlobal( 0, toolbar.height ).y + 4
-                ctx.showZoomMenu( 0, 0 )
-                zoomMenu.popup()
+                if ( zoomMenu.visible ) {
+                    zoomMenu.close()
+                } else {
+                    // A closed Menu reports width 0 until its rows are measured.
+                    zoomMenu.updateGeometry()
+                    var menuW = Math.max( zoomMenu.implicitWidth,
+                                          zoomMenu.contentImplicitWidth + zoomMenu.padding * 2 )
+                    placeBelow( zoomMenu, zoomBtn, false, menuW )
+                    ctx.showZoomMenu( 0, 0 )
+                    zoomMenu.open()
+                }
             }
             contentItem: Row {
                 id: zoomRow
@@ -731,10 +750,9 @@ Item {
             checked: overloadPopup.visible
             onClicked: {
                 if ( ctx ) ctx.overlayClicked( "toolbar" )
-                // Align right edge of dialog with right edge of warnBtn,
-                // and place top of dialog 4px below overlay toolbar (matching infoCard spacing).
-                var pt = warnBtn.mapToItem( root, warnBtn.width - overloadPopup.width, warnBtn.height + 4 )
-                overloadPopup.toggle( pt )
+                if ( !overloadPopup.visible )
+                    placeBelow( overloadPopup, warnBtn, true )
+                overloadPopup.toggle()
             }
             contentItem: Row {
                 spacing: 4
@@ -763,8 +781,9 @@ Item {
             checked: canvasOverflowPopup.visible
             onClicked: {
                 if ( ctx ) ctx.overlayClicked( "toolbar" )
-                var pt = overflowBtn.mapToItem( root, overflowBtn.width - canvasOverflowPopup.width, overflowBtn.height + 4 )
-                canvasOverflowPopup.toggle( pt )
+                if ( !canvasOverflowPopup.visible )
+                    placeBelow( canvasOverflowPopup, overflowBtn, true )
+                canvasOverflowPopup.toggle()
             }
             contentItem: Row {
                 spacing: 4
@@ -795,12 +814,10 @@ Item {
             ToolTip.text: ctx && ctx.subcNav ? ctx.subcNav.buttonTooltip : ""
             onClicked: {
                 if ( ctx ) ctx.overlayClicked( "toolbar" )
-                if (subcPopup.visible) {
+                if ( subcPopup.visible ) {
                     subcPopup.close()
                 } else {
-                    var pt = subcBtn.mapToItem(root, 0, subcBtn.height + 4)
-                    subcPopup.x = Math.max(8, Math.min(root.width - subcPopup.width - 8, pt.x))
-                    subcPopup.y = pt.y
+                    placeBelow( subcPopup, subcBtn, false )
                     subcPopup.open()
                 }
             }
@@ -842,12 +859,10 @@ Item {
             ToolTip.text: ctx && ctx.deviceSel ? ctx.deviceSel.buttonTooltip : ""
             onClicked: {
                 if ( ctx ) ctx.overlayClicked( "toolbar" )
-                if (devicePopup.visible) {
+                if ( devicePopup.visible ) {
                     devicePopup.close()
                 } else {
-                    var pt = deviceBtn.mapToItem(root, 0, deviceBtn.height + 4)
-                    devicePopup.x = Math.max(8, Math.min(root.width - devicePopup.width - 8, pt.x))
-                    devicePopup.y = pt.y
+                    placeBelow( devicePopup, deviceBtn, false )
                     devicePopup.open()
                 }
             }
@@ -930,6 +945,9 @@ Item {
 
     AppContextMenu {
         id: zoomMenu
+        // No submenus, so the window popup is unnecessary. Item fits inside
+        // the window the same way the MCU list does; Window fits the screen.
+        popupType: Popup.Item
         onClosed: ctx.zoomMenuClosed()
         ContextMenuItem { text: App.translate( "Zoom to Fit" ); onTriggered: CircuitCanvas.zoomToFit() }
         ContextMenuItem { text: App.translate( "Zoom to Selection" ); onTriggered: CircuitCanvas.zoomSelected() }

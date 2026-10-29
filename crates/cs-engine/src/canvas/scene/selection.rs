@@ -2,8 +2,23 @@
 
 use super::Scene;
 use super::item::CanvasOverflowInfo;
-use super::wires::pin_belongs;
+use super::wires::{item_pin_at, pin_belongs};
 use crate::canvas::geom::{Point, Rect};
+use crate::canvas::pin::Pin;
+use crate::canvas::wire::WireHit;
+
+/// The topmost painted thing under a scene point.
+///
+/// Same order as `paint_scene`, walked from the top: parts from last to first
+/// (value label, id label, body, pin stem), then wire strokes from last to
+/// first. Current chevrons are decoration and are not targets.
+#[derive(Clone, Debug)]
+pub enum HitTarget {
+    Label { index: usize, is_val: bool },
+    Body { index: usize },
+    Pin { index: usize, pin: Pin },
+    Wire { index: usize, at: WireHit },
+}
 
 impl Scene {
     /// Topmost first, same as `QGraphicsScene::items`.
@@ -16,14 +31,22 @@ impl Scene {
             .map(|(i, _)| i)
     }
 
-    /// Check if a scene point hits any component label (ID label or value label).
-    /// Returns `Some((item_index, is_val_label))`.
-    pub fn hit_label(&self, scene: Point) -> Option<(usize, bool)> {
-        self.items
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(i, it)| it.hit_label(scene).map(|is_val| (i, is_val)))
+    /// Topmost painted target. Parts cover wires. Within a part, a label covers
+    /// the body, and the body covers that part's pin stems.
+    pub fn hit_top(&self, scene: Point) -> Option<HitTarget> {
+        for (index, it) in self.items.iter().enumerate().rev() {
+            if let Some(is_val) = it.hit_label(scene) {
+                return Some(HitTarget::Label { index, is_val });
+            }
+            if it.contains(scene) {
+                return Some(HitTarget::Body { index });
+            }
+            if let Some(pin) = item_pin_at(it, scene) {
+                return Some(HitTarget::Pin { index, pin });
+            }
+        }
+        self.hit_wire_detail(scene)
+            .map(|(index, at)| HitTarget::Wire { index, at })
     }
 
     pub fn rotate_item_label(&mut self, uid: &str, angle_deg: i32) -> bool {

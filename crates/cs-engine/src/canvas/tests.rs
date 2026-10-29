@@ -1367,7 +1367,7 @@ fn test_wire_click_selection() {
 }
 
 #[test]
-fn right_click_wire_over_component_selects_wire_not_part() {
+fn click_on_component_over_wire_selects_component() {
     let mut c = ready();
     let p1 = c.scene.items()[0].pins()[1].id.clone();
     let p2 = c.scene.items()[1].pins()[0].id.clone();
@@ -1375,8 +1375,8 @@ fn right_click_wire_over_component_selects_wire_not_part() {
     let p2_pos = c.scene.pin_scene(&p2).unwrap();
     c.scene.connect_pins(&p1, p1_pos, &p2, p2_pos);
 
-    // Detour the wire through the first resistor body so a right-click hits
-    // both the wire and the component — the mega328/Arduino board case.
+    // Route the wire through the first resistor body. The stroke is painted
+    // under the part, so the part is what the cursor is on.
     let body_center = {
         let it = &c.scene.items()[0];
         let b = it.body_rect();
@@ -1384,29 +1384,71 @@ fn right_click_wire_over_component_selects_wire_not_part() {
     };
     c.scene.wires_mut()[0].points = vec![p1_pos, body_center, p2_pos];
 
-    // Pre-select the component, as after placing a chip and wiring it.
-    c.scene.select_only(0);
-    assert!(c.scene.items()[0].selected);
-
     let click = item_of(&c, body_center);
+    c.mouse_move(click.x, click.y, 0, 0);
+    assert_eq!(c.cursor(), CursorKind::Arrow);
+    let tip = c.hover_tooltip(body_center).unwrap_or_default();
+    assert!(
+        tip.contains("Component"),
+        "hover on the part should describe the part, got {tip}"
+    );
+
+    c.mouse_press(BUTTON_LEFT, click.x, click.y, 0);
+    assert!(c.scene.items()[0].selected);
+    assert!(!c.scene.wires()[0].selected);
+
     c.mouse_press(BUTTON_RIGHT, click.x, click.y, 0);
-    assert!(
-        c.scene.wires()[0].selected,
-        "right-click on a wire over a component should select the wire"
-    );
-    assert!(
-        !c.scene.items()[0].selected,
-        "the component under the wire must not stay selected"
-    );
+    assert!(c.scene.items()[0].selected);
+    assert!(!c.scene.wires()[0].selected);
     assert!(!c.has_pin_hit());
 
-    assert!(c.scene.delete_selected());
-    assert_eq!(
-        c.scene.items().len(),
-        2,
-        "removing the wire must not delete the component under it"
-    );
+    // The same wire is still selectable where the part does not cover it.
+    let exposed = item_of(&c, Point::new(40.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, exposed.x, exposed.y, 0);
+    assert!(c.scene.wires()[0].selected);
+    assert!(!c.scene.items()[0].selected);
+}
+
+#[test]
+fn top_part_covers_pin_and_label_underneath() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+    c.scene.add_default_resistor(0.0, 0.0);
+    c.scene.add_default_resistor(16.0, 0.0);
+
+    // The upper body is painted over the lower part's right pin.
+    let click = item_of(&c, Point::new(16.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, click.x, click.y, 0);
+    assert!(!c.scene.drawing());
     assert!(c.scene.wires().is_empty());
+    assert!(c.scene.items()[1].selected);
+    assert!(!c.scene.items()[0].selected);
+
+    c.scene.clear_selection();
+    {
+        let it = &mut c.scene.items_mut()[0];
+        it.show_id = true;
+        it.custom_label_pos = true;
+        it.label_x = 16.0;
+        it.label_y = 0.0;
+    }
+    c.mouse_press(BUTTON_LEFT, click.x, click.y, 0);
+    assert!(c.scene.items()[1].selected);
+    assert!(!c.scene.items()[0].selected);
+}
+
+#[test]
+fn draft_click_on_part_does_not_splice_wire_underneath() {
+    let mut c = two_resistors_wired();
+    c.scene.add_default_resistor(40.0, 0.0);
+    let start = item_of(&c, Point::new(-16.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, start.x, start.y, 0);
+    assert!(c.scene.drawing());
+    let before = c.scene.wires().len();
+    let covered = item_of(&c, Point::new(40.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, covered.x, covered.y, 0);
+    assert!(c.scene.drawing());
+    assert_eq!(c.scene.wires().len(), before);
 }
 
 #[test]

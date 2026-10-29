@@ -2,7 +2,7 @@
 
 use crate::canvas::drag::{Drag, WireEditMode};
 use crate::canvas::geom::to_grid as snap_point;
-use crate::canvas::scene::Part;
+use crate::canvas::scene::{HitTarget, Part};
 use crate::canvas::wire::WireHit;
 use crate::canvas::{Canvas, Point, Rect};
 use crate::components::ComponentChange;
@@ -161,24 +161,75 @@ impl Canvas {
         mods & (MOD_CTRL | MOD_META) != 0
     }
 
+    /// Select and drag the part under the cursor. Used for the body and for a
+    /// pin stem that is not starting a new wire.
+    fn begin_item_press(&mut self, idx: usize, scene: Point, shift: bool) -> Change {
+        let mut c = Change::default();
+        let local = self.scene.items()[idx].map_scene(scene);
+        let uid = self.scene.items()[idx].id.clone();
+        if self.scene.items_mut()[idx].kind.interact_press(local) {
+            self.dirty_item_now(&uid);
+            self.drag = Drag::Interact { index: idx };
+            self.merge_sim_raster(&mut c, &uid);
+            return c;
+        }
+        if let Part::Push(_) = &self.scene.items()[idx].kind {
+            let uid = self.scene.items()[idx].id.clone();
+            self.set_push_down(&uid, true);
+            self.pressed_push_id = Some(uid.clone());
+            self.merge_sim_raster(&mut c, &uid);
+        }
+        if shift {
+            c.items = self.toggle_selected(idx);
+        } else if !self.scene.items()[idx].selected {
+            c.items = self.select_only(idx);
+        }
+        let origin = snap_point(scene);
+        self.pending = Some(self.snapshot());
+        self.drag = Drag::Move {
+            last_scene: origin,
+            origin,
+            index: idx,
+            press_pos: scene,
+        };
+        c.items = true;
+        c.wires = true;
+        c
+    }
+
     pub fn mouse_press(&mut self, button: u32, item_x: f64, item_y: f64, mods: u32) -> Change {
         let item = Point::new(item_x, item_y);
         let scene = self.viewport.map_to_circuit(item);
         self.last_item = item;
         self.last_scene = scene;
         self.cursor_moved = true;
-        let hit = self.scene.hit(scene);
-        let pin = self.scene.hit_pin(scene);
+        let target = self.scene.hit_top(scene);
         let shift = mods & MOD_SHIFT != 0;
         let ctrl = mods & MOD_CTRL != 0;
+        let alt = mods & MOD_ALT != 0;
         let mut c = Change::default();
 
         if self.scene.drawing() {
             if button == BUTTON_LEFT {
-                if let Some(p) = pin {
-                    if !p.unused {
-                        let at = self.scene.pin_scene(&p.id).unwrap_or(scene);
-                        if self.close_wire(&p, at) {
+                match &target {
+                    Some(HitTarget::Pin { pin, .. }) => {
+                        if !pin.unused {
+                            let at = self.scene.pin_scene(&pin.id).unwrap_or(scene);
+                            if self.close_wire(pin, at) {
+                                self.drag = Drag::None;
+                                if self.commit_pending() {
+                                    c.history = true;
+                                }
+                                c.wires = true;
+                                c.items = true;
+                                c.merge(self.refresh_sim());
+                                c.merge(self.update_hover(scene, mods));
+                            }
+                        }
+                        return c;
+                    }
+                    Some(HitTarget::Wire { index, .. }) => {
+                        if self.splice_and_close(*index, snap_point(scene)) {
                             self.drag = Drag::None;
                             if self.commit_pending() {
                                 c.history = true;
@@ -190,20 +241,8 @@ impl Canvas {
                             return c;
                         }
                     }
-                    return c;
-                }
-                if let Some(widx) = self.scene.hit_wire(scene) {
-                    if self.splice_and_close(widx, snap_point(scene)) {
-                        self.drag = Drag::None;
-                        if self.commit_pending() {
-                            c.history = true;
-                        }
-                        c.wires = true;
-                        c.items = true;
-                        c.merge(self.refresh_sim());
-                        c.merge(self.update_hover(scene, mods));
-                        return c;
-                    }
+                    Some(_) => return c,
+                    None => {}
                 }
                 // Empty click while drawing: corner is added on release.
                 self.drag = Drag::Wire;
@@ -212,16 +251,13 @@ impl Canvas {
             return c;
         }
 
-        let wire_hit = self.scene.hit_wire_detail(scene);
-        let alt = mods & MOD_ALT != 0;
-
         if button == BUTTON_MIDDLE {
-            if let Some((widx, hit)) = wire_hit {
-                let seg = match hit {
+            if let Some(HitTarget::Wire { index, at }) = target {
+                let seg = match at {
                     WireHit::Segment(s) => s,
                     WireHit::Corner(v) => v.saturating_sub(1),
                 };
-                return self.begin_wire_edit(widx, WireEditMode::Segment(seg), scene, c);
+                return self.begin_wire_edit(index, WireEditMode::Segment(seg), scene, c);
             }
             self.drag = Drag::Pan { last_item: item };
             if self.cursor != CursorKind::ClosedHand {
@@ -231,13 +267,7 @@ impl Canvas {
             return c;
         }
 
-        if button == BUTTON_LEFT
-            && shift
-            && !ctrl
-            && hit.is_none()
-            && pin.is_none()
-            && wire_hit.is_none()
-        {
+        if button == BUTTON_LEFT && shift && !ctrl && target.is_none() {
             self.drag = Drag::Pan { last_item: item };
             if self.cursor != CursorKind::ClosedHand {
                 self.cursor = CursorKind::ClosedHand;
@@ -245,45 +275,33 @@ impl Canvas {
             }
             return c;
         }
-
-        let label_hit = self.scene.hit_label(scene);
 
         if button == BUTTON_RIGHT {
-            // C++ ConnectorLine z = 100 sits above components. A right-click on a
-            // wire that crosses a chip/board must select the wire — otherwise
-            // Remove deletes the part underneath (e.g. mega328 / Arduino).
-            // Connected pin tips share their point with a wire, so the wire wins
-            // there too; unconnected pins keep the pin menu (Invert / Edit).
-            let wire_idx = wire_hit.map(|(i, _)| i);
-            let pin_menu = pin
-                .as_ref()
-                .filter(|p| wire_idx.is_none() || !self.scene.pin_connected(&p.id));
-            if let Some(p) = pin_menu {
-                self.hit_pin_id = Some(p.id.clone());
-                self.hit_label_info = None;
-            } else if let Some(widx) = wire_idx {
-                self.hit_pin_id = None;
-                self.hit_label_info = None;
-                c.wires = self.select_only_wire(widx);
-                c.items = true;
-            } else if let Some((idx, is_val)) = label_hit {
-                self.hit_pin_id = None;
-                let uid = self.scene.items()[idx].id.clone();
-                self.hit_label_info = Some((uid, is_val));
-                if !self.scene.items()[idx].selected {
-                    c.items = self.select_only(idx);
-                    c.wires = true;
+            self.hit_pin_id = None;
+            self.hit_label_info = None;
+            match target {
+                Some(HitTarget::Pin { pin, .. }) => {
+                    self.hit_pin_id = Some(pin.id);
                 }
-            } else if let Some(idx) = hit {
-                self.hit_pin_id = None;
-                self.hit_label_info = None;
-                if !self.scene.items()[idx].selected {
-                    c.items = self.select_only(idx);
-                    c.wires = true;
+                Some(HitTarget::Label { index, is_val }) => {
+                    let uid = self.scene.items()[index].id.clone();
+                    self.hit_label_info = Some((uid, is_val));
+                    if !self.scene.items()[index].selected {
+                        c.items = self.select_only(index);
+                        c.wires = true;
+                    }
                 }
-            } else {
-                self.hit_pin_id = None;
-                self.hit_label_info = None;
+                Some(HitTarget::Body { index }) => {
+                    if !self.scene.items()[index].selected {
+                        c.items = self.select_only(index);
+                        c.wires = true;
+                    }
+                }
+                Some(HitTarget::Wire { index, .. }) => {
+                    c.wires = self.select_only_wire(index);
+                    c.items = true;
+                }
+                None => {}
             }
             return c;
         }
@@ -295,54 +313,52 @@ impl Canvas {
             return c;
         }
 
-        // C++ Node (wire junction) has z = 101, which sits above ConnectorLine (z = 100)
-        // and other components (z = 0).
-        // Clicking directly on a Node drags the junction (moving all connected wires).
-        // Alt-clicking on a Node with an open pin starts a new wire branch.
-        if let Some(idx) = hit.filter(|&i| self.scene.items()[i].is_node()) {
-            let it = &self.scene.items()[idx];
-            if alt {
-                let free_pin = it
-                    .pins()
-                    .into_iter()
-                    .find(|p| !self.scene.pin_connected(&p.id));
-                if let Some(p) = free_pin {
-                    let at = self.scene.pin_scene(&p.id).unwrap_or(scene);
-                    let snap = self.snapshot();
-                    if self.start_wire(&p, at) {
-                        self.pending = Some(snap);
-                        self.drag = Drag::Wire;
-                        c.wires = true;
-                        c.items = true;
-                        c.merge(self.update_hover(scene, mods));
-                        return c;
+        match target {
+            Some(HitTarget::Body { index }) if self.scene.items()[index].is_node() => {
+                // The junction dot is the painted target. Alt-click on a free
+                // pin starts a branch; otherwise the dot drags every wire on it.
+                let it = &self.scene.items()[index];
+                if alt {
+                    let free_pin = it
+                        .pins()
+                        .into_iter()
+                        .find(|p| !self.scene.pin_connected(&p.id));
+                    if let Some(p) = free_pin {
+                        let at = self.scene.pin_scene(&p.id).unwrap_or(scene);
+                        let snap = self.snapshot();
+                        if self.start_wire(&p, at) {
+                            self.pending = Some(snap);
+                            self.drag = Drag::Wire;
+                            c.wires = true;
+                            c.items = true;
+                            c.merge(self.update_hover(scene, mods));
+                            return c;
+                        }
                     }
                 }
+                if shift {
+                    c.items = self.toggle_selected(index);
+                } else if !self.scene.items()[index].selected {
+                    c.items = self.select_only(index);
+                }
+                let origin = snap_point(scene);
+                self.pending = Some(self.snapshot());
+                self.drag = Drag::Move {
+                    last_scene: origin,
+                    origin,
+                    index,
+                    press_pos: scene,
+                };
+                c.merge(self.set_cursor(CursorKind::ClosedHand));
+                c.items = true;
+                c.wires = true;
             }
-            if shift {
-                c.items = self.toggle_selected(idx);
-            } else if !self.scene.items()[idx].selected {
-                c.items = self.select_only(idx);
-            }
-            let origin = snap_point(scene);
-            self.pending = Some(self.snapshot());
-            self.drag = Drag::Move {
-                last_scene: origin,
-                origin,
-                index: idx,
-                press_pos: scene,
-            };
-            c.merge(self.set_cursor(CursorKind::ClosedHand));
-            c.items = true;
-            c.wires = true;
-            return c;
-        }
-
-        if let Some(p) = pin {
-            if !p.unused && !self.scene.pin_connected(&p.id) {
-                let at = self.scene.pin_scene(&p.id).unwrap_or(scene);
+            Some(HitTarget::Pin { index, pin })
+                if !pin.unused && !self.scene.pin_connected(&pin.id) =>
+            {
+                let at = self.scene.pin_scene(&pin.id).unwrap_or(scene);
                 let snap = self.snapshot();
-                if self.start_wire(&p, at) {
+                if self.start_wire(&pin, at) {
                     self.pending = Some(snap);
                     self.drag = Drag::Wire;
                     c.wires = true;
@@ -350,99 +366,68 @@ impl Canvas {
                     c.merge(self.update_hover(scene, mods));
                     return c;
                 }
+                return self.begin_item_press(index, scene, shift);
             }
-        }
-
-        // Wires sit above components (C++ ConnectorLine z = 100).
-        if let Some((widx, hit)) = wire_hit {
-            if alt {
+            Some(HitTarget::Pin { index, .. } | HitTarget::Body { index }) => {
+                return self.begin_item_press(index, scene, shift);
+            }
+            Some(HitTarget::Label { index, is_val }) => {
+                let item = &self.scene.items()[index];
+                let (lx, ly) = if is_val {
+                    item.val_pos()
+                } else {
+                    item.label_pos()
+                };
+                let start_pos = Point::new(lx, ly);
                 self.pending = Some(self.snapshot());
-                if self.splice_and_start(widx, snap_point(scene)) {
-                    self.drag = Drag::Wire;
-                    c.wires = true;
-                    c.items = true;
-                    c.merge(self.update_hover(scene, mods));
-                    return c;
-                }
-                self.pending = None;
-            }
-            if shift {
-                c.wires = self.toggle_wire_selected(widx);
-                return c;
-            } else if !self.scene.wires()[widx].selected {
-                c.wires = self.select_only_wire(widx);
+                self.drag = Drag::MoveLabel {
+                    index,
+                    is_val,
+                    origin: scene,
+                    start_pos,
+                    last_scene: scene,
+                };
+                c.merge(self.set_cursor(CursorKind::ClosedHand));
                 c.items = true;
             }
-            let group = self.scene.wires()[widx].selected && self.scene.selected_count() > 1;
-            let mode = if group {
-                WireEditMode::Group
-            } else {
-                match hit {
-                    WireHit::Segment(s) => WireEditMode::Segment(s),
-                    WireHit::Corner(v) => WireEditMode::Corner(v),
+            Some(HitTarget::Wire { index, at }) => {
+                if alt {
+                    self.pending = Some(self.snapshot());
+                    if self.splice_and_start(index, snap_point(scene)) {
+                        self.drag = Drag::Wire;
+                        c.wires = true;
+                        c.items = true;
+                        c.merge(self.update_hover(scene, mods));
+                        return c;
+                    }
+                    self.pending = None;
                 }
-            };
-            return self.begin_wire_edit(widx, mode, scene, c);
-        }
-
-        if let Some((idx, is_val)) = label_hit {
-            let item = &self.scene.items()[idx];
-            let (lx, ly) = if is_val {
-                item.val_pos()
-            } else {
-                item.label_pos()
-            };
-            let start_pos = Point::new(lx, ly);
-            self.pending = Some(self.snapshot());
-            self.drag = Drag::MoveLabel {
-                index: idx,
-                is_val,
-                origin: scene,
-                start_pos,
-                last_scene: scene,
-            };
-            c.merge(self.set_cursor(CursorKind::ClosedHand));
-            c.items = true;
-            return c;
-        }
-
-        if let Some(idx) = hit {
-            let local = self.scene.items()[idx].map_scene(scene);
-            let uid = self.scene.items()[idx].id.clone();
-            if self.scene.items_mut()[idx].kind.interact_press(local) {
-                self.dirty_item_now(&uid);
-                self.drag = Drag::Interact { index: idx };
-                self.merge_sim_raster(&mut c, &uid);
-                return c;
+                if shift {
+                    c.wires = self.toggle_wire_selected(index);
+                    return c;
+                } else if !self.scene.wires()[index].selected {
+                    c.wires = self.select_only_wire(index);
+                    c.items = true;
+                }
+                let group = self.scene.wires()[index].selected && self.scene.selected_count() > 1;
+                let mode = if group {
+                    WireEditMode::Group
+                } else {
+                    match at {
+                        WireHit::Segment(s) => WireEditMode::Segment(s),
+                        WireHit::Corner(v) => WireEditMode::Corner(v),
+                    }
+                };
+                return self.begin_wire_edit(index, mode, scene, c);
             }
-            if let Part::Push(_) = &self.scene.items()[idx].kind {
-                let uid = self.scene.items()[idx].id.clone();
-                self.set_push_down(&uid, true);
-                self.pressed_push_id = Some(uid.clone());
-                self.merge_sim_raster(&mut c, &uid);
+            None => {
+                self.banding = true;
+                self.band_rect = Rect::new(scene.x, scene.y, 0.0, 0.0);
+                self.drag = Drag::Band { origin: scene };
+                c.items = self.clear_selection();
+                c.wires = c.items;
+                c.band = true;
             }
-            if shift {
-                c.items = self.toggle_selected(idx);
-            } else if !self.scene.items()[idx].selected {
-                c.items = self.select_only(idx);
-            }
-            let origin = snap_point(scene);
-            self.pending = Some(self.snapshot());
-            self.drag = Drag::Move {
-                last_scene: origin,
-                origin,
-                index: idx,
-                press_pos: scene,
-            };
-            c.items = true;
-            c.wires = true;
-        } else {
-            self.banding = true;
-            self.band_rect = Rect::new(scene.x, scene.y, 0.0, 0.0);
-            self.drag = Drag::Band { origin: scene };
-            c.items = self.clear_selection();
-            c.wires = c.items;
-            c.band = true;
         }
         c
     }
@@ -926,7 +911,15 @@ impl Canvas {
         if button != BUTTON_LEFT {
             return Change::default();
         }
-        if let Some(idx) = self.scene.hit(scene) {
+        let idx = match self.scene.hit_top(scene) {
+            Some(
+                HitTarget::Body { index }
+                | HitTarget::Label { index, .. }
+                | HitTarget::Pin { index, .. },
+            ) => Some(index),
+            _ => None,
+        };
+        if let Some(idx) = idx {
             let it = &self.scene.items()[idx];
             if matches!(it.kind, Part::Oscope(_)) {
                 return Change {
@@ -958,16 +951,24 @@ impl Canvas {
 
     pub(crate) fn update_hover(&mut self, scene: Point, mods: u32) -> Change {
         let alt = mods & MOD_ALT != 0;
-        let is_node_hover = self
-            .scene
-            .hit(scene)
-            .is_some_and(|i| self.scene.items()[i].is_node());
-        let pin = if is_node_hover && !alt && !self.scene.drawing() {
-            None
-        } else {
-            self.scene.hit_pin(scene)
+        let target = self.scene.hit_top(scene);
+        let node_index = match &target {
+            Some(HitTarget::Body { index }) if self.scene.items()[*index].is_node() => Some(*index),
+            _ => None,
         };
-        let id = pin.as_ref().map(|p| p.id.clone());
+        // The junction dot is the painted target. Its free pin is only a branch
+        // affordance while Alt is held, and it belongs to this node.
+        let node_pin = node_index.and_then(|index| {
+            self.scene.items()[index]
+                .pins()
+                .into_iter()
+                .find(|p| !self.scene.pin_connected(&p.id))
+        });
+        let id = match &target {
+            Some(HitTarget::Pin { pin, .. }) => Some(pin.id.clone()),
+            _ if alt => node_pin.as_ref().map(|p| p.id.clone()),
+            _ => None,
+        };
         let mut c = Change::default();
         if self.hovered_pin != id {
             self.hovered_pin = id;
@@ -975,45 +976,45 @@ impl Canvas {
         }
         let want = if self.scene.drawing() {
             CursorKind::Cross
-        } else if is_node_hover {
-            if alt
-                && self
-                    .scene
-                    .hit_pin(scene)
-                    .is_some_and(|p| !p.unused && !self.scene.pin_connected(&p.id))
-            {
-                CursorKind::Cross
-            } else {
-                CursorKind::OpenHand
-            }
-        } else if let Some(p) = pin {
-            if !p.unused && !self.scene.pin_connected(&p.id) {
-                CursorKind::Cross
-            } else {
-                CursorKind::Arrow
-            }
-        } else if let Some((widx, hit)) = self.scene.hit_wire_detail(scene) {
-            if alt {
-                CursorKind::Cross
-            } else {
-                match hit {
-                    WireHit::Corner(_) => CursorKind::SizeAll,
-                    WireHit::Segment(seg) => {
-                        let w = &self.scene.wires()[widx];
-                        if w.segment_is_horizontal(seg) {
-                            CursorKind::SplitV
-                        } else if w.segment_is_vertical(seg) {
-                            CursorKind::SplitH
-                        } else {
-                            CursorKind::SizeAll
+        } else {
+            match target {
+                Some(HitTarget::Body { .. }) if node_index.is_some() => {
+                    if alt && node_pin.as_ref().is_some_and(|p| !p.unused) {
+                        CursorKind::Cross
+                    } else {
+                        CursorKind::OpenHand
+                    }
+                }
+                Some(HitTarget::Label { .. }) => CursorKind::OpenHand,
+                Some(HitTarget::Body { .. }) => CursorKind::Arrow,
+                Some(HitTarget::Pin { pin, .. }) => {
+                    if !pin.unused && !self.scene.pin_connected(&pin.id) {
+                        CursorKind::Cross
+                    } else {
+                        CursorKind::Arrow
+                    }
+                }
+                Some(HitTarget::Wire { index, at }) => {
+                    if alt {
+                        CursorKind::Cross
+                    } else {
+                        match at {
+                            WireHit::Corner(_) => CursorKind::SizeAll,
+                            WireHit::Segment(seg) => {
+                                let w = &self.scene.wires()[index];
+                                if w.segment_is_horizontal(seg) {
+                                    CursorKind::SplitV
+                                } else if w.segment_is_vertical(seg) {
+                                    CursorKind::SplitH
+                                } else {
+                                    CursorKind::SizeAll
+                                }
+                            }
                         }
                     }
                 }
+                None => CursorKind::Arrow,
             }
-        } else if self.scene.hit_label(scene).is_some() {
-            CursorKind::OpenHand
-        } else {
-            CursorKind::Arrow
         };
         c.merge(self.set_cursor(want));
         c

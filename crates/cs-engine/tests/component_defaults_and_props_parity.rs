@@ -525,9 +525,8 @@ fn test_test_unit_defaults_and_property_mutations() {
 
 #[test]
 fn test_bus_pin_hover_tooltip_parity() {
-    // Verifies that the Bus component pin hover tooltips match C++ bus.cpp:
-    //   - ePin0 (bottom trunk) and busPinI (top trunk) → "Bus trunk connector"
-    //   - ePinN (line pins) → "Bus line N"
+    // Line pins stick out of the body and keep the C++ pin text ("Bus line N").
+    // The trunk ends lie inside the body, which is painted over those stems.
     use cs_engine::canvas::{Canvas, Point};
 
     let mut scene = cs_engine::canvas::scene::Scene::new();
@@ -540,22 +539,23 @@ fn test_bus_pin_hover_tooltip_parity() {
     let mut canvas = Canvas::empty();
     *canvas.scene_mut() = scene;
 
-    // Bottom trunk pin (ePin0) — hit at scene (0, 0)
+    // Trunk pins sit inside the bus body. The body is painted after the pin
+    // stems, so the hover describes the part.
     let tip_bottom = canvas
         .hover_tooltip(Point::new(0.0, 0.0))
-        .expect("tooltip for ePin0 (bottom trunk)");
+        .expect("tooltip at the bottom of the bus");
     assert!(
-        tip_bottom.contains("Bus trunk connector"),
-        "ePin0 tooltip should contain 'Bus trunk connector', got: {tip_bottom}"
+        tip_bottom.contains("Bus (Bus-1)"),
+        "bottom trunk should describe the bus, got: {tip_bottom}"
     );
 
     // Top trunk pin (busPinI) — for 8 lines: local y = -(8-1)*8 = -56
     let tip_top = canvas
         .hover_tooltip(Point::new(0.0, -56.0))
-        .expect("tooltip for busPinI (top trunk)");
+        .expect("tooltip at the top of the bus");
     assert!(
-        tip_top.contains("Bus trunk connector"),
-        "busPinI tooltip should contain 'Bus trunk connector', got: {tip_top}"
+        tip_top.contains("Bus (Bus-1)"),
+        "top trunk should describe the bus, got: {tip_top}"
     );
 
     // Line pin ePin1 (bit 0): local (-8, -64 + 1*8) = (-8, -56)

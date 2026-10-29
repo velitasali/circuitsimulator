@@ -521,23 +521,7 @@ impl Item {
 
         let local_pt = self.map_scene(scene);
 
-        // 1. Check ID Label
-        if self.show_id && !self.label.is_empty() {
-            let (lx, ly) = self.label_pos();
-            let tw = text_width(&self.label, 9.0, false).max(12.0);
-            let approx_h = 14.0;
-            let dx = local_pt.x - lx;
-            let dy = local_pt.y - ly;
-            let rad = (-self.label_rot as f64).to_radians();
-            let (s, c) = (rad.sin(), rad.cos());
-            let rx = dx * c - dy * s;
-            let ry = dx * s + dy * c;
-            if rx >= -4.0 && rx <= tw + 4.0 && ry >= -4.0 && ry <= approx_h + 4.0 {
-                return Some(false);
-            }
-        }
-
-        // 2. Check Value Label
+        // Value label is painted after the id label, so it is the upper one.
         if self.show_val {
             let val_text = self.val_label_text();
             if !val_text.is_empty() {
@@ -553,6 +537,21 @@ impl Item {
                 if rx >= -4.0 && rx <= tw + 4.0 && ry >= -4.0 && ry <= approx_h + 4.0 {
                     return Some(true);
                 }
+            }
+        }
+
+        if self.show_id && !self.label.is_empty() {
+            let (lx, ly) = self.label_pos();
+            let tw = text_width(&self.label, 9.0, false).max(12.0);
+            let approx_h = 14.0;
+            let dx = local_pt.x - lx;
+            let dy = local_pt.y - ly;
+            let rad = (-self.label_rot as f64).to_radians();
+            let (s, c) = (rad.sin(), rad.cos());
+            let rx = dx * c - dy * s;
+            let ry = dx * s + dy * c;
+            if rx >= -4.0 && rx <= tw + 4.0 && ry >= -4.0 && ry <= approx_h + 4.0 {
+                return Some(false);
             }
         }
 

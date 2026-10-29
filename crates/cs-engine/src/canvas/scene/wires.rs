@@ -5,6 +5,27 @@ use crate::canvas::geom::Point;
 use crate::canvas::pin::{PIN_HIT_RADIUS, Pin};
 use crate::canvas::wire::{Wire, WireHit};
 
+/// Closest pin stem of `it` within [`PIN_HIT_RADIUS`]. Nodes paint a dot, not stems.
+pub(crate) fn item_pin_at(it: &super::item::Item, scene: Point) -> Option<Pin> {
+    if it.is_node() {
+        return None;
+    }
+    let origin = it.position();
+    let b = it.body_rect();
+    let max_r = (b.w.abs() + b.h.abs()).max(40.0) + 40.0;
+    if (origin.x - scene.x).abs() > max_r || (origin.y - scene.y).abs() > max_r {
+        return None;
+    }
+    let mut best: Option<(f64, Pin)> = None;
+    for p in it.pins() {
+        let d = it.pin_scene_pos(&p).distance(scene);
+        if d <= PIN_HIT_RADIUS && best.as_ref().map(|(bd, _)| d < *bd).unwrap_or(true) {
+            best = Some((d, p));
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
 pub(crate) fn pin_belongs(pin_id: &str, item_ids: &[String]) -> bool {
     item_ids
         .iter()
@@ -118,6 +139,7 @@ impl Scene {
 
     /// Topmost pin first. Connected pins are still returned (caller decides).
     /// A Node returns its first unconnected pin so a T-junction can form.
+    /// This looks through parts painted above the pin. Pointer hits use `hit_top`.
     pub fn hit_pin(&self, scene: Point) -> Option<Pin> {
         for it in self.items.iter().rev() {
             let origin = it.position();
@@ -131,22 +153,7 @@ impl Scene {
                 }
                 continue;
             }
-            let b = it.body_rect();
-            let max_r = (b.w.abs() + b.h.abs()).max(40.0) + 40.0;
-            if (origin.x - scene.x).abs() > max_r || (origin.y - scene.y).abs() > max_r {
-                continue;
-            }
-            let pins = it.pins();
-            let mut best: Option<(f64, Pin)> = None;
-            for p in pins {
-                let d = it.pin_scene_pos(&p).distance(scene);
-                if d <= PIN_HIT_RADIUS {
-                    if best.as_ref().map(|(bd, _)| d < *bd).unwrap_or(true) {
-                        best = Some((d, p));
-                    }
-                }
-            }
-            if let Some((_, p)) = best {
+            if let Some(p) = item_pin_at(it, scene) {
                 return Some(p);
             }
         }

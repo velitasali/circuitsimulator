@@ -1,6 +1,6 @@
 //! Hover tooltip formatting and pin description generators.
 
-use crate::canvas::scene::Part;
+use crate::canvas::scene::{HitTarget, Part};
 use crate::canvas::{Canvas, Point};
 use crate::digital::FlipFlopKind;
 use crate::elements::pins::PinSuffix;
@@ -8,80 +8,117 @@ use crate::i18n;
 
 impl Canvas {
     pub fn hover_tooltip(&self, scene: Point) -> Option<String> {
-        fn escape(s: &str) -> String {
-            s.replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;")
+        match self.scene.hit_top(scene) {
+            Some(HitTarget::Pin { pin, .. }) => self.pin_tooltip(&pin),
+            Some(HitTarget::Label { index, .. } | HitTarget::Body { index }) => {
+                self.component_tooltip(index)
+            }
+            Some(HitTarget::Wire { index, .. }) => self.wire_tooltip(index),
+            None => None,
         }
+    }
 
-        if let Some(pin) = self.scene.hit_pin(scene) {
-            let item = self.scene.item_by_id(&pin.item_id);
-            let mut pin_text = pin_description(&pin, item);
-            if pin.unused {
-                let unused_str = i18n::tr("Unused");
-                if !pin_text.is_empty() && !pin_text.to_lowercase().contains("unused") {
-                    pin_text.push_str(&format!(" ({})", unused_str));
-                } else if pin_text.is_empty() {
-                    pin_text = unused_str;
-                }
+    fn pin_tooltip(&self, pin: &crate::canvas::Pin) -> Option<String> {
+        let item = self.scene.item_by_id(&pin.item_id);
+        let mut pin_text = pin_description(pin, item);
+        if pin.unused {
+            let unused_str = i18n::tr("Unused");
+            if !pin_text.is_empty() && !pin_text.to_lowercase().contains("unused") {
+                pin_text.push_str(&format!(" ({})", unused_str));
+            } else if pin_text.is_empty() {
+                pin_text = unused_str;
             }
-            if self.sim_running {
-                if let Some(v) = self.pin_volts.get(&pin.id) {
-                    if !pin_text.is_empty() {
-                        pin_text.push_str("<br>");
-                    }
-                    pin_text.push_str(&format!(
-                        "{}: {}",
-                        i18n::tr("Voltage"),
-                        crate::units::format_si(*v, "V")
-                    ));
-                }
-                if let Some(i) = self.pin_current(&pin.id) {
-                    if !pin_text.is_empty() {
-                        pin_text.push_str("<br>");
-                    }
-                    pin_text.push_str(&format!(
-                        "{}: {}",
-                        i18n::tr("Current"),
-                        crate::units::format_si(i, "A")
-                    ));
-                }
-            }
-            let mut text = if !pin_text.is_empty() {
-                format!("<b>{}:</b><br>{}<br><br>", i18n::tr("Pin"), pin_text)
-            } else {
-                format!("<b>{}:</b><br>{}<br><br>", i18n::tr("Pin"), escape(&pin.id))
-            };
-            if let Some(it) = item {
-                text.push_str(&format!("<b>{}:</b><br>", i18n::tr("Component")));
-                if let Some(st) = self.overload_states.get(&it.id) {
-                    if st.warning || st.crashed {
-                        let col = if st.crashed {
-                            let (r, g, b, _) = crate::theme::ColorTheme::get_rgba(
-                                crate::theme::ColorId::MsgErrorBg,
-                                true,
-                            );
-                            format!("#{r:02x}{g:02x}{b:02x}")
-                        } else {
-                            let (r, g, b, _) = crate::theme::ColorTheme::get_rgba(
-                                crate::theme::ColorId::MsgWarnBg,
-                                true,
-                            );
-                            format!("#{r:02x}{g:02x}{b:02x}")
-                        };
-                        text.push_str(&format!(
-                            "<font color=\"{}\"><b>{}</b></font><br>",
-                            col,
-                            escape(&i18n::tr(&st.reason))
-                        ));
-                    }
-                }
-                text.push_str(&component_hover_info(it));
-            }
-            return Some(text);
         }
-        if let Some(widx) = self.scene.hit_wire(scene) {
-            let w = &self.scene.wires()[widx];
+        if self.sim_running {
+            if let Some(v) = self.pin_volts.get(&pin.id) {
+                if !pin_text.is_empty() {
+                    pin_text.push_str("<br>");
+                }
+                pin_text.push_str(&format!(
+                    "{}: {}",
+                    i18n::tr("Voltage"),
+                    crate::units::format_si(*v, "V")
+                ));
+            }
+            if let Some(i) = self.pin_current(&pin.id) {
+                if !pin_text.is_empty() {
+                    pin_text.push_str("<br>");
+                }
+                pin_text.push_str(&format!(
+                    "{}: {}",
+                    i18n::tr("Current"),
+                    crate::units::format_si(i, "A")
+                ));
+            }
+        }
+        let mut text = if !pin_text.is_empty() {
+            format!("<b>{}:</b><br>{}<br><br>", i18n::tr("Pin"), pin_text)
+        } else {
+            format!("<b>{}:</b><br>{}<br><br>", i18n::tr("Pin"), escape(&pin.id))
+        };
+        if let Some(it) = item {
+            text.push_str(&format!("<b>{}:</b><br>", i18n::tr("Component")));
+            if let Some(st) = self.overload_states.get(&it.id) {
+                if st.warning || st.crashed {
+                    let col = if st.crashed {
+                        let (r, g, b, _) = crate::theme::ColorTheme::get_rgba(
+                            crate::theme::ColorId::MsgErrorBg,
+                            true,
+                        );
+                        format!("#{r:02x}{g:02x}{b:02x}")
+                    } else {
+                        let (r, g, b, _) = crate::theme::ColorTheme::get_rgba(
+                            crate::theme::ColorId::MsgWarnBg,
+                            true,
+                        );
+                        format!("#{r:02x}{g:02x}{b:02x}")
+                    };
+                    text.push_str(&format!(
+                        "<font color=\"{}\"><b>{}</b></font><br>",
+                        col,
+                        escape(&i18n::tr(&st.reason))
+                    ));
+                }
+            }
+            text.push_str(&component_hover_info(it));
+        }
+        Some(text)
+    }
+
+    fn component_tooltip(&self, idx: usize) -> Option<String> {
+        let it = self.scene.items().get(idx)?;
+        if let Some(st) = self.overload_states.get(&it.id) {
+            if st.warning || st.crashed {
+                let mut text = format!(
+                    "<b>{}:</b> {} ({})<br>",
+                    i18n::tr("Component"),
+                    escape(&i18n::tr(it.human_name())),
+                    escape(&it.id)
+                );
+                let col = if st.crashed {
+                    let (r, g, b, _) =
+                        crate::theme::ColorTheme::get_rgba(crate::theme::ColorId::MsgErrorBg, true);
+                    format!("#{r:02x}{g:02x}{b:02x}")
+                } else {
+                    let (r, g, b, _) =
+                        crate::theme::ColorTheme::get_rgba(crate::theme::ColorId::MsgWarnBg, true);
+                    format!("#{r:02x}{g:02x}{b:02x}")
+                };
+                text.push_str(&format!(
+                    "<font color=\"{}\"><b>{}</b></font>",
+                    col,
+                    escape(&i18n::tr(&st.reason))
+                ));
+                return Some(text);
+            }
+        }
+        let mut text = format!("<b>{}:</b><br>", i18n::tr("Component"));
+        text.push_str(&component_hover_info(it));
+        Some(text)
+    }
+
+    fn wire_tooltip(&self, widx: usize) -> Option<String> {
+        if let Some(w) = self.scene.wires().get(widx) {
             let mut text = format!("<b>{}:</b><br>", i18n::tr("Wire"));
             if self.sim_running {
                 if let Some(i) = self.wire_currents.get(&w.id) {
@@ -103,44 +140,14 @@ impl Canvas {
             }
             return Some(text);
         }
-        if let Some(idx) = self.scene.hit(scene) {
-            if let Some(it) = self.scene.items().get(idx) {
-                if let Some(st) = self.overload_states.get(&it.id) {
-                    if st.warning || st.crashed {
-                        let mut text = format!(
-                            "<b>{}:</b> {} ({})<br>",
-                            i18n::tr("Component"),
-                            escape(&i18n::tr(it.human_name())),
-                            escape(&it.id)
-                        );
-                        let col = if st.crashed {
-                            let (r, g, b, _) = crate::theme::ColorTheme::get_rgba(
-                                crate::theme::ColorId::MsgErrorBg,
-                                true,
-                            );
-                            format!("#{r:02x}{g:02x}{b:02x}")
-                        } else {
-                            let (r, g, b, _) = crate::theme::ColorTheme::get_rgba(
-                                crate::theme::ColorId::MsgWarnBg,
-                                true,
-                            );
-                            format!("#{r:02x}{g:02x}{b:02x}")
-                        };
-                        text.push_str(&format!(
-                            "<font color=\"{}\"><b>{}</b></font>",
-                            col,
-                            escape(&i18n::tr(&st.reason))
-                        ));
-                        return Some(text);
-                    }
-                }
-                let mut text = format!("<b>{}:</b><br>", i18n::tr("Component"));
-                text.push_str(&component_hover_info(it));
-                return Some(text);
-            }
-        }
         None
     }
+}
+
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn component_hover_info(it: &crate::canvas::scene::Item) -> String {

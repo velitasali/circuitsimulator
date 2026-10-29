@@ -12,6 +12,7 @@ pub mod wires;
 pub use crate::components::*;
 pub use item::{CanvasOverflowInfo, Item, ProgrammableDevice, SELECTION_MARGIN};
 pub use item_props::{PropGroup, PropRow, prop_group};
+pub use selection::HitTarget;
 pub use wires::bump_counter;
 
 use crate::canvas::geom::Point;

@@ -116,8 +116,11 @@ Item {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             onClicked: {
-                                ctx.closeDocument( index )
+                                // Resolve codeEditor before close. A clean close
+                                // rebuilds the tab repeater and clears this
+                                // delegate context before the handler returns.
                                 codeEditor.focusEditor()
+                                ctx.closeDocument( index )
                             }
                         }
                     }

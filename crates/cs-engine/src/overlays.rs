@@ -528,11 +528,13 @@ impl Overlays {
                     *width = w;
                 }
             } else if left {
-                let w = g.start_w - dx;
-                if w > MIN_PANEL && w < view_w - MIN_PANEL {
-                    *width = w;
-                    p.0 += dx;
-                }
+                // Keep the right edge fixed, and always apply the clamped
+                // width. Rejecting the update left `p` at the drag start, and
+                // the write below then flung the panel back there. x stays at
+                // least `margin`: x < 0 is the "never placed" sentinel.
+                let w = clamp_i(g.start_w - dx, MIN_PANEL, view_w - MIN_PANEL);
+                *width = w;
+                p.0 = (g.start_pos.0 + g.start_w - w).max(margin);
             }
             if bottom {
                 let h = g.start_h + dy;
@@ -540,11 +542,13 @@ impl Overlays {
                     *height = h;
                 }
             } else if top {
-                let h = g.start_h - dy;
-                if h > MIN_PANEL && h < view_h - margin {
-                    *height = h;
-                    p.1 += dy;
-                }
+                // Keep the bottom edge fixed. Same rule as the left edge:
+                // a rejected height used to restore the drag-start top, so
+                // shrinking past the minimum jumped the panel to where the
+                // drag began (the top, for a panel that started there).
+                let h = clamp_i(g.start_h - dy, MIN_PANEL, view_h - margin);
+                *height = h;
+                p.1 = (g.start_pos.1 + g.start_h - h).max(margin);
             }
             if left || top {
                 *panel_pos = p;
@@ -572,11 +576,11 @@ impl Overlays {
                 &mut self.editor_pos,
             );
         } else if g.drag_side {
-            self.side_pos = (g.start_pos.0 + dx, g.start_pos.1 + dy);
+            self.side_pos = ((g.start_pos.0 + dx).max(0), (g.start_pos.1 + dy).max(0));
         } else if g.drag_editor {
-            self.editor_pos = (g.start_pos.0 + dx, g.start_pos.1 + dy);
+            self.editor_pos = ((g.start_pos.0 + dx).max(0), (g.start_pos.1 + dy).max(0));
         } else if g.drag_toolbar {
-            self.toolbar_pos = (g.start_pos.0 + dx, g.start_pos.1 + dy);
+            self.toolbar_pos = ((g.start_pos.0 + dx).max(0), (g.start_pos.1 + dy).max(0));
         } else {
             return false;
         }
@@ -630,42 +634,72 @@ fn cluster_x(px: i32, w: i32, right: bool, gap: i32, btn: i32) -> i32 {
     if right { px + w + gap } else { px - gap - btn }
 }
 
+/// Vertical placement for the side and editor panels.
+///
+/// Fill-height (`stored_h <= 0`) and a panel that has never been moved stay
+/// top-aligned and track the content box. An explicit height keeps the top
+/// the user set. The height shrinks into whatever space is left under that
+/// edge, including below `MIN_PANEL`. Sliding the top up to rescue a
+/// minimum height is what pinned the panel to the top margin.
+fn fitted_panel(
+    default_anchor: bool,
+    pos_y: i32,
+    stored_h: i32,
+    margin: i32,
+    view_h: i32,
+) -> (i32, i32) {
+    let bounds_h = (view_h - 2 * margin).max(0);
+    let bottom = view_h - margin;
+
+    if default_anchor || stored_h <= 0 {
+        let h = if stored_h > 0 {
+            stored_h.min(bounds_h)
+        } else {
+            bounds_h
+        };
+        let y = if default_anchor {
+            margin
+        } else {
+            clamp_i(pos_y, margin, margin.max(bottom - h))
+        };
+        return (y, h);
+    }
+
+    if bounds_h == 0 {
+        return (margin, 0);
+    }
+
+    let y = pos_y.clamp(margin, bottom.max(margin));
+    let room = (bottom - y).max(0);
+    let h = stored_h.min(bounds_h).min(room);
+    (y, h)
+}
+
 fn layout(s: &Overlays) -> OverlaySnapshot {
     let margin = OVERLAY_MARGIN;
     let btn = HANDLE_BTN;
     let gap = HANDLE_GAP;
-    let bounds_h = (s.view_h - 2 * margin).max(0);
 
     let sp_default = s.side_pos.0 < 0;
     let ep_default = s.editor_pos.0 < 0;
 
     let sp_w = s.side_w;
-    let sp_h = if s.side_h > 0 {
-        s.side_h.min(bounds_h)
+    let (sp_py, sp_h) = fitted_panel(sp_default, s.side_pos.1, s.side_h, margin, s.view_h);
+    let sp_px = if sp_default {
+        margin
     } else {
-        bounds_h
-    };
-    let (mut sp_px, mut sp_py) = (margin, margin);
-    if !sp_default {
         let max_x = margin.max(s.view_w - margin - sp_w);
-        let max_y = margin.max(s.view_h - margin - sp_h);
-        sp_px = clamp_i(s.side_pos.0, margin, max_x);
-        sp_py = clamp_i(s.side_pos.1, margin, max_y);
-    }
+        clamp_i(s.side_pos.0, margin, max_x)
+    };
 
     let ep_w = s.editor_w;
-    let ep_h = if s.editor_h > 0 {
-        s.editor_h.min(bounds_h)
+    let (ep_py, ep_h) = fitted_panel(ep_default, s.editor_pos.1, s.editor_h, margin, s.view_h);
+    let ep_px = if ep_default {
+        s.view_w - margin - ep_w
     } else {
-        bounds_h
-    };
-    let (mut ep_px, mut ep_py) = (s.view_w - margin - ep_w, margin);
-    if !ep_default {
         let max_x = margin.max(s.view_w - margin - ep_w);
-        let max_y = margin.max(s.view_h - margin - ep_h);
-        ep_px = clamp_i(s.editor_pos.0, margin, max_x);
-        ep_py = clamp_i(s.editor_pos.1, margin, max_y);
-    }
+        clamp_i(s.editor_pos.0, margin, max_x)
+    };
 
     let tb_w = s.toolbar_w;
     let tb_h = s.toolbar_h;
@@ -907,6 +941,98 @@ mod tests {
         // anchor. X can. Matches CircuitWidget::updateOverlayLayout.
         assert_eq!(sp.x, OVERLAY_MARGIN + 20);
         assert_eq!(sp.y, OVERLAY_MARGIN);
+    }
+
+    #[test]
+    fn explicit_height_keeps_its_top_when_the_view_shrinks() {
+        let mut o = sized();
+        let full = o.snapshot().rect("sidePanel").h;
+        o.gesture_begin("sidePanelBottom", 100, 700);
+        o.gesture_move(100, 700 - 500);
+        o.gesture_end();
+        o.gesture_begin("sidePanel", 40, 40);
+        o.gesture_move(40, 40 + 300);
+        o.gesture_end();
+        let parked = o.snapshot().rect("sidePanel");
+        assert_eq!(parked.h, full - 500);
+        assert_eq!(parked.y, OVERLAY_MARGIN + 300);
+
+        // Still room under the stored top: height and y stay.
+        o.set_view_size(1200, 700);
+        assert_eq!(o.snapshot().rect("sidePanel").y, parked.y);
+        assert_eq!(o.snapshot().rect("sidePanel").h, parked.h);
+
+        // The old clamp pinned y to the top margin once the height filled
+        // the content box. The top stays, and the height gives up the space.
+        o.set_view_size(1200, 400);
+        let fitted = o.snapshot().rect("sidePanel");
+        assert_eq!(fitted.y, parked.y);
+        assert_eq!(fitted.h, 400 - OVERLAY_MARGIN - parked.y);
+        assert!(fitted.y > OVERLAY_MARGIN);
+
+        // Room under the stored top is now below MIN_PANEL. Buying that
+        // minimum back by sliding y upward is what still ended at the top.
+        o.set_view_size(1200, 360);
+        let tight = o.snapshot().rect("sidePanel");
+        assert_eq!(tight.y, parked.y);
+        assert_eq!(tight.h, 360 - OVERLAY_MARGIN - parked.y);
+        assert!(tight.h < MIN_PANEL);
+        assert!(tight.h > 0);
+
+        // The stored top has left the window. Sit on the bottom edge with
+        // nothing showing, rather than jumping to the top margin.
+        o.set_view_size(1200, 200);
+        let gone = o.snapshot().rect("sidePanel");
+        assert_eq!(gone.y, 200 - OVERLAY_MARGIN);
+        assert_eq!(gone.h, 0);
+        assert_ne!(gone.y, OVERLAY_MARGIN);
+
+        // Stored height comes back when the view can hold it again.
+        o.set_view_size(1200, 800);
+        assert_eq!(o.snapshot().rect("sidePanel").y, parked.y);
+        assert_eq!(o.snapshot().rect("sidePanel").h, parked.h);
+    }
+
+    #[test]
+    fn left_edge_drag_past_the_origin_does_not_reset_the_anchor() {
+        let mut o = sized();
+        o.gesture_begin("sidePanelBottom", 100, 700);
+        o.gesture_move(100, 400);
+        o.gesture_end();
+        o.gesture_begin("sidePanel", 30, 30);
+        o.gesture_move(30, 330);
+        o.gesture_end();
+        let parked = o.snapshot().rect("sidePanel");
+        assert!(parked.y > OVERLAY_MARGIN);
+
+        o.gesture_begin("sidePanelLeft", parked.x, parked.y + 20);
+        o.gesture_move(parked.x - 40, parked.y + 20);
+        o.gesture_end();
+        let stayed = o.snapshot().rect("sidePanel");
+        assert_eq!(stayed.y, parked.y);
+        assert!(stayed.x >= OVERLAY_MARGIN);
+    }
+
+    #[test]
+    fn shrinking_the_top_past_the_minimum_keeps_the_bottom() {
+        let mut o = sized();
+        let start = o.snapshot().rect("sidePanel");
+        let bottom = start.y + start.h;
+        o.gesture_begin("sidePanelTop", start.x + 8, start.y + 2);
+        let dy_ok = start.h - (MIN_PANEL + 10);
+        o.gesture_move(start.x + 8, start.y + 2 + dy_ok);
+        let short = o.snapshot().rect("sidePanel");
+        assert_eq!(short.h, MIN_PANEL + 10);
+        assert_eq!(short.y + short.h, bottom);
+
+        // One more pull used to reject the height and write the drag-start
+        // top back, so the short panel teleported to the top margin.
+        o.gesture_move(start.x + 8, start.y + 2 + dy_ok + 80);
+        let held = o.snapshot().rect("sidePanel");
+        assert_eq!(held.h, MIN_PANEL);
+        assert_eq!(held.y + held.h, bottom);
+        assert!(held.y > OVERLAY_MARGIN);
+        o.gesture_end();
     }
 
     #[test]

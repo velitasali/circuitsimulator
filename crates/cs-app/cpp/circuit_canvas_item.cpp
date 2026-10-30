@@ -1,12 +1,12 @@
 #include "circuit_canvas_item.h"
+#include "image_frame.h"
+#include "instrument_screen_item.h"
 #include <QMetaObject>
 #include <QPointer>
 #include <QtQml>
 #include <cmath>
 
 #ifndef Q_OS_MACOS
-#include <QImage>
-
 #include "vello_share.h"
 #endif
 
@@ -18,13 +18,6 @@ extern "C" {
     void cs_canvas_item_request_update();
     void cs_vello_preview_release(void);
 }
-
-#ifndef Q_OS_MACOS
-extern "C" {
-    const uint8_t *cs_canvas_render(uint32_t *out_width, uint32_t *out_height, uint32_t *out_stride);
-    uint64_t cs_canvas_generation();
-}
-#endif
 
 #ifdef Q_OS_MACOS
 extern "C" {
@@ -108,40 +101,10 @@ void CircuitCanvasItem::syncVelloHost() {
     emit hostReady();
 }
 
-namespace {
-
-QSGSimpleTextureNode *texture_node(QSGSimpleTextureNode *node) {
-    if (node) {
-        return node;
-    }
-    node = new QSGSimpleTextureNode();
-    node->setFiltering(QSGTexture::Linear);
-    node->setOwnsTexture(true);
-    return node;
-}
-
-// A texture-less node still has geometry. Qt batches it and Metal reads
-// offset 0x58 of a null texture (SIGSEGV in setFragmentTextures). Delete it
-// and return null: the scene graph does not remove a node we simply drop,
-// and the grid shader shows until a frame exists.
-QSGNode *node_with_texture(QSGSimpleTextureNode *node, qreal width, qreal height) {
-    if (!node) {
-        return nullptr;
-    }
-    if (node->texture() == nullptr) {
-        delete node;
-        return nullptr;
-    }
-    node->setRect(0, 0, width, height);
-    return node;
-}
-
-} // namespace
-
 QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) {
     auto *node = static_cast<QSGSimpleTextureNode *>(oldNode);
     if (!window() || width() <= 0 || height() <= 0) {
-        return node_with_texture(node, width(), height());
+        return cs_node_with_texture(node, width(), height());
     }
 #ifdef Q_OS_MACOS
     QRhi *rhi = window()->rhi();
@@ -157,7 +120,7 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
                     cs_vello_wrap_texture(native, window(), tw, th));
                 if (texture) {
                     cs_vello_attach_keep(texture);
-                    node = texture_node(node);
+                    node = cs_texture_node(node);
                     node->setTexture(texture);
                     node->setSourceRect(QRectF(0, 0, tw, th));
                     m_last_generation = gen;
@@ -167,7 +130,7 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
             }
         }
     }
-    return node_with_texture(node, width(), height());
+    return cs_node_with_texture(node, width(), height());
 #else
     const uint64_t share_gen = cs_vello_share_generation();
     if (share_gen != 0 && (!node || node->texture() == nullptr || share_gen != m_last_generation)) {
@@ -175,7 +138,7 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
         int th = 0;
         void *native = cs_vello_share_adopt(window(), &tw, &th);
         if (native && tw > 0 && th > 0) {
-            node = texture_node(node);
+            node = cs_texture_node(node);
             node->setTexture(static_cast<QSGTexture *>(native));
             node->setSourceRect(QRectF(0, 0, tw, th));
             m_last_generation = share_gen;
@@ -191,29 +154,13 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
                 Qt::QueuedConnection);
         }
     }
-    // generation() is 0 until a shared frame exists, and again after adopt()
-    // gives up. Those frames upload the read-back image.
-    const uint64_t gen = cs_canvas_generation();
-    if (share_gen == 0 && (!node || node->texture() == nullptr || gen != m_last_generation)) {
-        uint32_t w = 0, h = 0, stride = 0;
-        const uint8_t *pixels = cs_canvas_render(&w, &h, &stride);
-        if (pixels && w > 0 && h > 0) {
-            const double dpr = window()->devicePixelRatio();
-            QImage img(pixels, static_cast<int>(w), static_cast<int>(h),
-                       static_cast<qsizetype>(stride),
-                       QImage::Format_RGBA8888_Premultiplied);
-            img.setDevicePixelRatio(dpr);
-            QSGTexture *texture = window()->createTextureFromImage(
-                img, QQuickWindow::TextureHasAlphaChannel);
-            if (texture) {
-                node = texture_node(node);
-                node->setTexture(texture);
-                node->setSourceRect(QRectF(0, 0, w, h));
-                m_last_generation = gen;
-            }
-        }
+    // No shared texture yet. Upload the read-back image through the same
+    // frame slot the oscilloscope window uses.
+    if (share_gen == 0) {
+        return cs_upload_image_frame(
+            CS_FRAME_CANVAS, node, window(), width(), height(), &m_last_generation);
     }
-    return node_with_texture(node, width(), height());
+    return cs_node_with_texture(node, width(), height());
 #endif
 }
 
@@ -227,6 +174,8 @@ extern "C" void cs_set_native_text_rendering() {
 
 extern "C" void cs_register_canvas_item() {
     qmlRegisterType<CircuitCanvasItem>("cs_app", 1, 0, "CircuitCanvasItem");
+    qmlRegisterType<ScopeScreenItem>("cs_app", 1, 0, "ScopeScreen");
+    qmlRegisterType<LogicScreenItem>("cs_app", 1, 0, "LogicScreen");
 }
 
 extern "C" const char* cs_qt_version() {

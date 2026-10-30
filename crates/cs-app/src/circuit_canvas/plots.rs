@@ -3,21 +3,6 @@
 use cs_engine::canvas::Canvas;
 use serde_json::{Value, json};
 
-pub(super) fn traces_json(buf: &cs_engine::plot::PlotBuffer) -> Value {
-    let arr: Vec<Value> = buf
-        .channels
-        .iter()
-        .map(|ch| {
-            json!({
-                "color": ch.color,
-                "samples": ch.samples,
-                "connected": ch.connected,
-            })
-        })
-        .collect();
-    Value::Array(arr)
-}
-
 pub(super) fn overload_log_json(canvas: &Canvas) -> Value {
     let log = canvas.overload_log();
     let mut arr = Vec::with_capacity(log.len());

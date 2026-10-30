@@ -5,46 +5,7 @@
 //! If that share cannot be opened, the finished image is copied back instead.
 //! A small change is drawn into a patch and copied onto the frame already on screen.
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use cs_engine::canvas::{Canvas, Palette, Rect};
-
-struct CpuFrame {
-    pixels: Vec<u8>,
-    width: u32,
-    height: u32,
-    stride: u32,
-}
-
-static CPU_FRAME: Mutex<Option<CpuFrame>> = Mutex::new(None);
-static CPU_FRAME_GEN: AtomicU64 = AtomicU64::new(1);
-
-pub fn cpu_frame_generation() -> u64 {
-    CPU_FRAME_GEN.load(Ordering::Acquire)
-}
-
-/// Copy the latest read-back frame. macOS does not fill this; Qt samples the
-/// IOSurface instead.
-pub fn copy_cpu_frame(dst: &mut Vec<u8>) -> Option<(u32, u32, u32)> {
-    let frame = CPU_FRAME.lock().unwrap_or_else(|err| err.into_inner());
-    let frame = frame.as_ref()?;
-    dst.resize(frame.pixels.len(), 0);
-    dst.copy_from_slice(&frame.pixels);
-    Some((frame.width, frame.height, frame.stride))
-}
-
-#[cfg_attr(target_os = "macos", allow(dead_code))]
-pub(super) fn store_cpu_frame(pixels: Vec<u8>, width: u32, height: u32, stride: u32) {
-    let mut frame = CPU_FRAME.lock().unwrap_or_else(|err| err.into_inner());
-    *frame = Some(CpuFrame {
-        pixels,
-        width,
-        height,
-        stride,
-    });
-    CPU_FRAME_GEN.fetch_add(1, Ordering::Release);
-}
 
 pub enum RegionPresent {
     Painted,
@@ -162,6 +123,17 @@ mod gpu {
         view: wgpu::TextureView,
     }
 
+    /// Private canvas frame used when the shared texture cannot be opened.
+    /// The readback buffer stays with the texture and is reused at this size.
+    #[cfg(not(target_os = "macos"))]
+    struct FrameTarget {
+        width: u32,
+        height: u32,
+        texture: wgpu::Texture,
+        view: wgpu::TextureView,
+        readback: wgpu::Buffer,
+    }
+
     /// A frame Vello shares with Qt. Dropping it releases wgpu's reference.
     /// The native image stays alive until `cs_vello_share_release`.
     #[cfg(any(windows, target_os = "linux"))]
@@ -190,7 +162,7 @@ mod gpu {
         surfaces: [Option<ImportedSurface>; 2],
         /// Private frame used when the shared texture cannot be opened.
         #[cfg(not(target_os = "macos"))]
-        frame: Option<Scratch>,
+        frame: Option<FrameTarget>,
         #[cfg(any(windows, target_os = "linux"))]
         surfaces: [Option<SharedSurface>; 2],
         #[cfg(any(windows, target_os = "linux"))]
@@ -585,13 +557,18 @@ mod gpu {
                     log_once("frame target missing");
                     return;
                 };
-                (frame.texture.clone(), frame.width, frame.height)
+                (
+                    frame.texture.clone(),
+                    frame.readback.clone(),
+                    frame.width,
+                    frame.height,
+                )
             };
-            let (texture, width, height) = copied;
+            let (texture, readback_buf, width, height) = copied;
             let Some(gpu) = slot.gpu.as_ref() else {
                 return;
             };
-            readback(gpu, &texture, width, height);
+            readback(gpu, &texture, &readback_buf, width, height);
         }
     }
 
@@ -1268,11 +1245,18 @@ mod gpu {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        gpu.frame = Some(Scratch {
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vello-readback"),
+            size: u64::from(cs_engine::canvas::readback_stride(width)) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        gpu.frame = Some(FrameTarget {
             width,
             height,
             texture,
             view,
+            readback,
         });
     }
 
@@ -1289,6 +1273,7 @@ mod gpu {
             return false;
         };
         let frame_tex = frame.texture.clone();
+        let frame_buf = frame.readback.clone();
         let frame_w = frame.width;
         let frame_h = frame.height;
         let Some(scratch) = gpu.scratch.as_ref() else {
@@ -1319,71 +1304,31 @@ mod gpu {
         );
         queue.submit([encoder.finish()]);
         let _ = device.poll(wgpu::Maintain::Wait);
-        readback(gpu, &frame_tex, frame_w, frame_h);
+        readback(gpu, &frame_tex, &frame_buf, frame_w, frame_h);
         true
     }
 
     #[cfg(not(target_os = "macos"))]
-    #[allow(deprecated)]
-    fn readback(gpu: &Gpu, texture: &wgpu::Texture, width: u32, height: u32) {
+    fn readback(
+        gpu: &Gpu,
+        texture: &wgpu::Texture,
+        buffer: &wgpu::Buffer,
+        width: u32,
+        height: u32,
+    ) {
         let device = &gpu.cx.devices[gpu.dev_id].device;
         let queue = &gpu.cx.devices[gpu.dev_id].queue;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let row = width.saturating_mul(4);
-        let padded = row.div_ceil(align).saturating_mul(align).max(align);
-        let size = padded as u64 * height as u64;
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vello-readback"),
-            size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("vello-readback"),
-        });
-        encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::ImageCopyBuffer {
-                buffer: &buffer,
-                layout: wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded),
-                    rows_per_image: Some(height),
-                },
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-        queue.submit([encoder.finish()]);
-        let slice = buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            let _ = tx.send(result);
-        });
-        let _ = device.poll(wgpu::Maintain::Wait);
-        if rx.recv().ok().and_then(|result| result.ok()).is_none() {
+        let Some(image) =
+            cs_engine::canvas::read_texture(device, queue, texture, buffer, width, height)
+        else {
             log_once("GPU readback failed");
             return;
-        }
-        let mapped = slice.get_mapped_range();
-        let mut packed = vec![0u8; (row as usize).saturating_mul(height as usize)];
-        for y in 0..height as usize {
-            let src = y * padded as usize;
-            let dst = y * row as usize;
-            let n = row as usize;
-            packed[dst..dst + n].copy_from_slice(&mapped[src..src + n]);
-        }
-        drop(mapped);
-        buffer.unmap();
-        super::store_cpu_frame(packed, width, height, row);
+        };
+        crate::image_frame::publish(
+            crate::image_frame::Slot::Canvas,
+            image,
+            crate::image_frame::View::device(),
+        );
     }
 
     fn log_ready(width: u32, height: u32, handoff: &str) {

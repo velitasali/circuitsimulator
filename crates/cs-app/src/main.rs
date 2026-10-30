@@ -8,6 +8,7 @@ mod command_center;
 mod component_list;
 mod editor_panel;
 mod file_browser;
+mod image_frame;
 mod info_widget;
 mod installer;
 mod logs;

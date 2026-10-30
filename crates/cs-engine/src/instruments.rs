@@ -1,9 +1,10 @@
 //! Live instruments: probes, meters, oscilloscope and logic-analyzer capture.
-//! No Qt. Display traces are `PlotBuffer`s drawn by QML Canvas.
+//! No Qt. Display traces are `PlotBuffer`s drawn by the Rust screen painters.
 
 use rustc_hash::FxHashMap;
 
 use crate::plot::{Channel, PlotBuffer};
+use crate::theme::ColorTheme;
 
 /// C++ Probe default threshold.
 pub const PROBE_DEFAULT_THRESHOLD: f64 = 2.5;
@@ -24,11 +25,19 @@ pub const LA_CHANNELS: usize = 8;
 const RING: usize = 1048576;
 const DISPLAY_N: usize = 512;
 pub const SCOPE_CANVAS_DISPLAY_N: usize = 256;
+/// Raw edges kept inside one display column. Busier columns draw their min/max
+/// instead of dropping edges between the column sample points.
+const MAX_PLOT_EVENTS: usize = 24;
+/// A monotonic column with more samples than this is a smooth slope. Fewer
+/// samples is a step, and the step is drawn at its own time.
+const STEP_EVENT_LIMIT: usize = 4;
+const REVERSAL_EPS: f64 = 1e-4;
+const PLOT_EPS: f64 = 1e-6;
 
-pub const SCOPE_COLORS: [&str; SCOPE_CHANNELS] = ["#ffff00", "#00ff00", "#00ffff", "#ff00ff"];
-pub const LA_COLORS: [&str; LA_CHANNELS] = [
-    "#e74c3c", "#e67e22", "#f1c40f", "#2ecc71", "#1abc9c", "#3498db", "#9b59b6", "#ecf0f1",
-];
+/// Trace colors the samplers already take as `&[&str]`.
+/// Instrument painters read the dark palette, so these tables do too.
+pub const SCOPE_COLORS: [&str; SCOPE_CHANNELS] = ColorTheme::scope_color_strs(true);
+pub const LA_COLORS: [&str; LA_CHANNELS] = ColorTheme::la_color_strs(true);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AutoScaleResult {
@@ -611,12 +620,16 @@ impl ScopeSampler {
                 channels.push(Channel {
                     color,
                     samples: Vec::new(),
+                    plot: Vec::new(),
+                    plot_x: Vec::new(),
                     connected: false,
                 });
             } else {
                 channels.push(Channel {
                     color,
                     samples: Vec::with_capacity(n),
+                    plot: Vec::new(),
+                    plot_x: Vec::new(),
                     connected: true,
                 });
             }
@@ -632,6 +645,7 @@ impl ScopeSampler {
         }
 
         let start = if self.n < self.cap { 0 } else { self.i };
+        let denom = (n - 1) as f64;
         let mut k = if self.n > 1 && t_start > self.t[start] {
             let mut low = 0usize;
             let mut high = self.n - 1;
@@ -649,40 +663,110 @@ impl ScopeSampler {
             0
         };
 
-        for i in 0..n {
-            let t = t_start + window * (i as f64) / ((n - 1) as f64);
-            let sample_idx = if self.n == 1 || t <= self.t[start] {
-                start
+        // Column i covers (t_i, t_{i+1}]. `samples[i]` stays the hold at t_i.
+        // The stroke follows real edges inside the column, so a pulse narrower
+        // than the column cannot vanish when the grid shifts by a fraction of
+        // a column. A column that reverses more times than we can draw becomes
+        // the min/max of everything it contains.
+        for i in 0..n - 1 {
+            let left = t_start + window * (i as f64) / denom;
+            let right = t_start + window * ((i + 1) as f64) / denom;
+            let x_left = (i as f64) / denom;
+            let x_right = ((i + 1) as f64) / denom;
+            while k + 1 < self.n && self.t[(start + k + 1) % self.cap] <= left {
+                k += 1;
+            }
+            let enter_ord = if self.n == 1 || left <= self.t[start] {
+                0
             } else {
-                let last_k = self.n - 1;
-                let last_idx = (start + last_k) % self.cap;
-                if t >= self.t[last_idx] {
-                    last_idx
-                } else {
-                    while k + 1 < self.n {
-                        let next_idx = (start + k + 1) % self.cap;
-                        if self.t[next_idx] <= t {
-                            k += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    (start + k) % self.cap
-                }
+                k
             };
+            let enter_idx = (start + enter_ord) % self.cap;
+
+            let mut ord = enter_ord;
+            let mut seen = vec![false; self.nch];
+            let mut acc = Vec::with_capacity(self.nch);
+            for c in 0..self.nch {
+                let enter = self.mapped_sample(c, enter_idx, digital_thr);
+                if channels[c].connected {
+                    let ch = &mut channels[c];
+                    ch.samples.push(enter);
+                    push_plot(&mut ch.plot, &mut ch.plot_x, x_left, enter);
+                }
+                acc.push(ColumnAccum::new(enter));
+            }
+            while ord + 1 < self.n {
+                let next_ord = ord + 1;
+                let next_idx = (start + next_ord) % self.cap;
+                let t = self.t[next_idx];
+                if t > right {
+                    break;
+                }
+                ord = next_ord;
+                if t <= left {
+                    continue;
+                }
+                for c in 0..self.nch {
+                    if !channels[c].connected {
+                        continue;
+                    }
+                    let v = self.mapped_sample(c, next_idx, digital_thr);
+                    acc[c].push(t, v);
+                    seen[c] = true;
+                }
+            }
 
             for c in 0..self.nch {
-                if channels[c].connected {
-                    let mut val = self.ch[c][sample_idx];
-                    if let Some(thr) = digital_thr {
-                        val = if val >= thr { 1.0 } else { 0.0 };
-                    }
-                    channels[c].samples.push(val);
+                if channels[c].connected && seen[c] {
+                    let ch = &mut channels[c];
+                    finish_column(
+                        &acc[c],
+                        &mut ch.plot,
+                        &mut ch.plot_x,
+                        left,
+                        right,
+                        x_left,
+                        x_right,
+                    );
                 }
             }
         }
 
+        let end_idx = {
+            let t_end = t_start + window;
+            while k + 1 < self.n && self.t[(start + k + 1) % self.cap] <= t_end {
+                k += 1;
+            }
+            if self.n == 1 || t_end <= self.t[start] {
+                start
+            } else {
+                (start + k) % self.cap
+            }
+        };
+        for c in 0..self.nch {
+            if channels[c].connected {
+                let v = self.mapped_sample(c, end_idx, digital_thr);
+                let ch = &mut channels[c];
+                ch.samples.push(v);
+                push_plot(&mut ch.plot, &mut ch.plot_x, 1.0, v);
+            }
+        }
+
         PlotBuffer { channels, n }
+    }
+
+    fn mapped_sample(&self, ch: usize, idx: usize, digital_thr: Option<f64>) -> f64 {
+        let val = self.ch[ch][idx];
+        match digital_thr {
+            Some(thr) => {
+                if val >= thr {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            None => val,
+        }
     }
 
     /// Automatically measures the channel signal and calculates the ideal Volt/Div,
@@ -934,6 +1018,123 @@ pub fn freq_reading(state: &FreqMeterState) -> ReadingView {
     }
 }
 
+struct ColumnAccum {
+    lo: f64,
+    hi: f64,
+    exit: f64,
+    reversals: u32,
+    count: usize,
+    dir: i8,
+    events: Vec<(f64, f64)>,
+}
+
+impl ColumnAccum {
+    fn new(enter: f64) -> Self {
+        Self {
+            lo: enter,
+            hi: enter,
+            exit: enter,
+            reversals: 0,
+            count: 0,
+            dir: 0,
+            events: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, t: f64, v: f64) {
+        if v < self.lo {
+            self.lo = v;
+        }
+        if v > self.hi {
+            self.hi = v;
+        }
+        let dv = v - self.exit;
+        if dv.abs() > REVERSAL_EPS {
+            let dir: i8 = if dv > 0.0 { 1 } else { -1 };
+            if self.dir != 0 && dir != self.dir {
+                self.reversals += 1;
+            }
+            self.dir = dir;
+        }
+        self.exit = v;
+        self.count += 1;
+        if self.events.len() < MAX_PLOT_EVENTS {
+            self.events.push((t, v));
+        }
+    }
+
+    fn overflow(&self) -> bool {
+        self.count > MAX_PLOT_EVENTS
+    }
+}
+
+fn push_plot(ys: &mut Vec<f64>, xs: &mut Vec<f64>, x: f64, y: f64) {
+    let x = x.clamp(0.0, 1.0);
+    if let (Some(ly), Some(lx)) = (ys.last().copied(), xs.last().copied()) {
+        if (x - lx).abs() <= 1e-12 && (y - ly).abs() <= PLOT_EPS {
+            return;
+        }
+    }
+    ys.push(y);
+    xs.push(x);
+}
+
+/// Vertical edge: hold the previous level up to `x`, then step.
+fn emit_step(ys: &mut Vec<f64>, xs: &mut Vec<f64>, x: f64, y: f64) {
+    let x = x.clamp(0.0, 1.0);
+    if let (Some(ly), Some(lx)) = (ys.last().copied(), xs.last().copied()) {
+        if (y - ly).abs() > PLOT_EPS && x > lx + 1e-12 {
+            ys.push(ly);
+            xs.push(x);
+        }
+    }
+    push_plot(ys, xs, x, y);
+}
+
+/// Min/max block for a column that reversed too often to draw each edge.
+/// The outline is the left side, the top, the right side, and the bottom.
+/// The bottom steps back to `x0`, then returns to `x1` so the next column
+/// still continues at the right edge.
+fn emit_band(ys: &mut Vec<f64>, xs: &mut Vec<f64>, x0: f64, x1: f64, lo: f64, hi: f64, exit: f64) {
+    push_plot(ys, xs, x0, lo);
+    push_plot(ys, xs, x0, hi);
+    push_plot(ys, xs, x1, hi);
+    push_plot(ys, xs, x1, lo);
+    push_plot(ys, xs, x0, lo);
+    push_plot(ys, xs, x1, lo);
+    push_plot(ys, xs, x1, exit);
+}
+
+fn finish_column(
+    acc: &ColumnAccum,
+    ys: &mut Vec<f64>,
+    xs: &mut Vec<f64>,
+    left: f64,
+    right: f64,
+    x0: f64,
+    x1: f64,
+) {
+    // Many samples and no turn: one segment to the next column. A step has a
+    // handful of samples and is drawn at the sample time instead.
+    let smooth = acc.reversals == 0 && (acc.overflow() || acc.count > STEP_EVENT_LIMIT);
+    if smooth {
+        return;
+    }
+    if acc.overflow() {
+        emit_band(ys, xs, x0, x1, acc.lo, acc.hi, acc.exit);
+        return;
+    }
+    let dt = right - left;
+    for &(t, v) in &acc.events {
+        let frac = if dt > 1e-18 {
+            ((t - left) / dt).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        emit_step(ys, xs, x0 + frac * (x1 - x0), v);
+    }
+}
+
 pub fn empty_scope_traces() -> PlotBuffer {
     PlotBuffer {
         channels: SCOPE_COLORS
@@ -941,6 +1142,8 @@ pub fn empty_scope_traces() -> PlotBuffer {
             .map(|c| Channel {
                 color: (*c).into(),
                 samples: vec![],
+                plot: Vec::new(),
+                plot_x: Vec::new(),
                 connected: false,
             })
             .collect(),
@@ -955,6 +1158,8 @@ pub fn empty_la_traces() -> PlotBuffer {
             .map(|c| Channel {
                 color: (*c).into(),
                 samples: vec![],
+                plot: Vec::new(),
+                plot_x: Vec::new(),
                 connected: false,
             })
             .collect(),
@@ -1093,6 +1298,178 @@ mod tests {
         assert!(
             mid < 20,
             "square display must not ramp through mid-scale, got {mid}"
+        );
+        let stroked = buf.channels[0]
+            .plot
+            .iter()
+            .filter(|&&v| v > 1.0 && v < 4.0)
+            .count();
+        assert!(
+            stroked < 20,
+            "square stroke must hold, not ramp, got {stroked} mid vertices"
+        );
+    }
+
+    #[test]
+    fn scope_narrow_pulses_stay_when_the_grid_shifts() {
+        let mut s = ScopeSampler::scope();
+        // 2 µs pulses every 80 µs. A 1 ms window drawn as 64 columns is about
+        // 16 µs wide, so a uniform sample at the column edge misses the pulse.
+        let period = 80e-6;
+        let pulse_at = 20e-6;
+        let pulse_w = 2e-6;
+        let cycles = 30;
+        for i in 0..cycles {
+            let t0 = i as f64 * period;
+            s.push(
+                t0,
+                &[0.0, 0.0, 0.0, 0.0],
+                &[true, false, false, false],
+                -1,
+                0.0,
+                true,
+                0.1,
+            );
+            s.push(
+                t0 + pulse_at,
+                &[5.0, 0.0, 0.0, 0.0],
+                &[true, false, false, false],
+                -1,
+                0.0,
+                true,
+                0.1,
+            );
+            s.push(
+                t0 + pulse_at + pulse_w,
+                &[0.0, 0.0, 0.0, 0.0],
+                &[true, false, false, false],
+                -1,
+                0.0,
+                true,
+                0.1,
+            );
+        }
+        let t_last = cycles as f64 * period;
+        s.push(
+            t_last,
+            &[0.0, 0.0, 0.0, 0.0],
+            &[true, false, false, false],
+            -1,
+            0.0,
+            true,
+            0.1,
+        );
+
+        let n = 64;
+        let window = 1e-3;
+        let time_div = window / 10.0;
+        let phase = 5e-6;
+        let a = s.traces_with_count(time_div, 0.0, -1, 0.0, &SCOPE_COLORS, None, n);
+        let b = s.traces_with_count(time_div, phase, -1, 0.0, &SCOPE_COLORS, None, n);
+
+        fn high_runs(ys: &[f64]) -> usize {
+            let mut runs = 0;
+            let mut prev = false;
+            for &y in ys {
+                let high = y > 4.0;
+                if high && !prev {
+                    runs += 1;
+                }
+                prev = high;
+            }
+            runs
+        }
+
+        fn pulses_in(t_end: f64) -> usize {
+            let t_start = t_end - 1e-3;
+            (0..30)
+                .filter(|&i| {
+                    let rise = i as f64 * 80e-6 + 20e-6;
+                    let fall = rise + 2e-6;
+                    rise > t_start + 1e-6 && fall < t_end - 1e-6
+                })
+                .count()
+        }
+
+        let drawn_a = high_runs(&a.channels[0].plot);
+        let drawn_b = high_runs(&b.channels[0].plot);
+        let grid_a = high_runs(&a.channels[0].samples);
+        let expect_a = pulses_in(t_last);
+        let expect_b = pulses_in(t_last - phase);
+        assert!(
+            drawn_a > grid_a,
+            "the stroke should keep pulses the column grid misses: drawn={drawn_a} grid={grid_a}"
+        );
+        assert_eq!(drawn_a, expect_a, "phase 0 dropped a pulse");
+        assert_eq!(drawn_b, expect_b, "a 5 µs shift dropped a pulse");
+        assert_eq!(
+            a.channels[0].plot.len(),
+            a.channels[0].plot_x.len(),
+            "plot x and y must stay paired"
+        );
+        let mut prev_x = -1.0;
+        for &x in &a.channels[0].plot_x {
+            assert!(
+                (0.0..=1.0).contains(&x) && x + 1e-9 >= prev_x,
+                "plot x must be ordered, got {x} after {prev_x}"
+            );
+            prev_x = x;
+        }
+    }
+
+    #[test]
+    fn scope_busy_column_closes_min_and_max() {
+        let mut s = ScopeSampler::scope();
+        let n = 30;
+        for i in 0..n {
+            let t = 0.0009 + (i as f64) * (0.0001 / (n - 1) as f64);
+            // Start above the later trough, so a flat span at the minimum is the
+            // band bottom and not the voltage held across the earlier columns.
+            let v = if i < 10 {
+                2.0 + i as f64 * 0.3
+            } else {
+                5.0 - (i - 10) as f64 * 0.25
+            };
+            s.push(
+                t,
+                &[v, 0.0, 0.0, 0.0],
+                &[true, false, false, false],
+                -1,
+                0.0,
+                true,
+                0.1,
+            );
+        }
+        let buf = s.traces_with_count(1e-4, 0.0, -1, 0.0, &SCOPE_COLORS, None, 8);
+        let ch = &buf.channels[0];
+        let hi = ch.plot.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let lo = ch.plot.iter().copied().fold(f64::INFINITY, f64::min);
+        assert!(hi > 4.0, "band should reach the peak, got {hi}");
+        assert!(lo < 1.0, "band should reach the trough, got {lo}");
+        let mut top = false;
+        let mut bottom = false;
+        for w in ch.plot.windows(2).zip(ch.plot_x.windows(2)) {
+            let (ys, xs) = w;
+            let flat = (ys[0] - ys[1]).abs() < 1e-9;
+            let span = (xs[0] - xs[1]).abs() > 1e-6;
+            if flat && span && (ys[0] - hi).abs() < 1e-6 {
+                top = true;
+            }
+            if flat && span && (ys[0] - lo).abs() < 1e-6 {
+                assert!(
+                    xs[0] > 0.8 && xs[1] > 0.8,
+                    "the bottom edge should sit in the busy column, got {} {}",
+                    xs[0],
+                    xs[1]
+                );
+                bottom = true;
+            }
+        }
+        assert!(top, "min/max band should stroke the top");
+        assert!(bottom, "min/max band should stroke the bottom");
+        assert!(
+            ch.plot_x.last().copied().unwrap_or(0.0) > 0.9,
+            "the band should finish on the right edge"
         );
     }
 }

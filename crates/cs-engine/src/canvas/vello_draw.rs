@@ -18,6 +18,25 @@ pub fn color_of(c: Color) -> vello::peniko::Color {
     vello::peniko::Color::from_rgba8(c.r, c.g, c.b, c.a)
 }
 
+/// Record `draw` into `scene` in pixel coordinates. The scene is reset first.
+pub fn record_direct(scene: &mut Scene, width: f64, height: f64, draw: impl FnOnce(&mut dyn Draw)) {
+    scene.reset();
+    let mut recorder = VelloDraw {
+        scene,
+        stack: vec![Affine::IDENTITY],
+        clips: Vec::new(),
+        view_w: width,
+        view_h: height,
+        zoom: 1.0,
+    };
+    draw(&mut recorder);
+    while let Some(open) = recorder.clips.pop() {
+        if open {
+            recorder.scene.pop_layer();
+        }
+    }
+}
+
 pub fn record(
     scene: &mut Scene,
     canvas: &Canvas,

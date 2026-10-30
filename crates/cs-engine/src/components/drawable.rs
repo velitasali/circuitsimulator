@@ -1,9 +1,14 @@
 //! Per-component visual rendering trait.
 
 use crate::canvas::Rect;
-use crate::canvas::draw::{Color, Draw, PaintCtx, Palette, parse_hex};
-use crate::plot::PlotBuffer;
-use crate::theme::COMPONENT_BORDER_WIDTH;
+use crate::canvas::draw::{Align, Color, Draw, PaintCtx, Palette, parse_hex};
+use crate::plot::{Channel, PlotBuffer};
+use crate::theme::{COMPONENT_BORDER_WIDTH, ColorId, ColorTheme};
+
+fn scope_color(id: ColorId) -> Color {
+    let (r, g, b, a) = ColorTheme::get_rgba(id, true);
+    Color { r, g, b, a }
+}
 
 /// Extra radius the warning pulse adds on top of `radius * 2`.
 const BULB_HALO_PULSE: f64 = 6.0;
@@ -299,18 +304,12 @@ fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, tunnels: &[&str]) {
     );
 
     // 2. Sidebar (Channels 0..3)
-    let ch_colors = [
-        crate::canvas::draw::parse_hex("#ffff00"),
-        crate::canvas::draw::parse_hex("#00ff00"),
-        crate::canvas::draw::parse_hex("#00ffff"),
-        crate::canvas::draw::parse_hex("#ff00ff"),
-    ];
-
     for i in 0..4 {
         let y_center = -48.0 + 32.0 * (i as f64);
+        let swatch = scope_color(ColorTheme::scope_channel_color_id(i));
 
         // Color swatch box (C++ QRectF(-76, yCenter - 6, 8, 12))
-        d.fill_round_rect(-76.0, y_center - 6.0, 8.0, 12.0, 1.0, ch_colors[i]);
+        d.fill_round_rect(-76.0, y_center - 6.0, 8.0, 12.0, 1.0, swatch);
         d.stroke_round_rect(-76.0, y_center - 6.0, 8.0, 12.0, 1.0, pal.border, 0.5);
 
         // Channel / tunnel label (C++ QRectF(-64, yCenter - 14, 54, 12))
@@ -351,7 +350,7 @@ fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, tunnels: &[&str]) {
         screen_w,
         screen_h,
         4.0,
-        crate::canvas::draw::Color::rgb(13, 17, 20),
+        scope_color(ColorId::ScopeTube),
     );
     d.stroke_round_rect(
         screen_x,
@@ -359,79 +358,30 @@ fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, tunnels: &[&str]) {
         screen_w,
         screen_h,
         4.0,
-        crate::canvas::draw::Color::rgb(42, 49, 56),
+        scope_color(ColorId::ScopeBezel),
         COMPONENT_BORDER_WIDTH,
     );
 }
 
 /// Width in scene units that renders as `css_px` logical pixels regardless of
-/// canvas zoom. Matches `PlotCanvas.qml` (`ctx.lineWidth` is CSS px): the
-/// canvas transform multiplies scene-unit widths by zoom (x DPR for sharpness,
-/// same as QML Canvas backing-store scaling), so dividing by the viewport zoom
-/// keeps logical width constant. `zoom` is `PaintCtx::scale`.
+/// canvas zoom. The canvas transform multiplies scene-unit widths by zoom, so
+/// dividing by the viewport zoom keeps logical width constant. `zoom` is
+/// `PaintCtx::scale`.
 fn scope_screen_width(zoom: f64, css_px: f64) -> f64 {
     css_px / zoom.max(0.1)
 }
 
 fn paint_oscope_reticle(d: &mut dyn Draw, tracks: i32, zoom: f64) {
-    let (inner_x, inner_y, inner_w, inner_h) = oscope_inner_rect();
-    let end_x = inner_x + inner_w;
-    let end_y = inner_y + inner_h;
-    let h_center = inner_x + inner_w * 0.5;
-
-    let num_tracks = match tracks {
-        2 => 2,
-        4 => 4,
-        _ => 1,
-    };
-    let v_divs = 10 * num_tracks;
-
-    let mut track_centers = Vec::with_capacity(num_tracks);
-    for t in 0..num_tracks {
-        track_centers.push(inner_y + (t as f64 + 0.5) * inner_h / (num_tracks as f64));
-    }
-
-    let grid_pen = crate::canvas::draw::Color::rgb(55, 62, 70);
-    let accent_pen = crate::canvas::draw::Color::rgb(100, 110, 125);
-
-    // Horizontal grid lines
-    for gy in 1..v_divs {
-        let y = inner_y + inner_h * (gy as f64) / (v_divs as f64);
-        let is_center = track_centers.iter().any(|&tc| (y - tc).abs() < 0.5);
-        let c = if is_center { accent_pen } else { grid_pen };
-        let w = scope_screen_width(zoom, if is_center { 1.2 } else { 0.75 });
-        d.line(inner_x, y, end_x, y, c, w);
-    }
-
-    // Vertical grid lines (10 divisions)
-    for gx in 1..10 {
-        let x = inner_x + inner_w * (gx as f64) / 10.0;
-        let is_center = (x - h_center).abs() < 0.5;
-        let c = if is_center { accent_pen } else { grid_pen };
-        let w = scope_screen_width(zoom, if is_center { 1.2 } else { 0.75 });
-        d.line(x, inner_y, x, end_y, c, w);
-    }
-
-    // Center crosshair tick marks
-    let tick_w = scope_screen_width(zoom, 0.75);
-    let tick = 1.5;
-    for tc in &track_centers {
-        for tx in 0..=50 {
-            let x = inner_x + inner_w * (tx as f64) / 50.0;
-            d.line(x, tc - tick, x, tc + tick, accent_pen, tick_w);
-        }
-    }
-    let ym = if num_tracks == 1 {
-        50
-    } else if num_tracks == 2 {
-        40
-    } else {
-        20
-    };
-    for ty in 0..=ym {
-        let y = inner_y + inner_h * (ty as f64) / (ym as f64);
-        d.line(h_center - tick, y, h_center + tick, y, accent_pen, tick_w);
-    }
+    let px = 1.0 / zoom.max(0.1);
+    paint_scope_grid(
+        d,
+        oscope_inner_rect(),
+        tracks,
+        scope_color(ColorId::ScopeSymbolGrid),
+        scope_color(ColorId::ScopeSymbolAccent),
+        px,
+        1.5,
+    );
 }
 
 fn paint_oscope_freq_labels(d: &mut dyn Draw, pal: &Palette, freqs: &[&str]) {
@@ -469,6 +419,91 @@ fn oscope_inner_rect() -> (f64, f64, f64, f64) {
     )
 }
 
+fn scope_track_count(tracks: i32) -> usize {
+    match tracks {
+        2 => 2,
+        4 => 4,
+        _ => 1,
+    }
+}
+
+/// Graticule in `rect` = `(x, y, w, h)`. `px` scales line widths. `tick` is the
+/// crosshair tick length in the same units as `rect`.
+fn paint_scope_grid(
+    d: &mut dyn Draw,
+    rect: (f64, f64, f64, f64),
+    tracks: i32,
+    grid: Color,
+    accent: Color,
+    px: f64,
+    tick: f64,
+) {
+    let (x0, y0, w, h) = rect;
+    if w <= 1.0 || h <= 1.0 {
+        return;
+    }
+    let end_x = x0 + w;
+    let end_y = y0 + h;
+    let h_center = x0 + w * 0.5;
+    let num_tracks = scope_track_count(tracks);
+    let v_divs = 10 * num_tracks;
+    let mut centers = [0.0; 4];
+    for t in 0..num_tracks {
+        centers[t] = y0 + (t as f64 + 0.5) * h / (num_tracks as f64);
+    }
+    let track_centers = &centers[..num_tracks];
+
+    for gy in 1..v_divs {
+        let y = y0 + h * (gy as f64) / (v_divs as f64);
+        let is_center = track_centers.iter().any(|&tc| (y - tc).abs() < 0.5);
+        let c = if is_center { accent } else { grid };
+        let lw = px * if is_center { 1.2 } else { 0.75 };
+        d.line(x0, y, end_x, y, c, lw);
+    }
+    for gx in 1..10 {
+        let x = x0 + w * (gx as f64) / 10.0;
+        let is_center = (x - h_center).abs() < 0.5;
+        let c = if is_center { accent } else { grid };
+        let lw = px * if is_center { 1.2 } else { 0.75 };
+        d.line(x, y0, x, end_y, c, lw);
+    }
+
+    let tick_w = px * 0.75;
+    for &tc in track_centers {
+        for tx in 0..=50 {
+            let x = x0 + w * (tx as f64) / 50.0;
+            d.line(x, tc - tick, x, tc + tick, accent, tick_w);
+        }
+    }
+    let ym = if num_tracks == 1 {
+        50
+    } else if num_tracks == 2 {
+        40
+    } else {
+        20
+    };
+    for ty in 0..=ym {
+        let y = y0 + h * (ty as f64) / (ym as f64);
+        d.line(h_center - tick, y, h_center + tick, y, accent, tick_w);
+    }
+}
+
+fn trace_points(ch: &Channel, x0: f64, width: f64, y_of: impl Fn(f64) -> f64) -> Vec<[f64; 2]> {
+    if ch.plot.len() >= 2 && ch.plot.len() == ch.plot_x.len() {
+        let mut pts = Vec::with_capacity(ch.plot.len());
+        for (&x, &v) in ch.plot_x.iter().zip(ch.plot.iter()) {
+            pts.push([x0 + x * width, y_of(v)]);
+        }
+        return pts;
+    }
+    let last = ch.samples.len().saturating_sub(1).max(1) as f64;
+    let mut pts = Vec::with_capacity(ch.samples.len());
+    for (k, &v) in ch.samples.iter().enumerate() {
+        pts.push([x0 + (k as f64 / last) * width, y_of(v)]);
+    }
+    pts
+}
+
 fn paint_oscope_waves(
     d: &mut dyn Draw,
     traces: Option<&PlotBuffer>,
@@ -478,47 +513,212 @@ fn paint_oscope_waves(
     hidden: &[bool; 4],
     zoom: f64,
 ) {
+    paint_scope_waves(
+        d,
+        oscope_inner_rect(),
+        traces,
+        volt_divs,
+        volt_pos,
+        tracks,
+        hidden,
+        1.0 / zoom.max(0.1),
+        false,
+    );
+}
+
+fn channel_extent(ch: &Channel) -> Option<(f64, f64)> {
+    let src = if ch.plot.len() >= 2 {
+        &ch.plot
+    } else {
+        &ch.samples
+    };
+    let mut min_v = f64::INFINITY;
+    let mut max_v = f64::NEG_INFINITY;
+    for &v in src {
+        if v < min_v {
+            min_v = v;
+        }
+        if v > max_v {
+            max_v = v;
+        }
+    }
+    if min_v <= max_v {
+        Some((min_v, max_v))
+    } else {
+        None
+    }
+}
+
+fn paint_scope_waves(
+    d: &mut dyn Draw,
+    rect: (f64, f64, f64, f64),
+    traces: Option<&PlotBuffer>,
+    volt_divs: &[f64; 4],
+    volt_pos: &[f64; 4],
+    tracks: i32,
+    hidden: &[bool; 4],
+    px: f64,
+    expanded: bool,
+) {
     let Some(buf) = traces else {
         return;
     };
-    let (inner_x, inner_y, inner_w, inner_h) = oscope_inner_rect();
-    let num_tracks = match tracks {
-        2 => 2,
-        4 => 4,
-        _ => 1,
-    };
-    d.push_clip_rect(inner_x, inner_y, inner_w, inner_h);
+    let (x0, y0, w, h) = rect;
+    if w <= 1.0 || h <= 1.0 {
+        return;
+    }
+    let num_tracks = scope_track_count(tracks);
+    d.push_clip_rect(x0, y0, w, h);
 
     for (c, ch) in buf.channels.iter().enumerate().take(4) {
         if hidden.get(c).copied().unwrap_or(false) || !ch.connected || ch.samples.len() < 2 {
             continue;
         }
         let track_idx = c % num_tracks;
-        let track_h = inner_h / (num_tracks as f64);
-        let track_center_y = inner_y + (track_idx as f64 + 0.5) * track_h;
+        let track_h = h / (num_tracks as f64);
+        let track_center_y = y0 + (track_idx as f64 + 0.5) * track_h;
         let vd = volt_divs.get(c).copied().unwrap_or(1.0).max(1e-12);
         let vp = volt_pos.get(c).copied().unwrap_or(0.0);
-        let span = vd * 10.0;
-        let scale_y = track_h / span;
+        let scale_y = track_h / (vd * 10.0);
+        let color = parse_hex(&ch.color);
+        let y_of = |v: f64| track_center_y - (v - vp) * scale_y;
 
-        let n_pts = ch.samples.len();
-        let last = n_pts - 1;
-        let mut pts = Vec::with_capacity(n_pts);
-        for (k, &v) in ch.samples.iter().enumerate() {
-            let t = k as f64 / last as f64;
-            let px = inner_x + t * inner_w;
-            let py = track_center_y - (v - vp) * scale_y;
-            pts.push([px, py]);
+        let pts = trace_points(ch, x0, w, y_of);
+        d.polyline(&pts, color, px * 1.5, false);
+
+        if expanded {
+            if let Some((min_v, max_v)) = channel_extent(ch) {
+                let end_x = x0 + w;
+                let y_max = y_of(max_v);
+                let y_min = y_of(min_v);
+                let label_x = x0 + if c % 2 == 0 { 4.0 * px } else { w - 50.0 * px };
+                if (y0..=y0 + h).contains(&y_max) {
+                    d.polyline(&[[x0, y_max], [end_x, y_max]], color, px * 0.5, true);
+                    d.text_bold(
+                        label_x,
+                        (y_max - 12.0 * px).max(y0),
+                        &format!("{max_v:.2}V"),
+                        9.0 * px,
+                        color,
+                        Align::TopLeft,
+                    );
+                }
+                if (y0..=y0 + h).contains(&y_min) {
+                    d.polyline(&[[x0, y_min], [end_x, y_min]], color, px * 0.5, true);
+                    d.text_bold(
+                        label_x,
+                        (y_min + 2.0 * px).min(y0 + h - 10.0 * px),
+                        &format!("{min_v:.2}V"),
+                        9.0 * px,
+                        color,
+                        Align::TopLeft,
+                    );
+                }
+            }
         }
-        d.polyline(
-            &pts,
-            parse_hex(&ch.color),
-            scope_screen_width(zoom, 1.5),
-            false,
-        );
     }
 
     d.pop_clip();
+}
+
+/// Scope window picture: graticule, traces, and the expanded-view min/max marks.
+/// Coordinates are the item's pixel rectangle. The caller clears with `ScopePaper`.
+pub fn paint_scope_screen(
+    d: &mut dyn Draw,
+    width: f64,
+    height: f64,
+    traces: Option<&PlotBuffer>,
+    volt_divs: &[f64; 4],
+    volt_pos: &[f64; 4],
+    tracks: i32,
+    hidden: &[bool; 4],
+    px: f64,
+) {
+    let px = px.max(0.1);
+    let rect = (0.0, 0.0, width, height);
+    let grid = scope_color(ColorId::ScopeWindowGrid);
+    let accent = scope_color(ColorId::ScopeWindowAccent);
+    paint_scope_grid(d, rect, tracks, grid, accent, px, 1.5 * px);
+    let mid = width * 0.5;
+    d.line(
+        mid,
+        0.0,
+        mid,
+        height,
+        scope_color(ColorId::ScopeCursor),
+        px * 1.5,
+    );
+    paint_scope_waves(
+        d, rect, traces, volt_divs, volt_pos, tracks, hidden, px, true,
+    );
+}
+
+/// Eight-row, ten-column graticule in `rect` = `(x, y, w, h)`.
+fn paint_la_grid(d: &mut dyn Draw, rect: (f64, f64, f64, f64), grid: Color, grid_w: f64) {
+    let (x0, y0, w, h) = rect;
+    if w <= 1.0 || h <= 1.0 {
+        return;
+    }
+    let end_x = x0 + w;
+    let end_y = y0 + h;
+    for gy in 1..8 {
+        let y = y0 + h * (gy as f64) / 8.0;
+        d.line(x0, y, end_x, y, grid, grid_w);
+    }
+    for gx in 1..10 {
+        let x = x0 + w * (gx as f64) / 10.0;
+        d.line(x, y0, x, end_y, grid, grid_w);
+    }
+}
+
+/// Digital traces in `rect`. `inset` is the gap from a row edge to the high or low level.
+/// A channel with a timed `plot` is drawn even when `samples` is shorter than two points.
+fn paint_la_waves(
+    d: &mut dyn Draw,
+    rect: (f64, f64, f64, f64),
+    traces: Option<&PlotBuffer>,
+    inset: f64,
+    trace_w: f64,
+) {
+    let Some(buf) = traces else {
+        return;
+    };
+    let (x0, y0, w, h) = rect;
+    if w <= 1.0 || h <= 1.0 {
+        return;
+    }
+    let row_h = h / 8.0;
+    for (c, ch) in buf.channels.iter().enumerate().take(8) {
+        if !ch.connected {
+            continue;
+        }
+        let has_plot = ch.plot.len() >= 2 && ch.plot.len() == ch.plot_x.len();
+        if !has_plot && ch.samples.len() < 2 {
+            continue;
+        }
+        let row_y = y0 + (c as f64) * row_h;
+        let pts = trace_points(ch, x0, w, |v| {
+            let bit = v.clamp(0.0, 1.0);
+            row_y + row_h - inset - bit * (row_h - 2.0 * inset)
+        });
+        d.polyline(&pts, parse_hex(&ch.color), trace_w, false);
+    }
+}
+
+/// Logic-analyzer window: eight rows, ten columns, digital traces.
+/// Coordinates are the item's pixel rectangle. `px` is the device pixel ratio,
+/// so a 1.5 px trace stays 1.5 logical pixels. The caller clears with `ScopePaper`.
+pub fn paint_la_screen(
+    d: &mut dyn Draw,
+    width: f64,
+    height: f64,
+    traces: Option<&PlotBuffer>,
+    px: f64,
+) {
+    let px = px.max(0.1);
+    let rect = (0.0, 0.0, width, height);
+    paint_la_grid(d, rect, scope_color(ColorId::ScopeWindowGrid), px);
+    paint_la_waves(d, rect, traces, 3.0 * px, px * 1.5);
 }
 
 pub fn paint_lanalizer(
@@ -541,21 +741,11 @@ pub fn paint_lanalizer(
     );
 
     // 2. Sidebar (Channels 0..7)
-    let la_colors = [
-        crate::canvas::draw::parse_hex("#e74c3c"),
-        crate::canvas::draw::parse_hex("#e67e22"),
-        crate::canvas::draw::parse_hex("#f1c40f"),
-        crate::canvas::draw::parse_hex("#2ecc71"),
-        crate::canvas::draw::parse_hex("#1abc9c"),
-        crate::canvas::draw::parse_hex("#3498db"),
-        crate::canvas::draw::parse_hex("#9b59b6"),
-        crate::canvas::draw::parse_hex("#ecf0f1"),
-    ];
-
     for i in 0..8 {
         let y_center = -64.0 + 16.0 * (i as f64);
+        let swatch = scope_color(ColorTheme::la_channel_color_id(i));
         // Swatch box (C++ QRectF(-76, yCenter - 5, 8, 10))
-        d.fill_round_rect(-76.0, y_center - 5.0, 8.0, 10.0, 1.0, la_colors[i]);
+        d.fill_round_rect(-76.0, y_center - 5.0, 8.0, 10.0, 1.0, swatch);
         d.stroke_round_rect(-76.0, y_center - 5.0, 8.0, 10.0, 1.0, pal.border, 0.5);
 
         // Channel / tunnel label
@@ -586,7 +776,7 @@ pub fn paint_lanalizer(
         screen_w,
         screen_h,
         4.0,
-        crate::canvas::draw::Color::rgb(13, 17, 20),
+        scope_color(ColorId::ScopeTube),
     );
     d.stroke_round_rect(
         screen_x,
@@ -594,51 +784,18 @@ pub fn paint_lanalizer(
         screen_w,
         screen_h,
         4.0,
-        crate::canvas::draw::Color::rgb(42, 49, 56),
+        scope_color(ColorId::ScopeBezel),
         COMPONENT_BORDER_WIDTH,
     );
 
-    // Reticle Grid (8 rows, 10 columns)
-    let inner_x = screen_x + 4.0;
-    let inner_y = screen_y + 4.0;
-    let inner_w = screen_w - 8.0;
-    let inner_h = screen_h - 8.0;
-    let end_x = inner_x + inner_w;
-    let end_y = inner_y + inner_h;
-
-    let grid_pen = crate::canvas::draw::Color::rgb(55, 62, 70);
-    let grid_w = scope_screen_width(zoom, 0.75);
-
-    for gy in 1..8 {
-        let y = inner_y + inner_h * (gy as f64) / 8.0;
-        d.line(inner_x, y, end_x, y, grid_pen, grid_w);
-    }
-    for gx in 1..10 {
-        let x = inner_x + inner_w * (gx as f64) / 10.0;
-        d.line(x, inner_y, x, end_y, grid_pen, grid_w);
-    }
-
-    // Live Digital Waveforms
-    if let Some(buf) = traces {
-        let row_h = inner_h / 8.0;
-        let trace_w = scope_screen_width(zoom, 1.2);
-        for (c, ch) in buf.channels.iter().enumerate().take(8) {
-            if !ch.connected || ch.samples.len() < 2 {
-                continue;
-            }
-            let row_y = inner_y + (c as f64) * row_h;
-            let last = ch.samples.len() - 1;
-            let mut pts = Vec::with_capacity(ch.samples.len());
-            for (i, &v) in ch.samples.iter().enumerate() {
-                let px = inner_x + (i as f64 / last as f64) * inner_w;
-                let bit = v.clamp(0.0, 1.0);
-                let py = row_y + row_h - 3.0 - bit * (row_h - 6.0);
-                pts.push([px, py]);
-            }
-            let color = parse_hex(&ch.color);
-            d.polyline(&pts, color, trace_w, false);
-        }
-    }
+    let inner = oscope_inner_rect();
+    paint_la_grid(
+        d,
+        inner,
+        scope_color(ColorId::ScopeSymbolGrid),
+        scope_screen_width(zoom, 0.75),
+    );
+    paint_la_waves(d, inner, traces, 3.0, scope_screen_width(zoom, 1.2));
 }
 
 #[allow(dead_code)]

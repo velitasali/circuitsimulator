@@ -157,8 +157,7 @@ fn test_oscope_reticle_zoom_invariant_width() {
             .collect()
     }
 
-    // Scene-unit width must shrink 1:1 with zoom so logical-px width is constant
-    // (matches PlotCanvas.qml `ctx.lineWidth`, which is CSS px).
+    // Scene-unit width must shrink 1:1 with zoom so logical-px width is constant.
     let w1 = reticle_widths(1.0);
     let w2 = reticle_widths(2.0);
     let w4 = reticle_widths(4.0);

@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Layouts
+import QtQuick.Window
 import cs_app
 
 // The expanded logic analyzer. Parity with src/gui/dataplotwidget/lawidget.qml.
@@ -18,6 +20,10 @@ Rectangle {
 
     Component.onCompleted: {
         LogicAnalyzer.dark = App.darkTheme
+        CircuitCanvas.setLaTimeDiv( LogicAnalyzer.timeDiv )
+        CircuitCanvas.setLaTimePos( LogicAnalyzer.timePos )
+        CircuitCanvas.setLaTrigger( LogicAnalyzer.trigger )
+        CircuitCanvas.setLaThresholds( LogicAnalyzer.thresholdR, LogicAnalyzer.thresholdF )
     }
 
     Connections {
@@ -64,6 +70,7 @@ Rectangle {
         var nextIdx = Math.max( 0, Math.min( timeDivSteps.length - 1, idx ) )
         var nextVal = timeDivSteps[nextIdx]
         LogicAnalyzer.setTimeDiv( nextVal )
+        CircuitCanvas.setLaTimeDiv( nextVal )
     }
 
     function formatEng( val, unit ) {
@@ -79,6 +86,24 @@ Rectangle {
         return val.toFixed( 2 ) + " " + unit
     }
 
+    property bool laPaintQueued: false
+
+    function repaintLa() {
+        if ( !laScreen || laScreen.width < 2 || laScreen.height < 2 )
+            return
+        CircuitCanvas.paintLaScreen( laScreen.width, laScreen.height, Screen.devicePixelRatio || 1 )
+    }
+
+    function scheduleLaPaint() {
+        if ( root.laPaintQueued )
+            return
+        root.laPaintQueued = true
+        Qt.callLater( function() {
+            root.laPaintQueued = false
+            root.repaintLa()
+        } )
+    }
+
 
     ColumnLayout {
         anchors.fill: parent
@@ -91,21 +116,50 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 200
-            radius: 6
-            color: "#000000"
-            border.color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.55 )
-            border.width: 1
-            clip: true
+            color: appTheme.window
 
-            PlotCanvas {
-                id: plotCanvas
-                anchors.fill: parent
+            // 10 columns by 8 rows, so each division stays square.
+            Item {
+                id: laMask
+                anchors.fill: laFrame
+                visible: false
+                layer.enabled: true
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 6
+                    color: "white"
+                }
+            }
+
+            Rectangle {
+                id: laFrame
+                anchors.centerIn: parent
+                color: "transparent"
                 radius: 6
-                traces: CircuitCanvas.laTraces
-                digital: true
-                paper: "#000000"
-                timeDiv: LogicAnalyzer.timeDiv
-                timePos: LogicAnalyzer.timePos
+                layer.enabled: true
+                layer.effect: MultiEffect {
+                    maskEnabled: true
+                    maskSource: laMask
+                }
+                readonly property real aspect: 10 / 8
+                width: {
+                    var slotW = displaySlot.width
+                    var slotH = displaySlot.height
+                    if ( slotW < 2 || slotH < 2 )
+                        return 2
+                    var fitted = slotH * aspect
+                    return Math.max( 2, fitted < slotW ? fitted : slotW )
+                }
+                height: width / aspect
+
+            LogicScreen {
+                id: laScreen
+                anchors.fill: parent
+                readonly property real dpr: Screen.devicePixelRatio
+                onWidthChanged: root.scheduleLaPaint()
+                onHeightChanged: root.scheduleLaPaint()
+                onDprChanged: root.scheduleLaPaint()
+                Component.onCompleted: root.scheduleLaPaint()
             }
 
             MouseArea {
@@ -183,6 +237,7 @@ Rectangle {
                         canvasWheelTimer.restart()
                     }
                 }
+            }
             }
         }
 

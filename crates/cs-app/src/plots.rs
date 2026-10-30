@@ -1,13 +1,11 @@
-//! Oscilloscope and logic analyzer façades. The plot screen is a QML Canvas
-//! drawing `cs_engine::plot` samples — not a `QQuickPaintedItem`.
+//! Oscilloscope and logic analyzer controls. The windows paint from the canvas
+//! plot buffers. These singletons keep the control values.
 
-use cs_engine::plot::PlotBuffer;
-use cs_engine::theme::ColorTheme;
+use cs_engine::theme::{ColorId, ColorTheme};
 use qtbridge::qobject;
 use serde_json::{Value, json};
 
 pub struct Oscilloscope {
-    traces: PlotBuffer,
     current_channel: i32,
     trigger: i32,
     tracks: i32,
@@ -26,7 +24,6 @@ pub struct Oscilloscope {
 impl Default for Oscilloscope {
     fn default() -> Self {
         Self {
-            traces: cs_engine::instruments::empty_scope_traces(),
             current_channel: 0,
             trigger: -1,
             tracks: 1,
@@ -44,20 +41,6 @@ impl Default for Oscilloscope {
     }
 }
 
-fn traces_json(buf: &PlotBuffer) -> Value {
-    let arr: Vec<Value> = buf
-        .channels
-        .iter()
-        .map(|ch| {
-            json!({
-                "color": ch.color,
-                "samples": ch.samples,
-            })
-        })
-        .collect();
-    Value::Array(arr)
-}
-
 #[qobject(Singleton, ConvertToCamelCase)]
 impl Oscilloscope {
     qproperty!("panning", Read = panning, Notify = panning_changed);
@@ -72,7 +55,10 @@ impl Oscilloscope {
     qproperty!("hidden", Read = hidden, Notify = hidden_changed);
     qproperty!("dark", Read = dark, Write = set_dark, Notify = dark_changed);
     qproperty!("channels", Read = channels, Notify = channels_changed);
-    qproperty!("traces", Read = traces, Notify = traces_changed);
+    qproperty!("cursorColor", Read = cursor_color, Notify = dark_changed);
+    qproperty!("cursorBorder", Read = cursor_border, Notify = dark_changed);
+    qproperty!("cursorText", Read = cursor_text, Notify = dark_changed);
+    qproperty!("cursorFill", Read = cursor_fill, Notify = dark_changed);
     qproperty!("timeDiv", Read = time_div, Notify = time_div_changed);
     qproperty!(
         "filter",
@@ -156,8 +142,6 @@ impl Oscilloscope {
     #[qsignal]
     fn channels_changed(&mut self);
     #[qsignal]
-    fn traces_changed(&mut self);
-    #[qsignal]
     fn time_div_changed(&mut self);
     #[qsignal]
     fn filter_changed(&mut self);
@@ -188,6 +172,22 @@ impl Oscilloscope {
             .map(|(i, c)| json!({ "color": c, "index": i }))
             .collect();
         Value::Array(arr)
+    }
+
+    fn cursor_color(&self) -> String {
+        ColorTheme::get_hex(ColorId::ScopeCursor, self.dark)
+    }
+
+    fn cursor_border(&self) -> String {
+        ColorTheme::get_hex(ColorId::ScopeCursorBorder, self.dark)
+    }
+
+    fn cursor_text(&self) -> String {
+        ColorTheme::get_hex(ColorId::ScopeCursorText, self.dark)
+    }
+
+    fn cursor_fill(&self) -> String {
+        ColorTheme::get_hex(ColorId::ScopeCursorFill, self.dark)
     }
 
     fn hidden(&self) -> Value {
@@ -254,10 +254,6 @@ impl Oscilloscope {
         }
     }
 
-    fn traces(&self) -> Value {
-        traces_json(&self.traces)
-    }
-
     #[qslot]
     fn auto_scale(&mut self, _ch: i32) {}
 
@@ -321,7 +317,6 @@ impl Oscilloscope {
 }
 
 pub struct LogicAnalyzer {
-    traces: PlotBuffer,
     trigger: i32,
     threshold_r: f64,
     threshold_f: f64,
@@ -336,7 +331,6 @@ pub struct LogicAnalyzer {
 impl Default for LogicAnalyzer {
     fn default() -> Self {
         Self {
-            traces: cs_engine::instruments::empty_la_traces(),
             trigger: 0,
             threshold_r: 2.5,
             threshold_f: 2.5,
@@ -380,7 +374,6 @@ impl LogicAnalyzer {
     qproperty!("dark", Read = dark, Write = set_dark, Notify = dark_changed);
     qproperty!("channels", Read = channels, Notify = channels_changed);
     qproperty!("buses", Read = buses, Notify = buses_changed);
-    qproperty!("traces", Read = traces, Notify = traces_changed);
     qproperty!("timeDiv", Read = time_div, Notify = time_changed);
     qproperty!(
         "timePos",
@@ -419,6 +412,15 @@ impl LogicAnalyzer {
             self.time_changed();
         }
     }
+
+    #[qslot]
+    fn set_time_div(&mut self, v: f64) {
+        if self.time_div == v {
+            return;
+        }
+        self.time_div = v;
+        self.time_changed();
+    }
     fn set_dark(&mut self, dark: bool) {
         if self.dark != dark {
             self.dark = dark;
@@ -441,8 +443,6 @@ impl LogicAnalyzer {
     fn channels_changed(&mut self);
     #[qsignal]
     fn buses_changed(&mut self);
-    #[qsignal]
-    fn traces_changed(&mut self);
     #[qsignal]
     fn time_changed(&mut self);
 
@@ -478,10 +478,6 @@ impl LogicAnalyzer {
 
     fn buses(&self) -> Value {
         json!(self.buses)
-    }
-
-    fn traces(&self) -> Value {
-        traces_json(&self.traces)
     }
 
     #[qslot]

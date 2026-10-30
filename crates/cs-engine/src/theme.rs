@@ -105,6 +105,24 @@ pub enum ColorId {
     ScopeChannel2,
     ScopeChannel3,
     ScopeChannel4,
+    /// Oscilloscope tube. Same in both themes.
+    ScopePaper,
+    /// Tube fill on the schematic instrument. `#0d1114`, not `ScopePaper`.
+    ScopeTube,
+    /// Bezel stroke around that tube.
+    ScopeBezel,
+    /// Graticule on the schematic symbol.
+    ScopeSymbolGrid,
+    ScopeSymbolAccent,
+    /// Graticule in the expanded window.
+    ScopeWindowGrid,
+    ScopeWindowAccent,
+    /// Cursor crosshair and the window center line.
+    ScopeCursor,
+    ScopeCursorBorder,
+    ScopeCursorText,
+    /// Cursor readout fill, alpha ≈ 0.85.
+    ScopeCursorFill,
     LaChannel1,
     LaChannel2,
     LaChannel3,
@@ -117,9 +135,41 @@ pub enum ColorId {
 
 pub struct ColorTheme;
 
+const fn hex_bytes(r: u8, g: u8, b: u8) -> [u8; 7] {
+    let digits = *b"0123456789abcdef";
+    [
+        b'#',
+        digits[(r >> 4) as usize],
+        digits[(r & 0xf) as usize],
+        digits[(g >> 4) as usize],
+        digits[(g & 0xf) as usize],
+        digits[(b >> 4) as usize],
+        digits[(b & 0xf) as usize],
+    ]
+}
+
+/// `#rrggbb` for an opaque theme color. Alpha is ignored; channel colors are opaque.
+macro_rules! theme_hex {
+    ($id:expr, $dark:expr) => {{
+        const RGBA: (u8, u8, u8, u8) = ColorTheme::get_rgba($id, $dark);
+        const BYTES: [u8; 7] = hex_bytes(RGBA.0, RGBA.1, RGBA.2);
+        const TEXT: &str = match ::core::str::from_utf8(&BYTES) {
+            Ok(text) => text,
+            Err(_) => panic!("theme color is not hex"),
+        };
+        TEXT
+    }};
+}
+
+macro_rules! theme_hex_list {
+    ($dark:expr, $($id:expr),+ $(,)?) => {
+        [$(theme_hex!($id, $dark)),+]
+    };
+}
+
 impl ColorTheme {
     /// Returns the RGBA components `(r, g, b, a)` for a given color ID.
-    pub fn get_rgba(c: ColorId, dark: bool) -> (u8, u8, u8, u8) {
+    pub const fn get_rgba(c: ColorId, dark: bool) -> (u8, u8, u8, u8) {
         if !dark {
             match c {
                 ColorId::ViewportBackground => (175, 175, 180, 255),
@@ -212,6 +262,17 @@ impl ColorTheme {
                 ColorId::ScopeChannel2 => (0, 255, 0, 255),
                 ColorId::ScopeChannel3 => (0, 255, 255, 255),
                 ColorId::ScopeChannel4 => (255, 0, 255, 255),
+                ColorId::ScopePaper => (0, 0, 0, 255),
+                ColorId::ScopeTube => (13, 17, 20, 255),
+                ColorId::ScopeBezel => (42, 49, 56, 255),
+                ColorId::ScopeSymbolGrid => (55, 62, 70, 255),
+                ColorId::ScopeSymbolAccent => (100, 110, 125, 255),
+                ColorId::ScopeWindowGrid => (60, 68, 77, 255),
+                ColorId::ScopeWindowAccent => (120, 130, 142, 255),
+                ColorId::ScopeCursor => (200, 200, 200, 255),
+                ColorId::ScopeCursorBorder => (64, 72, 80, 255),
+                ColorId::ScopeCursorText => (255, 255, 255, 255),
+                ColorId::ScopeCursorFill => (10, 14, 18, 217),
                 ColorId::LaChannel1 => (231, 76, 60, 255),
                 ColorId::LaChannel2 => (230, 126, 34, 255),
                 ColorId::LaChannel3 => (241, 196, 15, 255),
@@ -313,6 +374,17 @@ impl ColorTheme {
                 ColorId::ScopeChannel2 => (0, 255, 0, 255),
                 ColorId::ScopeChannel3 => (0, 255, 255, 255),
                 ColorId::ScopeChannel4 => (255, 0, 255, 255),
+                ColorId::ScopePaper => (0, 0, 0, 255),
+                ColorId::ScopeTube => (13, 17, 20, 255),
+                ColorId::ScopeBezel => (42, 49, 56, 255),
+                ColorId::ScopeSymbolGrid => (55, 62, 70, 255),
+                ColorId::ScopeSymbolAccent => (100, 110, 125, 255),
+                ColorId::ScopeWindowGrid => (60, 68, 77, 255),
+                ColorId::ScopeWindowAccent => (120, 130, 142, 255),
+                ColorId::ScopeCursor => (200, 200, 200, 255),
+                ColorId::ScopeCursorBorder => (64, 72, 80, 255),
+                ColorId::ScopeCursorText => (255, 255, 255, 255),
+                ColorId::ScopeCursorFill => (10, 14, 18, 217),
                 ColorId::LaChannel1 => (231, 76, 60, 255),
                 ColorId::LaChannel2 => (230, 126, 34, 255),
                 ColorId::LaChannel3 => (241, 196, 15, 255),
@@ -353,18 +425,37 @@ impl ColorTheme {
 
     /// Returns the hex color string for a 0-indexed oscilloscope channel.
     pub fn scope_channel_hex(ch: usize, dark: bool) -> String {
-        Self::get_hex(Self::scope_channel_color_id(ch), dark)
+        Self::scope_color_strs(dark)[ch.min(3)].to_string()
+    }
+
+    /// Four oscilloscope channel colors, `#rrggbb`, in channel order.
+    pub const fn scope_color_strs(dark: bool) -> [&'static str; 4] {
+        if dark {
+            Self::SCOPE_DARK
+        } else {
+            Self::SCOPE_LIGHT
+        }
     }
 
     /// Returns the 4 oscilloscope channel colors as hex strings for the given theme mode.
     pub fn scope_colors(dark: bool) -> [String; 4] {
-        [
-            Self::get_hex(ColorId::ScopeChannel1, dark),
-            Self::get_hex(ColorId::ScopeChannel2, dark),
-            Self::get_hex(ColorId::ScopeChannel3, dark),
-            Self::get_hex(ColorId::ScopeChannel4, dark),
-        ]
+        Self::scope_color_strs(dark).map(str::to_string)
     }
+
+    const SCOPE_DARK: [&'static str; 4] = theme_hex_list!(
+        true,
+        ColorId::ScopeChannel1,
+        ColorId::ScopeChannel2,
+        ColorId::ScopeChannel3,
+        ColorId::ScopeChannel4,
+    );
+    const SCOPE_LIGHT: [&'static str; 4] = theme_hex_list!(
+        false,
+        ColorId::ScopeChannel1,
+        ColorId::ScopeChannel2,
+        ColorId::ScopeChannel3,
+        ColorId::ScopeChannel4,
+    );
 
     /// Returns the ColorId for a 0-indexed logic analyzer channel (0..7).
     pub fn la_channel_color_id(ch: usize) -> ColorId {
@@ -382,22 +473,41 @@ impl ColorTheme {
 
     /// Returns the hex color string for a 0-indexed logic analyzer channel.
     pub fn la_channel_hex(ch: usize, dark: bool) -> String {
-        Self::get_hex(Self::la_channel_color_id(ch), dark)
+        Self::la_color_strs(dark)[ch.min(7)].to_string()
+    }
+
+    /// Eight logic-analyzer channel colors, `#rrggbb`, in channel order.
+    pub const fn la_color_strs(dark: bool) -> [&'static str; 8] {
+        if dark { Self::LA_DARK } else { Self::LA_LIGHT }
     }
 
     /// Returns the 8 logic analyzer channel colors as hex strings for the given theme mode.
     pub fn la_colors(dark: bool) -> [String; 8] {
-        [
-            Self::get_hex(ColorId::LaChannel1, dark),
-            Self::get_hex(ColorId::LaChannel2, dark),
-            Self::get_hex(ColorId::LaChannel3, dark),
-            Self::get_hex(ColorId::LaChannel4, dark),
-            Self::get_hex(ColorId::LaChannel5, dark),
-            Self::get_hex(ColorId::LaChannel6, dark),
-            Self::get_hex(ColorId::LaChannel7, dark),
-            Self::get_hex(ColorId::LaChannel8, dark),
-        ]
+        Self::la_color_strs(dark).map(str::to_string)
     }
+
+    const LA_DARK: [&'static str; 8] = theme_hex_list!(
+        true,
+        ColorId::LaChannel1,
+        ColorId::LaChannel2,
+        ColorId::LaChannel3,
+        ColorId::LaChannel4,
+        ColorId::LaChannel5,
+        ColorId::LaChannel6,
+        ColorId::LaChannel7,
+        ColorId::LaChannel8,
+    );
+    const LA_LIGHT: [&'static str; 8] = theme_hex_list!(
+        false,
+        ColorId::LaChannel1,
+        ColorId::LaChannel2,
+        ColorId::LaChannel3,
+        ColorId::LaChannel4,
+        ColorId::LaChannel5,
+        ColorId::LaChannel6,
+        ColorId::LaChannel7,
+        ColorId::LaChannel8,
+    );
 
     /// Returns `(lit_rgba, unlit_rgba)` for a named LED color.
     /// Parity with C++ LedBase / ColorTheme.
@@ -470,6 +580,42 @@ mod tests {
         );
         assert_eq!(ColorTheme::rgb_u32(ColorId::EditorText, true), 0xDCDCDC);
         assert_eq!(ColorTheme::rgb_u32(ColorId::EditorSpace, false), 0xBBBBBB);
+    }
+
+    #[test]
+    fn instrument_channel_strs_match_theme_hex() {
+        for dark in [false, true] {
+            for ch in 0..4 {
+                assert_eq!(
+                    ColorTheme::scope_color_strs(dark)[ch],
+                    ColorTheme::get_hex(ColorTheme::scope_channel_color_id(ch), dark).as_str()
+                );
+            }
+            for ch in 0..8 {
+                assert_eq!(
+                    ColorTheme::la_color_strs(dark)[ch],
+                    ColorTheme::get_hex(ColorTheme::la_channel_color_id(ch), dark).as_str()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn instrument_tube_is_separate_from_paper() {
+        for dark in [false, true] {
+            assert_eq!(
+                ColorTheme::get_rgba(ColorId::ScopeTube, dark),
+                (13, 17, 20, 255)
+            );
+            assert_eq!(
+                ColorTheme::get_rgba(ColorId::ScopeBezel, dark),
+                (42, 49, 56, 255)
+            );
+            assert_ne!(
+                ColorTheme::get_rgba(ColorId::ScopeTube, dark),
+                ColorTheme::get_rgba(ColorId::ScopePaper, dark)
+            );
+        }
     }
 
     #[test]

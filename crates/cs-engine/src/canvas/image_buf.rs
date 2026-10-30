@@ -77,6 +77,10 @@ impl ImageBuf {
         &self.pixels
     }
 
+    pub fn into_pixels(self) -> Vec<u8> {
+        self.pixels
+    }
+
     pub fn data(&self) -> &[u8] {
         &self.pixels
     }

@@ -2,11 +2,16 @@
 
 pub mod files;
 pub mod interaction;
+mod la_screen;
 pub mod palette;
 pub mod plots;
 pub mod props;
 pub mod repaint;
+mod scope_screen;
+mod screen;
 pub mod selection;
+
+use std::sync::Mutex;
 
 use crate::path_util::strip_file_url;
 use cs_engine::backup;
@@ -14,8 +19,11 @@ use cs_engine::canvas::{Canvas, Change, DirtySet, Palette};
 use cs_engine::settings;
 use cs_engine::units;
 use files::PendingReplace;
-use qtbridge::qobject;
+use qtbridge::{QObjectHolder, QmlMethodInvoker, qobject};
 use serde_json::{Value, json};
+
+static SCOPE_FLUSH_INVOKER: Mutex<Option<QmlMethodInvoker>> = Mutex::new(None);
+static LA_FLUSH_INVOKER: Mutex<Option<QmlMethodInvoker>> = Mutex::new(None);
 
 pub struct CircuitCanvas {
     pub(crate) inner: Canvas,
@@ -342,7 +350,9 @@ impl CircuitCanvas {
             }
         }
         if c.plots {
-            self.traces_changed();
+            self.schedule_scope_paint();
+            self.schedule_la_paint();
+            self.plots_changed();
         }
         if c.settings {
             self.circ_settings_changed();
@@ -1007,8 +1017,6 @@ impl CircuitCanvas {
     qproperty!("cursor", Read = cursor, Notify = cursor_changed);
     qproperty!("cursorX", Read = cursor_x, Notify = coords_changed);
     qproperty!("cursorY", Read = cursor_y, Notify = coords_changed);
-    qproperty!("scopeTraces", Read = scope_traces, Notify = traces_changed);
-    qproperty!("laTraces", Read = la_traces, Notify = traces_changed);
     qproperty!("timeUnits", Read = time_units, Constant);
     qproperty!(
         "sceneWidth",
@@ -1183,8 +1191,9 @@ impl CircuitCanvas {
     fn request_show_terminal(&mut self);
     #[qsignal]
     fn request_open_serial_mon(&mut self, mon_id: String, title: String);
+    /// Plot buffers changed. Carries no trace data. The scope cursor reads voltages on this ping.
     #[qsignal]
-    fn traces_changed(&mut self);
+    fn plots_changed(&mut self);
     #[qsignal]
     fn circ_settings_changed(&mut self);
     #[qsignal]
@@ -2582,12 +2591,73 @@ impl CircuitCanvas {
         self.apply(c);
     }
 
-    fn scope_traces(&self) -> Value {
-        plots::traces_json(self.inner.scope_traces())
+    #[qslot]
+    fn paint_scope_screen(&mut self, w: f64, h: f64, dpr: f64) {
+        scope_screen::render(&self.inner, w, h, dpr);
     }
 
-    fn la_traces(&self) -> Value {
-        plots::traces_json(self.inner.la_traces())
+    #[qslot]
+    fn paint_la_screen(&mut self, w: f64, h: f64, dpr: f64) {
+        la_screen::render(&self.inner, w, h, dpr);
+    }
+
+    /// One paint after the setters in the current event have all returned.
+    #[qslot]
+    fn flush_la_paint(&mut self) {
+        la_screen::flush(&self.inner);
+    }
+
+    fn schedule_la_paint(&mut self) {
+        if la_screen::schedule() {
+            self.post_la_flush();
+        }
+    }
+
+    fn post_la_flush(&mut self) {
+        self.post_paint_flush(&LA_FLUSH_INVOKER, "flushLaPaint", la_screen::cancel_flush);
+    }
+
+    fn post_paint_flush(
+        &mut self,
+        gate: &Mutex<Option<QmlMethodInvoker>>,
+        method: &str,
+        cancel: fn(),
+    ) {
+        let mut slot = gate.lock().unwrap_or_else(|err| err.into_inner());
+        if slot.is_none() {
+            *slot = Some(self.get_qml_method_invoker());
+        }
+        let posted = slot
+            .as_ref()
+            .is_some_and(|invoker| invoker.invoke_method(method));
+        if !posted {
+            cancel();
+        }
+    }
+
+    /// One paint after the setters in the current event have all returned.
+    #[qslot]
+    fn flush_scope_paint(&mut self) {
+        scope_screen::flush(&self.inner);
+    }
+
+    fn schedule_scope_paint(&mut self) {
+        if scope_screen::schedule() {
+            self.post_scope_flush();
+        }
+    }
+
+    fn post_scope_flush(&mut self) {
+        self.post_paint_flush(
+            &SCOPE_FLUSH_INVOKER,
+            "flushScopePaint",
+            scope_screen::cancel_flush,
+        );
+    }
+
+    #[qslot]
+    fn scope_voltage_at(&self, fraction: f64) -> Value {
+        scope_screen::voltage_at(&self.inner, fraction)
     }
 
     #[qslot]
@@ -2606,7 +2676,7 @@ impl CircuitCanvas {
     fn set_scope_volt_div(&mut self, ch: i32, v: f64) {
         if ch >= 0 && ch < 4 {
             let c = self.inner.set_scope_volt_div(ch as usize, v);
-            self.apply(c);
+            self.apply_scope_view(c);
         }
     }
 
@@ -2614,21 +2684,32 @@ impl CircuitCanvas {
     fn set_scope_volt_pos(&mut self, ch: i32, v: f64) {
         if ch >= 0 && ch < 4 {
             let c = self.inner.set_scope_volt_pos(ch as usize, v);
-            self.apply(c);
+            self.apply_scope_view(c);
         }
     }
 
     #[qslot]
     fn set_scope_tracks(&mut self, tracks: i32) {
         let c = self.inner.set_scope_tracks(tracks);
-        self.apply(c);
+        self.apply_scope_view(c);
     }
 
     #[qslot]
     fn set_scope_hidden(&mut self, ch: i32, hide: bool) {
         if ch >= 0 && ch < 4 {
             let c = self.inner.set_scope_hidden(ch as usize, hide);
-            self.apply(c);
+            self.apply_scope_view(c);
+        }
+    }
+
+    /// Volt scale, track count, and hide do not rewrite the sample buffer.
+    /// `apply` queues a paint only when `c.plots` is set. The queued flush runs
+    /// once, after every setter in this event has returned.
+    fn apply_scope_view(&mut self, c: Change) {
+        let plots = c.plots;
+        self.apply(c);
+        if !plots {
+            self.schedule_scope_paint();
         }
     }
 

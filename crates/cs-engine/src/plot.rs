@@ -4,7 +4,15 @@
 #[derive(Clone, Debug, PartialEq)]
 pub struct Channel {
     pub color: String,
+    /// One zero-order-hold value at each uniform display column. Readouts and
+    /// tests use this grid. It is not what the screen strokes.
     pub samples: Vec<f64>,
+    /// Vertices of the stroked trace. Empty means `samples` is drawn on the
+    /// uniform grid (demo buffers).
+    pub plot: Vec<f64>,
+    /// Horizontal position of each `plot` vertex, 0 at the left edge and 1 at
+    /// the right. Same length as `plot`.
+    pub plot_x: Vec<f64>,
     pub connected: bool,
 }
 
@@ -18,7 +26,7 @@ impl PlotBuffer {
     /// Four analogue traces, as the scope's default demo.
     pub fn scope_demo(n: usize) -> Self {
         let n = n.max(2);
-        let colors = ["#ffff00", "#00ff00", "#00ffff", "#ff00ff"];
+        let colors = crate::theme::ColorTheme::scope_color_strs(true);
         let mut channels = Vec::with_capacity(4);
         for (ch, color) in colors.iter().enumerate() {
             let mut samples = Vec::with_capacity(n);
@@ -38,6 +46,8 @@ impl PlotBuffer {
             channels.push(Channel {
                 color: (*color).into(),
                 samples,
+                plot: Vec::new(),
+                plot_x: Vec::new(),
                 connected: true,
             });
         }
@@ -47,9 +57,7 @@ impl PlotBuffer {
     /// Eight digital traces for the logic analyzer.
     pub fn analyzer_demo(n: usize) -> Self {
         let n = n.max(2);
-        let colors = [
-            "#e74c3c", "#e67e22", "#f1c40f", "#2ecc71", "#1abc9c", "#3498db", "#9b59b6", "#ecf0f1",
-        ];
+        let colors = crate::theme::ColorTheme::la_color_strs(true);
         let mut channels = Vec::with_capacity(8);
         for (ch, color) in colors.iter().enumerate() {
             let mut samples = Vec::with_capacity(n);
@@ -61,6 +69,8 @@ impl PlotBuffer {
             channels.push(Channel {
                 color: (*color).into(),
                 samples,
+                plot: Vec::new(),
+                plot_x: Vec::new(),
                 connected: true,
             });
         }

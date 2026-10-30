@@ -47,6 +47,7 @@ pub use scene::{
     CanvasOverflowInfo, Item, Part, PropGroup, PropRow, Scene, resistor_hit_rect,
     resistor_selection_rect,
 };
+pub use vello_gpu::{read_texture, readback_stride, render_draw};
 pub use viewport::{
     DEFAULT_SCENE_HEIGHT, DEFAULT_SCENE_WIDTH, MAX_ZOOM, MIN_ZOOM, Viewport, ZOOM_STEP,
 };

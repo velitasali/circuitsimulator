@@ -238,8 +238,16 @@ fn compile_canvas_item() {
     let cpp_dir = manifest.join("cpp");
     let header = cpp_dir.join("circuit_canvas_item.h");
     let source = cpp_dir.join("circuit_canvas_item.cpp");
+    let screen_header = cpp_dir.join("instrument_screen_item.h");
+    let screen_source = cpp_dir.join("instrument_screen_item.cpp");
+    let frame_header = cpp_dir.join("image_frame.h");
+    let frame_source = cpp_dir.join("image_frame.cpp");
     println!("cargo:rerun-if-changed={}", header.display());
     println!("cargo:rerun-if-changed={}", source.display());
+    println!("cargo:rerun-if-changed={}", screen_header.display());
+    println!("cargo:rerun-if-changed={}", screen_source.display());
+    println!("cargo:rerun-if-changed={}", frame_header.display());
+    println!("cargo:rerun-if-changed={}", frame_source.display());
     println!(
         "cargo:rerun-if-changed={}",
         cpp_dir.join("vello_share.cpp").display()
@@ -251,16 +259,19 @@ fn compile_canvas_item() {
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let moc_out = out_dir.join("moc_circuit_canvas_item.cpp");
+    let screen_moc_out = out_dir.join("moc_instrument_screen_item.cpp");
 
     let moc = moc_bin();
-    let status = Command::new(&moc)
-        .arg(&header)
-        .arg("-o")
-        .arg(&moc_out)
-        .status()
-        .unwrap_or_else(|e| panic!("failed to run {}: {e}", moc.display()));
-    if !status.success() {
-        panic!("moc failed on {}", header.display());
+    for (hdr, moc_path) in [(&header, &moc_out), (&screen_header, &screen_moc_out)] {
+        let status = Command::new(&moc)
+            .arg(hdr)
+            .arg("-o")
+            .arg(moc_path)
+            .status()
+            .unwrap_or_else(|e| panic!("failed to run {}: {e}", moc.display()));
+        if !status.success() {
+            panic!("moc failed on {}", hdr.display());
+        }
     }
 
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -268,7 +279,10 @@ fn compile_canvas_item() {
     build
         .cpp(true)
         .file(&source)
+        .file(&screen_source)
+        .file(&frame_source)
         .file(&moc_out)
+        .file(&screen_moc_out)
         .include(&cpp_dir)
         .flag("-std=c++17");
     // macOS keeps the IOSurface handoff in vello_preview.mm. The other
@@ -436,7 +450,6 @@ fn compile_resources() {
         "FileBrowserView.qml",
         "OutPanelText.qml",
         "InfoCard.qml",
-        "PlotCanvas.qml",
         "PlotValueControl.qml",
         "OscView.qml",
         "LaView.qml",

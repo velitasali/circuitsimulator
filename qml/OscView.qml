@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Layouts
+import QtQuick.Window
 import cs_app
 
 // The expanded oscilloscope: screen on the left, control panel on the right.
@@ -90,6 +92,11 @@ Rectangle {
         function onDarkThemeChanged() {
             Oscilloscope.dark = App.darkTheme
         }
+    }
+
+    Connections {
+        target: CircuitCanvas
+        function onPlotsChanged() { root.refreshCursor() }
     }
 
     Connections {
@@ -185,6 +192,71 @@ Rectangle {
             Oscilloscope.setTimeDiv( res.timeDiv )
             CircuitCanvas.setScopeTimeDiv( res.timeDiv )
         }
+    }
+
+    property bool scopePaintQueued: false
+    property real cursorX: -1
+    property real cursorY: -1
+    property var cursorVolts: [ null, null, null, null ]
+    function scopeChannelColor( ch ) {
+        var list = Oscilloscope.channels
+        if ( !list || ch < 0 || ch >= list.length )
+            return Oscilloscope.cursorText
+        return list[ch].color
+    }
+
+    function formatEngTime( val ) {
+        var sign = val < 0 ? "-" : "+"
+        var abs = Math.abs( val )
+        if ( abs < 1e-9 ) return "0.00 s"
+        if ( abs < 1e-6 ) return sign + ( abs * 1e9 ).toFixed( 1 ) + " ns"
+        if ( abs < 1e-3 ) return sign + ( abs * 1e6 ).toFixed( 1 ) + " µs"
+        if ( abs < 1.0 ) return sign + ( abs * 1e3 ).toFixed( 2 ) + " ms"
+        return sign + abs.toFixed( 2 ) + " s"
+    }
+
+    function cursorDeltaTime() {
+        var w = scopeScreen ? scopeScreen.width : 0
+        if ( w <= 0 )
+            return 0
+        var timeSpan = ( Oscilloscope.timeDiv || 1e-3 ) * 10.0
+        return ( ( cursorX - w / 2 ) / w ) * timeSpan
+    }
+
+    function refreshCursor() {
+        if ( !scopeScreen || root.cursorX < 0 || scopeScreen.width < 2 ) {
+            root.cursorVolts = [ null, null, null, null ]
+            return
+        }
+        var volts = CircuitCanvas.scopeVoltageAt( root.cursorX / scopeScreen.width )
+        root.cursorVolts = volts && volts.length === 4 ? volts : [ null, null, null, null ]
+    }
+
+    function repaintScope() {
+        if ( !scopeScreen || scopeScreen.width < 2 || scopeScreen.height < 2 )
+            return
+        CircuitCanvas.paintScopeScreen( scopeScreen.width, scopeScreen.height, Screen.devicePixelRatio || 1 )
+        root.refreshCursor()
+    }
+
+    function scheduleScopePaint() {
+        if ( root.scopePaintQueued )
+            return
+        root.scopePaintQueued = true
+        Qt.callLater( function() {
+            root.scopePaintQueued = false
+            root.repaintScope()
+        } )
+    }
+
+    function cursorChannelVoltage( ch ) {
+        var v = root.cursorVolts
+        if ( !v || ch < 0 || ch >= v.length )
+            return null
+        var n = v[ch]
+        if ( n === null || n === undefined )
+            return null
+        return n
     }
 
     function formatEng( val, unit ) {
@@ -288,33 +360,133 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumWidth: 240
-            radius: 6
-            color: "#000000"
-            border.color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.55 )
-            border.width: 1
-            clip: true
+            color: appTheme.window
 
-            PlotCanvas {
-                id: plotCanvas
-                anchors.fill: parent
+            property real dpr: Screen.devicePixelRatio
+            onDprChanged: root.scheduleScopePaint()
+
+            // 10 columns by 10 rows per track, so each division stays square.
+            Item {
+                id: scopeMask
+                anchors.fill: scopeFrame
+                visible: false
+                layer.enabled: true
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 6
+                    color: "white"
+                }
+            }
+
+            Rectangle {
+                id: scopeFrame
+                anchors.centerIn: parent
+                color: "transparent"
                 radius: 6
-                traces: CircuitCanvas.scopeTraces
-                hidden: Oscilloscope.hidden
-                paper: "#000000"
-                tracks: Oscilloscope.tracks
-                chVoltDiv: root.chVoltDiv
-                chVoltPos: root.chVoltPos
-                chTimePos: root.chTimePos
-                voltDiv: root.chVoltDiv[Oscilloscope.currentChannel] || 1.0
-                voltPos: root.chVoltPos[Oscilloscope.currentChannel] || 0.0
-                timePos: root.chTimePos[Oscilloscope.currentChannel] || 0.0
-                expanded: true
-                timeDiv: Oscilloscope.timeDiv
+                layer.enabled: true
+                layer.effect: MultiEffect {
+                    maskEnabled: true
+                    maskSource: scopeMask
+                }
+                readonly property int trackCount: Oscilloscope.tracks === 2 || Oscilloscope.tracks === 4 ? Oscilloscope.tracks : 1
+                readonly property real aspect: 1 / trackCount
+                width: {
+                    var slotW = displaySlot.width
+                    var slotH = displaySlot.height
+                    if ( slotW < 2 || slotH < 2 )
+                        return 2
+                    var fitted = slotH * aspect
+                    return Math.max( 2, fitted < slotW ? fitted : slotW )
+                }
+                height: width / aspect
+
+            ScopeScreen {
+                id: scopeScreen
+                anchors.fill: parent
+                onWidthChanged: root.scheduleScopePaint()
+                onHeightChanged: root.scheduleScopePaint()
+                Component.onCompleted: root.scheduleScopePaint()
+            }
+
+            Item {
+                id: cursorOverlay
+                anchors.fill: parent
+                visible: root.cursorX >= 0 && root.cursorX <= width && root.cursorY >= 0 && root.cursorY <= height
+                z: 1
+
+                Rectangle {
+                    width: 1
+                    height: parent.height
+                    x: Math.round( root.cursorX )
+                    color: Oscilloscope.cursorColor
+                    opacity: 0.85
+                }
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    y: Math.round( root.cursorY )
+                    color: Oscilloscope.cursorColor
+                    opacity: 0.85
+                }
+
+                Rectangle {
+                    id: measureBox
+                    x: Math.min( parent.width - width - 6, Math.max( 6, root.cursorX + 8 ) )
+                    y: Math.min( parent.height - height - 6, Math.max( 6, root.cursorY - 8 ) )
+                    width: measureCol.implicitWidth + 12
+                    height: measureCol.implicitHeight + 8
+                    radius: 3
+                    color: Oscilloscope.cursorFill
+                    border.color: Oscilloscope.cursorBorder
+                    border.width: 1
+
+                    Column {
+                        id: measureCol
+                        anchors.centerIn: parent
+                        spacing: 1
+
+                        AppText {
+                            text: "Δt: " + root.formatEngTime( root.cursorDeltaTime() )
+                            color: Oscilloscope.cursorText
+                            font.bold: true
+                            font.pixelSize: App.fontMicro
+                        }
+                        AppText {
+                            visible: root.cursorChannelVoltage( 0 ) !== null
+                            text: "Ch 1: " + Number( root.cursorChannelVoltage( 0 ) || 0 ).toFixed( 2 ) + "V"
+                            color: root.scopeChannelColor( 0 )
+                            font.bold: true
+                            font.pixelSize: App.fontMicro
+                        }
+                        AppText {
+                            visible: root.cursorChannelVoltage( 1 ) !== null
+                            text: "Ch 2: " + Number( root.cursorChannelVoltage( 1 ) || 0 ).toFixed( 2 ) + "V"
+                            color: root.scopeChannelColor( 1 )
+                            font.bold: true
+                            font.pixelSize: App.fontMicro
+                        }
+                        AppText {
+                            visible: root.cursorChannelVoltage( 2 ) !== null
+                            text: "Ch 3: " + Number( root.cursorChannelVoltage( 2 ) || 0 ).toFixed( 2 ) + "V"
+                            color: root.scopeChannelColor( 2 )
+                            font.bold: true
+                            font.pixelSize: App.fontMicro
+                        }
+                        AppText {
+                            visible: root.cursorChannelVoltage( 3 ) !== null
+                            text: "Ch 4: " + Number( root.cursorChannelVoltage( 3 ) || 0 ).toFixed( 2 ) + "V"
+                            color: root.scopeChannelColor( 3 )
+                            font.bold: true
+                            font.pixelSize: App.fontMicro
+                        }
+                    }
+                }
             }
 
             MouseArea {
                 id: plotMouseArea
                 anchors.fill: parent
+                z: 2
                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                 hoverEnabled: true
                 cursorShape: pressed ? Qt.ClosedHandCursor : Qt.CrossCursor
@@ -326,8 +498,9 @@ Rectangle {
                     Oscilloscope.plotPressed( mouse.x, mouse.button )
                 }
                 onPositionChanged: (mouse) => {
-                    plotCanvas.cursorX = mouse.x
-                    plotCanvas.cursorY = mouse.y
+                    root.cursorX = mouse.x
+                    root.cursorY = mouse.y
+                    root.refreshCursor()
                     if ( pressed && ( mouse.buttons & Qt.LeftButton ) ) {
                         var dx = mouse.x - plotMouseArea.lastDragX
                         plotMouseArea.lastDragX = mouse.x
@@ -343,8 +516,9 @@ Rectangle {
                     }
                 }
                 onExited: {
-                    plotCanvas.cursorX = -1
-                    plotCanvas.cursorY = -1
+                    root.cursorX = -1
+                    root.cursorY = -1
+                    root.cursorVolts = [ null, null, null, null ]
                 }
                 onReleased: Oscilloscope.plotReleased()
 
@@ -401,6 +575,7 @@ Rectangle {
                         canvasWheelTimer.restart()
                     }
                 }
+            }
             }
         }
 
@@ -503,6 +678,7 @@ Rectangle {
                     onPicked: function( index, on ) {
                         Oscilloscope.hideClicked( index, on )
                         CircuitCanvas.setScopeHidden( index, on )
+                        root.refreshCursor()
                     }
                 }
             }

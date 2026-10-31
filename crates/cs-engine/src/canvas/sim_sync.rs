@@ -1211,13 +1211,13 @@ impl Canvas {
                         .instruments
                         .first_scope()
                         .map(|s| {
-                            s.traces(
+                            scope_window_buffer(
+                                s,
                                 self.scope_time_div,
                                 self.scope_time_pos,
                                 self.scope_trigger,
                                 self.scope_trig_level,
-                                &crate::instruments::SCOPE_COLORS,
-                                None,
+                                self.scope_view_w,
                             )
                         })
                         .unwrap_or_else(crate::instruments::empty_scope_traces);
@@ -1236,13 +1236,14 @@ impl Canvas {
                         .instruments
                         .first_la()
                         .map(|s| {
-                            s.traces(
+                            la_window_buffer(
+                                s,
                                 self.la_time_div,
                                 self.la_time_pos,
                                 self.la_trigger,
                                 la_thr,
-                                &crate::instruments::LA_COLORS,
-                                Some(la_thr),
+                                self.la_view_w,
+                                self.la_view_h,
                             )
                         })
                         .unwrap_or_else(crate::instruments::empty_la_traces);
@@ -1361,6 +1362,7 @@ impl Canvas {
             &crate::instruments::SCOPE_COLORS,
             None,
             crate::instruments::SCOPE_CANVAS_DISPLAY_N,
+            10.0,
         ))
     }
 
@@ -1378,11 +1380,69 @@ impl Canvas {
             &crate::instruments::LA_COLORS,
             Some(la_thr),
             96,
+            10.0,
         ))
     }
 
     pub fn la_traces(&self) -> &crate::plot::PlotBuffer {
         &self.la_traces
+    }
+
+    /// Remember the expanded scope size and rebuild its trace when the time
+    /// span changes. The schematic symbol keeps its own 10-division extraction.
+    pub fn set_scope_view(&mut self, w: f64, h: f64) {
+        if !w.is_finite() || !h.is_finite() {
+            return;
+        }
+        let prev = crate::instruments::scope_h_divs(self.scope_view_w);
+        self.scope_view_w = w;
+        self.scope_view_h = h;
+        let next = crate::instruments::scope_h_divs(self.scope_view_w);
+        if (prev - next).abs() < 1e-3 && self.scope_traces.n > 0 {
+            return;
+        }
+        let time_div = self.scope_time_div;
+        let time_pos = self.scope_time_pos;
+        let trigger = self.scope_trigger;
+        let level = self.scope_trig_level;
+        let view_w = self.scope_view_w;
+        let Some(sampler_buf) = self.running.as_ref().and_then(|c| {
+            c.instruments
+                .first_scope()
+                .map(|s| scope_window_buffer(s, time_div, time_pos, trigger, level, view_w))
+        }) else {
+            return;
+        };
+        self.scope_traces = sampler_buf;
+    }
+
+    /// Remember the expanded logic-analyzer size and rebuild when the number
+    /// of time columns changes. Row height follows the window, so both axes count.
+    pub fn set_la_view(&mut self, w: f64, h: f64) {
+        if !w.is_finite() || !h.is_finite() {
+            return;
+        }
+        let prev = crate::instruments::la_h_divs(self.la_view_w, self.la_view_h);
+        self.la_view_w = w;
+        self.la_view_h = h;
+        let next = crate::instruments::la_h_divs(self.la_view_w, self.la_view_h);
+        if (prev - next).abs() < 1e-3 && self.la_traces.n > 0 {
+            return;
+        }
+        let time_div = self.la_time_div;
+        let time_pos = self.la_time_pos;
+        let trigger = self.la_trigger;
+        let la_thr = 0.5 * (self.la_threshold_r + self.la_threshold_f);
+        let view_w = self.la_view_w;
+        let view_h = self.la_view_h;
+        let Some(sampler_buf) = self.running.as_ref().and_then(|c| {
+            c.instruments
+                .first_la()
+                .map(|s| la_window_buffer(s, time_div, time_pos, trigger, la_thr, view_w, view_h))
+        }) else {
+            return;
+        };
+        self.la_traces = sampler_buf;
     }
 
     pub fn set_scope_time_div(&mut self, v: f64) -> Change {
@@ -1510,12 +1570,15 @@ impl Canvas {
     }
 
     pub fn auto_scale_scope(&self, ch: usize) -> Option<crate::instruments::AutoScaleResult> {
+        let h_divs = crate::instruments::scope_h_divs(self.scope_view_w);
+        let v_divs =
+            crate::instruments::scope_v_divs_per_track(self.scope_view_h, self.scope_tracks);
         if let Some(scope) = self
             .running
             .as_ref()
             .and_then(|c| c.instruments.first_scope())
         {
-            if let Some(res) = scope.auto_scale(ch) {
+            if let Some(res) = scope.auto_scale_for(ch, h_divs, v_divs) {
                 return Some(res);
             }
         }
@@ -1531,49 +1594,31 @@ impl Canvas {
                         max_v = v;
                     }
                 }
-                let ampli = max_v - min_v;
-                if ampli > 1e-6 {
-                    let mid = min_v + ampli * 0.5;
-                    let volt_pos = mid;
-                    let raw_volt_div = ampli / 8.0;
-                    let volt_div = crate::instruments::snap_to_step(
-                        raw_volt_div,
-                        &crate::instruments::SCOPE_VOLT_DIV_STEPS,
-                    );
-                    return Some(crate::instruments::AutoScaleResult {
-                        volt_div,
-                        volt_pos,
-                        time_div: None,
-                    });
-                } else {
-                    let volt_pos = max_v;
-                    let raw_volt_div = if max_v.abs() > 1e-6 {
-                        max_v.abs() / 4.0
-                    } else {
-                        1.0
-                    };
-                    let volt_div = crate::instruments::snap_to_step(
-                        raw_volt_div,
-                        &crate::instruments::SCOPE_VOLT_DIV_STEPS,
-                    );
-                    return Some(crate::instruments::AutoScaleResult {
-                        volt_div,
-                        volt_pos,
-                        time_div: None,
-                    });
-                }
+                let v_divs = crate::instruments::scope_v_divs_per_track(
+                    self.scope_view_h,
+                    self.scope_tracks,
+                );
+                let (volt_div, volt_pos) = crate::instruments::fit_volt_div(min_v, max_v, v_divs);
+                return Some(crate::instruments::AutoScaleResult {
+                    volt_div,
+                    volt_pos,
+                    time_div: None,
+                });
             }
         }
         None
     }
 
     pub fn auto_scale_scope_all(&self) -> crate::instruments::AutoScaleAllResult {
+        let h_divs = crate::instruments::scope_h_divs(self.scope_view_w);
+        let v_divs =
+            crate::instruments::scope_v_divs_per_track(self.scope_view_h, self.scope_tracks);
         if let Some(scope) = self
             .running
             .as_ref()
             .and_then(|c| c.instruments.first_scope())
         {
-            return scope.auto_scale_all();
+            return scope.auto_scale_all_for(h_divs, v_divs);
         }
         let mut results = Vec::new();
         for ch in 0..4 {
@@ -1604,6 +1649,51 @@ impl Canvas {
     pub fn la_threshold_f(&self) -> f64 {
         self.la_threshold_f
     }
+}
+
+fn scope_window_buffer(
+    sampler: &crate::instruments::ScopeSampler,
+    time_div: f64,
+    time_pos: f64,
+    trigger: i32,
+    level: f64,
+    view_w: f64,
+) -> crate::plot::PlotBuffer {
+    let h_divs = crate::instruments::scope_h_divs(view_w);
+    let n = crate::instruments::display_columns(h_divs);
+    sampler.traces_with_count(
+        time_div,
+        time_pos,
+        trigger,
+        level,
+        &crate::instruments::SCOPE_COLORS,
+        None,
+        n,
+        h_divs,
+    )
+}
+
+fn la_window_buffer(
+    sampler: &crate::instruments::ScopeSampler,
+    time_div: f64,
+    time_pos: f64,
+    trigger: i32,
+    level: f64,
+    view_w: f64,
+    view_h: f64,
+) -> crate::plot::PlotBuffer {
+    let h_divs = crate::instruments::la_h_divs(view_w, view_h);
+    let n = crate::instruments::display_columns(h_divs);
+    sampler.traces_with_count(
+        time_div,
+        time_pos,
+        trigger,
+        level,
+        &crate::instruments::LA_COLORS,
+        Some(level),
+        n,
+        h_divs,
+    )
 }
 
 fn compute_wire_currents(

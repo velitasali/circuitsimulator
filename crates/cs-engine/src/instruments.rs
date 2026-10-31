@@ -18,6 +18,13 @@ pub const AMMETER_OHMS: f64 = 1e-6;
 pub const PLOT_INPUT_ADMIT: f64 = 1e-7;
 /// C++ Oscope default Time/Div = 1e9 ps = 1 ms.
 pub const SCOPE_TIME_DIV_DEFAULT: f64 = 1e-3;
+/// Logical pixels per graticule division in the expanded oscilloscope.
+/// The default window is about ten rows tall; a wider window shows more time
+/// and a taller one shows more volts. The square does not scale with the window.
+pub const SCOPE_DIV_PX: f64 = 48.0;
+/// Expanded logic analyzer rows. Row height follows the window, and each time
+/// column is one row wide, so a wider window shows more time.
+pub const LA_WINDOW_ROWS: usize = 8;
 /// C++ LAnalizer default thresholds.
 pub const LA_THRESHOLD_DEFAULT: f64 = 2.5;
 pub const SCOPE_CHANNELS: usize = 4;
@@ -73,6 +80,70 @@ pub fn snap_to_step(val: f64, steps: &[f64]) -> f64 {
         }
     }
     *steps.last().unwrap()
+}
+
+/// Horizontal divisions for an expanded scope of `width` logical pixels.
+/// A closed window (`width` under 2) keeps the schematic's 10 divisions.
+pub fn scope_h_divs(width: f64) -> f64 {
+    if !width.is_finite() || width < 2.0 {
+        10.0
+    } else {
+        (width / SCOPE_DIV_PX).max(0.25)
+    }
+}
+
+/// Vertical divisions in one scope track for an expanded window of `height`
+/// logical pixels. A closed window keeps 10.
+pub fn scope_v_divs_per_track(height: f64, tracks: i32) -> f64 {
+    if !height.is_finite() || height < 2.0 {
+        return 10.0;
+    }
+    let tracks = match tracks {
+        2 => 2.0,
+        4 => 4.0,
+        _ => 1.0,
+    };
+    (height / tracks / SCOPE_DIV_PX).max(0.25)
+}
+
+/// Time columns in the expanded logic analyzer. Cells are square: a column is
+/// as wide as one of the eight rows. A closed window keeps 10.
+pub fn la_h_divs(width: f64, height: f64) -> f64 {
+    if !width.is_finite() || !height.is_finite() || width < 2.0 || height < 2.0 {
+        10.0
+    } else {
+        (width * LA_WINDOW_ROWS as f64 / height).max(0.25)
+    }
+}
+
+/// Display columns for a window of `h_divs` time divisions. Ten divisions stay
+/// at [`DISPLAY_N`] so a wider span keeps the same time per column, capped so
+/// a very wide window cannot allocate without limit.
+pub fn display_columns(h_divs: f64) -> usize {
+    let per_div = DISPLAY_N as f64 / 10.0;
+    let n = (h_divs.max(0.25) * per_div).round() as usize;
+    n.clamp(2, 4096)
+}
+
+/// Volt/div and vertical center that fit `min_v..=max_v` in about 80% of
+/// `v_divs`. A flat signal uses about 40% of the rows.
+pub fn fit_volt_div(min_v: f64, max_v: f64, v_divs: f64) -> (f64, f64) {
+    let v_divs = v_divs.max(1e-3);
+    let ampli = max_v - min_v;
+    if ampli <= 1e-6 {
+        let raw = if max_v.abs() > 1e-6 {
+            max_v.abs() / (v_divs * 0.4)
+        } else {
+            1.0
+        };
+        (snap_to_step(raw, &SCOPE_VOLT_DIV_STEPS), max_v)
+    } else {
+        let raw = ampli / (v_divs * 0.8);
+        (
+            snap_to_step(raw, &SCOPE_VOLT_DIV_STEPS),
+            min_v + ampli * 0.5,
+        )
+    }
 }
 
 pub fn snap_closest_step(val: f64, steps: &[f64]) -> f64 {
@@ -584,10 +655,13 @@ impl ScopeSampler {
             colors,
             digital_thr,
             DISPLAY_N,
+            10.0,
         )
     }
 
-    /// Window of `time_div * 10` seconds, `n_display` samples.
+    /// Window of `time_div * h_divs` seconds, `n_display` samples.
+    /// The schematic screen passes 10 divisions. An expanded window passes
+    /// however many divisions fit.
     pub fn traces_with_count(
         &self,
         time_div: f64,
@@ -597,9 +671,15 @@ impl ScopeSampler {
         colors: &[&str],
         digital_thr: Option<f64>,
         n_display: usize,
+        h_divs: f64,
     ) -> PlotBuffer {
         let n = n_display.max(2);
-        let window = (time_div.max(1e-12) * 10.0).max(1e-12);
+        let h_divs = if h_divs.is_finite() {
+            h_divs.max(1e-3)
+        } else {
+            10.0
+        };
+        let window = (time_div.max(1e-12) * h_divs).max(1e-12);
         let t_last = self.last_time();
         let t_base = if trigger >= 0 && (trigger as usize) < self.nch {
             self.last_crossing(trigger as usize, trig_level)
@@ -769,9 +849,28 @@ impl ScopeSampler {
         }
     }
 
+    /// Fit the signal to a 10-by-10 screen. The expanded window passes its own
+    /// division counts to [`Self::auto_scale_for`].
+    pub fn auto_scale(&self, ch: usize) -> Option<AutoScaleResult> {
+        self.auto_scale_for(ch, 10.0, 10.0)
+    }
+
     /// Automatically measures the channel signal and calculates the ideal Volt/Div,
     /// Volt Pos (vertical offset), and Time/Div to fit the waveform on screen.
-    pub fn auto_scale(&self, ch: usize) -> Option<AutoScaleResult> {
+    /// `h_divs` is the visible time divisions and `v_divs` the visible rows in
+    /// this channel's track. About 2.5 cycles span `h_divs`, and the amplitude
+    /// spans about 80% of `v_divs`.
+    pub fn auto_scale_for(&self, ch: usize, h_divs: f64, v_divs: f64) -> Option<AutoScaleResult> {
+        let h_divs = if h_divs.is_finite() {
+            h_divs.max(1e-3)
+        } else {
+            10.0
+        };
+        let v_divs = if v_divs.is_finite() {
+            v_divs.max(1e-3)
+        } else {
+            10.0
+        };
         if ch >= self.nch || self.n < 2 || !self.connected.get(ch).copied().unwrap_or(false) {
             return None;
         }
@@ -792,13 +891,7 @@ impl ScopeSampler {
 
         // If DC signal (no significant AC swing)
         if ampli <= 1e-6 {
-            let volt_pos = max_v;
-            let raw_volt_div = if max_v.abs() > 1e-6 {
-                max_v.abs() / 4.0
-            } else {
-                1.0
-            };
-            let volt_div = snap_to_step(raw_volt_div, &SCOPE_VOLT_DIV_STEPS);
+            let (volt_div, volt_pos) = fit_volt_div(max_v, max_v, v_divs);
             return Some(AutoScaleResult {
                 volt_div,
                 volt_pos,
@@ -806,10 +899,8 @@ impl ScopeSampler {
             });
         }
 
-        let mid = min_v + ampli * 0.5;
-        let volt_pos = mid;
-        let raw_volt_div = ampli / 8.0;
-        let volt_div = snap_to_step(raw_volt_div, &SCOPE_VOLT_DIV_STEPS);
+        let (volt_div, volt_pos) = fit_volt_div(min_v, max_v, v_divs);
+        let mid = volt_pos;
 
         // Period measurement using hysteresis around mid
         let hyst = (ampli * 0.1).max(1e-6);
@@ -842,8 +933,8 @@ impl ScopeSampler {
         let time_div = if n_edges > 0 {
             let avg_period = total_period / n_edges as f64;
             if avg_period > 1e-12 {
-                // Show ~2.5 full cycles across 10 horizontal screen divisions (time_div = avg_period / 4.0)
-                let raw_time_div = avg_period / 4.0;
+                // Show ~2.5 full cycles across the visible horizontal divisions.
+                let raw_time_div = avg_period * 2.5 / h_divs;
                 Some(snap_closest_step(raw_time_div, &SCOPE_TIME_DIV_STEPS))
             } else {
                 None
@@ -853,7 +944,7 @@ impl ScopeSampler {
             let f = self.freq_meters.get(ch).map(|m| m.freq).unwrap_or(0.0);
             if f > 1e-6 {
                 let period = 1.0 / f;
-                let raw_time_div = period / 4.0;
+                let raw_time_div = period * 2.5 / h_divs;
                 Some(snap_closest_step(raw_time_div, &SCOPE_TIME_DIV_STEPS))
             } else {
                 None
@@ -871,13 +962,23 @@ impl ScopeSampler {
     /// Volt/Div, Volt Pos, and the optimal global Time/Div based on the lowest
     /// detected frequency (longest period).
     pub fn auto_scale_all(&self) -> AutoScaleAllResult {
+        self.auto_scale_all_for(10.0, 10.0)
+    }
+
+    /// Same as [`Self::auto_scale_all`] for a window of `h_divs` by `v_divs`.
+    pub fn auto_scale_all_for(&self, h_divs: f64, v_divs: f64) -> AutoScaleAllResult {
+        let h_divs = if h_divs.is_finite() {
+            h_divs.max(1e-3)
+        } else {
+            10.0
+        };
         let mut results = Vec::with_capacity(self.nch);
         let mut max_period: Option<f64> = None;
 
         for ch in 0..self.nch {
-            if let Some(res) = self.auto_scale(ch) {
+            if let Some(res) = self.auto_scale_for(ch, h_divs, v_divs) {
                 if let Some(td) = res.time_div {
-                    let est_period = td * 4.0;
+                    let est_period = td * h_divs / 2.5;
                     match max_period {
                         Some(cur_max) => {
                             if est_period > cur_max {
@@ -895,7 +996,8 @@ impl ScopeSampler {
             }
         }
 
-        let time_div = max_period.map(|p| snap_closest_step(p / 4.0, &SCOPE_TIME_DIV_STEPS));
+        let time_div =
+            max_period.map(|p| snap_closest_step(p * 2.5 / h_divs, &SCOPE_TIME_DIV_STEPS));
 
         AutoScaleAllResult {
             channels: results,
@@ -1220,6 +1322,40 @@ mod tests {
     }
 
     #[test]
+    fn wider_window_reaches_further_back() {
+        assert_eq!(display_columns(10.0), DISPLAY_N);
+        assert_eq!(scope_h_divs(0.0), 10.0);
+        assert_eq!(scope_h_divs(SCOPE_DIV_PX * 10.0), 10.0);
+        assert_eq!(scope_v_divs_per_track(SCOPE_DIV_PX * 20.0, 2), 10.0);
+        assert_eq!(la_h_divs(1000.0, 800.0), 10.0);
+        assert_eq!(la_h_divs(1600.0, 800.0), 16.0);
+
+        let mut s = ScopeSampler::scope();
+        // 30 ms of history. The pulse is 15 ms before the end.
+        for i in 0..=300 {
+            let t = i as f64 * 1e-4;
+            let v = if (t - 0.015).abs() < 5e-4 { 5.0 } else { 0.0 };
+            s.push(
+                t,
+                &[v, 0.0, 0.0, 0.0],
+                &[true, false, false, false],
+                -1,
+                0.0,
+                true,
+                0.1,
+            );
+        }
+        let narrow = s.traces_with_count(1e-3, 0.0, -1, 0.0, &SCOPE_COLORS, None, 64, 10.0);
+        let wide = s.traces_with_count(1e-3, 0.0, -1, 0.0, &SCOPE_COLORS, None, 128, 20.0);
+        let high = |buf: &PlotBuffer| buf.channels[0].samples.iter().any(|&v| v > 4.0);
+        assert!(
+            !high(&narrow),
+            "a 10 ms window ending at 30 ms starts at 20 ms"
+        );
+        assert!(high(&wide), "a 20 ms window includes the pulse at 15 ms");
+    }
+
+    #[test]
     fn scope_auto_scale_sine_wave() {
         let mut s = ScopeSampler::scope();
         let freq = 1000.0; // 1 kHz -> 1 ms period
@@ -1364,8 +1500,8 @@ mod tests {
         let window = 1e-3;
         let time_div = window / 10.0;
         let phase = 5e-6;
-        let a = s.traces_with_count(time_div, 0.0, -1, 0.0, &SCOPE_COLORS, None, n);
-        let b = s.traces_with_count(time_div, phase, -1, 0.0, &SCOPE_COLORS, None, n);
+        let a = s.traces_with_count(time_div, 0.0, -1, 0.0, &SCOPE_COLORS, None, n, 10.0);
+        let b = s.traces_with_count(time_div, phase, -1, 0.0, &SCOPE_COLORS, None, n, 10.0);
 
         fn high_runs(ys: &[f64]) -> usize {
             let mut runs = 0;
@@ -1440,7 +1576,7 @@ mod tests {
                 0.1,
             );
         }
-        let buf = s.traces_with_count(1e-4, 0.0, -1, 0.0, &SCOPE_COLORS, None, 8);
+        let buf = s.traces_with_count(1e-4, 0.0, -1, 0.0, &SCOPE_COLORS, None, 8, 10.0);
         let ch = &buf.channels[0];
         let hi = ch.plot.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let lo = ch.plot.iter().copied().fold(f64::INFINITY, f64::min);

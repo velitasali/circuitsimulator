@@ -59,6 +59,7 @@ impl Oscilloscope {
     qproperty!("cursorBorder", Read = cursor_border, Notify = dark_changed);
     qproperty!("cursorText", Read = cursor_text, Notify = dark_changed);
     qproperty!("cursorFill", Read = cursor_fill, Notify = dark_changed);
+    qproperty!("paperColor", Read = paper_color, Notify = dark_changed);
     qproperty!("timeDiv", Read = time_div, Notify = time_div_changed);
     qproperty!(
         "filter",
@@ -188,6 +189,11 @@ impl Oscilloscope {
 
     fn cursor_fill(&self) -> String {
         ColorTheme::get_hex(ColorId::ScopeCursorFill, self.dark)
+    }
+
+    fn paper_color(&self) -> String {
+        // The window raster always clears with the dark-palette paper.
+        ColorTheme::get_hex(ColorId::ScopePaper, true)
     }
 
     fn hidden(&self) -> Value {
@@ -372,6 +378,7 @@ impl LogicAnalyzer {
         Notify = conds_changed
     );
     qproperty!("dark", Read = dark, Write = set_dark, Notify = dark_changed);
+    qproperty!("paperColor", Read = paper_color, Notify = dark_changed);
     qproperty!("channels", Read = channels, Notify = channels_changed);
     qproperty!("buses", Read = buses, Notify = buses_changed);
     qproperty!("timeDiv", Read = time_div, Notify = time_changed);
@@ -385,6 +392,12 @@ impl LogicAnalyzer {
     fn panning(&self) -> bool {
         self.panning
     }
+
+    fn paper_color(&self) -> String {
+        // The window raster always clears with the dark-palette paper.
+        ColorTheme::get_hex(ColorId::ScopePaper, true)
+    }
+
     fn trigger(&self) -> i32 {
         self.trigger
     }

@@ -513,15 +513,18 @@ fn paint_oscope_waves(
     hidden: &[bool; 4],
     zoom: f64,
 ) {
+    let rect = oscope_inner_rect();
+    let track_h = rect.3 / scope_track_count(tracks) as f64;
     paint_scope_waves(
         d,
-        oscope_inner_rect(),
+        rect,
         traces,
         volt_divs,
         volt_pos,
         tracks,
         hidden,
         1.0 / zoom.max(0.1),
+        track_h / 10.0,
         false,
     );
 }
@@ -558,6 +561,7 @@ fn paint_scope_waves(
     tracks: i32,
     hidden: &[bool; 4],
     px: f64,
+    div_px: f64,
     expanded: bool,
 ) {
     let Some(buf) = traces else {
@@ -579,7 +583,7 @@ fn paint_scope_waves(
         let track_center_y = y0 + (track_idx as f64 + 0.5) * track_h;
         let vd = volt_divs.get(c).copied().unwrap_or(1.0).max(1e-12);
         let vp = volt_pos.get(c).copied().unwrap_or(0.0);
-        let scale_y = track_h / (vd * 10.0);
+        let scale_y = div_px.max(1e-6) / vd;
         let color = parse_hex(&ch.color);
         let y_of = |v: f64| track_center_y - (v - vp) * scale_y;
 
@@ -621,8 +625,93 @@ fn paint_scope_waves(
     d.pop_clip();
 }
 
+/// Positions `origin + k * step` that fall inside `(min, max)`. `k = 0` is the center.
+fn for_each_grid_pos(origin: f64, step: f64, min: f64, max: f64, mut f: impl FnMut(f64, bool)) {
+    if !step.is_finite() || step <= 0.0 {
+        return;
+    }
+    if origin > min && origin < max {
+        f(origin, true);
+    }
+    let mut k = 1i32;
+    while k < 8192 {
+        let neg = origin - f64::from(k) * step;
+        let pos = origin + f64::from(k) * step;
+        let neg_in = neg > min && neg < max;
+        let pos_in = pos > min && pos < max;
+        if neg_in {
+            f(neg, false);
+        }
+        if pos_in {
+            f(pos, false);
+        }
+        if !neg_in && !pos_in {
+            break;
+        }
+        k += 1;
+    }
+}
+
+/// Expanded-scope graticule. Divisions are `cell` pixels square, anchored on the
+/// trigger at the horizontal center and on each track's volt-position line.
+fn paint_scope_window_grid(
+    d: &mut dyn Draw,
+    rect: (f64, f64, f64, f64),
+    tracks: i32,
+    grid: Color,
+    accent: Color,
+    px: f64,
+    tick: f64,
+    cell: f64,
+) {
+    let (x0, y0, w, h) = rect;
+    if w <= 1.0 || h <= 1.0 || cell <= 0.0 {
+        return;
+    }
+    let end_x = x0 + w;
+    let end_y = y0 + h;
+    let h_center = x0 + w * 0.5;
+    let num_tracks = scope_track_count(tracks);
+    let mut centers = [0.0; 4];
+    for t in 0..num_tracks {
+        centers[t] = y0 + (t as f64 + 0.5) * h / (num_tracks as f64);
+    }
+    let track_centers = &centers[..num_tracks];
+    let major = px * 0.75;
+    let center_w = px * 1.2;
+    let band_h = h / num_tracks as f64;
+
+    for_each_grid_pos(h_center, cell, x0, end_x, |x, center| {
+        let c = if center { accent } else { grid };
+        let lw = if center { center_w } else { major };
+        d.line(x, y0, x, end_y, c, lw);
+    });
+    for (t, &tc) in track_centers.iter().enumerate() {
+        let band_top = y0 + t as f64 * band_h;
+        let band_bot = band_top + band_h;
+        for_each_grid_pos(tc, cell, band_top, band_bot, |y, center| {
+            let c = if center { accent } else { grid };
+            let lw = if center { center_w } else { major };
+            d.line(x0, y, end_x, y, c, lw);
+        });
+    }
+
+    let tick_w = px * 0.75;
+    let minor = cell / 5.0;
+    for &tc in track_centers {
+        for_each_grid_pos(h_center, minor, x0, end_x, |x, _| {
+            d.line(x, tc - tick, x, tc + tick, accent, tick_w);
+        });
+    }
+    for_each_grid_pos(y0 + h * 0.5, minor, y0, end_y, |y, _| {
+        d.line(h_center - tick, y, h_center + tick, y, accent, tick_w);
+    });
+}
+
 /// Scope window picture: graticule, traces, and the expanded-view min/max marks.
-/// Coordinates are the item's pixel rectangle. The caller clears with `ScopePaper`.
+/// Coordinates are the item's device-pixel rectangle. `px` is the device pixel
+/// ratio, so one division stays [`crate::instruments::SCOPE_DIV_PX`] logical
+/// pixels. The caller clears with `ScopePaper`.
 pub fn paint_scope_screen(
     d: &mut dyn Draw,
     width: f64,
@@ -638,7 +727,8 @@ pub fn paint_scope_screen(
     let rect = (0.0, 0.0, width, height);
     let grid = scope_color(ColorId::ScopeWindowGrid);
     let accent = scope_color(ColorId::ScopeWindowAccent);
-    paint_scope_grid(d, rect, tracks, grid, accent, px, 1.5 * px);
+    let cell = crate::instruments::SCOPE_DIV_PX * px;
+    paint_scope_window_grid(d, rect, tracks, grid, accent, px, 1.5 * px, cell);
     let mid = width * 0.5;
     d.line(
         mid,
@@ -649,7 +739,7 @@ pub fn paint_scope_screen(
         px * 1.5,
     );
     paint_scope_waves(
-        d, rect, traces, volt_divs, volt_pos, tracks, hidden, px, true,
+        d, rect, traces, volt_divs, volt_pos, tracks, hidden, px, cell, true,
     );
 }
 
@@ -687,8 +777,9 @@ fn paint_la_waves(
     if w <= 1.0 || h <= 1.0 {
         return;
     }
-    let row_h = h / 8.0;
-    for (c, ch) in buf.channels.iter().enumerate().take(8) {
+    let rows = crate::instruments::LA_WINDOW_ROWS;
+    let row_h = h / rows as f64;
+    for (c, ch) in buf.channels.iter().enumerate().take(rows) {
         if !ch.connected {
             continue;
         }
@@ -705,7 +796,29 @@ fn paint_la_waves(
     }
 }
 
-/// Logic-analyzer window: eight rows, ten columns, digital traces.
+/// Expanded logic-analyzer graticule. Eight rows fill the height. Time columns
+/// are as wide as a row and are centered on the trigger.
+fn paint_la_window_grid(d: &mut dyn Draw, rect: (f64, f64, f64, f64), grid: Color, grid_w: f64) {
+    let (x0, y0, w, h) = rect;
+    if w <= 1.0 || h <= 1.0 {
+        return;
+    }
+    let rows = crate::instruments::LA_WINDOW_ROWS;
+    let end_x = x0 + w;
+    let end_y = y0 + h;
+    let row_h = h / rows as f64;
+    for gy in 1..rows {
+        let y = y0 + h * (gy as f64) / (rows as f64);
+        d.line(x0, y, end_x, y, grid, grid_w);
+    }
+    let mid = x0 + w * 0.5;
+    for_each_grid_pos(mid, row_h, x0, end_x, |x, _| {
+        d.line(x, y0, x, end_y, grid, grid_w);
+    });
+}
+
+/// Logic-analyzer window. Eight rows fill the height and time columns match
+/// that row height, so the window shows as much time as fits.
 /// Coordinates are the item's pixel rectangle. `px` is the device pixel ratio,
 /// so a 1.5 px trace stays 1.5 logical pixels. The caller clears with `ScopePaper`.
 pub fn paint_la_screen(
@@ -717,7 +830,7 @@ pub fn paint_la_screen(
 ) {
     let px = px.max(0.1);
     let rect = (0.0, 0.0, width, height);
-    paint_la_grid(d, rect, scope_color(ColorId::ScopeWindowGrid), px);
+    paint_la_window_grid(d, rect, scope_color(ColorId::ScopeWindowGrid), px);
     paint_la_waves(d, rect, traces, 3.0 * px, px * 1.5);
 }
 

@@ -215,12 +215,16 @@ Rectangle {
         return sign + abs.toFixed( 2 ) + " s"
     }
 
+    function scopeTimeSpan() {
+        var w = scopeScreen ? scopeScreen.width : 0
+        return ( Oscilloscope.timeDiv || 1e-3 ) * CircuitCanvas.scopeHDivs( w )
+    }
+
     function cursorDeltaTime() {
         var w = scopeScreen ? scopeScreen.width : 0
         if ( w <= 0 )
             return 0
-        var timeSpan = ( Oscilloscope.timeDiv || 1e-3 ) * 10.0
-        return ( ( cursorX - w / 2 ) / w ) * timeSpan
+        return ( ( cursorX - w / 2 ) / w ) * root.scopeTimeSpan()
     }
 
     function refreshCursor() {
@@ -365,7 +369,7 @@ Rectangle {
             property real dpr: Screen.devicePixelRatio
             onDprChanged: root.scheduleScopePaint()
 
-            // 10 columns by 10 rows per track, so each division stays square.
+            // Squares stay one size. A larger slot shows more time and more volts.
             Item {
                 id: scopeMask
                 anchors.fill: scopeFrame
@@ -380,25 +384,14 @@ Rectangle {
 
             Rectangle {
                 id: scopeFrame
-                anchors.centerIn: parent
-                color: "transparent"
+                anchors.fill: parent
+                color: Oscilloscope.paperColor
                 radius: 6
                 layer.enabled: true
                 layer.effect: MultiEffect {
                     maskEnabled: true
                     maskSource: scopeMask
                 }
-                readonly property int trackCount: Oscilloscope.tracks === 2 || Oscilloscope.tracks === 4 ? Oscilloscope.tracks : 1
-                readonly property real aspect: 1 / trackCount
-                width: {
-                    var slotW = displaySlot.width
-                    var slotH = displaySlot.height
-                    if ( slotW < 2 || slotH < 2 )
-                        return 2
-                    var fitted = slotH * aspect
-                    return Math.max( 2, fitted < slotW ? fitted : slotW )
-                }
-                height: width / aspect
 
             ScopeScreen {
                 id: scopeScreen
@@ -504,7 +497,7 @@ Rectangle {
                     if ( pressed && ( mouse.buttons & Qt.LeftButton ) ) {
                         var dx = mouse.x - plotMouseArea.lastDragX
                         plotMouseArea.lastDragX = mouse.x
-                        var timeSpan = ( Oscilloscope.timeDiv || 1e-3 ) * 10.0
+                        var timeSpan = root.scopeTimeSpan()
                         var dt = ( dx / Math.max( width, 1 ) ) * timeSpan
                         var ch = Oscilloscope.currentChannel
                         var copy = root.chTimePos.slice()
@@ -538,7 +531,7 @@ Rectangle {
                     }
 
                     if ( dx !== 0 ) {
-                        var timeSpan = ( Oscilloscope.timeDiv || 1e-3 ) * 10.0
+                        var timeSpan = root.scopeTimeSpan()
                         var dt = ( dx / Math.max( width, 1 ) ) * timeSpan
                         var ch = Oscilloscope.currentChannel
                         var copy = root.chTimePos.slice()

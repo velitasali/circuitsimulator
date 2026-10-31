@@ -2593,12 +2593,26 @@ impl CircuitCanvas {
 
     #[qslot]
     fn paint_scope_screen(&mut self, w: f64, h: f64, dpr: f64) {
+        self.inner.set_scope_view(w, h);
         scope_screen::render(&self.inner, w, h, dpr);
     }
 
     #[qslot]
     fn paint_la_screen(&mut self, w: f64, h: f64, dpr: f64) {
+        self.inner.set_la_view(w, h);
         la_screen::render(&self.inner, w, h, dpr);
+    }
+
+    /// Time divisions across an expanded scope of `width` logical pixels.
+    #[qslot]
+    fn scope_h_divs(&self, width: f64) -> f64 {
+        cs_engine::instruments::scope_h_divs(width)
+    }
+
+    /// Time columns across an expanded logic analyzer of this logical size.
+    #[qslot]
+    fn la_h_divs(&self, width: f64, height: f64) -> f64 {
+        cs_engine::instruments::la_h_divs(width, height)
     }
 
     /// One paint after the setters in the current event have all returned.

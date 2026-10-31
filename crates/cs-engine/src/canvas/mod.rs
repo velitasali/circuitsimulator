@@ -153,6 +153,12 @@ pub struct Canvas {
     pub(crate) la_trigger: i32,
     pub(crate) la_threshold_r: f64,
     pub(crate) la_threshold_f: f64,
+    /// Logical size of the expanded scope. Zero keeps a 10-division trace.
+    pub(crate) scope_view_w: f64,
+    pub(crate) scope_view_h: f64,
+    /// Logical size of the expanded logic analyzer. Zero keeps 10 time columns.
+    pub(crate) la_view_w: f64,
+    pub(crate) la_view_h: f64,
     pub(crate) history: History,
     pub(crate) pending: Option<Snapshot>,
     pub(crate) clipboard: Option<(String, Point)>,
@@ -254,6 +260,10 @@ impl Canvas {
             la_trigger: 0,
             la_threshold_r: crate::LA_THRESHOLD_DEFAULT,
             la_threshold_f: crate::LA_THRESHOLD_DEFAULT,
+            scope_view_w: 0.0,
+            scope_view_h: 0.0,
+            la_view_w: 0.0,
+            la_view_h: 0.0,
             history: History::new(),
             pending: None,
             clipboard: None,

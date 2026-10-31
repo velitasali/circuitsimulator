@@ -47,6 +47,12 @@ Rectangle {
         10.0, 12.0, 15.0, 20.0, 25.0, 30.0, 40.0, 50.0
     ]
 
+    function laTimeSpan() {
+        var w = laScreen ? laScreen.width : 0
+        var h = laScreen ? laScreen.height : 0
+        return ( LogicAnalyzer.timeDiv || 1e-3 ) * CircuitCanvas.laHDivs( w, h )
+    }
+
     function stepTimeDiv( dir ) {
         var cur = LogicAnalyzer.timeDiv
         var idx = 18 // 1ms default index
@@ -118,7 +124,7 @@ Rectangle {
             Layout.minimumHeight: 200
             color: appTheme.window
 
-            // 10 columns by 8 rows, so each division stays square.
+            // Eight rows fill the height. Each time column is one row wide.
             Item {
                 id: laMask
                 anchors.fill: laFrame
@@ -133,24 +139,14 @@ Rectangle {
 
             Rectangle {
                 id: laFrame
-                anchors.centerIn: parent
-                color: "transparent"
+                anchors.fill: parent
+                color: LogicAnalyzer.paperColor
                 radius: 6
                 layer.enabled: true
                 layer.effect: MultiEffect {
                     maskEnabled: true
                     maskSource: laMask
                 }
-                readonly property real aspect: 10 / 8
-                width: {
-                    var slotW = displaySlot.width
-                    var slotH = displaySlot.height
-                    if ( slotW < 2 || slotH < 2 )
-                        return 2
-                    var fitted = slotH * aspect
-                    return Math.max( 2, fitted < slotW ? fitted : slotW )
-                }
-                height: width / aspect
 
             LogicScreen {
                 id: laScreen
@@ -179,7 +175,7 @@ Rectangle {
                     if ( pressed && ( mouse.buttons & Qt.LeftButton ) ) {
                         var dx = mouse.x - laMouseArea.lastDragX
                         laMouseArea.lastDragX = mouse.x
-                        var timeSpan = ( LogicAnalyzer.timeDiv || 1e-3 ) * 10.0
+                        var timeSpan = root.laTimeSpan()
                         var dt = ( dx / Math.max( width, 1 ) ) * timeSpan
                         LogicAnalyzer.timePos = LogicAnalyzer.timePos + dt
                         CircuitCanvas.setLaTimePos( LogicAnalyzer.timePos )
@@ -204,7 +200,7 @@ Rectangle {
                     }
 
                     if ( dx !== 0 ) {
-                        var timeSpan = ( LogicAnalyzer.timeDiv || 1e-3 ) * 10.0
+                        var timeSpan = root.laTimeSpan()
                         var dt = ( dx / Math.max( width, 1 ) ) * timeSpan
                         LogicAnalyzer.timePos = LogicAnalyzer.timePos + dt
                         CircuitCanvas.setLaTimePos( LogicAnalyzer.timePos )

@@ -147,7 +147,7 @@ fn test_oscope_sampling_fidelity_rc_charging() {
     }
 
     // Extract 512 screen display samples over the 2 ms window
-    let plot = sampler.traces_with_count(time_div, 0.0, -1, 0.0, &SCOPE_COLORS, None, 512);
+    let plot = sampler.traces_with_count(time_div, 0.0, -1, 0.0, &SCOPE_COLORS, None, 512, 10.0);
 
     let ch0 = &plot.channels[0];
     assert!(ch0.connected);

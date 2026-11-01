@@ -19,6 +19,19 @@ struct FrameSize {
     dpr: f64,
 }
 
+/// Device-pixel size of an instrument window. The worker and the cursor query
+/// both use this so a marker lands on the raster.
+pub(super) fn device_size(w: f64, h: f64, dpr: f64) -> (f64, f64, f64) {
+    let dpr = if dpr.is_finite() && dpr > 0.1 {
+        dpr
+    } else {
+        1.0
+    };
+    let pw = ((w * dpr).round() as u32).clamp(1, 4096) as f64;
+    let ph = ((h * dpr).round() as u32).clamp(1, 4096) as f64;
+    (pw, ph, dpr)
+}
+
 pub struct Frame<P> {
     pub epoch: u64,
     pub w: f64,
@@ -137,20 +150,14 @@ impl<P: Send + 'static> Host<P> {
             let Some(size) = shared.size else {
                 return;
             };
-            let dpr = if size.dpr.is_finite() && size.dpr > 0.1 {
-                size.dpr
-            } else {
-                1.0
-            };
-            let pw = ((size.w * dpr).round() as u32).clamp(1, 4096);
-            let ph = ((size.h * dpr).round() as u32).clamp(1, 4096);
+            let (pw, ph, dpr) = device_size(size.w, size.h, size.dpr);
             shared.pending = Some(Frame {
                 epoch: shared.epoch,
                 w: size.w,
                 h: size.h,
                 dpr,
-                pw,
-                ph,
+                pw: pw as u32,
+                ph: ph as u32,
                 payload,
             });
         }

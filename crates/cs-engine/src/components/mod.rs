@@ -159,7 +159,10 @@ pub use dht22::{DHT_MODEL_OPTIONS, DHT22, DhtModel};
 pub use diac::Diac;
 pub use dial::Dial;
 pub use diode::Diode;
-pub use drawable::{Drawable, paint_la_screen, paint_scope_screen};
+pub use drawable::{
+    Drawable, LA_TRACE_INSET, TraceHit, la_signal_at, paint_la_screen, paint_scope_screen,
+    scope_signal_at,
+};
 pub use ds18b20::DS18B20;
 pub use ds1307::DS1307;
 pub use ds1621::DS1621;

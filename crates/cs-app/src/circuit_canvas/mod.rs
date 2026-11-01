@@ -1191,7 +1191,8 @@ impl CircuitCanvas {
     fn request_show_terminal(&mut self);
     #[qsignal]
     fn request_open_serial_mon(&mut self, mon_id: String, title: String);
-    /// Plot buffers changed. Carries no trace data. The scope cursor reads voltages on this ping.
+    /// Plot buffers changed. Carries no trace data. The scope and logic-analyzer
+    /// cursors read the sample under the pointer on this ping.
     #[qsignal]
     fn plots_changed(&mut self);
     #[qsignal]
@@ -2669,9 +2670,16 @@ impl CircuitCanvas {
         );
     }
 
+    /// Scope levels at logical time `x`.
     #[qslot]
-    fn scope_voltage_at(&self, fraction: f64) -> Value {
-        scope_screen::voltage_at(&self.inner, fraction)
+    fn scope_signal_at(&self, x: f64, w: f64, h: f64, dpr: f64) -> Value {
+        scope_screen::signal_at(&self.inner, x, w, h, dpr)
+    }
+
+    /// Logic-analyzer levels at logical time `x`.
+    #[qslot]
+    fn la_signal_at(&self, x: f64, w: f64, h: f64, dpr: f64) -> Value {
+        la_screen::signal_at(&self.inner, x, w, h, dpr)
     }
 
     #[qslot]

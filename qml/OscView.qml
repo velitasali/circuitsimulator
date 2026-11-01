@@ -160,6 +160,7 @@ Rectangle {
             Oscilloscope.setTimeDiv( res.timeDiv )
             CircuitCanvas.setScopeTimeDiv( res.timeDiv )
         }
+        root.refreshCursor()
     }
 
     function autoScaleAll() {
@@ -192,12 +193,16 @@ Rectangle {
             Oscilloscope.setTimeDiv( res.timeDiv )
             CircuitCanvas.setScopeTimeDiv( res.timeDiv )
         }
+        root.refreshCursor()
     }
 
     property bool scopePaintQueued: false
     property real cursorX: -1
     property real cursorY: -1
-    property var cursorVolts: [ null, null, null, null ]
+    property real markerX: 0
+    property real markerFraction: 0.5
+    property var markerHits: []
+    property var markerRows: []
     function scopeChannelColor( ch ) {
         var list = Oscilloscope.channels
         if ( !list || ch < 0 || ch >= list.length )
@@ -221,19 +226,57 @@ Rectangle {
     }
 
     function cursorDeltaTime() {
-        var w = scopeScreen ? scopeScreen.width : 0
-        if ( w <= 0 )
-            return 0
-        return ( ( cursorX - w / 2 ) / w ) * root.scopeTimeSpan()
+        return ( root.markerFraction - 0.5 ) * root.scopeTimeSpan()
+    }
+
+    function clearMarker() {
+        root.markerHits = []
+        root.markerRows = []
+    }
+
+    function rowsFromHits( hits ) {
+        var rows = []
+        for ( var i = 0; i < hits.length; ++i ) {
+            var h = hits[i]
+            var found = -1
+            for ( var j = 0; j < rows.length; ++j ) {
+                if ( rows[j].channel === h.channel ) {
+                    found = j
+                    break
+                }
+            }
+            if ( found < 0 )
+                rows.push( { channel: h.channel, values: [ h.value ] } )
+            else
+                rows[found].values.push( h.value )
+        }
+        return rows
+    }
+
+    function formatVolts( values ) {
+        var nums = values.slice().sort( function( a, b ) { return a - b } )
+        var lo = Number( nums[0] ).toFixed( 2 )
+        var hi = Number( nums[nums.length - 1] ).toFixed( 2 )
+        return nums.length >= 2 && lo !== hi ? lo + "–" + hi + "V" : lo + "V"
     }
 
     function refreshCursor() {
-        if ( !scopeScreen || root.cursorX < 0 || scopeScreen.width < 2 ) {
-            root.cursorVolts = [ null, null, null, null ]
+        if ( !scopeScreen || root.cursorX < 0 || scopeScreen.width < 2 || scopeScreen.height < 2 ) {
+            root.clearMarker()
             return
         }
-        var volts = CircuitCanvas.scopeVoltageAt( root.cursorX / scopeScreen.width )
-        root.cursorVolts = volts && volts.length === 4 ? volts : [ null, null, null, null ]
+        var res = CircuitCanvas.scopeSignalAt(
+                    root.cursorX, scopeScreen.width, scopeScreen.height,
+                    Screen.devicePixelRatio || 1 )
+        if ( !res || res.fraction === undefined || res.fraction === null ) {
+            root.clearMarker()
+            return
+        }
+        root.markerX = res.x
+        root.markerFraction = res.fraction
+        var hits = res.hits || []
+        root.markerHits = hits
+        root.markerRows = root.rowsFromHits( hits )
     }
 
     function repaintScope() {
@@ -251,16 +294,6 @@ Rectangle {
             root.scopePaintQueued = false
             root.repaintScope()
         } )
-    }
-
-    function cursorChannelVoltage( ch ) {
-        var v = root.cursorVolts
-        if ( !v || ch < 0 || ch >= v.length )
-            return null
-        var n = v[ch]
-        if ( n === null || n === undefined )
-            return null
-        return n
     }
 
     function formatEng( val, unit ) {
@@ -410,22 +443,30 @@ Rectangle {
                 Rectangle {
                     width: 1
                     height: parent.height
-                    x: Math.round( root.cursorX )
+                    x: Math.round( root.markerX )
                     color: Oscilloscope.cursorColor
                     opacity: 0.85
                 }
-                Rectangle {
-                    width: parent.width
-                    height: 1
-                    y: Math.round( root.cursorY )
-                    color: Oscilloscope.cursorColor
-                    opacity: 0.85
+                Repeater {
+                    model: root.markerHits
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: 7
+                        height: 7
+                        radius: 3.5
+                        x: Math.round( root.markerX ) - 3
+                        y: Math.round( modelData.y ) - 3
+                        visible: modelData.y >= -1 && modelData.y <= cursorOverlay.height + 1
+                        color: root.scopeChannelColor( modelData.channel )
+                        border.width: 1
+                        border.color: Oscilloscope.cursorColor
+                    }
                 }
 
                 Rectangle {
                     id: measureBox
                     x: Math.min( parent.width - width - 6, Math.max( 6, root.cursorX + 8 ) )
-                    y: Math.min( parent.height - height - 6, Math.max( 6, root.cursorY - 8 ) )
+                    y: Math.min( parent.height - height - 6, Math.max( 6, root.cursorY + 8 ) )
                     width: measureCol.implicitWidth + 12
                     height: measureCol.implicitHeight + 8
                     radius: 3
@@ -444,33 +485,15 @@ Rectangle {
                             font.bold: true
                             font.pixelSize: App.fontMicro
                         }
-                        AppText {
-                            visible: root.cursorChannelVoltage( 0 ) !== null
-                            text: "Ch 1: " + Number( root.cursorChannelVoltage( 0 ) || 0 ).toFixed( 2 ) + "V"
-                            color: root.scopeChannelColor( 0 )
-                            font.bold: true
-                            font.pixelSize: App.fontMicro
-                        }
-                        AppText {
-                            visible: root.cursorChannelVoltage( 1 ) !== null
-                            text: "Ch 2: " + Number( root.cursorChannelVoltage( 1 ) || 0 ).toFixed( 2 ) + "V"
-                            color: root.scopeChannelColor( 1 )
-                            font.bold: true
-                            font.pixelSize: App.fontMicro
-                        }
-                        AppText {
-                            visible: root.cursorChannelVoltage( 2 ) !== null
-                            text: "Ch 3: " + Number( root.cursorChannelVoltage( 2 ) || 0 ).toFixed( 2 ) + "V"
-                            color: root.scopeChannelColor( 2 )
-                            font.bold: true
-                            font.pixelSize: App.fontMicro
-                        }
-                        AppText {
-                            visible: root.cursorChannelVoltage( 3 ) !== null
-                            text: "Ch 4: " + Number( root.cursorChannelVoltage( 3 ) || 0 ).toFixed( 2 ) + "V"
-                            color: root.scopeChannelColor( 3 )
-                            font.bold: true
-                            font.pixelSize: App.fontMicro
+                        Repeater {
+                            model: root.markerRows
+                            delegate: AppText {
+                                required property var modelData
+                                text: "Ch " + ( modelData.channel + 1 ) + ": " + root.formatVolts( modelData.values )
+                                color: root.scopeChannelColor( modelData.channel )
+                                font.bold: true
+                                font.pixelSize: App.fontMicro
+                            }
                         }
                     }
                 }
@@ -511,7 +534,7 @@ Rectangle {
                 onExited: {
                     root.cursorX = -1
                     root.cursorY = -1
-                    root.cursorVolts = [ null, null, null, null ]
+                    root.clearMarker()
                 }
                 onReleased: Oscilloscope.plotReleased()
 
@@ -616,6 +639,7 @@ Rectangle {
                             onClicked: {
                                 Oscilloscope.tracksClicked( modelData )
                                 CircuitCanvas.setScopeTracks( modelData )
+                                root.refreshCursor()
                             }
                         }
                     }
@@ -700,6 +724,7 @@ Rectangle {
                         root.chVoltDiv = copy
                         Oscilloscope.setChVoltDiv( ch, newVal )
                         CircuitCanvas.setScopeVoltDiv( ch, newVal )
+                        root.refreshCursor()
                     }
                 }
 
@@ -718,6 +743,7 @@ Rectangle {
                         root.chVoltPos = copy
                         Oscilloscope.setChVoltPos( ch, newVal )
                         CircuitCanvas.setScopeVoltPos( ch, newVal )
+                        root.refreshCursor()
                     }
                 }
 

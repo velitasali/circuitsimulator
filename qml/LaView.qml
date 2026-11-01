@@ -33,6 +33,11 @@ Rectangle {
         }
     }
 
+    Connections {
+        target: CircuitCanvas
+        function onPlotsChanged() { root.refreshCursor() }
+    }
+
     readonly property var timeDivSteps: [
         1e-9, 1.2e-9, 1.5e-9, 2e-9, 2.5e-9, 3e-9, 4e-9, 5e-9, 6e-9, 7e-9, 8e-9, 9e-9,
         1e-8, 1.2e-8, 1.5e-8, 2e-8, 2.5e-8, 3e-8, 4e-8, 5e-8, 6e-8, 7e-8, 8e-8, 9e-8,
@@ -93,11 +98,95 @@ Rectangle {
     }
 
     property bool laPaintQueued: false
+    property real cursorX: -1
+    property real cursorY: -1
+    property real markerX: 0
+    property real markerFraction: 0.5
+    property var markerHits: []
+    property var markerRows: []
+
+    function laChannelColor( ch ) {
+        var list = LogicAnalyzer.channels
+        if ( !list || ch < 0 || ch >= list.length )
+            return LogicAnalyzer.cursorText
+        return list[ch].color
+    }
+
+    function formatEngTime( val ) {
+        var sign = val < 0 ? "-" : "+"
+        var abs = Math.abs( val )
+        if ( abs < 1e-9 ) return "0.00 s"
+        if ( abs < 1e-6 ) return sign + ( abs * 1e9 ).toFixed( 1 ) + " ns"
+        if ( abs < 1e-3 ) return sign + ( abs * 1e6 ).toFixed( 1 ) + " µs"
+        if ( abs < 1.0 ) return sign + ( abs * 1e3 ).toFixed( 2 ) + " ms"
+        return sign + abs.toFixed( 2 ) + " s"
+    }
+
+    function formatLevel( val ) {
+        if ( val >= 0.995 ) return "1"
+        if ( val <= 0.005 ) return "0"
+        return Number( val ).toFixed( 2 )
+    }
+
+    function formatLevels( values ) {
+        var nums = values.slice().sort( function( a, b ) { return a - b } )
+        var lo = root.formatLevel( nums[0] )
+        var hi = root.formatLevel( nums[nums.length - 1] )
+        return lo === hi ? lo : lo + "–" + hi
+    }
+
+    function rowsFromHits( hits ) {
+        var rows = []
+        for ( var i = 0; i < hits.length; ++i ) {
+            var h = hits[i]
+            var found = -1
+            for ( var j = 0; j < rows.length; ++j ) {
+                if ( rows[j].channel === h.channel ) {
+                    found = j
+                    break
+                }
+            }
+            if ( found < 0 )
+                rows.push( { channel: h.channel, values: [ h.value ] } )
+            else
+                rows[found].values.push( h.value )
+        }
+        return rows
+    }
+
+    function cursorDeltaTime() {
+        return ( root.markerFraction - 0.5 ) * root.laTimeSpan()
+    }
+
+    function clearMarker() {
+        root.markerHits = []
+        root.markerRows = []
+    }
+
+    function refreshCursor() {
+        if ( !laScreen || root.cursorX < 0 || laScreen.width < 2 || laScreen.height < 2 ) {
+            root.clearMarker()
+            return
+        }
+        var res = CircuitCanvas.laSignalAt(
+                    root.cursorX, laScreen.width, laScreen.height,
+                    Screen.devicePixelRatio || 1 )
+        if ( !res || res.fraction === undefined || res.fraction === null ) {
+            root.clearMarker()
+            return
+        }
+        root.markerX = res.x
+        root.markerFraction = res.fraction
+        var hits = res.hits || []
+        root.markerHits = hits
+        root.markerRows = root.rowsFromHits( hits )
+    }
 
     function repaintLa() {
         if ( !laScreen || laScreen.width < 2 || laScreen.height < 2 )
             return
         CircuitCanvas.paintLaScreen( laScreen.width, laScreen.height, Screen.devicePixelRatio || 1 )
+        root.refreshCursor()
     }
 
     function scheduleLaPaint() {
@@ -158,12 +247,77 @@ Rectangle {
                 Component.onCompleted: root.scheduleLaPaint()
             }
 
+            Item {
+                id: cursorOverlay
+                anchors.fill: parent
+                visible: root.cursorX >= 0 && root.cursorX <= width && root.cursorY >= 0 && root.cursorY <= height
+                z: 1
+
+                Rectangle {
+                    width: 1
+                    height: parent.height
+                    x: Math.round( root.markerX )
+                    color: LogicAnalyzer.cursorColor
+                    opacity: 0.85
+                }
+                Repeater {
+                    model: root.markerHits
+                    delegate: Rectangle {
+                        required property var modelData
+                        width: 7
+                        height: 7
+                        radius: 3.5
+                        x: Math.round( root.markerX ) - 3
+                        y: Math.round( modelData.y ) - 3
+                        visible: modelData.y >= -1 && modelData.y <= cursorOverlay.height + 1
+                        color: root.laChannelColor( modelData.channel )
+                        border.width: 1
+                        border.color: LogicAnalyzer.cursorColor
+                    }
+                }
+
+                Rectangle {
+                    x: Math.min( parent.width - width - 6, Math.max( 6, root.cursorX + 8 ) )
+                    y: Math.min( parent.height - height - 6, Math.max( 6, root.cursorY + 8 ) )
+                    width: measureCol.implicitWidth + 12
+                    height: measureCol.implicitHeight + 8
+                    radius: 3
+                    color: LogicAnalyzer.cursorFill
+                    border.color: LogicAnalyzer.cursorBorder
+                    border.width: 1
+
+                    Column {
+                        id: measureCol
+                        anchors.centerIn: parent
+                        spacing: 1
+
+                        AppText {
+                            text: "Δt: " + root.formatEngTime( root.cursorDeltaTime() )
+                            color: LogicAnalyzer.cursorText
+                            font.bold: true
+                            font.pixelSize: App.fontMicro
+                        }
+                        Repeater {
+                            model: root.markerRows
+                            delegate: AppText {
+                                required property var modelData
+                                text: "Ch " + ( modelData.channel + 1 ) + ": " + root.formatLevels( modelData.values )
+                                color: root.laChannelColor( modelData.channel )
+                                font.bold: true
+                                font.pixelSize: App.fontMicro
+                            }
+                        }
+                    }
+                }
+            }
+
             MouseArea {
                 id: laMouseArea
                 anchors.fill: parent
+                z: 2
                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                hoverEnabled: false
-                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                hoverEnabled: true
+                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.CrossCursor
 
                 property real lastDragX: 0
 
@@ -172,6 +326,9 @@ Rectangle {
                     LogicAnalyzer.plotPressed( mouse.x, mouse.button )
                 }
                 onPositionChanged: (mouse) => {
+                    root.cursorX = mouse.x
+                    root.cursorY = mouse.y
+                    root.refreshCursor()
                     if ( pressed && ( mouse.buttons & Qt.LeftButton ) ) {
                         var dx = mouse.x - laMouseArea.lastDragX
                         laMouseArea.lastDragX = mouse.x
@@ -181,6 +338,11 @@ Rectangle {
                         CircuitCanvas.setLaTimePos( LogicAnalyzer.timePos )
                         LogicAnalyzer.plotMoved( mouse.x )
                     }
+                }
+                onExited: {
+                    root.cursorX = -1
+                    root.cursorY = -1
+                    root.clearMarker()
                 }
                 onReleased: LogicAnalyzer.plotReleased()
 

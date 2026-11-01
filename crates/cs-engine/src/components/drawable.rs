@@ -488,20 +488,47 @@ fn paint_scope_grid(
     }
 }
 
-fn trace_points(ch: &Channel, x0: f64, width: f64, y_of: impl Fn(f64) -> f64) -> Vec<[f64; 2]> {
+/// `(fraction, value)` vertices the stroke actually draws. Timed `plot` points
+/// win. Otherwise the uniform `samples` grid is stretched across the width.
+fn trace_vertices(ch: &Channel) -> Vec<(f64, f64)> {
     if ch.plot.len() >= 2 && ch.plot.len() == ch.plot_x.len() {
-        let mut pts = Vec::with_capacity(ch.plot.len());
-        for (&x, &v) in ch.plot_x.iter().zip(ch.plot.iter()) {
-            pts.push([x0 + x * width, y_of(v)]);
-        }
-        return pts;
+        return ch
+            .plot_x
+            .iter()
+            .copied()
+            .zip(ch.plot.iter().copied())
+            .collect();
     }
     let last = ch.samples.len().saturating_sub(1).max(1) as f64;
-    let mut pts = Vec::with_capacity(ch.samples.len());
-    for (k, &v) in ch.samples.iter().enumerate() {
-        pts.push([x0 + (k as f64 / last) * width, y_of(v)]);
+    ch.samples
+        .iter()
+        .enumerate()
+        .map(|(k, &v)| (k as f64 / last, v))
+        .collect()
+}
+
+fn trace_points(ch: &Channel, x0: f64, width: f64, y_of: impl Fn(f64) -> f64) -> Vec<[f64; 2]> {
+    let verts = trace_vertices(ch);
+    let mut pts = Vec::with_capacity(verts.len());
+    for (x, v) in verts {
+        pts.push([x0 + x * width, y_of(v)]);
     }
     pts
+}
+
+/// Scope trace Y. `div_px` is one division in the same units as `track_center_y`.
+fn scope_trace_y(v: f64, track_center_y: f64, volt_pos: f64, div_px: f64, volt_div: f64) -> f64 {
+    let scale_y = div_px.max(1e-6) / volt_div.max(1e-12);
+    track_center_y - (v - volt_pos) * scale_y
+}
+
+/// Logical pixels from a logic-analyzer row edge to the drawn high or low level.
+/// The window multiplies this by the device pixel ratio.
+pub const LA_TRACE_INSET: f64 = 3.0;
+
+fn la_trace_y(v: f64, row_y: f64, row_h: f64, inset: f64) -> f64 {
+    let bit = v.clamp(0.0, 1.0);
+    row_y + row_h - inset - bit * (row_h - 2.0 * inset)
 }
 
 fn paint_oscope_waves(
@@ -581,11 +608,10 @@ fn paint_scope_waves(
         let track_idx = c % num_tracks;
         let track_h = h / (num_tracks as f64);
         let track_center_y = y0 + (track_idx as f64 + 0.5) * track_h;
-        let vd = volt_divs.get(c).copied().unwrap_or(1.0).max(1e-12);
+        let vd = volt_divs.get(c).copied().unwrap_or(1.0);
         let vp = volt_pos.get(c).copied().unwrap_or(0.0);
-        let scale_y = div_px.max(1e-6) / vd;
         let color = parse_hex(&ch.color);
-        let y_of = |v: f64| track_center_y - (v - vp) * scale_y;
+        let y_of = |v: f64| scope_trace_y(v, track_center_y, vp, div_px, vd);
 
         let pts = trace_points(ch, x0, w, y_of);
         d.polyline(&pts, color, px * 1.5, false);
@@ -788,10 +814,7 @@ fn paint_la_waves(
             continue;
         }
         let row_y = y0 + (c as f64) * row_h;
-        let pts = trace_points(ch, x0, w, |v| {
-            let bit = v.clamp(0.0, 1.0);
-            row_y + row_h - inset - bit * (row_h - 2.0 * inset)
-        });
+        let pts = trace_points(ch, x0, w, |v| la_trace_y(v, row_y, row_h, inset));
         d.polyline(&pts, parse_hex(&ch.color), trace_w, false);
     }
 }
@@ -831,7 +854,201 @@ pub fn paint_la_screen(
     let px = px.max(0.1);
     let rect = (0.0, 0.0, width, height);
     paint_la_window_grid(d, rect, scope_color(ColorId::ScopeWindowGrid), px);
-    paint_la_waves(d, rect, traces, 3.0 * px, px * 1.5);
+    paint_la_waves(d, rect, traces, LA_TRACE_INSET * px, px * 1.5);
+}
+
+/// One point on a painted trace. `x` and `y` use the same coordinates as the
+/// width and height passed to the query. For a window that is the device-pixel
+/// picture, which the façade maps back to logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TraceHit {
+    pub channel: usize,
+    /// Time across the window, 0 at the left edge and 1 at the right.
+    pub fraction: f64,
+    /// Volts on the scope. Drawn 0 or 1 level on the logic analyzer.
+    pub value: f64,
+    pub x: f64,
+    pub y: f64,
+}
+
+const TIME_EPS: f64 = 1e-9;
+
+/// Levels of `vertices` at `fraction`. A slope or a hold contributes one value.
+/// A min/max band contributes its low and high edges. A vertical step contributes
+/// the level the stroke continues with on the right of that instant.
+fn levels_at(vertices: &[(f64, f64)], fraction: f64) -> Vec<f64> {
+    let fraction = fraction.clamp(0.0, 1.0);
+    let mut spans = Vec::new();
+    for pair in vertices.windows(2) {
+        let (f0, v0) = pair[0];
+        let (f1, v1) = pair[1];
+        if (f1 - f0).abs() <= TIME_EPS {
+            continue;
+        }
+        let lo = f0.min(f1);
+        let hi = f0.max(f1);
+        if fraction < lo - TIME_EPS || fraction > hi + TIME_EPS {
+            continue;
+        }
+        spans.push((f0, f1, v0, v1));
+    }
+    let interior = spans.iter().any(|&(f0, f1, _, _)| {
+        let lo = f0.min(f1);
+        let hi = f0.max(f1);
+        fraction > lo + TIME_EPS && fraction < hi - TIME_EPS
+    });
+    let any_right = spans
+        .iter()
+        .any(|&(f0, f1, _, _)| f0.max(f1) > fraction + TIME_EPS);
+    let mut values = Vec::new();
+    for &(f0, f1, v0, v1) in &spans {
+        let lo = f0.min(f1);
+        let hi = f0.max(f1);
+        let covers = if interior {
+            fraction > lo + TIME_EPS && fraction < hi - TIME_EPS
+        } else if any_right {
+            hi > fraction + TIME_EPS
+        } else {
+            true
+        };
+        if !covers {
+            continue;
+        }
+        let t = ((fraction - f0) / (f1 - f0)).clamp(0.0, 1.0);
+        let value = v0 + t * (v1 - v0);
+        if values.iter().all(|v: &f64| (v - value).abs() > 1e-6) {
+            values.push(value);
+        }
+    }
+    if values.is_empty() {
+        let mut held = None;
+        for &(f, v) in vertices {
+            if f <= fraction + TIME_EPS {
+                held = Some(v);
+            }
+        }
+        if let Some(v) = held {
+            values.push(v);
+        }
+    }
+    // A step on the right edge has no span past that instant. The vertical's
+    // end is the level the stroke finishes on. A band still has two edges, so
+    // a single incoming level is what gets replaced.
+    if !interior && !any_right && values.len() == 1 {
+        let pre = values[0];
+        let mut rise = None;
+        for pair in vertices.windows(2) {
+            let (f0, v0) = pair[0];
+            let (f1, v1) = pair[1];
+            if (f1 - f0).abs() <= TIME_EPS
+                && (f0 - fraction).abs() <= TIME_EPS
+                && (v0 - pre).abs() <= 1e-6
+                && (v1 - v0).abs() > 1e-6
+            {
+                rise = Some(v1);
+            }
+        }
+        if let Some(v) = rise {
+            values.clear();
+            values.push(v);
+        }
+    }
+    values.sort_by(f64::total_cmp);
+    values
+}
+
+fn push_levels(
+    out: &mut Vec<TraceHit>,
+    channel: usize,
+    fraction: f64,
+    width: f64,
+    values: &[f64],
+    y_of: impl Fn(f64) -> f64,
+) {
+    let fraction = fraction.clamp(0.0, 1.0);
+    let x = fraction * width;
+    for &value in values {
+        out.push(TraceHit {
+            channel,
+            fraction,
+            value,
+            x,
+            y: y_of(value),
+        });
+    }
+}
+
+/// Every visible scope level at `fraction` (0 at the left edge, 1 at the right).
+/// Coordinates match [`paint_scope_screen`]: `div_px` is one division, and a
+/// channel drawn on a track uses that track's center. Hidden, disconnected, and
+/// short channels are skipped the same way as the painter. A min/max band
+/// returns both edges. `y` may fall outside the window when the volts do.
+pub fn scope_signal_at(
+    width: f64,
+    height: f64,
+    fraction: f64,
+    div_px: f64,
+    traces: &PlotBuffer,
+    volt_divs: &[f64; 4],
+    volt_pos: &[f64; 4],
+    tracks: i32,
+    hidden: &[bool; 4],
+) -> Vec<TraceHit> {
+    if width <= 1.0 || height <= 1.0 {
+        return Vec::new();
+    }
+    let num_tracks = scope_track_count(tracks);
+    let mut out = Vec::new();
+    for (c, ch) in traces.channels.iter().enumerate().take(4) {
+        if hidden.get(c).copied().unwrap_or(false) || !ch.connected || ch.samples.len() < 2 {
+            continue;
+        }
+        let track_idx = c % num_tracks;
+        let track_h = height / num_tracks as f64;
+        let track_center_y = (track_idx as f64 + 0.5) * track_h;
+        let vd = volt_divs.get(c).copied().unwrap_or(1.0);
+        let vp = volt_pos.get(c).copied().unwrap_or(0.0);
+        let y_of = |v: f64| scope_trace_y(v, track_center_y, vp, div_px, vd);
+        let values = levels_at(&trace_vertices(ch), fraction);
+        push_levels(&mut out, c, fraction, width, &values, y_of);
+    }
+    out
+}
+
+/// Every visible logic-analyzer level at `fraction`. Coordinates and `inset`
+/// match [`paint_la_screen`]. The value is the drawn level in 0..1. A step
+/// uses the level the stroke continues with. A band returns both edges.
+pub fn la_signal_at(
+    width: f64,
+    height: f64,
+    fraction: f64,
+    inset: f64,
+    traces: &PlotBuffer,
+) -> Vec<TraceHit> {
+    if width <= 1.0 || height <= 1.0 {
+        return Vec::new();
+    }
+    let rows = crate::instruments::LA_WINDOW_ROWS;
+    let row_h = height / rows as f64;
+    let mut out = Vec::new();
+    for (c, ch) in traces.channels.iter().enumerate().take(rows) {
+        if !ch.connected {
+            continue;
+        }
+        let has_plot = ch.plot.len() >= 2 && ch.plot.len() == ch.plot_x.len();
+        if !has_plot && ch.samples.len() < 2 {
+            continue;
+        }
+        let row_y = c as f64 * row_h;
+        let domain: Vec<(f64, f64)> = trace_vertices(ch)
+            .into_iter()
+            .map(|(fraction, v)| (fraction, v.clamp(0.0, 1.0)))
+            .collect();
+        let y_of = |bit: f64| la_trace_y(bit, row_y, row_h, inset);
+        let values = levels_at(&domain, fraction);
+        push_levels(&mut out, c, fraction, width, &values, y_of);
+    }
+    out
 }
 
 pub fn paint_lanalizer(
@@ -1046,5 +1263,272 @@ pub fn paint_dip_package(
             );
             d.pop();
         }
+    }
+}
+
+#[cfg(test)]
+mod trace_hit_tests {
+    use super::{LA_TRACE_INSET, TraceHit, la_signal_at, scope_signal_at};
+    use crate::instruments::SCOPE_DIV_PX;
+    use crate::plot::{Channel, PlotBuffer};
+
+    fn near(a: f64, b: f64) {
+        assert!((a - b).abs() < 1e-6, "{a} != {b}");
+    }
+
+    fn channel(plot_x: &[f64], plot: &[f64]) -> Channel {
+        Channel {
+            color: "#ffffff".into(),
+            samples: vec![0.0, 0.0],
+            plot: plot.to_vec(),
+            plot_x: plot_x.to_vec(),
+            connected: true,
+        }
+    }
+
+    fn scope(
+        channels: Vec<Channel>,
+        fraction: f64,
+        tracks: i32,
+        hidden: [bool; 4],
+        volt_pos: [f64; 4],
+    ) -> Vec<TraceHit> {
+        scope_signal_at(
+            400.0,
+            200.0,
+            fraction,
+            SCOPE_DIV_PX,
+            &PlotBuffer { channels, n: 2 },
+            &[1.0; 4],
+            &volt_pos,
+            tracks,
+            &hidden,
+        )
+    }
+
+    #[test]
+    fn slope_lands_on_the_line() {
+        // y = 100 - volts * 48. From 0 V to 1 V the stroke runs (0, 100) → (400, 52).
+        let hits = scope(
+            vec![channel(&[0.0, 1.0], &[0.0, 1.0])],
+            0.75,
+            1,
+            [false; 4],
+            [0.0; 4],
+        );
+        assert_eq!(hits.len(), 1);
+        near(hits[0].fraction, 0.75);
+        near(hits[0].value, 0.75);
+        near(hits[0].x, 300.0);
+        near(hits[0].y, 64.0);
+    }
+
+    #[test]
+    fn horizontal_hold_uses_the_trace_y() {
+        let hits = scope(
+            vec![channel(&[0.0, 1.0], &[1.5, 1.5])],
+            0.25,
+            1,
+            [false; 4],
+            [0.0; 4],
+        );
+        assert_eq!(hits.len(), 1);
+        near(hits[0].value, 1.5);
+        near(hits[0].y, 28.0);
+        near(hits[0].x, 100.0);
+    }
+
+    #[test]
+    fn step_keeps_the_level_that_continues() {
+        let step = channel(&[0.0, 0.5, 0.5, 1.0], &[0.0, 0.0, 1.0, 1.0]);
+        let at_edge = scope(vec![step.clone()], 0.5, 1, [false; 4], [0.0; 4]);
+        assert_eq!(at_edge.len(), 1);
+        near(at_edge[0].value, 1.0);
+        near(at_edge[0].y, 52.0);
+        let before = scope(vec![step], 0.49, 1, [false; 4], [0.0; 4]);
+        assert_eq!(before.len(), 1);
+        near(before[0].value, 0.0);
+        near(before[0].y, 100.0);
+    }
+
+    #[test]
+    fn step_at_the_right_edge_uses_the_final_level() {
+        let hits = scope(
+            vec![channel(&[0.0, 1.0, 1.0], &[0.0, 0.0, 1.0])],
+            1.0,
+            1,
+            [false; 4],
+            [0.0; 4],
+        );
+        assert_eq!(hits.len(), 1);
+        near(hits[0].value, 1.0);
+        near(hits[0].y, 52.0);
+    }
+
+    #[test]
+    fn band_at_the_right_edge_keeps_both_edges() {
+        let outline = channel(
+            &[0.8, 0.8, 1.0, 1.0, 0.8, 1.0, 1.0],
+            &[0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+        );
+        let hits = scope(vec![outline], 1.0, 1, [false; 4], [0.0; 4]);
+        assert_eq!(hits.len(), 2);
+        near(hits[0].value, 0.0);
+        near(hits[1].value, 1.0);
+    }
+
+    #[test]
+    fn band_marks_both_edges() {
+        // emit_band outline: left, top, right, bottom, step back, then the exit.
+        let outline = channel(
+            &[0.4, 0.4, 0.6, 0.6, 0.4, 0.6, 0.6],
+            &[0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+        );
+        let hits = scope(vec![outline.clone()], 0.5, 1, [false; 4], [0.0; 4]);
+        assert_eq!(hits.len(), 2);
+        near(hits[0].value, 0.0);
+        near(hits[0].y, 100.0);
+        near(hits[1].value, 1.0);
+        near(hits[1].y, 52.0);
+        let edge = scope(vec![outline], 0.4, 1, [false; 4], [0.0; 4]);
+        assert_eq!(edge.len(), 2);
+        near(edge[0].value, 0.0);
+        near(edge[1].value, 1.0);
+    }
+
+    #[test]
+    fn every_visible_channel_is_marked() {
+        let flat = channel(&[0.0, 1.0], &[0.0, 0.0]);
+        let hits = scope(vec![flat.clone(), flat], 0.2, 2, [false; 4], [0.0; 4]);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].channel, 0);
+        near(hits[0].y, 50.0);
+        assert_eq!(hits[1].channel, 1);
+        near(hits[1].y, 150.0);
+    }
+
+    #[test]
+    fn hidden_channel_is_skipped() {
+        let flat = channel(&[0.0, 1.0], &[0.0, 0.0]);
+        let hits = scope(
+            vec![flat.clone(), flat],
+            0.2,
+            2,
+            [true, false, false, false],
+            [0.0; 4],
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].channel, 1);
+        assert!(
+            scope(
+                vec![channel(&[0.0, 1.0], &[0.0, 0.0])],
+                0.2,
+                1,
+                [true, false, false, false],
+                [0.0; 4],
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn volt_pos_shifts_the_level() {
+        let hits = scope(
+            vec![channel(&[0.0, 1.0], &[1.0, 1.0])],
+            0.1,
+            1,
+            [false; 4],
+            [1.0, 0.0, 0.0, 0.0],
+        );
+        assert_eq!(hits.len(), 1);
+        near(hits[0].value, 1.0);
+        near(hits[0].y, 100.0);
+    }
+
+    #[test]
+    fn samples_grid_interpolates_between_columns() {
+        let mut ch = channel(&[], &[]);
+        ch.plot.clear();
+        ch.plot_x.clear();
+        ch.samples = vec![0.0, 0.0, 0.0, 0.0, 2.0];
+        let hits = scope(vec![ch], 0.875, 1, [false; 4], [0.0; 4]);
+        assert_eq!(hits.len(), 1);
+        near(hits[0].value, 1.0);
+        near(hits[0].y, 52.0);
+    }
+
+    #[test]
+    fn offscreen_slope_reports_the_true_voltage() {
+        let hits = scope(
+            vec![channel(&[0.0, 1.0], &[0.0, 4.0])],
+            0.75,
+            1,
+            [false; 4],
+            [0.0; 4],
+        );
+        assert_eq!(hits.len(), 1);
+        near(hits[0].value, 3.0);
+        near(hits[0].y, -44.0);
+    }
+
+    #[test]
+    fn la_marks_every_row() {
+        let mut channels = Vec::new();
+        for row in 0..8 {
+            let level = if row == 2 { 1.0 } else { 0.0 };
+            channels.push(channel(&[0.0, 1.0], &[level, level]));
+        }
+        let hits = la_signal_at(
+            320.0,
+            160.0,
+            0.5,
+            LA_TRACE_INSET,
+            &PlotBuffer { channels, n: 2 },
+        );
+        assert_eq!(hits.len(), 8);
+        let high = hits.iter().find(|hit| hit.channel == 2).unwrap();
+        near(high.value, 1.0);
+        near(high.y, 43.0);
+        assert!(
+            hits.iter()
+                .filter(|hit| hit.channel != 2)
+                .all(|hit| (hit.value - 0.0).abs() < 1e-6)
+        );
+    }
+
+    #[test]
+    fn la_step_keeps_the_level_that_continues() {
+        let hits = la_signal_at(
+            320.0,
+            160.0,
+            0.5,
+            LA_TRACE_INSET,
+            &PlotBuffer {
+                channels: vec![channel(&[0.0, 0.5, 0.5, 1.0], &[0.0, 0.0, 1.0, 1.0])],
+                n: 2,
+            },
+        );
+        assert_eq!(hits.len(), 1);
+        near(hits[0].value, 1.0);
+        near(hits[0].y, 3.0);
+    }
+
+    #[test]
+    fn la_timed_plot_is_hit_without_a_sample_grid() {
+        let mut ch = channel(&[0.0, 1.0], &[1.0, 1.0]);
+        ch.samples.clear();
+        let hits = la_signal_at(
+            320.0,
+            160.0,
+            0.25,
+            LA_TRACE_INSET,
+            &PlotBuffer {
+                channels: vec![ch],
+                n: 0,
+            },
+        );
+        assert_eq!(hits.len(), 1);
+        near(hits[0].value, 1.0);
+        near(hits[0].y, 3.0);
     }
 }

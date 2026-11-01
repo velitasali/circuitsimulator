@@ -2,7 +2,8 @@
 
 use cs_engine::canvas::{self, Canvas, Color, ImageBuf};
 use cs_engine::components;
-use cs_engine::plot::{Channel, PlotBuffer};
+use cs_engine::instruments;
+use cs_engine::plot::PlotBuffer;
 use cs_engine::theme::{ColorId, ColorTheme};
 use serde_json::{Value, json};
 
@@ -73,43 +74,37 @@ pub extern "C" fn cs_scope_screen_closed() {
     HOST.close();
 }
 
-pub fn voltage_at(canvas: &Canvas, fraction: f64) -> Value {
-    let hidden = canvas.scope_hidden();
-    let buf = canvas.scope_traces();
-    let mut out = Vec::with_capacity(4);
-    for c in 0..4 {
-        let ch = buf.channels.get(c);
-        let value = if hidden[c] {
-            None
-        } else {
-            ch.filter(|ch| ch.connected)
-                .and_then(|ch| held_voltage(ch, fraction))
-        };
-        out.push(match value {
-            Some(v) => json!(v),
-            None => Value::Null,
-        });
+/// Scope levels at logical time `x`. Each hit's `y` is in logical pixels.
+pub fn signal_at(canvas: &Canvas, x: f64, w: f64, h: f64, dpr: f64) -> Value {
+    if w < 2.0 || h < 2.0 {
+        return Value::Null;
     }
-    Value::Array(out)
-}
-
-fn held_voltage(ch: &Channel, fraction: f64) -> Option<f64> {
-    let fraction = fraction.clamp(0.0, 1.0);
-    if ch.plot.len() >= 2 && ch.plot.len() == ch.plot_x.len() {
-        let mut held = ch.plot[0];
-        for (&x, &v) in ch.plot_x.iter().zip(ch.plot.iter()) {
-            if x <= fraction + 1e-6 {
-                held = v;
-            } else {
-                break;
-            }
-        }
-        return Some(held);
-    }
-    let n = ch.samples.len();
-    if n == 0 {
-        return None;
-    }
-    let idx = ((fraction * (n - 1) as f64).round() as usize).min(n - 1);
-    Some(ch.samples[idx])
+    let (pw, ph, dpr) = super::screen::device_size(w, h, dpr);
+    let fraction = (x / w).clamp(0.0, 1.0);
+    let hits = components::scope_signal_at(
+        pw,
+        ph,
+        fraction,
+        instruments::SCOPE_DIV_PX * dpr,
+        canvas.scope_traces(),
+        &canvas.scope_volt_div(),
+        &canvas.scope_volt_pos(),
+        canvas.scope_tracks(),
+        &canvas.scope_hidden(),
+    );
+    let hits = hits
+        .iter()
+        .map(|hit| {
+            json!({
+                "channel": hit.channel,
+                "value": hit.value,
+                "y": hit.y * h / ph,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "fraction": fraction,
+        "x": fraction * w,
+        "hits": hits,
+    })
 }

@@ -59,9 +59,6 @@ Memory: driver 4.808 V current-gap
 DynamicMemory: driver 4.808 V current-gap
 I2CRam: current-gap
 Function: current-gap
-Scr: current-gap
-Diac: current-gap
-Triac: current-gap
 Csource: current-gap
 ResistorDip: current-gap
 WaveGen: implicit-return

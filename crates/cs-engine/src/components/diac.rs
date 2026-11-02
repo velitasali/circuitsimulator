@@ -16,6 +16,8 @@ const MIN_R: f64 = 1e-3;
 const MAX_R: f64 = 1e12;
 const MIN_I: f64 = 1e-6;
 const MAX_I: f64 = 1e3;
+const MIN_DVDT: f64 = 1e3;
+const MAX_DVDT: f64 = 1e12;
 
 impl crate::canvas::Item {
     pub fn diac(id: impl Into<String>, x: f64, y: f64, break_volt: f64) -> Self {
@@ -40,6 +42,8 @@ impl crate::canvas::Item {
                 res_off,
                 hold_curr,
                 res_on,
+                breakback_v: 5.0,
+                crit_dv_dt: 20.0e6,
             },
         )
     }
@@ -51,6 +55,8 @@ pub struct Diac {
     pub res_off: f64,
     pub hold_curr: f64,
     pub res_on: f64,
+    pub breakback_v: f64,
+    pub crit_dv_dt: f64,
 }
 
 impl Default for Diac {
@@ -60,6 +66,8 @@ impl Default for Diac {
             res_off: 1e8,
             hold_curr: 0.01,
             res_on: 500.0,
+            breakback_v: 5.0,
+            crit_dv_dt: 20.0e6,
         }
     }
 }
@@ -68,11 +76,15 @@ impl Diac {
     pub const TYPE_ID: &'static str = "Diac";
     pub fn to_element_kind(&self) -> Kind {
         Kind::Diac {
-            v_breakover: self.v_breakover,
-            res_on: self.res_on,
-            res_off: self.res_off,
-            hold_curr: self.hold_curr,
-            conducting: false,
+            state: crate::elements::DiacState {
+                v_breakover: self.v_breakover,
+                res_on: self.res_on,
+                res_off: self.res_off,
+                hold_curr: self.hold_curr,
+                breakback_v: self.breakback_v,
+                crit_dv_dt: self.crit_dv_dt,
+                ..Default::default()
+            },
         }
     }
 
@@ -105,6 +117,22 @@ impl Diac {
     }
     fn set_res_on(&mut self, v: PropValue) -> Result<(), PropError> {
         self.res_on = expect_float("ResOn", v)?.clamp(MIN_R, 1e6);
+        Ok(())
+    }
+
+    fn get_breakback(&self) -> PropValue {
+        PropValue::Float(self.breakback_v)
+    }
+    fn set_breakback(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.breakback_v = expect_float("Breakback", v)?.clamp(0.0, MAX_V);
+        Ok(())
+    }
+
+    fn get_crit_dv_dt(&self) -> PropValue {
+        PropValue::Float(self.crit_dv_dt)
+    }
+    fn set_crit_dv_dt(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.crit_dv_dt = expect_float("CritDvDt", v)?.clamp(MIN_DVDT, MAX_DVDT);
         Ok(())
     }
 }
@@ -160,6 +188,26 @@ impl Component for Diac {
                 Diac::set_res_on,
             )
             .with_info("Resistance when conducting."),
+            PropDef::float(
+                "Breakback",
+                "Breakback Voltage",
+                "V",
+                0.0,
+                MAX_V,
+                Diac::get_breakback,
+                Diac::set_breakback,
+            )
+            .with_info("Breakback voltage drop across the DIAC upon entering breakover."),
+            PropDef::float(
+                "CritDvDt",
+                "Critical dV/dt",
+                "V/s",
+                MIN_DVDT,
+                MAX_DVDT,
+                Diac::get_crit_dv_dt,
+                Diac::set_crit_dv_dt,
+            )
+            .with_info("Critical rate of voltage rise (dV/dt) triggering breakover."),
         ];
         PROPS
     }
@@ -209,6 +257,8 @@ mod tests {
         assert_eq!(d.res_off, 1e8);
         assert_eq!(d.hold_curr, 0.01);
         assert_eq!(d.res_on, 500.0);
+        assert_eq!(d.breakback_v, 5.0);
+        assert_eq!(d.crit_dv_dt, 20.0e6);
         assert_eq!(d.pin_geoms().len(), 2);
         assert_eq!(d.body(), Rect::new(-8.0, -16.0, 16.0, 32.0));
     }

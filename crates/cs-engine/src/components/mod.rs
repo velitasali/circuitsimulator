@@ -1758,35 +1758,19 @@ impl Part {
             Self::Scr(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Scr {
-                        v_gate_th: p.v_gate_th,
-                        i_hold: p.i_hold,
-                        r_gate: p.r_gate,
-                        conducting: false,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Diac(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Diac {
-                        v_breakover: p.v_breakover,
-                        res_on: p.res_on,
-                        res_off: p.res_off,
-                        hold_curr: p.hold_curr,
-                        conducting: false,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Triac(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Triac {
-                        v_gate_th: p.v_gate_th,
-                        i_hold: p.i_hold,
-                        r_gate: p.r_gate,
-                        conducting: false,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::AnalogMux(p) => {

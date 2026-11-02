@@ -1807,10 +1807,7 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                     Comp {
                         id: id.clone(),
                         kind: Kind::Scr {
-                            v_gate_th,
-                            i_hold,
-                            r_gate,
-                            conducting: false,
+                            state: crate::elements::ScrState::new(v_gate_th, i_hold, 0.01, r_gate),
                         },
                     },
                     &properties,
@@ -1835,11 +1832,12 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                     Comp {
                         id: id.clone(),
                         kind: Kind::Diac {
-                            v_breakover,
-                            res_on,
-                            res_off,
-                            hold_curr,
-                            conducting: false,
+                            state: crate::elements::DiacState::new(
+                                v_breakover,
+                                res_on,
+                                res_off,
+                                hold_curr,
+                            ),
                         },
                     },
                     &properties,
@@ -1860,10 +1858,9 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                     Comp {
                         id: id.clone(),
                         kind: Kind::Triac {
-                            v_gate_th,
-                            i_hold,
-                            r_gate,
-                            conducting: false,
+                            state: crate::elements::TriacState::new(
+                                v_gate_th, i_hold, 0.01, r_gate,
+                            ),
                         },
                     },
                     &properties,

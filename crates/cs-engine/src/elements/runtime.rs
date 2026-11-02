@@ -154,27 +154,14 @@ impl Kind {
                 *pulse_start_ps = *prev_pulse;
                 *sig_high = *prev_sig;
             }
-            (
-                Kind::Scr { conducting, .. },
-                Kind::Scr {
-                    conducting: prev, ..
-                },
-            )
-            | (
-                Kind::Triac { conducting, .. },
-                Kind::Triac {
-                    conducting: prev, ..
-                },
-            ) => {
-                *conducting = *prev;
+            (Kind::Scr { state }, Kind::Scr { state: prev }) => {
+                state.copy_runtime_from(prev);
             }
-            (
-                Kind::Diac { conducting, .. },
-                Kind::Diac {
-                    conducting: prev, ..
-                },
-            ) => {
-                *conducting = *prev;
+            (Kind::Triac { state }, Kind::Triac { state: prev }) => {
+                state.copy_runtime_from(prev);
+            }
+            (Kind::Diac { state }, Kind::Diac { state: prev }) => {
+                state.copy_runtime_from(prev);
             }
             (Kind::Voltmeter { last_out, .. }, Kind::Voltmeter { last_out: prev, .. })
             | (Kind::Ammeter { last_out, .. }, Kind::Ammeter { last_out: prev, .. }) => {

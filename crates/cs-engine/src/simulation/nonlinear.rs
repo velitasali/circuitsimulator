@@ -78,10 +78,12 @@ impl Circuit {
         if !self.has_nonlinear_cached {
             return true;
         }
+        let dt = self.dt;
+        let sim_time = self.circ_time as f64 * 1e-12;
         let nodes = &self.nodes;
         let mut converged = true;
         for (c, cache) in self.components.iter_mut().zip(&self.pin_caches) {
-            if !c.kind.update_nonlinear(cache, nodes) {
+            if !c.kind.update_nonlinear(cache, nodes, dt, sim_time) {
                 converged = false;
             }
         }

@@ -16,10 +16,14 @@ const MIN_I: f64 = 1e-6;
 const MAX_I: f64 = 1e3;
 const MIN_R: f64 = 1e-3;
 const MAX_R: f64 = 1e9;
+const MIN_DVDT: f64 = 1e3;
+const MAX_DVDT: f64 = 1e12;
+const MIN_TIME: f64 = 1e-9;
+const MAX_TIME: f64 = 1.0;
 
 impl crate::canvas::Item {
     pub fn triac(id: impl Into<String>, x: f64, y: f64, trig_volt: f64, trig_curr: f64) -> Self {
-        Self::triac_with(id, x, y, trig_volt, trig_curr, 0.01, 100.0)
+        Self::triac_with(id, x, y, trig_volt, 0.0082, trig_curr, 100.0)
     }
 
     pub fn triac_with(
@@ -39,7 +43,10 @@ impl crate::canvas::Item {
                 v_gate_th,
                 i_hold,
                 i_trig,
+                i_latch: (i_hold * 1.8).max(i_hold),
                 r_gate,
+                crit_dv_dt: 50.0e6,
+                t_q: 30.0e-6,
             },
         )
     }
@@ -50,7 +57,10 @@ pub struct Triac {
     pub v_gate_th: f64,
     pub i_hold: f64,
     pub i_trig: f64,
+    pub i_latch: f64,
     pub r_gate: f64,
+    pub crit_dv_dt: f64,
+    pub t_q: f64,
 }
 
 impl Default for Triac {
@@ -59,7 +69,10 @@ impl Default for Triac {
             v_gate_th: 0.7,
             i_hold: 0.0082,
             i_trig: 0.01,
+            i_latch: 0.015,
             r_gate: 100.0,
+            crit_dv_dt: 50.0e6,
+            t_q: 30.0e-6,
         }
     }
 }
@@ -68,10 +81,16 @@ impl Triac {
     pub const TYPE_ID: &'static str = "Triac";
     pub fn to_element_kind(&self) -> Kind {
         Kind::Triac {
-            v_gate_th: self.v_gate_th,
-            i_hold: self.i_hold,
-            r_gate: self.r_gate,
-            conducting: false,
+            state: crate::elements::TriacState {
+                v_gate_th: self.v_gate_th,
+                i_hold: self.i_hold,
+                i_trig: self.i_trig,
+                i_latch: self.i_latch,
+                r_gate: self.r_gate,
+                crit_dv_dt: self.crit_dv_dt,
+                t_q: self.t_q,
+                ..Default::default()
+            },
         }
     }
 
@@ -99,11 +118,35 @@ impl Triac {
         Ok(())
     }
 
+    fn get_latch_curr(&self) -> PropValue {
+        PropValue::Float(self.i_latch)
+    }
+    fn set_latch_curr(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.i_latch = expect_float("LatchCurr", v)?.clamp(MIN_I, MAX_I);
+        Ok(())
+    }
+
     fn get_gate_res(&self) -> PropValue {
         PropValue::Float(self.r_gate)
     }
     fn set_gate_res(&mut self, v: PropValue) -> Result<(), PropError> {
         self.r_gate = expect_float("GateRes", v)?.clamp(MIN_R, MAX_R);
+        Ok(())
+    }
+
+    fn get_crit_dv_dt(&self) -> PropValue {
+        PropValue::Float(self.crit_dv_dt)
+    }
+    fn set_crit_dv_dt(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.crit_dv_dt = expect_float("CritDvDt", v)?.clamp(MIN_DVDT, MAX_DVDT);
+        Ok(())
+    }
+
+    fn get_t_q(&self) -> PropValue {
+        PropValue::Float(self.t_q)
+    }
+    fn set_t_q(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.t_q = expect_float("TurnOffTime", v)?.clamp(MIN_TIME, MAX_TIME);
         Ok(())
     }
 }
@@ -150,6 +193,16 @@ impl Component for Triac {
             )
             .with_info("Minimum Gate current needed to trigger conduction."),
             PropDef::float(
+                "LatchCurr",
+                "Latching Current",
+                "A",
+                MIN_I,
+                MAX_I,
+                Triac::get_latch_curr,
+                Triac::set_latch_curr,
+            )
+            .with_info("Minimum main terminal current to keep conducting after gate trigger drops."),
+            PropDef::float(
                 "GateRes",
                 "Gate Resistance",
                 "Ω",
@@ -159,6 +212,26 @@ impl Component for Triac {
                 Triac::set_gate_res,
             )
             .with_info("Gate to MT1 resistance."),
+            PropDef::float(
+                "CritDvDt",
+                "Critical dV/dt",
+                "V/s",
+                MIN_DVDT,
+                MAX_DVDT,
+                Triac::get_crit_dv_dt,
+                Triac::set_crit_dv_dt,
+            )
+            .with_info("Critical rate of off-state voltage rise triggering conduction."),
+            PropDef::float(
+                "TurnOffTime",
+                "Turn-Off Time (tq)",
+                "s",
+                MIN_TIME,
+                MAX_TIME,
+                Triac::get_t_q,
+                Triac::set_t_q,
+            )
+            .with_info("Circuit-commutated recovery time required before forward voltage can be reapplied."),
         ];
         PROPS
     }
@@ -207,7 +280,10 @@ mod tests {
         assert_eq!(t.v_gate_th, 0.7);
         assert_eq!(t.i_hold, 0.0082);
         assert_eq!(t.i_trig, 0.01);
+        assert_eq!(t.i_latch, 0.015);
         assert_eq!(t.r_gate, 100.0);
+        assert_eq!(t.crit_dv_dt, 50.0e6);
+        assert_eq!(t.t_q, 30.0e-6);
         assert_eq!(t.pin_geoms().len(), 3);
         assert_eq!(t.body(), Rect::new(-8.0, -16.0, 16.0, 32.0));
     }

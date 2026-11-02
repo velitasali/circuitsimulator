@@ -769,6 +769,91 @@ impl Circuit {
         false
     }
 
+    /// Set electrical parameters on the SCR with `id`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn configure_scr(
+        &mut self,
+        id: &str,
+        v_gate_th: f64,
+        i_hold: f64,
+        i_trig: f64,
+        i_latch: f64,
+        r_gate: f64,
+        crit_dv_dt: f64,
+        t_q: f64,
+    ) -> bool {
+        for c in &mut self.components {
+            if c.id == id {
+                if let Kind::Scr { ref mut state } = c.kind {
+                    state.v_gate_th = v_gate_th;
+                    state.i_hold = i_hold;
+                    state.i_trig = i_trig;
+                    state.i_latch = i_latch;
+                    state.r_gate = r_gate;
+                    state.crit_dv_dt = crit_dv_dt;
+                    state.t_q = t_q;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Set electrical parameters on the TRIAC with `id`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn configure_triac(
+        &mut self,
+        id: &str,
+        v_gate_th: f64,
+        i_hold: f64,
+        i_trig: f64,
+        i_latch: f64,
+        r_gate: f64,
+        crit_dv_dt: f64,
+        t_q: f64,
+    ) -> bool {
+        for c in &mut self.components {
+            if c.id == id {
+                if let Kind::Triac { ref mut state } = c.kind {
+                    state.v_gate_th = v_gate_th;
+                    state.i_hold = i_hold;
+                    state.i_trig = i_trig;
+                    state.i_latch = i_latch;
+                    state.r_gate = r_gate;
+                    state.crit_dv_dt = crit_dv_dt;
+                    state.t_q = t_q;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Set electrical parameters on the DIAC with `id`.
+    pub fn configure_diac(
+        &mut self,
+        id: &str,
+        v_breakover: f64,
+        res_on: f64,
+        res_off: f64,
+        hold_curr: f64,
+        crit_dv_dt: f64,
+    ) -> bool {
+        for c in &mut self.components {
+            if c.id == id {
+                if let Kind::Diac { ref mut state } = c.kind {
+                    state.v_breakover = v_breakover;
+                    state.res_on = res_on;
+                    state.res_off = res_off;
+                    state.hold_curr = hold_curr;
+                    state.crit_dv_dt = crit_dv_dt;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Arm TestUnits and run until they finish or `timeout_ps` elapses.
     ///
     /// C++ `BatchTest` + `TestUnit::stamp` while `BatchTest::isRunning()`.

@@ -17,6 +17,9 @@ impl Circuit {
                     | Kind::VarInductor { .. }
                     | Kind::Transformer { .. }
                     | Kind::Lamp { .. }
+                    | Kind::Scr { .. }
+                    | Kind::Triac { .. }
+                    | Kind::Diac { .. }
             ) || matches!(&c.kind, Kind::Relay { inductance, .. } if *inductance > 0.0)
         })
     }
@@ -211,6 +214,15 @@ impl Circuit {
                         changed = true;
                     }
                     *resistance = new_r;
+                }
+                Kind::Scr { state } => {
+                    state.update_step(cache, nodes);
+                }
+                Kind::Triac { state } => {
+                    state.update_step(cache, nodes);
+                }
+                Kind::Diac { state } => {
+                    state.update_step(cache, nodes);
                 }
                 _ => {}
             }

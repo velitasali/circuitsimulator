@@ -1651,51 +1651,36 @@ impl Comp {
                     dt,
                 );
             }
-            Kind::Scr {
-                conducting, r_gate, ..
-            } => {
+            Kind::Scr { state } => {
                 let a = self.scr_anode_pin();
                 let k = self.scr_cathode_pin();
                 let g = self.scr_gate_pin();
-                stamp_between(pin_net, nodes, &g, &k, 1.0 / r_gate.max(1e-6), 0.0);
-                if *conducting {
-                    stamp_between(
-                        pin_net,
-                        nodes,
-                        &a,
-                        &k,
-                        SWITCH_CLOSED_ADMIT,
-                        0.7 * SWITCH_CLOSED_ADMIT,
-                    );
+                stamp_between(pin_net, nodes, &g, &k, 1.0 / state.r_gate.max(1e-6), 0.0);
+                if state.conducting {
+                    let g_on = 1.0 / state.r_on.max(1e-6);
+                    stamp_between(pin_net, nodes, &a, &k, g_on, state.v_on * g_on);
                 } else {
                     stamp_between(pin_net, nodes, &a, &k, 1e-9, 0.0);
                 }
             }
-            Kind::Triac {
-                conducting, r_gate, ..
-            } => {
+            Kind::Triac { state } => {
                 let mt1 = self.triac_mt1_pin();
                 let mt2 = self.triac_mt2_pin();
                 let g = self.triac_gate_pin();
-                stamp_between(pin_net, nodes, &g, &mt1, 1.0 / r_gate.max(1e-6), 0.0);
-                if *conducting {
+                stamp_between(pin_net, nodes, &g, &mt1, 1.0 / state.r_gate.max(1e-6), 0.0);
+                if state.conducting {
                     stamp_between(pin_net, nodes, &mt1, &mt2, SWITCH_CLOSED_ADMIT, 0.0);
                 } else {
                     stamp_between(pin_net, nodes, &mt1, &mt2, 1e-9, 0.0);
                 }
             }
-            Kind::Diac {
-                conducting,
-                res_on,
-                res_off,
-                ..
-            } => {
+            Kind::Diac { state } => {
                 let l = self.left_pin();
                 let r = self.right_pin();
-                let g = if *conducting {
-                    1.0 / res_on.max(1e-6)
+                let g = if state.conducting {
+                    1.0 / state.res_on.max(1e-6)
                 } else {
-                    1.0 / res_off.max(1.0)
+                    1.0 / state.res_off.max(1.0)
                 };
                 stamp_between(pin_net, nodes, &l, &r, g, 0.0);
             }

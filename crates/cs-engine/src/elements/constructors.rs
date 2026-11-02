@@ -202,10 +202,7 @@ impl Comp {
         Self {
             id: id.into(),
             kind: Kind::Scr {
-                v_gate_th: 0.7,
-                i_hold: 0.005,
-                r_gate: 100.0,
-                conducting: false,
+                state: ScrState::default(),
             },
         }
     }
@@ -214,10 +211,7 @@ impl Comp {
         Self {
             id: id.into(),
             kind: Kind::Triac {
-                v_gate_th: 0.7,
-                i_hold: 0.005,
-                r_gate: 100.0,
-                conducting: false,
+                state: TriacState::default(),
             },
         }
     }
@@ -226,11 +220,7 @@ impl Comp {
         Self {
             id: id.into(),
             kind: Kind::Diac {
-                v_breakover: 30.0,
-                res_on: 500.0,
-                res_off: 1e8,
-                hold_curr: 0.01,
-                conducting: false,
+                state: DiacState::default(),
             },
         }
     }

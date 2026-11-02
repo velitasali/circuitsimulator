@@ -1,6 +1,7 @@
 pub mod comparator;
 pub mod diode;
 pub mod opamp;
+pub mod thyristor;
 pub mod transistor;
 pub mod volt_reg;
 
@@ -24,6 +25,7 @@ pub use opamp::{
     OPAMP_ACCURACY, OPAMP_DEFAULT_GAIN, OPAMP_DEFAULT_OUT_IMP, OPAMP_DEFAULT_VOLT_NEG,
     OPAMP_DEFAULT_VOLT_POS, OpAmpState,
 };
+pub use thyristor::{DiacState, ScrState, TriacState};
 pub use transistor::{
     BJT_DEFAULT_GAIN, BJT_DEFAULT_SAT, BJT_RGAIN, BjtState, JFET_ACCURACY, JFET_DEFAULT_IDSS,
     JFET_DEFAULT_LAMBDA_INV, JFET_DEFAULT_VP, JfetState, MOSFET_ACCURACY, MOSFET_DEFAULT_RDSON,
@@ -430,23 +432,13 @@ pub enum Kind {
         i2: f64,
     },
     Scr {
-        v_gate_th: f64,
-        i_hold: f64,
-        r_gate: f64,
-        conducting: bool,
+        state: ScrState,
     },
     Diac {
-        v_breakover: f64,
-        res_on: f64,
-        res_off: f64,
-        hold_curr: f64,
-        conducting: bool,
+        state: DiacState,
     },
     Triac {
-        v_gate_th: f64,
-        i_hold: f64,
-        r_gate: f64,
-        conducting: bool,
+        state: TriacState,
     },
     AnalogMux {
         channels: usize,
@@ -598,7 +590,13 @@ pub struct Comp {
 impl Kind {
     /// Non-linear companion model update for Newton-Raphson iterations.
     /// Returns `true` if this element has converged, `false` otherwise.
-    pub fn update_nonlinear(&mut self, cache: &PinCache, nodes: &[ENode]) -> bool {
+    pub fn update_nonlinear(
+        &mut self,
+        cache: &PinCache,
+        nodes: &[ENode],
+        dt: f64,
+        sim_time: f64,
+    ) -> bool {
         match self {
             Kind::Diode { state, .. } => state.update_nonlinear(cache, nodes),
             Kind::Led { state } => state.update_nonlinear(cache, nodes),
@@ -607,115 +605,9 @@ impl Kind {
             Kind::OpAmp { state } => state.update_nonlinear(cache, nodes),
             Kind::Jfet { state } => state.update_nonlinear(cache, nodes),
             Kind::VoltReg { state } => state.update_nonlinear(cache, nodes),
-            Kind::Scr {
-                v_gate_th,
-                i_hold,
-                conducting,
-                ..
-            } => {
-                let va_opt = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                let vk_opt = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                if va_opt.is_none() || vk_opt.is_none() {
-                    let was_off = !*conducting;
-                    *conducting = false;
-                    return was_off;
-                }
-                let va = va_opt.unwrap();
-                let vk = vk_opt.unwrap();
-                let vg = cache
-                    .gate
-                    .and_then(|i| nodes.get(i))
-                    .map(|n| n.volt)
-                    .unwrap_or(0.0);
-                let v_gate = vg - vk;
-                let v_anode = va - vk;
-                let mut state = *conducting;
-                if state {
-                    let i_anode = (v_anode - 0.7) * crate::SWITCH_CLOSED_ADMIT;
-                    if i_anode < *i_hold || v_anode < 0.1 {
-                        state = false;
-                    }
-                } else if v_gate > *v_gate_th && v_anode > 0.7 {
-                    state = true;
-                }
-                if *conducting != state {
-                    *conducting = state;
-                    false
-                } else {
-                    true
-                }
-            }
-            Kind::Triac {
-                v_gate_th,
-                i_hold,
-                conducting,
-                ..
-            } => {
-                let v1_opt = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                let v2_opt = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                if v1_opt.is_none() || v2_opt.is_none() {
-                    let was_off = !*conducting;
-                    *conducting = false;
-                    return was_off;
-                }
-                let v1 = v1_opt.unwrap();
-                let v2 = v2_opt.unwrap();
-                let vg = cache
-                    .gate
-                    .and_then(|i| nodes.get(i))
-                    .map(|n| n.volt)
-                    .unwrap_or(0.0);
-                let v_gate = (vg - v1).abs();
-                let v_main = (v2 - v1).abs();
-                let mut state = *conducting;
-                if state {
-                    let i_main = v_main * crate::SWITCH_CLOSED_ADMIT;
-                    if i_main < *i_hold {
-                        state = false;
-                    }
-                } else if v_gate > *v_gate_th && v_main > 0.2 {
-                    state = true;
-                }
-                if *conducting != state {
-                    *conducting = state;
-                    false
-                } else {
-                    true
-                }
-            }
-            Kind::Diac {
-                v_breakover,
-                res_on,
-                hold_curr,
-                conducting,
-                ..
-            } => {
-                let v1_opt = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                let v2_opt = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                if v1_opt.is_none() || v2_opt.is_none() {
-                    let was_off = !*conducting;
-                    *conducting = false;
-                    return was_off;
-                }
-                let v1 = v1_opt.unwrap();
-                let v2 = v2_opt.unwrap();
-                let v_diff = (v1 - v2).abs();
-                let mut state = *conducting;
-                if state {
-                    let i_main = v_diff * (1.0 / res_on.max(1e-6));
-                    if i_main < *hold_curr {
-                        state = false;
-                    }
-                } else if v_diff > *v_breakover {
-                    state = true;
-                }
-                if *conducting != state {
-                    *conducting = state;
-                    false
-                } else {
-                    true
-                }
-            }
+            Kind::Scr { state } => state.update_nonlinear(cache, nodes, dt, sim_time),
+            Kind::Triac { state } => state.update_nonlinear(cache, nodes, dt, sim_time),
+            Kind::Diac { state } => state.update_nonlinear(cache, nodes, dt, sim_time),
             Kind::AnalogMux {
                 channels,
                 selected,
@@ -1286,6 +1178,24 @@ impl Kind {
                 })
             }
             (Kind::VoltReg { .. }, PinSuffix::VoltRegRef) => Some(0.0),
+            (Kind::Scr { state }, suffix) => match suffix {
+                PinSuffix::Left | PinSuffix::Named("aPin") => Some(-state.i_anode),
+                PinSuffix::Right | PinSuffix::Named("kPin") => Some(state.i_anode + state.i_gate),
+                PinSuffix::Ground | PinSuffix::Gate | PinSuffix::Named("gPin") => {
+                    Some(-state.i_gate)
+                }
+                _ => None,
+            },
+            (Kind::Triac { state }, suffix) => match suffix {
+                PinSuffix::Left | PinSuffix::Named("mt1Pin") => Some(state.i_main + state.i_gate),
+                PinSuffix::Right | PinSuffix::Named("mt2Pin") => Some(-state.i_main),
+                PinSuffix::Ground | PinSuffix::Gate | PinSuffix::Named("gPin") => {
+                    Some(-state.i_gate)
+                }
+                _ => None,
+            },
+            (Kind::Diac { state }, PinSuffix::Left) => Some(-state.i_main),
+            (Kind::Diac { state }, PinSuffix::Right) => Some(state.i_main),
             (Kind::Probe { .. }, PinSuffix::ProbeIn) => {
                 let v = pin_volt(pin)?;
                 Some(-v * crate::instruments::PROBE_ADMIT)

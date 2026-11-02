@@ -1776,17 +1776,46 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 let r2 = prop(&properties, "Rcoil2")
                     .map(|v| parse_si(v, "Ω"))
                     .unwrap_or(0.1);
+                let r_core = prop(&properties, "Rcore")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(1e12);
+                let i_sat = prop(&properties, "Isat")
+                    .map(|v| parse_si(v, "A"))
+                    .unwrap_or(0.0);
+                let hysteresis = prop(&properties, "Hysteresis")
+                    .map(|v| parse_si(v, "A"))
+                    .unwrap_or(0.0);
+                let center_tap = prop(&properties, "CenterTap")
+                    .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+                    .unwrap_or(false);
+                let aux_secondary = prop(&properties, "AuxSecondary")
+                    .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+                    .unwrap_or(false);
+                let l3 = prop(&properties, "Inductance3")
+                    .map(|v| parse_si(v, "H"))
+                    .unwrap_or(1.0);
+                let r3 = prop(&properties, "Rcoil3")
+                    .map(|v| parse_si(v, "Ω"))
+                    .unwrap_or(0.1);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::Transformer {
-                            inductance1: l1,
-                            inductance2: l2,
-                            coupling: k,
-                            r_coil1: r1,
-                            r_coil2: r2,
-                            i1: 0.0,
-                            i2: 0.0,
+                            state: crate::elements::TransformerState {
+                                inductance1: l1,
+                                inductance2: l2,
+                                coupling: k,
+                                r_coil1: r1,
+                                r_coil2: r2,
+                                r_core,
+                                i_sat,
+                                hysteresis,
+                                center_tap,
+                                aux_secondary,
+                                inductance3: l3,
+                                r_coil3: r3,
+                                ..Default::default()
+                            },
                         },
                     },
                     &properties,

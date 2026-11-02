@@ -41,7 +41,9 @@ pub use max72xx::Max72Fb;
 pub use pcd8544::Pcd8544State;
 pub use sd_card::SdCardSpi;
 pub use sensors::{
-    DhtLink, Drive, Ds1307Bus, Ds1621Bus, EspUart, OwLink, Sr04Echo, dht_frame, sqw_half,
+    DhtLink, Drive, Ds1307Bus, Ds1621Bus, EspUart, OW_CONVERT_WAIT, OW_FUNC_CMD, OW_IDLE,
+    OW_MATCH_ROM, OW_READ_POWER, OW_READ_ROM, OW_READ_SCRATCH, OW_RESET_ARMED, OW_SEARCH_ROM,
+    OwLink, Sr04Echo, crc8_maxim, dht_frame, ow_scratch, parse_rom_64, sqw_half,
 };
 pub use serial_uart::SerialUart;
 pub use sh1107::Sh1107State;

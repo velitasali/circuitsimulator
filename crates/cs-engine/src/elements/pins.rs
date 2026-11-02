@@ -67,6 +67,9 @@ pub const PIN_P1: &str = "p1";
 pub const PIN_P2: &str = "p2";
 pub const PIN_S1: &str = "s1";
 pub const PIN_S2: &str = "s2";
+pub const PIN_CT: &str = "ct";
+pub const PIN_TR_A1: &str = "a1";
+pub const PIN_TR_A2: &str = "a2";
 
 /// Strongly-typed categorization of component pin suffixes.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -104,6 +107,9 @@ pub enum PinSuffix<'a> {
     TransformerP2,
     TransformerS1,
     TransformerS2,
+    TransformerCt,
+    TransformerA1,
+    TransformerA2,
     SwitchP(usize),
     SwitchN(usize),
     IndexedLeft(usize),
@@ -148,6 +154,9 @@ impl<'a> PinSuffix<'a> {
             PIN_P2 => PinSuffix::TransformerP2,
             PIN_S1 => PinSuffix::TransformerS1,
             PIN_S2 => PinSuffix::TransformerS2,
+            PIN_CT => PinSuffix::TransformerCt,
+            PIN_TR_A1 => PinSuffix::TransformerA1,
+            PIN_TR_A2 => PinSuffix::TransformerA2,
             _ => {
                 if let Some(rest) = suffix.strip_prefix("pinP") {
                     if let Ok(idx) = rest.parse::<usize>() {
@@ -470,12 +479,22 @@ impl Comp {
                         .collect()
                 }
             }
-            Kind::Transformer { .. } => vec![
-                self.transformer_p1_pin(),
-                self.transformer_p2_pin(),
-                self.transformer_s1_pin(),
-                self.transformer_s2_pin(),
-            ],
+            Kind::Transformer { state } => {
+                let mut pins = vec![
+                    self.transformer_p1_pin(),
+                    self.transformer_p2_pin(),
+                    self.transformer_s1_pin(),
+                ];
+                if state.center_tap {
+                    pins.push(self.transformer_ct_pin());
+                }
+                pins.push(self.transformer_s2_pin());
+                if state.aux_secondary {
+                    pins.push(self.transformer_a1_pin());
+                    pins.push(self.transformer_a2_pin());
+                }
+                pins
+            }
             Kind::Scr { .. } => vec![
                 format!("{}-aPin", self.id),
                 format!("{}-kPin", self.id),
@@ -1006,6 +1025,21 @@ impl Comp {
         format!("{}-{PIN_S2}", self.id)
     }
 
+    /// Transformer secondary center-tap pin (`id + "-ct"`).
+    pub fn transformer_ct_pin(&self) -> String {
+        format!("{}-{PIN_CT}", self.id)
+    }
+
+    /// Transformer auxiliary secondary positive pin (`id + "-a1"`).
+    pub fn transformer_a1_pin(&self) -> String {
+        format!("{}-{PIN_TR_A1}", self.id)
+    }
+
+    /// Transformer auxiliary secondary reference pin (`id + "-a2"`).
+    pub fn transformer_a2_pin(&self) -> String {
+        format!("{}-{PIN_TR_A2}", self.id)
+    }
+
     pub fn build_pin_cache(&self, pin_net: &rustc_hash::FxHashMap<String, usize>) -> PinCache {
         let (oscope_gnd, oscope_pins, la_pins) = match self.kind {
             Kind::Oscope { .. } => {
@@ -1087,9 +1121,13 @@ impl Comp {
                 pin_net.get(&format!("{}-PinGnd", self.id)).copied(),
                 pin_net.get(&format!("{}-PinSig", self.id)).copied(),
             ),
-            Kind::Transformer { .. } => (
+            Kind::Transformer { state } => (
                 pin_net.get(&self.transformer_p1_pin()).copied(),
-                None,
+                if state.center_tap {
+                    pin_net.get(&self.transformer_ct_pin()).copied()
+                } else {
+                    None
+                },
                 pin_net.get(&self.transformer_p2_pin()).copied(),
             ),
             _ => (
@@ -1165,8 +1203,18 @@ impl Comp {
             mid,
             in0,
             in1,
-            collector: pin_net.get(&self.collector_pin()).copied(),
-            emitter: pin_net.get(&self.emitter_pin()).copied(),
+            collector: match &self.kind {
+                Kind::Transformer { state } if state.aux_secondary => {
+                    pin_net.get(&self.transformer_a1_pin()).copied()
+                }
+                _ => pin_net.get(&self.collector_pin()).copied(),
+            },
+            emitter: match &self.kind {
+                Kind::Transformer { state } if state.aux_secondary => {
+                    pin_net.get(&self.transformer_a2_pin()).copied()
+                }
+                _ => pin_net.get(&self.emitter_pin()).copied(),
+            },
             base: pin_net.get(&self.base_pin()).copied(),
             drain: pin_net.get(&self.drain_pin()).copied(),
             source: pin_net.get(&self.source_pin()).copied(),

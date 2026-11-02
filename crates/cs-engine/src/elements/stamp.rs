@@ -6,7 +6,7 @@ use crate::elements::diode::LedState;
 use crate::net::ENode;
 
 #[inline]
-fn stamp_cached_two_terminal(
+pub(crate) fn stamp_cached_two_terminal(
     n0: Option<usize>,
     n1: Option<usize>,
     nodes: &mut [ENode],
@@ -28,7 +28,7 @@ fn stamp_cached_two_terminal(
 }
 
 #[inline]
-fn stamp_cached_admit_directed(
+pub(crate) fn stamp_cached_admit_directed(
     from: Option<usize>,
     to: Option<usize>,
     nodes: &mut [ENode],
@@ -82,62 +82,6 @@ fn stamp_led(cache: &PinCache, nodes: &mut [ENode], state: &LedState) {
             state.admit,
             state.th_current,
         );
-    }
-}
-
-const TRANSFORMER_BLEED_ADMIT: f64 = 1e-12;
-
-#[inline]
-#[allow(clippy::too_many_arguments)]
-fn stamp_transformer_nodes(
-    p1: Option<usize>,
-    p2: Option<usize>,
-    s1: Option<usize>,
-    s2: Option<usize>,
-    inductance1: f64,
-    inductance2: f64,
-    coupling: f64,
-    r_coil1: f64,
-    r_coil2: f64,
-    i1: f64,
-    i2: f64,
-    nodes: &mut [ENode],
-    dt: f64,
-) {
-    let p_closed = p1.is_some() && p2.is_some();
-    let s_closed = s1.is_some() && s2.is_some();
-    let eff_k = if p_closed && s_closed { coupling } else { 0.0 };
-    let (g11, g22, g12, i_hist1, i_hist2) = transformer_companion(
-        inductance1,
-        inductance2,
-        eff_k,
-        r_coil1,
-        r_coil2,
-        if p_closed { i1 } else { 0.0 },
-        if s_closed { i2 } else { 0.0 },
-        dt,
-    );
-    if p_closed {
-        stamp_cached_two_terminal(p1, p2, nodes, g11, -i_hist1);
-    }
-    if s_closed {
-        stamp_cached_two_terminal(s1, s2, nodes, g22, -i_hist2);
-    }
-    if p_closed && s_closed && g12 != 0.0 {
-        stamp_cached_admit_directed(p1, s1, nodes, -g12);
-        stamp_cached_admit_directed(p1, s2, nodes, g12);
-        stamp_cached_admit_directed(p2, s1, nodes, g12);
-        stamp_cached_admit_directed(p2, s2, nodes, -g12);
-        stamp_cached_admit_directed(s1, p1, nodes, -g12);
-        stamp_cached_admit_directed(s1, p2, nodes, g12);
-        stamp_cached_admit_directed(s2, p1, nodes, g12);
-        stamp_cached_admit_directed(s2, p2, nodes, -g12);
-    }
-    if let Some(n) = p2 {
-        nodes[n].add_admit(None, TRANSFORMER_BLEED_ADMIT);
-    }
-    if let Some(n) = s2 {
-        nodes[n].add_admit(None, TRANSFORMER_BLEED_ADMIT);
     }
 }
 
@@ -195,30 +139,8 @@ impl Comp {
                     stamp_cached_two_terminal(cache.left, cache.right, nodes, g, *ieq);
                 }
             }
-            Kind::Transformer {
-                inductance1,
-                inductance2,
-                coupling,
-                r_coil1,
-                r_coil2,
-                i1,
-                i2,
-            } => {
-                stamp_transformer_nodes(
-                    cache.left,
-                    cache.right,
-                    cache.in0,
-                    cache.in1,
-                    *inductance1,
-                    *inductance2,
-                    *coupling,
-                    *r_coil1,
-                    *r_coil2,
-                    *i1,
-                    *i2,
-                    nodes,
-                    dt,
-                );
+            Kind::Transformer { state } => {
+                state.stamp_nodes(cache, nodes, dt);
             }
             Kind::Switch {
                 closed,
@@ -1626,30 +1548,9 @@ impl Comp {
                     stamp_two_terminal(self, pin_net, nodes, g, *ieq);
                 }
             }
-            Kind::Transformer {
-                inductance1,
-                inductance2,
-                coupling,
-                r_coil1,
-                r_coil2,
-                i1,
-                i2,
-            } => {
-                stamp_transformer_nodes(
-                    pin_net.get(&self.transformer_p1_pin()).copied(),
-                    pin_net.get(&self.transformer_p2_pin()).copied(),
-                    pin_net.get(&self.transformer_s1_pin()).copied(),
-                    pin_net.get(&self.transformer_s2_pin()).copied(),
-                    *inductance1,
-                    *inductance2,
-                    *coupling,
-                    *r_coil1,
-                    *r_coil2,
-                    *i1,
-                    *i2,
-                    nodes,
-                    dt,
-                );
+            Kind::Transformer { state } => {
+                let cache = self.build_pin_cache(pin_net);
+                state.stamp_nodes(&cache, nodes, dt);
             }
             Kind::Scr { state } => {
                 let a = self.scr_anode_pin();

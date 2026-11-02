@@ -1,17 +1,16 @@
 //! Coupled inductor transformer component.
 
 use super::component::{stamp_conductance_between, stamp_directed};
-use super::props::{PropDef, PropError, PropValue, expect_float};
+use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float};
 use super::{CompPin, Component, Stampable};
-use crate::canvas::PinGeom;
 use crate::canvas::Rect;
-use crate::elements::{Kind, transformer_companion};
+use crate::elements::{Kind, TransformerState};
 use crate::matrix::CircMatrix;
 
 const MIN_L: f64 = 1e-12;
 const MAX_L: f64 = 1e6;
 const MIN_R: f64 = 1e-6;
-const MAX_R: f64 = 1e6;
+const MAX_R: f64 = 1e12;
 
 impl crate::canvas::Item {
     pub fn transformer(
@@ -45,6 +44,13 @@ impl crate::canvas::Item {
                 coupling,
                 r_coil1,
                 r_coil2,
+                r_core: 1e12,
+                i_sat: 0.0,
+                hysteresis: 0.0,
+                center_tap: false,
+                aux_secondary: false,
+                inductance3: 1.0,
+                r_coil3: 0.1,
             },
         )
     }
@@ -57,6 +63,13 @@ pub struct Transformer {
     pub coupling: f64,
     pub r_coil1: f64,
     pub r_coil2: f64,
+    pub r_core: f64,
+    pub i_sat: f64,
+    pub hysteresis: f64,
+    pub center_tap: bool,
+    pub aux_secondary: bool,
+    pub inductance3: f64,
+    pub r_coil3: f64,
 }
 
 impl Default for Transformer {
@@ -67,21 +80,41 @@ impl Default for Transformer {
             coupling: 0.99,
             r_coil1: 0.1,
             r_coil2: 0.1,
+            r_core: 1e12,
+            i_sat: 0.0,
+            hysteresis: 0.0,
+            center_tap: false,
+            aux_secondary: false,
+            inductance3: 1.0,
+            r_coil3: 0.1,
         }
     }
 }
 
 impl Transformer {
     pub const TYPE_ID: &'static str = "Transformer";
-    pub fn to_element_kind(&self) -> Kind {
-        Kind::Transformer {
+
+    pub fn to_state(&self) -> TransformerState {
+        TransformerState {
             inductance1: self.inductance1,
             inductance2: self.inductance2,
             coupling: self.coupling,
             r_coil1: self.r_coil1,
             r_coil2: self.r_coil2,
-            i1: 0.0,
-            i2: 0.0,
+            r_core: self.r_core,
+            i_sat: self.i_sat,
+            hysteresis: self.hysteresis,
+            center_tap: self.center_tap,
+            aux_secondary: self.aux_secondary,
+            inductance3: self.inductance3,
+            r_coil3: self.r_coil3,
+            ..Default::default()
+        }
+    }
+
+    pub fn to_element_kind(&self) -> Kind {
+        Kind::Transformer {
+            state: self.to_state(),
         }
     }
 
@@ -122,6 +155,62 @@ impl Transformer {
     }
     fn set_r_coil2(&mut self, v: PropValue) -> Result<(), PropError> {
         self.r_coil2 = expect_float("Rcoil2", v)?.clamp(MIN_R, MAX_R);
+        Ok(())
+    }
+
+    fn get_r_core(&self) -> PropValue {
+        PropValue::Float(self.r_core)
+    }
+    fn set_r_core(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.r_core = expect_float("Rcore", v)?.clamp(0.0, 1e12);
+        Ok(())
+    }
+
+    fn get_i_sat(&self) -> PropValue {
+        PropValue::Float(self.i_sat)
+    }
+    fn set_i_sat(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.i_sat = expect_float("Isat", v)?.clamp(0.0, 1e4);
+        Ok(())
+    }
+
+    fn get_hysteresis(&self) -> PropValue {
+        PropValue::Float(self.hysteresis)
+    }
+    fn set_hysteresis(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.hysteresis = expect_float("Hysteresis", v)?.clamp(0.0, 1e3);
+        Ok(())
+    }
+
+    fn get_center_tap(&self) -> PropValue {
+        PropValue::Bool(self.center_tap)
+    }
+    fn set_center_tap(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.center_tap = expect_bool("CenterTap", v)?;
+        Ok(())
+    }
+
+    fn get_aux_secondary(&self) -> PropValue {
+        PropValue::Bool(self.aux_secondary)
+    }
+    fn set_aux_secondary(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.aux_secondary = expect_bool("AuxSecondary", v)?;
+        Ok(())
+    }
+
+    fn get_inductance3(&self) -> PropValue {
+        PropValue::Float(self.inductance3)
+    }
+    fn set_inductance3(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.inductance3 = expect_float("Inductance3", v)?.clamp(MIN_L, MAX_L);
+        Ok(())
+    }
+
+    fn get_r_coil3(&self) -> PropValue {
+        PropValue::Float(self.r_coil3)
+    }
+    fn set_r_coil3(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.r_coil3 = expect_float("Rcoil3", v)?.clamp(MIN_R, MAX_R);
         Ok(())
     }
 }
@@ -187,42 +276,145 @@ impl Component for Transformer {
                 Transformer::set_r_coil2,
             )
             .with_info("Secondary winding series winding resistance in Ohms."),
+            PropDef::float(
+                "Rcore",
+                "Core Resistance",
+                "Ω",
+                0.0,
+                1e12,
+                Transformer::get_r_core,
+                Transformer::set_r_core,
+            )
+            .with_info("Core eddy current loss resistance in Ohms (0 or high = lossless)."),
+            PropDef::float(
+                "Isat",
+                "Saturation Current",
+                "A",
+                0.0,
+                1e4,
+                Transformer::get_i_sat,
+                Transformer::set_i_sat,
+            )
+            .with_info(
+                "Ferromagnetic core saturation threshold current in Amps (0.0 = linear core).",
+            ),
+            PropDef::float(
+                "Hysteresis",
+                "Hysteresis Width",
+                "A",
+                0.0,
+                1e3,
+                Transformer::get_hysteresis,
+                Transformer::set_hysteresis,
+            )
+            .with_info("Magnetic hysteresis coercive current width in Amps (0.0 = no hysteresis)."),
+            PropDef::bool(
+                "CenterTap",
+                "Center Tap Secondary",
+                Transformer::get_center_tap,
+                Transformer::set_center_tap,
+            )
+            .with_info("Enables center-tapped secondary winding (adds pin ct)."),
+            PropDef::bool(
+                "AuxSecondary",
+                "Auxiliary Secondary",
+                Transformer::get_aux_secondary,
+                Transformer::set_aux_secondary,
+            )
+            .with_info("Enables third isolated auxiliary secondary winding (adds pins a1, a2)."),
+            PropDef::float(
+                "Inductance3",
+                "Auxiliary Inductance",
+                "H",
+                MIN_L,
+                MAX_L,
+                Transformer::get_inductance3,
+                Transformer::set_inductance3,
+            )
+            .with_info("Auxiliary secondary winding inductance in Henrys."),
+            PropDef::float(
+                "Rcoil3",
+                "Auxiliary Resistance",
+                "Ω",
+                MIN_R,
+                MAX_R,
+                Transformer::get_r_coil3,
+                Transformer::set_r_coil3,
+            )
+            .with_info("Auxiliary secondary winding series resistance in Ohms."),
         ];
         PROPS
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
-        transformer_pins().iter().map(CompPin::from).collect()
+        let mut pins = Vec::with_capacity(7);
+        let p2_y = if self.aux_secondary { 56.0 } else { 24.0 };
+        pins.push(CompPin::new("-p1", -16.0, 0.0, 180, 6.0));
+        pins.push(CompPin::new("-p2", -16.0, p2_y, 180, 6.0));
+        pins.push(CompPin::new("-s1", 16.0, 0.0, 0, 6.0));
+        if self.center_tap {
+            pins.push(CompPin::new("-ct", 16.0, 12.0, 0, 2.0));
+        }
+        pins.push(CompPin::new("-s2", 16.0, 24.0, 0, 6.0));
+        if self.aux_secondary {
+            pins.push(CompPin::new("-a1", 16.0, 32.0, 0, 6.0));
+            pins.push(CompPin::new("-a2", 16.0, 56.0, 0, 6.0));
+        }
+        pins
     }
 
     fn body(&self) -> Rect {
-        Rect::new(-12.0, 0.0, 24.0, 24.0)
+        if self.aux_secondary {
+            Rect::new(-12.0, 0.0, 24.0, 56.0)
+        } else {
+            Rect::new(-12.0, 0.0, 24.0, 24.0)
+        }
     }
 }
 
 impl Stampable for Transformer {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], dt: f64) {
-        let (g11, g22, g12, _, _) = transformer_companion(
-            self.inductance1,
-            self.inductance2,
-            self.coupling,
-            self.r_coil1,
-            self.r_coil2,
-            0.0,
-            0.0,
-            dt,
-        );
-        stamp_conductance_between(matrix, pin_nodes, 0, 1, g11);
-        stamp_conductance_between(matrix, pin_nodes, 2, 3, g22);
-        if g12 != 0.0 {
-            stamp_directed(matrix, pin_nodes, 0, 2, -g12);
-            stamp_directed(matrix, pin_nodes, 0, 3, g12);
-            stamp_directed(matrix, pin_nodes, 1, 2, g12);
-            stamp_directed(matrix, pin_nodes, 1, 3, -g12);
-            stamp_directed(matrix, pin_nodes, 2, 0, -g12);
-            stamp_directed(matrix, pin_nodes, 2, 1, g12);
-            stamp_directed(matrix, pin_nodes, 3, 0, g12);
-            stamp_directed(matrix, pin_nodes, 3, 1, -g12);
+        let state = self.to_state();
+        let comp = state.companion(dt);
+        let dim = comp.dim;
+
+        let pairs: [(usize, usize); 4] = match dim {
+            2 => [(0, 1), (2, 3), (0, 0), (0, 0)],
+            3 if self.center_tap => [(0, 1), (2, 3), (3, 4), (0, 0)],
+            3 => [(0, 1), (2, 3), (4, 5), (0, 0)],
+            4 => [(0, 1), (2, 3), (3, 4), (5, 6)],
+            _ => return,
+        };
+
+        for w in 0..dim {
+            let (p_a, p_b) = pairs[w];
+            if p_a < pin_nodes.len() && p_b < pin_nodes.len() {
+                stamp_conductance_between(matrix, pin_nodes, p_a, p_b, comp.g[w][w]);
+            }
+        }
+
+        for j in 0..dim {
+            for col in (j + 1)..dim {
+                let (a1, a2) = pairs[j];
+                let (b1, b2) = pairs[col];
+                let g = comp.g[j][col];
+                if g != 0.0
+                    && a1 < pin_nodes.len()
+                    && a2 < pin_nodes.len()
+                    && b1 < pin_nodes.len()
+                    && b2 < pin_nodes.len()
+                {
+                    stamp_directed(matrix, pin_nodes, a1, b1, -g);
+                    stamp_directed(matrix, pin_nodes, a1, b2, g);
+                    stamp_directed(matrix, pin_nodes, a2, b1, g);
+                    stamp_directed(matrix, pin_nodes, a2, b2, -g);
+
+                    stamp_directed(matrix, pin_nodes, b1, a1, -g);
+                    stamp_directed(matrix, pin_nodes, b1, a2, g);
+                    stamp_directed(matrix, pin_nodes, b2, a1, g);
+                    stamp_directed(matrix, pin_nodes, b2, a2, -g);
+                }
+            }
         }
     }
 }
@@ -233,16 +425,32 @@ use crate::theme::COMPONENT_BORDER_WIDTH;
 
 impl Drawable for Transformer {
     fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
+        let bottom_y = if self.aux_secondary { 56.0 } else { 24.0 };
+        // Ferromagnetic core lines
         d.line(
             -2.0,
             0.0,
             -2.0,
-            24.0,
+            bottom_y,
             ctx.pal.border,
             COMPONENT_BORDER_WIDTH,
         );
-        d.line(2.0, 0.0, 2.0, 24.0, ctx.pal.border, COMPONENT_BORDER_WIDTH);
-        for y in [4.0, 12.0, 20.0] {
+        d.line(
+            2.0,
+            0.0,
+            2.0,
+            bottom_y,
+            ctx.pal.border,
+            COMPONENT_BORDER_WIDTH,
+        );
+
+        // Primary coil arcs
+        let primary_arcs: &[f64] = if self.aux_secondary {
+            &[4.0, 12.0, 20.0, 28.0, 36.0, 44.0, 52.0]
+        } else {
+            &[4.0, 12.0, 20.0]
+        };
+        for &y in primary_arcs {
             d.arc(
                 -10.0,
                 y,
@@ -253,6 +461,8 @@ impl Drawable for Transformer {
                 COMPONENT_BORDER_WIDTH,
             );
         }
+
+        // Secondary coil arcs
         for y in [4.0, 12.0, 20.0] {
             d.arc(
                 10.0,
@@ -264,8 +474,40 @@ impl Drawable for Transformer {
                 COMPONENT_BORDER_WIDTH,
             );
         }
+
+        // Polarity dots
         d.fill_circle(-12.0, 4.0, 1.4, ctx.pal.border);
         d.fill_circle(12.0, 4.0, 1.4, ctx.pal.border);
+
+        // Center tap connector
+        if self.center_tap {
+            d.line(
+                10.0,
+                12.0,
+                14.0,
+                12.0,
+                ctx.pal.border,
+                COMPONENT_BORDER_WIDTH,
+            );
+            d.fill_circle(14.0, 12.0, 1.2, ctx.pal.border);
+        }
+
+        // Auxiliary secondary coil arcs
+        if self.aux_secondary {
+            for y in [36.0, 44.0, 52.0] {
+                d.arc(
+                    10.0,
+                    y,
+                    4.0,
+                    3.0 * std::f64::consts::FRAC_PI_2,
+                    std::f64::consts::FRAC_PI_2,
+                    ctx.pal.border,
+                    COMPONENT_BORDER_WIDTH,
+                );
+            }
+            d.fill_circle(12.0, 36.0, 1.4, ctx.pal.border);
+        }
+
         true
     }
 }
@@ -318,13 +560,7 @@ mod tests {
         circ.add_comp(Comp {
             id: "tr".into(),
             kind: Kind::Transformer {
-                inductance1: 1.0,
-                inductance2: 4.0,
-                coupling: 0.999,
-                r_coil1: 0.01,
-                r_coil2: 0.01,
-                i1: 0.0,
-                i2: 0.0,
+                state: TransformerState::new(1.0, 4.0, 0.999, 0.01, 0.01),
             },
         });
         circ.add_comp(Comp::resistor("rload", 10_000.0));
@@ -432,43 +668,4 @@ mod tests {
             "Expected Tunnel i1 voltage ({v_i1}) to match capacitor voltage ({v_dc})"
         );
     }
-}
-
-const TRANSFORMER_PINS: [PinGeom; 4] = [
-    PinGeom {
-        suffix: "-p1",
-        x: -16.0,
-        y: 0.0,
-        angle: 180,
-        length: 6.0,
-        direction: None,
-    },
-    PinGeom {
-        suffix: "-p2",
-        x: -16.0,
-        y: 24.0,
-        angle: 180,
-        length: 6.0,
-        direction: None,
-    },
-    PinGeom {
-        suffix: "-s1",
-        x: 16.0,
-        y: 0.0,
-        angle: 0,
-        length: 6.0,
-        direction: None,
-    },
-    PinGeom {
-        suffix: "-s2",
-        x: 16.0,
-        y: 24.0,
-        angle: 0,
-        length: 6.0,
-        direction: None,
-    },
-];
-
-fn transformer_pins() -> &'static [PinGeom] {
-    &TRANSFORMER_PINS
 }

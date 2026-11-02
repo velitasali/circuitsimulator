@@ -53,8 +53,20 @@ pub(super) fn on_pins(kind: &mut Kind, id: &str, v: impl Fn(&str) -> f64, t: u64
             link,
         } => link.on_pins(model, *temp, *humi, out_state, pin_driven, pin("inPin"), t),
         Kind::Ds18b20 {
-            temp, dq_low, wire, ..
-        } => wire.on_pins(*temp, dq_low, pin("inPin"), t),
+            rom,
+            temp,
+            dq_low,
+            wire,
+            ..
+        } => wire.on_pins(
+            rom,
+            *temp,
+            dq_low,
+            pin("inPin"),
+            pin("vddPin"),
+            pin("gndPin"),
+            t,
+        ),
         Kind::Ds1621 {
             temp,
             th,

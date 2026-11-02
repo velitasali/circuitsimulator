@@ -418,24 +418,7 @@ fn stamp_comp(
                 }
             }
         }
-        Kind::Transformer {
-            inductance1,
-            inductance2,
-            coupling,
-            r_coil1,
-            r_coil2,
-            ..
-        } => stamp_transformer(
-            sys,
-            comp,
-            pin_net,
-            omega,
-            *inductance1,
-            *inductance2,
-            *coupling,
-            *r_coil1,
-            *r_coil2,
-        ),
+        Kind::Transformer { state } => stamp_transformer(sys, comp, pin_net, omega, state),
         _ => {}
     }
 }
@@ -445,11 +428,7 @@ fn stamp_transformer(
     comp: &crate::elements::Comp,
     pin_net: &rustc_hash::FxHashMap<String, usize>,
     omega: f64,
-    l1: f64,
-    l2: f64,
-    k: f64,
-    r1: f64,
-    r2: f64,
+    state: &crate::elements::TransformerState,
 ) {
     let p1 = net(pin_net, &comp.transformer_p1_pin());
     let p2 = net(pin_net, &comp.transformer_p2_pin());
@@ -463,12 +442,23 @@ fn stamp_transformer(
         (Some(a), Some(b)) if a != b => Some((a, b)),
         _ => None,
     };
-    let l1 = l1.max(HENRY_FLOOR);
-    let l2 = l2.max(HENRY_FLOOR);
-    let m = k.clamp(-0.999, 0.999) * (l1 * l2).sqrt();
+    let l1 = state.inductance1.max(HENRY_FLOOR);
+    let l2 = state.inductance2.max(HENRY_FLOOR);
+    let k = state.coupling.clamp(-0.999, 0.999);
+    let r1 = state.r_coil1;
+    let r2 = state.r_coil2;
+    let m = k * (l1 * l2).sqrt();
     let z11 = (r1.max(0.0), omega * l1);
     let z22 = (r2.max(0.0), omega * l2);
     let z12 = (0.0, omega * m);
+
+    if let Some((a, b)) = primary {
+        if state.r_core > 0.0 && state.r_core < 1e11 {
+            let g_core = (1.0 / state.r_core, 0.0);
+            stamp_branch(sys, a, b, a, b, g_core);
+        }
+    }
+
     match (primary, secondary) {
         (Some((a, b)), Some((c, d))) => {
             let det = csub(cmul(z11, z22), cmul(z12, z12));
@@ -622,13 +612,14 @@ mod tests {
             .add_comp(crate::elements::Comp {
                 id: "T1".into(),
                 kind: Kind::Transformer {
-                    inductance1: 10.0,
-                    inductance2: 10.0,
-                    coupling: 0.0,
-                    r_coil1: 1_000.0,
-                    r_coil2: 1_000.0,
-                    i1: 0.0,
-                    i2: 0.0,
+                    state: crate::elements::TransformerState {
+                        inductance1: 10.0,
+                        inductance2: 10.0,
+                        coupling: 0.0,
+                        r_coil1: 1_000.0,
+                        r_coil2: 1_000.0,
+                        ..Default::default()
+                    },
                 },
             })
             .add_ground("GND")

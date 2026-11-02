@@ -2,6 +2,7 @@ pub mod comparator;
 pub mod diode;
 pub mod opamp;
 pub mod thyristor;
+pub mod transformer;
 pub mod transistor;
 pub mod volt_reg;
 
@@ -26,6 +27,7 @@ pub use opamp::{
     OPAMP_DEFAULT_VOLT_POS, OpAmpState,
 };
 pub use thyristor::{DiacState, ScrState, TriacState};
+pub use transformer::{MultiWindingCompanion, TRANSFORMER_BLEED_ADMIT, TransformerState};
 pub use transistor::{
     BJT_DEFAULT_GAIN, BJT_DEFAULT_SAT, BJT_RGAIN, BjtState, JFET_ACCURACY, JFET_DEFAULT_IDSS,
     JFET_DEFAULT_LAMBDA_INV, JFET_DEFAULT_VP, JfetState, MOSFET_ACCURACY, MOSFET_DEFAULT_RDSON,
@@ -423,13 +425,7 @@ pub enum Kind {
         ieq: f64,
     },
     Transformer {
-        inductance1: f64,
-        inductance2: f64,
-        coupling: f64,
-        r_coil1: f64,
-        r_coil2: f64,
-        i1: f64,
-        i2: f64,
+        state: TransformerState,
     },
     Scr {
         state: ScrState,
@@ -918,54 +914,88 @@ impl Kind {
                 Some(if suffix == PinSuffix::Left { -i } else { i })
             }
             (
-                Kind::Transformer {
-                    inductance1,
-                    inductance2,
-                    coupling,
-                    r_coil1,
-                    r_coil2,
-                    i1,
-                    i2,
-                },
+                Kind::Transformer { state },
                 PinSuffix::TransformerP1
                 | PinSuffix::TransformerP2
                 | PinSuffix::TransformerS1
-                | PinSuffix::TransformerS2,
+                | PinSuffix::TransformerS2
+                | PinSuffix::TransformerCt
+                | PinSuffix::TransformerA1
+                | PinSuffix::TransformerA2,
             ) => {
-                let vp1 = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                let vp2 = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                let vs1 = cache.in0.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                let vs2 = cache.in1.and_then(|i| nodes.get(i)).map(|n| n.volt);
-                let p_closed = vp1.is_some() && vp2.is_some();
-                let s_closed = vs1.is_some() && vs2.is_some();
-                let eff_k = if p_closed && s_closed { *coupling } else { 0.0 };
-                let (g11, g22, g12, i_hist1, i_hist2) = transformer_companion(
-                    *inductance1,
-                    *inductance2,
-                    eff_k,
-                    *r_coil1,
-                    *r_coil2,
-                    if p_closed { *i1 } else { 0.0 },
-                    if s_closed { *i2 } else { 0.0 },
-                    dt,
-                );
-                let v1 = vp1.zip(vp2).map(|(a, b)| a - b).unwrap_or(0.0);
-                let v2 = vs1.zip(vs2).map(|(a, b)| a - b).unwrap_or(0.0);
-                let ip = if p_closed {
-                    g11 * v1 + g12 * v2 + i_hist1
-                } else {
-                    0.0
+                let comp = state.companion(dt);
+                let p1 = cache.left;
+                let p2 = cache.right;
+                let s1 = cache.in0;
+                let s2 = cache.in1;
+                let ct = cache.mid;
+                let a1 = cache.collector;
+                let a2 = cache.emitter;
+
+                let dim = comp.dim;
+                let pairs: [(Option<usize>, Option<usize>); 4] = match dim {
+                    2 => [(p1, p2), (s1, s2), (None, None), (None, None)],
+                    3 if state.center_tap => [(p1, p2), (s1, ct), (ct, s2), (None, None)],
+                    3 => [(p1, p2), (s1, s2), (a1, a2), (None, None)],
+                    4 => [(p1, p2), (s1, ct), (ct, s2), (a1, a2)],
+                    _ => return None,
                 };
-                let is = if s_closed {
-                    g12 * v1 + g22 * v2 + i_hist2
-                } else {
-                    0.0
-                };
+
+                let mut v = [0.0; 4];
+                let mut closed = [false; 4];
+                for w in 0..dim {
+                    let (na, nb) = pairs[w];
+                    if let (Some(a), Some(b)) = (na, nb) {
+                        if a < nodes.len() && b < nodes.len() {
+                            v[w] = nodes[a].volt - nodes[b].volt;
+                            closed[w] = true;
+                        }
+                    }
+                }
+
+                let mut i_wind = [0.0; 4];
+                for j in 0..dim {
+                    if closed[j] {
+                        let mut sum = comp.i_hist[j];
+                        for col in 0..dim {
+                            if closed[col] {
+                                sum += comp.g[j][col] * v[col];
+                            }
+                        }
+                        i_wind[j] = sum;
+                    }
+                }
+
+                let ip = i_wind[0];
                 match suffix {
                     PinSuffix::TransformerP1 => Some(-ip),
                     PinSuffix::TransformerP2 => Some(ip),
-                    PinSuffix::TransformerS1 => Some(-is),
-                    PinSuffix::TransformerS2 => Some(is),
+                    PinSuffix::TransformerS1 => Some(-i_wind[1]),
+                    PinSuffix::TransformerCt => Some(i_wind[1] - i_wind[2]),
+                    PinSuffix::TransformerS2 => {
+                        let is = if state.center_tap {
+                            i_wind[2]
+                        } else {
+                            i_wind[1]
+                        };
+                        Some(is)
+                    }
+                    PinSuffix::TransformerA1 => {
+                        let ia = if state.center_tap {
+                            i_wind[3]
+                        } else {
+                            i_wind[2]
+                        };
+                        Some(-ia)
+                    }
+                    PinSuffix::TransformerA2 => {
+                        let ia = if state.center_tap {
+                            i_wind[3]
+                        } else {
+                            i_wind[2]
+                        };
+                        Some(ia)
+                    }
                     _ => None,
                 }
             }
@@ -1442,7 +1472,7 @@ impl Kind {
 /// `i_s = g12 * v1 + g22 * v2 + i_hist2`
 /// where `v1 = V(p1) - V(p2)` and `v2 = V(s1) - V(s2)`.
 #[inline]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, dead_code)]
 pub(crate) fn transformer_companion(
     inductance1: f64,
     inductance2: f64,
@@ -1453,28 +1483,15 @@ pub(crate) fn transformer_companion(
     i2: f64,
     dt: f64,
 ) -> (f64, f64, f64, f64, f64) {
-    let r1 = r_coil1.max(1e-6);
-    let r2 = r_coil2.max(1e-6);
-    if dt <= 0.0 {
-        return (1.0 / r1, 1.0 / r2, 0.0, 0.0, 0.0);
-    }
-    let l1 = inductance1.max(1e-12);
-    let l2 = inductance2.max(1e-12);
-    let k = coupling.clamp(0.0, 1.0);
-    let m = k * (l1 * l2).sqrt();
-    let l2_eff = if k > 0.0 { k * k * l2 } else { l2 };
-    let zl1 = l1 / dt;
-    let zl2 = l2_eff / dt;
-    let zm = m / dt;
-    let z11 = r1 + zl1;
-    let z22 = r2 + zl2;
-    let det = (z11 * z22 - zm * zm).max(1e-30);
-    let g11 = z22 / det;
-    let g22 = z11 / det;
-    let g12 = -zm / det;
-    let e1 = zl1 * i1 + zm * i2;
-    let e2 = zm * i1 + zl2 * i2;
-    let i_hist1 = g11 * e1 + g12 * e2;
-    let i_hist2 = g12 * e1 + g22 * e2;
-    (g11, g22, g12, i_hist1, i_hist2)
+    let mut state = TransformerState::new(inductance1, inductance2, coupling, r_coil1, r_coil2);
+    state.i1 = i1;
+    state.i2 = i2;
+    let comp = state.companion(dt);
+    (
+        comp.g[0][0],
+        comp.g[1][1],
+        comp.g[0][1],
+        comp.i_hist[0],
+        comp.i_hist[1],
+    )
 }

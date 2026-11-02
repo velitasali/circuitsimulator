@@ -198,6 +198,87 @@ impl Circuit {
         self
     }
 
+    pub fn add_transformer(
+        &mut self,
+        id: impl Into<String>,
+        inductance1: f64,
+        inductance2: f64,
+        coupling: f64,
+    ) -> &mut Self {
+        self.add_comp(Comp::transformer(id, inductance1, inductance2, coupling))
+    }
+
+    pub fn add_transformer_with(
+        &mut self,
+        id: impl Into<String>,
+        inductance1: f64,
+        inductance2: f64,
+        coupling: f64,
+        r_coil1: f64,
+        r_coil2: f64,
+    ) -> &mut Self {
+        self.add_comp(Comp::transformer_with(
+            id,
+            inductance1,
+            inductance2,
+            coupling,
+            r_coil1,
+            r_coil2,
+        ))
+    }
+
+    pub fn add_saturable_transformer(
+        &mut self,
+        id: impl Into<String>,
+        inductance1: f64,
+        inductance2: f64,
+        coupling: f64,
+        r_coil1: f64,
+        r_coil2: f64,
+        i_sat: f64,
+        r_core: f64,
+        hysteresis: f64,
+    ) -> &mut Self {
+        self.add_comp(Comp {
+            id: id.into(),
+            kind: Kind::Transformer {
+                state: crate::elements::TransformerState::new_saturable(
+                    inductance1,
+                    inductance2,
+                    coupling,
+                    r_coil1,
+                    r_coil2,
+                    i_sat,
+                    r_core,
+                    hysteresis,
+                ),
+            },
+        })
+    }
+
+    pub fn add_center_tapped_transformer(
+        &mut self,
+        id: impl Into<String>,
+        inductance1: f64,
+        inductance2: f64,
+        coupling: f64,
+        r_coil1: f64,
+        r_coil2: f64,
+    ) -> &mut Self {
+        self.add_comp(Comp {
+            id: id.into(),
+            kind: Kind::Transformer {
+                state: crate::elements::TransformerState::new_center_tapped(
+                    inductance1,
+                    inductance2,
+                    coupling,
+                    r_coil1,
+                    r_coil2,
+                ),
+            },
+        })
+    }
+
     pub fn add_analog_mux(&mut self, id: impl Into<String>, channels: usize) -> &mut Self {
         self.components.push(Comp::analog_mux(id, channels));
         self

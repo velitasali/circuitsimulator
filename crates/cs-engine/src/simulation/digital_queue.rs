@@ -57,29 +57,10 @@ impl Circuit {
         for (index, c) in self.components.iter_mut().enumerate() {
             if c.id == id {
                 match (&mut c.kind, kind) {
-                    (
-                        Kind::Transformer {
-                            inductance1,
-                            inductance2,
-                            coupling,
-                            r_coil1,
-                            r_coil2,
-                            ..
-                        },
-                        Kind::Transformer {
-                            inductance1: l1,
-                            inductance2: l2,
-                            coupling: k,
-                            r_coil1: r1,
-                            r_coil2: r2,
-                            ..
-                        },
-                    ) => {
-                        *inductance1 = *l1;
-                        *inductance2 = *l2;
-                        *coupling = *k;
-                        *r_coil1 = *r1;
-                        *r_coil2 = *r2;
+                    (Kind::Transformer { state: old }, Kind::Transformer { state: new }) => {
+                        let prev = *old;
+                        *old = *new;
+                        old.copy_runtime_from(&prev);
                     }
                     (
                         Kind::Capacitor { capacitance, .. },

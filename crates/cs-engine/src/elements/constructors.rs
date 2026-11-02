@@ -225,6 +225,37 @@ impl Comp {
         }
     }
 
+    pub fn transformer(
+        id: impl Into<String>,
+        inductance1: f64,
+        inductance2: f64,
+        coupling: f64,
+    ) -> Self {
+        Self::transformer_with(id, inductance1, inductance2, coupling, 0.1, 0.1)
+    }
+
+    pub fn transformer_with(
+        id: impl Into<String>,
+        inductance1: f64,
+        inductance2: f64,
+        coupling: f64,
+        r_coil1: f64,
+        r_coil2: f64,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            kind: Kind::Transformer {
+                state: super::TransformerState::new(
+                    inductance1,
+                    inductance2,
+                    coupling,
+                    r_coil1,
+                    r_coil2,
+                ),
+            },
+        }
+    }
+
     pub fn analog_mux(id: impl Into<String>, channels: usize) -> Self {
         Self {
             id: id.into(),

@@ -857,12 +857,12 @@ mod tests {
         ssd.ddram[0][0] = 0x01;
 
         let pixels_normal = ssd.render_pixels();
-        assert!(pixels_normal[0 * 128 + 0]);
+        assert!(pixels_normal[0]);
 
         // Test Rotation (180 deg) -> maps (0,0) to (127, 63)
         ssd.rotate = true;
         let pixels_rotated = ssd.render_pixels();
-        assert!(!pixels_rotated[0 * 128 + 0]);
+        assert!(!pixels_rotated[0]);
         assert!(pixels_rotated[63 * 128 + 127]);
 
         ssd.rotate = false;
@@ -873,15 +873,15 @@ mod tests {
         assert!(ssd.disp_inv);
         let pixels_inv = ssd.render_pixels();
         // The lit pixel should now be false, all others true
-        assert!(!pixels_inv[0 * 128 + 0]);
-        assert!(pixels_inv[0 * 128 + 1]);
+        assert!(!pixels_inv[0]);
+        assert!(pixels_inv[1]);
 
         // Test Segment Remap (0xA1) -> flips x
         ssd.read_byte(0xA6); // Normal display
         ssd.read_byte(0xA1); // Remap ON
         assert!(ssd.remap);
         let pixels_remap = ssd.render_pixels();
-        assert!(pixels_remap[0 * 128 + 127]);
+        assert!(pixels_remap[127]);
 
         // Test COM Scan Direction Invert (0xC8) -> flips y
         ssd.read_byte(0xA0); // Remap OFF

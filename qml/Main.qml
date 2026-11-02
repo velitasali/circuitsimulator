@@ -355,6 +355,61 @@ ApplicationWindow {
     }
 
     AppWindow {
+        id: examplesWin
+        title: App.translate("Example circuits")
+        sizeToContent: true
+        source: "examples.qml"
+        visible: false
+
+        onVisibleChanged: {
+            if (visible) {
+                x = win.x + Math.round((win.width - width) / 2)
+                y = win.y + Math.round((win.height - height) / 2)
+                raise()
+                requestActivate()
+            }
+        }
+        onClosing: (close) => {
+            if (!win.isQuitting) {
+                close.accepted = false
+                visible = false
+            }
+        }
+
+        Connections {
+            target: examplesWin.panel
+            function onExampleChosen(id) {
+                CircuitCanvas.loadExample(id)
+                examplesWin.visible = false
+            }
+        }
+    }
+
+    AppWindow {
+        id: bodeWin
+        title: win.tr("AC Sweep")
+        width: 820
+        height: 560
+        source: visible ? "BodeView.qml" : ""
+        visible: false
+
+        onVisibleChanged: {
+            if (visible) {
+                x = win.x + Math.round((win.width - width) / 2)
+                y = win.y + Math.round((win.height - height) / 2)
+                raise()
+                requestActivate()
+            }
+        }
+        onClosing: (close) => {
+            if (!win.isQuitting) {
+                close.accepted = false
+                visible = false
+            }
+        }
+    }
+
+    AppWindow {
         id: oscWin
         title: win.tr("Oscilloscope")
         width: 900
@@ -703,6 +758,14 @@ ApplicationWindow {
                 App.newWindow()
             } else if (id === "file.openFolder") {
                 openFolderDialog.open()
+            } else if (id === "file.examples") {
+                examplesWin.visible = true
+            } else if (id === "sim.bode") {
+                bodeWin.visible = true
+            } else if (id === "file.exportSpice") {
+                saveSpiceDialog.open()
+            } else if (id === "file.exportKicad") {
+                saveKicadDialog.open()
             } else if (id === "file.closeProject") {
                 FileBrowser.closeProject()
             } else if (id === "file.settings" || id === "file.appSettings") {
@@ -989,6 +1052,24 @@ ApplicationWindow {
         defaultSuffix: "txt"
         nameFilters: [ App.translate("Text files (*.txt)"), App.translate("All files (*)") ]
         onAccepted: SerialTerminal.saveLog("" + selectedFile)
+    }
+    FileDialog {
+        id: saveSpiceDialog
+        title: App.translate("Export SPICE Netlist")
+        fileMode: FileDialog.SaveFile
+        currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
+        defaultSuffix: "cir"
+        nameFilters: [ App.translate("SPICE netlist (*.cir *.sp)"), App.translate("All files (*)") ]
+        onAccepted: CircuitCanvas.saveSpice("" + selectedFile)
+    }
+    FileDialog {
+        id: saveKicadDialog
+        title: App.translate("Export KiCad Netlist")
+        fileMode: FileDialog.SaveFile
+        currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
+        defaultSuffix: "net"
+        nameFilters: [ App.translate("KiCad netlist (*.net)"), App.translate("All files (*)") ]
+        onAccepted: CircuitCanvas.saveKicad("" + selectedFile)
     }
 
     Component {

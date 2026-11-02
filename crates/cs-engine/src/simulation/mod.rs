@@ -12,9 +12,11 @@ use crate::serial;
 
 pub(crate) use periph_sync::CachedInstrument;
 
+mod ac;
 mod builder;
 mod digital_queue;
 mod matrix_solver;
+mod netlist;
 mod nonlinear;
 mod periph_proto;
 mod periph_sync;

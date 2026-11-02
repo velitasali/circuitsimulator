@@ -44,3 +44,47 @@ pub(super) fn subcircuit_tree_json(canvas: &Canvas) -> Value {
 pub(super) fn programmable_devices_json(canvas: &Canvas, active_device_id: Option<&str>) -> Value {
     json!(canvas.collect_programmable_devices(active_device_id))
 }
+
+pub(super) fn ac_sources_json(canvas: &Canvas) -> Value {
+    json!(canvas.scene().to_circuit().ac_sources())
+}
+
+pub(super) fn ac_probes_json(canvas: &Canvas) -> Value {
+    json!(canvas.scene().to_circuit().ac_probes())
+}
+
+/// Small-signal sweep of a copy of the schematic. The running simulator is left alone.
+pub(super) fn ac_sweep_json(
+    canvas: &Canvas,
+    source: &str,
+    probe: &str,
+    f_start: f64,
+    f_stop: f64,
+    per_decade: i32,
+) -> Value {
+    let mut circuit = canvas.scene().to_circuit();
+    let ppd = u32::try_from(per_decade).unwrap_or(1).clamp(1, 10_000);
+    match circuit.ac_sweep(source, probe, f_start, f_stop, ppd) {
+        Ok(points) => {
+            let rows: Vec<Value> = points
+                .iter()
+                .map(|p| {
+                    let db = if p.gain > 1e-15 {
+                        20.0 * p.gain.log10()
+                    } else {
+                        -300.0
+                    };
+                    json!({
+                        "hz": p.hz,
+                        "mag": p.mag,
+                        "phase": p.phase_deg,
+                        "gain": p.gain,
+                        "db": db,
+                    })
+                })
+                .collect();
+            json!({ "points": rows })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}

@@ -989,7 +989,7 @@ impl Comp {
                 };
                 stamp_pin_to_gnd(pin_net, nodes, &out_pin, out_v, 1.0 / 3.5);
                 if lm.discharge_on {
-                    stamp_between(pin_net, nodes, &dis_pin, &gnd_pin, 1.0 / 1.0, 0.0);
+                    stamp_between(pin_net, nodes, &dis_pin, &gnd_pin, 1.0, 0.0);
                 }
             }
             Kind::Clock { voltage, state, .. } => {

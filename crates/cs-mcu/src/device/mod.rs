@@ -151,8 +151,14 @@ impl Device {
 
     pub fn from_desc(id: impl Into<String>, desc: McuDesc) -> Result<Self> {
         if !desc.core.supported() {
+            let note = match desc.core {
+                CoreKind::Thumb | CoreKind::Rv32 => {
+                    " It has a standalone interpreter and is not a schematic device."
+                }
+                _ => "",
+            };
             return Err(Error::Unsupported(format!(
-                "MCU core `{}` is not in this slice (PIC12/PIC14/AVR/8051/6502/Z80 first)",
+                "MCU core `{}` is not in this slice (PIC12/PIC14/AVR/8051/6502/Z80 first).{note}",
                 desc.core_name
             )));
         }
@@ -478,7 +484,7 @@ impl Device {
             CoreKind::I51 => Cpu::I51(I51::new(&data)),
             CoreKind::Mcs65 => Cpu::Mcs65(Mcs65::new()),
             CoreKind::Z80 => Cpu::Z80(Z80::new()),
-            CoreKind::Scripted | CoreKind::Other => Cpu::None,
+            CoreKind::Thumb | CoreKind::Rv32 | CoreKind::Scripted | CoreKind::Other => Cpu::None,
         };
 
         let fill = desc.prog_fill;

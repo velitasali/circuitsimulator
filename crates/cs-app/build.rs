@@ -418,6 +418,8 @@ fn compile_resources() {
         "Main.qml",
         "AppWindow.qml",
         "about.qml",
+        "examples.qml",
+        "BodeView.qml",
         "appdialog.qml",
         "circuitdialog.qml",
         "AppComboBox.qml",

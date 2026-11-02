@@ -7,6 +7,7 @@ mod aip31068;
 mod arithmetic;
 mod clock;
 mod converters;
+mod decode;
 mod event;
 mod family;
 mod flipflop;
@@ -55,6 +56,7 @@ pub use converters::{
     AdcState, BcdTo7SState, BcdToDecState, DacState, DecToBcdState, DemuxState, I2CToParallelState,
     MuxState,
 };
+pub use decode::{I2cTransaction, SpiByte, UartByte, decode_i2c, decode_spi, decode_uart};
 pub use event::{EventQueue, EventTarget};
 pub use family::{
     LOGIC_DELAY, LOGIC_FALL, LOGIC_IN_HIGH, LOGIC_IN_IMP, LOGIC_IN_LOW, LOGIC_OUT_HIGH,

@@ -157,6 +157,7 @@ impl Engine {
 
     /// Register MCU types and the global `component` property. Call before
     /// [`compile`](Self::compile).
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn register_mcu(&mut self, script_cpu: *mut std::ffi::c_void) -> Result<(), Error> {
         let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
         let r = unsafe { as_host_register_mcu(self.ptr, script_cpu) };
@@ -168,6 +169,7 @@ impl Engine {
 
     /// Register a named global (`"Uart UART0"`). Call after [`register_mcu`](Self::register_mcu)
     /// and before [`compile`](Self::compile).
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn register_global(&mut self, decl: &str, ptr: *mut std::ffi::c_void) -> Result<(), Error> {
         let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
         let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;

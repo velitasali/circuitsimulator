@@ -219,6 +219,7 @@ impl CircuitCanvas {
             PendingReplace::None => {}
             PendingReplace::New => self.replace_with_new(),
             PendingReplace::Load(path) => self.load_path_now(&path),
+            PendingReplace::Example(id) => self.load_example_now(&id),
         }
     }
 
@@ -232,6 +233,38 @@ impl CircuitCanvas {
         self.last_warnings_crashed = false;
         self.warnings_changed();
         self.root_circuit_loaded();
+    }
+
+    fn load_example_now(&mut self, id: &str) {
+        let Some(ex) = cs_engine::examples::get(id) else {
+            let prefix = cs_engine::i18n::tr("Unknown example:");
+            cs_engine::logging::log_sim(format!("{prefix} {id}"));
+            self.flush_sim_logs();
+            self.sim_changed();
+            return;
+        };
+        match self.inner.load_sim1(ex.sim1, None) {
+            Ok(c) => {
+                cs_engine::project::update_session(&self.project_path, |s| {
+                    s.circuit_file = None;
+                });
+                let prefix = cs_engine::i18n::tr("Loaded example:");
+                cs_engine::logging::log_sim(format!("{prefix} {}", ex.title));
+                self.apply(c);
+                self.file_path_changed();
+                self.canvas_overflow_changed();
+                self.last_warnings_count = 0;
+                self.last_warnings_crashed = false;
+                self.warnings_changed();
+                self.root_circuit_loaded();
+            }
+            Err(e) => {
+                let prefix = cs_engine::i18n::tr("Error loading circuit:");
+                cs_engine::logging::log_sim(format!("{prefix} {e}"));
+                self.flush_sim_logs();
+                self.sim_changed();
+            }
+        }
     }
 
     fn load_path_now(&mut self, path: &str) {
@@ -2676,6 +2709,164 @@ impl CircuitCanvas {
         scope_screen::signal_at(&self.inner, x, w, h, dpr)
     }
 
+    /// Dual-cursor reading on one scope channel. Fractions are 0 at the left
+    /// edge of the window and 1 at the right. `span_s` is that window.
+    #[qslot]
+    fn scope_measure(&self, ch: i32, frac0: f64, frac1: f64, span_s: f64) -> Value {
+        let Some(samples) = self.scope_channel(ch) else {
+            return json!({});
+        };
+        let n = samples.len();
+        if n < 2 || !span_s.is_finite() || span_s <= 0.0 {
+            return json!({});
+        }
+        let idx = |frac: f64| {
+            let i = (frac.clamp(0.0, 1.0) * (n - 1) as f64).round() as usize;
+            i.min(n - 1)
+        };
+        let dt = span_s / (n - 1) as f64;
+        let Some(m) = cs_engine::spectrum::measure(&samples, dt, idx(frac0), idx(frac1)) else {
+            return json!({});
+        };
+        json!({
+            "dt": m.dt,
+            "freq": m.freq,
+            "dv": m.dv,
+            "v1": m.v1,
+            "v2": m.v2,
+            "vrms": m.vrms,
+            "vpp": m.vpp,
+            "text": format!(
+                "X1–X2  Δt {:.6} s   ΔV {:.3} V   Vpp {:.3} V   Vrms {:.3} V",
+                m.dt, m.dv, m.vpp, m.vrms
+            ),
+        })
+    }
+
+    /// Peak bin of the current scope channel.
+    #[qslot]
+    fn scope_spectrum(&self, ch: i32, span_s: f64) -> Value {
+        let Some(samples) = self.scope_channel(ch) else {
+            return json!({});
+        };
+        let n = samples.len();
+        if n < 2 || !span_s.is_finite() || span_s <= 0.0 {
+            return json!({});
+        }
+        let sample_hz = (n - 1) as f64 / span_s;
+        let bins = cs_engine::spectrum::fft_mag(&samples, sample_hz);
+        let Some(peak) = cs_engine::spectrum::peak_bin(&bins) else {
+            return json!({});
+        };
+        json!({
+            "hz": peak.hz,
+            "mag": peak.mag,
+            "text": format!("{:.3} Hz   {:.3} V", peak.hz, peak.mag),
+        })
+    }
+
+    fn scope_channel(&self, ch: i32) -> Option<Vec<f64>> {
+        if ch < 0 {
+            return None;
+        }
+        self.inner
+            .scope_traces()
+            .channels
+            .get(ch as usize)
+            .filter(|c| !c.samples.is_empty())
+            .map(|c| c.samples.clone())
+    }
+
+    /// Decode the logic-analyzer window. UART reads channel 1. I2C uses
+    /// channel 1 as SCL and channel 2 as SDA. SPI uses channel 1 as SCK,
+    /// 2 as MOSI, 3 as MISO, and 4 as CS, active low.
+    #[qslot]
+    fn la_decode(&self, proto: String, span_s: f64, baud: f64) -> Value {
+        let text = self.la_decode_text(&proto, span_s, baud);
+        json!({ "text": text })
+    }
+
+    fn la_decode_text(&self, proto: &str, span_s: f64, baud: f64) -> String {
+        let traces = self.inner.la_traces();
+        let ch = |i: usize| -> Option<Vec<f64>> {
+            traces
+                .channels
+                .get(i)
+                .filter(|c| !c.samples.is_empty())
+                .map(|c| c.samples.clone())
+        };
+        let kind = proto.trim().to_ascii_lowercase();
+        let threshold = 0.5;
+        match kind.as_str() {
+            "uart" => {
+                let Some(samples) = ch(0) else {
+                    return cs_engine::i18n::tr("UART needs a signal on channel 1");
+                };
+                let n = samples.len();
+                if n < 2 || span_s <= 0.0 || baud <= 0.0 {
+                    return cs_engine::i18n::tr("no frames");
+                }
+                let sample_hz = (n - 1) as f64 / span_s;
+                let frames = cs_engine::digital::decode_uart(&samples, sample_hz, baud, threshold);
+                if frames.is_empty() {
+                    return cs_engine::i18n::tr("no frames");
+                }
+                frames
+                    .iter()
+                    .map(|f| {
+                        if f.framing_ok {
+                            format!("{:02X}", f.byte)
+                        } else {
+                            format!("{:02X}!", f.byte)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+            "i2c" => {
+                let (Some(scl), Some(sda)) = (ch(0), ch(1)) else {
+                    return cs_engine::i18n::tr("I2C needs SCL on channel 1 and SDA on channel 2");
+                };
+                let txns = cs_engine::digital::decode_i2c(&scl, &sda, threshold);
+                if txns.is_empty() {
+                    return cs_engine::i18n::tr("no frames");
+                }
+                txns.iter()
+                    .map(|t| {
+                        let dir = if t.read { "R" } else { "W" };
+                        let ack = if t.address_ack { "ack" } else { "nack" };
+                        let data = t
+                            .data
+                            .iter()
+                            .map(|b| format!("{b:02X}"))
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        format!("{dir} {addr:02X} [{ack}] {data}", addr = t.address)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("  ")
+            }
+            "spi" => {
+                let (Some(sck), Some(mosi), Some(miso), Some(cs)) = (ch(0), ch(1), ch(2), ch(3))
+                else {
+                    return cs_engine::i18n::tr(
+                        "SPI needs SCK, MOSI, MISO, and CS on channels 1 to 4",
+                    );
+                };
+                let bytes = cs_engine::digital::decode_spi(&sck, &mosi, &miso, &cs, threshold);
+                if bytes.is_empty() {
+                    return cs_engine::i18n::tr("no frames");
+                }
+                bytes
+                    .iter()
+                    .map(|b| format!("MOSI {:02X}  MISO {:02X}", b.mosi, b.miso))
+                    .collect::<Vec<_>>()
+                    .join("  ")
+            }
+            _ => cs_engine::i18n::tr("Choose UART, I2C, or SPI"),
+        }
+    }
+
     /// Logic-analyzer levels at logical time `x`.
     #[qslot]
     fn la_signal_at(&self, x: f64, w: f64, h: f64, dpr: f64) -> Value {
@@ -2850,6 +3041,93 @@ impl CircuitCanvas {
     #[qslot]
     fn load_circ(&mut self, url: String) {
         self.load_path(url);
+    }
+
+    /// Built-in circuits for the example catalog. Each entry has `id`,
+    /// `title`, and `summary`.
+    #[qslot]
+    fn examples(&self) -> Value {
+        let rows: Vec<Value> = cs_engine::examples::all()
+            .iter()
+            .map(|ex| {
+                json!({
+                    "id": ex.id,
+                    "title": ex.title,
+                    "summary": ex.summary,
+                })
+            })
+            .collect();
+        Value::Array(rows)
+    }
+
+    /// Replace the canvas with a built-in circuit. The result is unsaved.
+    #[qslot]
+    fn load_example(&mut self, id: String) {
+        if id.is_empty() {
+            return;
+        }
+        if self.guard_replace(PendingReplace::Example(id.clone())) {
+            return;
+        }
+        self.load_example_now(&id);
+    }
+
+    #[qslot]
+    fn save_spice(&mut self, url: String) {
+        self.save_netlist(&url, true);
+    }
+
+    #[qslot]
+    fn save_kicad(&mut self, url: String) {
+        self.save_netlist(&url, false);
+    }
+
+    /// Voltage-source ids the AC sweep can excite.
+    #[qslot]
+    fn ac_sources(&self) -> Value {
+        plots::ac_sources_json(&self.inner)
+    }
+
+    /// Connected pin ids, for the AC probe combo.
+    #[qslot]
+    fn ac_probes(&self) -> Value {
+        plots::ac_probes_json(&self.inner)
+    }
+
+    /// Bode points for one source and one probe. `per_decade` is clamped.
+    #[qslot]
+    fn ac_sweep(
+        &self,
+        source: String,
+        probe: String,
+        f_start: f64,
+        f_stop: f64,
+        per_decade: i32,
+    ) -> Value {
+        plots::ac_sweep_json(&self.inner, &source, &probe, f_start, f_stop, per_decade)
+    }
+
+    fn save_netlist(&mut self, url: &str, spice: bool) {
+        let path = strip_file_url(url);
+        if path.is_empty() {
+            return;
+        }
+        let text = if spice {
+            cs_engine::canvas::export::spice_netlist(&self.inner)
+        } else {
+            cs_engine::canvas::export::kicad_netlist(&self.inner)
+        };
+        match text.and_then(|body| std::fs::write(&path, body).map_err(cs_engine::Error::from)) {
+            Ok(()) => {
+                let prefix = cs_engine::i18n::tr("Saved netlist:");
+                cs_engine::logging::log_sim(format!("{prefix} {path}"));
+            }
+            Err(e) => {
+                let prefix = cs_engine::i18n::tr("Error saving netlist:");
+                cs_engine::logging::log_sim(format!("{prefix} {e}"));
+            }
+        }
+        self.flush_sim_logs();
     }
 
     #[qslot]

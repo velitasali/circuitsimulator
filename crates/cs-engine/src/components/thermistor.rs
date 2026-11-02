@@ -82,7 +82,7 @@ impl Thermistor {
             return r0.max(1e-12);
         }
         let k = (t0 - t) / (t * t0);
-        let res = r0 * 2.7182_f64.powf(beta * k);
+        let res = r0 * (beta * k).exp();
         if res.is_finite() && res > 0.0 {
             res.max(1e-12)
         } else {

@@ -10,6 +10,7 @@ pub(crate) enum PendingReplace {
     None,
     New,
     Load(String),
+    Example(String),
 }
 
 /// Migration to native .circ1 format:

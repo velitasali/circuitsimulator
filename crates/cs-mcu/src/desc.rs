@@ -11,6 +11,10 @@ pub enum CoreKind {
     I51,
     Mcs65,
     Z80,
+    /// Standalone Thumb interpreter. Not stepped by [`crate::Device`].
+    Thumb,
+    /// Standalone RV32I interpreter. Not stepped by [`crate::Device`].
+    Rv32,
     Scripted,
     Other,
 }
@@ -24,6 +28,8 @@ impl CoreKind {
             "8051" => Self::I51,
             "6502" => Self::Mcs65,
             "Z80" | "Z80ULA" => Self::Z80,
+            "Thumb" | "Cortex-M" | "CortexM" => Self::Thumb,
+            "RV32" | "RiscV" | "RISCV" => Self::Rv32,
             "scripted" => Self::Scripted,
             _ => Self::Other,
         }

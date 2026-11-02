@@ -435,6 +435,34 @@ Rectangle {
                 text: root.tr( "Export" )
                 onClicked: LogicAnalyzer.exportData()
             }
+
+            AppComboBox {
+                id: decodeProto
+                Layout.preferredWidth: 90
+                model: [ "UART", "I2C", "SPI" ]
+            }
+            AppTextField {
+                id: decodeBaud
+                Layout.preferredWidth: 72
+                text: "9600"
+            }
+            AppButton {
+                text: root.tr( "Decode" )
+                onClicked: {
+                    var baud = Number( decodeBaud.text )
+                    if ( !( baud > 0 ) )
+                        baud = 9600
+                    var res = CircuitCanvas.laDecode( decodeProto.currentText, root.laTimeSpan(), baud )
+                    decodeText.text = ( res && res.text ) ? res.text : ""
+                }
+            }
+            AppText {
+                id: decodeText
+                Layout.fillWidth: true
+                color: appTheme.text
+                font.pixelSize: App.fontSmall
+                elide: Text.ElideRight
+            }
         }
 
         // Bottom control bar: Time / Div, Time Pos, Bus channels, Thresholds

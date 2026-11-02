@@ -3,7 +3,8 @@
 //! timers, OC / PWM / IC, PIC CCP PWM, Tinyx5 T1 PWM1A/B, USART TX/RX,
 //! scripted `<usart>`/`<spi>`/`<twi>` + `script` attrs, 8051 EA/ALE/PSEN bus
 //! and MOVX XRAM, 6502 / Z80 address / data bus GPIO.
-//! No Qt. QEMU devices come after this core.
+//! No Qt. [`Thumb`] and [`Rv32`] are standalone interpreters and are not
+//! attached to a schematic device. QEMU devices come after this core.
 //!
 //! Pin analog stamps stay in `cs-engine`; this crate reports GPIO direction
 //! and level so the host can drive `McuPin` / `IoPin`.
@@ -23,6 +24,7 @@ pub mod twi;
 mod usart;
 mod xml;
 
+pub use cpu::{Rv32, Thumb};
 pub use dataspace::{DataSpace, RegInfo, Watch};
 pub use desc::{CoreKind, McuDesc, StackSpec};
 pub use device::{Device, Mcu, McuState};

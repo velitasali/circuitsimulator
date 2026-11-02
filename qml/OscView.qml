@@ -199,6 +199,9 @@ Rectangle {
     property bool scopePaintQueued: false
     property real cursorX: -1
     property real cursorY: -1
+    property real cursor2X: -1
+    property string cursorMeasure: ""
+    property string spectrumText: ""
     property real markerX: 0
     property real markerFraction: 0.5
     property var markerHits: []
@@ -277,6 +280,16 @@ Rectangle {
         var hits = res.hits || []
         root.markerHits = hits
         root.markerRows = root.rowsFromHits( hits )
+        root.cursorMeasure = ""
+        if ( root.cursor2X >= 0 && scopeScreen.width > 1 ) {
+            var measured = CircuitCanvas.scopeMeasure(
+                        Oscilloscope.currentChannel,
+                        root.markerFraction,
+                        root.cursor2X / scopeScreen.width,
+                        root.scopeTimeSpan() )
+            if ( measured && measured.text )
+                root.cursorMeasure = measured.text
+        }
     }
 
     function repaintScope() {
@@ -437,15 +450,24 @@ Rectangle {
             Item {
                 id: cursorOverlay
                 anchors.fill: parent
-                visible: root.cursorX >= 0 && root.cursorX <= width && root.cursorY >= 0 && root.cursorY <= height
+                visible: ( root.cursorX >= 0 && root.cursorX <= width && root.cursorY >= 0 && root.cursorY <= height ) || ( root.cursor2X >= 0 && root.cursor2X <= width )
                 z: 1
 
                 Rectangle {
                     width: 1
                     height: parent.height
                     x: Math.round( root.markerX )
+                    visible: root.cursorX >= 0
                     color: Oscilloscope.cursorColor
                     opacity: 0.85
+                }
+                Rectangle {
+                    width: 1
+                    height: parent.height
+                    x: Math.round( root.cursor2X )
+                    visible: root.cursor2X >= 0 && root.cursor2X <= parent.width
+                    color: Oscilloscope.cursorColor
+                    opacity: 0.45
                 }
                 Repeater {
                     model: root.markerHits
@@ -485,6 +507,13 @@ Rectangle {
                             font.bold: true
                             font.pixelSize: App.fontMicro
                         }
+                        AppText {
+                            visible: root.cursorMeasure.length > 0
+                            text: root.cursorMeasure
+                            color: Oscilloscope.cursorText
+                            font.bold: true
+                            font.pixelSize: App.fontMicro
+                        }
                         Repeater {
                             model: root.markerRows
                             delegate: AppText {
@@ -503,13 +532,18 @@ Rectangle {
                 id: plotMouseArea
                 anchors.fill: parent
                 z: 2
-                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                 hoverEnabled: true
                 cursorShape: pressed ? Qt.ClosedHandCursor : Qt.CrossCursor
 
                 property real lastDragX: 0
 
                 onPressed: (mouse) => {
+                    if ( mouse.button === Qt.RightButton ) {
+                        root.cursor2X = mouse.x
+                        root.refreshCursor()
+                        return
+                    }
                     plotMouseArea.lastDragX = mouse.x
                     Oscilloscope.plotPressed( mouse.x, mouse.button )
                 }
@@ -534,6 +568,7 @@ Rectangle {
                 onExited: {
                     root.cursorX = -1
                     root.cursorY = -1
+                    root.cursorMeasure = ""
                     root.clearMarker()
                 }
                 onReleased: Oscilloscope.plotReleased()
@@ -824,6 +859,30 @@ Rectangle {
                             Oscilloscope.setChTrigRising( ch, checked )
                         }
                     }
+                }
+
+                AppButton {
+                    text: root.tr( "Spectrum" )
+                    Layout.fillWidth: true
+                    onClicked: {
+                        var res = CircuitCanvas.scopeSpectrum( Oscilloscope.currentChannel, root.scopeTimeSpan() )
+                        root.spectrumText = ( res && res.text ) ? res.text : ""
+                    }
+                }
+                AppText {
+                    visible: root.spectrumText.length > 0
+                    text: root.spectrumText
+                    color: appTheme.text
+                    font.pixelSize: App.fontSmall
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+                AppText {
+                    text: root.tr( "Right-click the trace to place cursor X2." )
+                    color: appTheme.text
+                    font.pixelSize: App.fontMicro
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
                 }
             }
 

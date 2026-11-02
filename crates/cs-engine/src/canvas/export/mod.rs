@@ -76,6 +76,16 @@ pub fn png_bytes(canvas: &Canvas, palette: &Palette) -> crate::Result<Vec<u8>> {
         .ok_or_else(|| Error::Export("png encode failed".into()))
 }
 
+/// SPICE netlist of the schematic. Does not touch a running simulation.
+pub fn spice_netlist(canvas: &Canvas) -> crate::Result<String> {
+    canvas.scene.to_circuit().spice_netlist()
+}
+
+/// KiCad 6 netlist of the schematic. Does not touch a running simulation.
+pub fn kicad_netlist(canvas: &Canvas) -> crate::Result<String> {
+    canvas.scene.to_circuit().kicad_netlist()
+}
+
 pub fn render_viewport(
     canvas: &Canvas,
     palette: &Palette,

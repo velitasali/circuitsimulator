@@ -103,7 +103,7 @@ pub struct Engine {
 
 impl Engine {
     pub fn new() -> Result<Self, Error> {
-        let _life = ENGINE_LIFE.lock().unwrap();
+        let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
         let ptr = unsafe { as_host_create() };
         if ptr.is_null() {
             return Err(Error("failed to create script engine".into()));
@@ -112,6 +112,7 @@ impl Engine {
     }
 
     pub fn compile(&mut self, section: &str, source: &str) -> Result<(), Error> {
+        let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
         let section = CString::new(section).map_err(|_| Error("section contains NUL".into()))?;
         let source = CString::new(source).map_err(|_| Error("source contains NUL".into()))?;
         let r = unsafe { as_host_compile(self.ptr, section.as_ptr(), source.as_ptr()) };
@@ -157,6 +158,7 @@ impl Engine {
     /// Register MCU types and the global `component` property. Call before
     /// [`compile`](Self::compile).
     pub fn register_mcu(&mut self, script_cpu: *mut std::ffi::c_void) -> Result<(), Error> {
+        let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
         let r = unsafe { as_host_register_mcu(self.ptr, script_cpu) };
         if r < 0 {
             return Err(self.last_error());
@@ -167,6 +169,7 @@ impl Engine {
     /// Register a named global (`"Uart UART0"`). Call after [`register_mcu`](Self::register_mcu)
     /// and before [`compile`](Self::compile).
     pub fn register_global(&mut self, decl: &str, ptr: *mut std::ffi::c_void) -> Result<(), Error> {
+        let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
         let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;
         let r = unsafe { as_host_register_global(self.ptr, decl.as_ptr(), ptr) };
         if r < 0 {
@@ -192,7 +195,7 @@ impl Engine {
 
 impl Drop for Engine {
     fn drop(&mut self) {
-        let _life = ENGINE_LIFE.lock().unwrap();
+        let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { as_host_destroy(self.ptr) }
     }
 }

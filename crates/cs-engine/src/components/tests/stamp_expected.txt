@@ -7,8 +7,6 @@ Tunnel: no-stamp
 Bus: no-stamp
 Socket: no-stamp
 Header: no-stamp
-SerialPort: not-inserted
-SerialTerm: not-inserted
 Subcircuit: not-inserted
 SubPackage: not-inserted
 Dial: no-pins

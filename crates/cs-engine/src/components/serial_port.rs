@@ -4,7 +4,8 @@ use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int, expect_string};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::draw::{Align, Color, Draw, PaintCtx};
-use crate::canvas::{PinGeom, Point, Rect};
+use crate::canvas::{Item, PinGeom, Point, Rect};
+use crate::digital::SerialUart;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 use crate::theme::{COMPONENT_BORDER_WIDTH, COMPONENT_FILL_ALPHA};
@@ -16,7 +17,7 @@ const MAX_DATA_BITS: i64 = 9;
 const MIN_STOP_BITS: i64 = 1;
 const MAX_STOP_BITS: i64 = 2;
 
-impl crate::canvas::Item {
+impl Item {
     pub fn serial_port(
         id: impl Into<String>,
         x: f64,
@@ -67,6 +68,7 @@ impl SerialPort {
         Kind::SerialPort {
             port_name: self.port_name.clone(),
             baud_rate: self.baud_rate,
+            uart: SerialUart::default(),
         }
     }
 
@@ -271,6 +273,7 @@ mod tests {
             Kind::SerialPort {
                 port_name,
                 baud_rate,
+                ..
             } => {
                 assert_eq!(port_name, "COM3");
                 assert_eq!(baud_rate, 115200);

@@ -6,7 +6,10 @@ use super::opamp::OpAmpState;
 use super::transistor::{BjtState, JfetState, MosfetState};
 use super::volt_reg::VoltRegState;
 use super::*;
-use crate::digital::{FlipFlopState, GateState, LatchState, McuPinState, TestUnitState};
+use crate::digital::{
+    EspUart, FlipFlopState, GateState, LatchState, McuPinState, Pcf8833State, SdCardSpi,
+    SerialUart, TestUnitState, TftState,
+};
 use crate::mcu::{McuComp, McuItemSpec};
 use crate::qemu::QemuComp;
 use crate::script::ScriptCpu;
@@ -568,10 +571,12 @@ impl Comp {
     }
 
     pub fn sdcard(id: impl Into<String>, file: impl Into<String>) -> Self {
+        let file_str = file.into();
         Self {
             id: id.into(),
             kind: Kind::SdCard {
-                file: file.into(),
+                spi: SdCardSpi::new(&file_str),
+                file: file_str,
                 card_inserted: true,
             },
         }
@@ -583,7 +588,32 @@ impl Comp {
             kind: Kind::Esp01 {
                 baud_rate,
                 debug,
-                uart: crate::digital::EspUart::default(),
+                uart: EspUart::default(),
+            },
+        }
+    }
+
+    pub fn serial_port(
+        id: impl Into<String>,
+        port_name: impl Into<String>,
+        baud_rate: u32,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            kind: Kind::SerialPort {
+                port_name: port_name.into(),
+                baud_rate,
+                uart: SerialUart::default(),
+            },
+        }
+    }
+
+    pub fn serial_term(id: impl Into<String>, baud_rate: u32) -> Self {
+        Self {
+            id: id.into(),
+            kind: Kind::SerialTerm {
+                baud_rate,
+                uart: SerialUart::default(),
             },
         }
     }
@@ -604,6 +634,7 @@ impl Comp {
                 height,
                 scale,
                 bgr,
+                tft: TftState::new(width, height, bgr),
             },
         }
     }
@@ -642,7 +673,11 @@ impl Comp {
     pub fn pcf8833(id: impl Into<String>, width: u32, height: u32) -> Self {
         Self {
             id: id.into(),
-            kind: Kind::Pcf8833Display { width, height },
+            kind: Kind::Pcf8833Display {
+                width,
+                height,
+                pcf: Pcf8833State::new(width, height),
+            },
         }
     }
 

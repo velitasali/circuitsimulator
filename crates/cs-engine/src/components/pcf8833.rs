@@ -1,21 +1,36 @@
 //! PCF8833 132x132 color LCD controller.
 
+use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_int};
 use super::{CompPin, Component, Stampable};
-use crate::canvas::Rect;
+use crate::canvas::draw::{Align, Color, Draw, PaintCtx};
+use crate::canvas::{ImageBuf, Item, Rect, Scene};
+use crate::digital::Pcf8833State;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
+use crate::theme::COMPONENT_BORDER_WIDTH;
 
 const MIN_DIM: i64 = 1;
 const MAX_DIM: i64 = 4096;
 
-impl crate::canvas::Item {
+impl Item {
     pub fn pcf8833(id: impl Into<String>, x: f64, y: f64) -> Self {
         Self::new(id, x, y, Pcf8833::default())
     }
 
     pub fn pcf8833_display(id: impl Into<String>, x: f64, y: f64, width: u32, height: u32) -> Self {
-        Self::new(id, x, y, Pcf8833 { width, height })
+        Self::new(
+            id,
+            x,
+            y,
+            Pcf8833 {
+                width,
+                height,
+                fb: Vec::new(),
+                last_sync_seq: 0,
+                image_cache: None,
+            },
+        )
     }
 }
 
@@ -23,6 +38,9 @@ impl crate::canvas::Item {
 pub struct Pcf8833 {
     pub width: u32,
     pub height: u32,
+    pub fb: Vec<u16>,
+    pub last_sync_seq: u64,
+    pub image_cache: Option<ImageBuf>,
 }
 
 impl Default for Pcf8833 {
@@ -30,6 +48,9 @@ impl Default for Pcf8833 {
         Self {
             width: 132,
             height: 132,
+            fb: Vec::new(),
+            last_sync_seq: 0,
+            image_cache: None,
         }
     }
 }
@@ -44,10 +65,30 @@ impl Pcf8833 {
         self.height as usize
     }
 
+    pub fn update_image_cache(&mut self) {
+        let expected_len = (self.width as usize) * (self.height as usize);
+        if self.fb.is_empty() || self.fb.len() != expected_len {
+            self.image_cache = None;
+            return;
+        }
+        let mut rgba = Vec::with_capacity(self.fb.len() * 4);
+        for &pixel in &self.fb {
+            let r5 = ((pixel >> 11) & 0x1F) as u8;
+            let g6 = ((pixel >> 5) & 0x3F) as u8;
+            let b5 = (pixel & 0x1F) as u8;
+            let r8 = (r5 << 3) | (r5 >> 2);
+            let g8 = (g6 << 2) | (g6 >> 4);
+            let b8 = (b5 << 3) | (b5 >> 2);
+            rgba.extend_from_slice(&[r8, g8, b8, 255]);
+        }
+        self.image_cache = ImageBuf::from_rgba(self.width, self.height, rgba);
+    }
+
     pub fn to_element_kind(&self) -> Kind {
         Kind::Pcf8833Display {
             width: self.width,
             height: self.height,
+            pcf: Pcf8833State::new(self.width, self.height),
         }
     }
 
@@ -130,10 +171,7 @@ impl Stampable for Pcf8833 {
     fn stamp(&self, _matrix: &mut CircMatrix, _pin_nodes: &[usize], _dt: f64) {}
 }
 
-use crate::canvas::draw::{Align, Color, Draw, PaintCtx};
-use crate::theme::COMPONENT_BORDER_WIDTH;
-
-impl super::drawable::Drawable for Pcf8833 {
+impl Drawable for Pcf8833 {
     fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
         let w = self.width as f64;
         let h = self.height as f64;
@@ -161,6 +199,9 @@ impl super::drawable::Drawable for Pcf8833 {
 
         // Screen glass
         d.fill_rect(-w / 2.0, -h / 2.0, w, h, Color::rgb(6, 10, 18));
+        if let Some(ref img) = self.image_cache {
+            d.draw_pixmap_rect(-w / 2.0, -h / 2.0, w, h, img, 1.0);
+        }
         d.stroke_rect(-w / 2.0, -h / 2.0, w, h, Color::rgb(35, 50, 70), 1.0);
 
         d.text(
@@ -175,11 +216,10 @@ impl super::drawable::Drawable for Pcf8833 {
     }
 }
 
-impl crate::canvas::Scene {
+impl Scene {
     pub fn add_pcf8833(&mut self, x: f64, y: f64) -> String {
         let id = format!("PCF8833-{}", self.items.len() + 1);
-        self.items
-            .push(crate::canvas::Item::new(&id, x, y, Pcf8833::default()));
+        self.items.push(Item::new(&id, x, y, Pcf8833::default()));
         id
     }
 }

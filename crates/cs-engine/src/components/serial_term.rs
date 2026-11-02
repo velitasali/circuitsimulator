@@ -4,7 +4,8 @@ use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_int};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::draw::{Align, Color, Draw, PaintCtx};
-use crate::canvas::{PinGeom, Point, Rect};
+use crate::canvas::{Item, PinGeom, Point, Rect};
+use crate::digital::SerialUart;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 use crate::theme::{COMPONENT_BORDER_WIDTH, COMPONENT_FILL_ALPHA};
@@ -24,7 +25,7 @@ pub struct SerialTerm {
     pub stop_bits: usize,
 }
 
-impl crate::canvas::Item {
+impl Item {
     pub fn serial_term(id: impl Into<String>, x: f64, y: f64, baud_rate: u32) -> Self {
         Self::new(
             id,
@@ -54,6 +55,7 @@ impl SerialTerm {
     pub fn to_element_kind(&self) -> Kind {
         Kind::SerialTerm {
             baud_rate: self.baud_rate,
+            uart: SerialUart::default(),
         }
     }
 
@@ -212,7 +214,7 @@ mod tests {
             stop_bits: 2,
         };
         match st.to_element_kind() {
-            Kind::SerialTerm { baud_rate } => assert_eq!(baud_rate, 57600),
+            Kind::SerialTerm { baud_rate, .. } => assert_eq!(baud_rate, 57600),
             other => panic!("expected Kind::SerialTerm, got {other:?}"),
         }
     }

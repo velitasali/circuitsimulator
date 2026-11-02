@@ -4,10 +4,11 @@ use rustc_hash::FxHashMap;
 
 use crate::Result;
 use crate::digital::{EventQueue, EventTarget, GateUpdate, PinAction, ps_to_secs};
-use crate::elements::{ANALOG_DT_DEFAULT, Comp};
+use crate::elements::{ANALOG_DT_DEFAULT, Comp, Kind};
 use crate::instruments::InstrumentState;
 use crate::matrix::CircMatrix;
 use crate::net::ENode;
+use crate::serial;
 
 pub(crate) use periph_sync::CachedInstrument;
 
@@ -233,6 +234,10 @@ impl Circuit {
             {
                 break;
             }
+            if self.check_pending_serial() {
+                needs_solve = true;
+                self.ensure_analog_clock();
+            }
             let Some((t, target)) = self.events.pop_due(end) else {
                 break;
             };
@@ -351,12 +356,43 @@ impl Circuit {
         Ok(false)
     }
 
+    pub(super) fn check_pending_serial(&mut self) -> bool {
+        if !serial::has_pending_send() {
+            return false;
+        }
+        let t = self.circ_time;
+        let mut any_armed = false;
+        for (i, c) in self.components.iter_mut().enumerate() {
+            match &mut c.kind {
+                Kind::SerialPort {
+                    baud_rate, uart, ..
+                }
+                | Kind::SerialTerm { baud_rate, uart } => {
+                    let drive = uart.poll_send(&c.id, *baud_rate, t);
+                    if drive.changed || drive.arm_at.is_some() {
+                        if let Some(at) = drive.arm_at {
+                            let target = EventTarget::Device(i);
+                            if drive.replace {
+                                self.events.cancel(target);
+                            }
+                            self.events.add(at, target);
+                        }
+                        any_armed = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        any_armed
+    }
+
     pub fn component_memory_bytes(&self, id: &str) -> Option<Vec<u8>> {
         let comp = self.components.iter().find(|c| c.id == id)?;
         match &comp.kind {
-            crate::elements::Kind::Memory(m) => Some(m.data.clone()),
-            crate::elements::Kind::DynamicMemory(m) => Some(m.data.clone()),
-            crate::elements::Kind::I2CRam(m) => Some(m.data.clone()),
+            Kind::Memory(m) => Some(m.data.clone()),
+            Kind::DynamicMemory(m) => Some(m.data.clone()),
+            Kind::I2CRam(m) => Some(m.data.clone()),
+            Kind::SdCard { spi, .. } => Some(spi.memory.clone()),
             _ => None,
         }
     }
@@ -366,19 +402,26 @@ impl Circuit {
             return false;
         };
         match &mut comp.kind {
-            crate::elements::Kind::Memory(m) => {
+            Kind::Memory(m) => {
                 let n = m.data.len().min(data.len());
                 m.data[..n].copy_from_slice(&data[..n]);
                 true
             }
-            crate::elements::Kind::DynamicMemory(m) => {
+            Kind::DynamicMemory(m) => {
                 let n = m.data.len().min(data.len());
                 m.data[..n].copy_from_slice(&data[..n]);
                 true
             }
-            crate::elements::Kind::I2CRam(m) => {
+            Kind::I2CRam(m) => {
                 let n = m.data.len().min(data.len());
                 m.data[..n].copy_from_slice(&data[..n]);
+                true
+            }
+            Kind::SdCard { spi, .. } => {
+                if data.len() > spi.memory.len() {
+                    spi.memory.resize(data.len(), 0);
+                }
+                spi.memory[..data.len()].copy_from_slice(data);
                 true
             }
             _ => false,
@@ -390,7 +433,7 @@ impl Circuit {
             return false;
         };
         match &mut comp.kind {
-            crate::elements::Kind::Memory(m) => {
+            Kind::Memory(m) => {
                 if addr < m.data.len() {
                     m.data[addr] = val;
                     true
@@ -398,7 +441,7 @@ impl Circuit {
                     false
                 }
             }
-            crate::elements::Kind::DynamicMemory(m) => {
+            Kind::DynamicMemory(m) => {
                 if addr < m.data.len() {
                     m.data[addr] = val;
                     true
@@ -406,9 +449,17 @@ impl Circuit {
                     false
                 }
             }
-            crate::elements::Kind::I2CRam(m) => {
+            Kind::I2CRam(m) => {
                 if addr < m.data.len() {
                     m.data[addr] = val;
+                    true
+                } else {
+                    false
+                }
+            }
+            Kind::SdCard { spi, .. } => {
+                if addr < spi.memory.len() {
+                    spi.memory[addr] = val;
                     true
                 } else {
                     false

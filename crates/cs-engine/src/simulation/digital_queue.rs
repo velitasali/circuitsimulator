@@ -553,6 +553,11 @@ impl Circuit {
                     | Kind::Ds1621 { .. }
                     | Kind::Ds1307 { .. }
                     | Kind::Esp01 { .. }
+                    | Kind::SerialPort { .. }
+                    | Kind::SerialTerm { .. }
+                    | Kind::SdCard { .. }
+                    | Kind::TftDisplay { .. }
+                    | Kind::Pcf8833Display { .. }
             )
         })
     }
@@ -1416,7 +1421,11 @@ impl Circuit {
                     .and_then(|c| super::periph_proto::on_event(&mut c.kind, &id, v_of, t));
                 if let Some(drive) = drive {
                     if let Some(at) = drive.arm_at {
-                        self.events.add(at, EventTarget::Device(i));
+                        let target = EventTarget::Device(i);
+                        if drive.replace {
+                            self.events.cancel(target);
+                        }
+                        self.events.add(at, target);
                     }
                     return Ok(drive.changed);
                 }

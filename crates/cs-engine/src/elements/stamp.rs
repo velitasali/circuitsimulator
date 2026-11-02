@@ -1527,10 +1527,26 @@ impl Comp {
                 stamp_pin_to_gnd(pin_net, nodes, &format!("{}-PinSig", self.id), 0.0, 1e-7);
             }
             Kind::SevenSegmentBCD { .. }
-            | Kind::SdCard { .. }
             | Kind::TftDisplay { .. }
             | Kind::Pcf8833Display { .. } => {
                 stamp_cmos_pins(self, pin_net, nodes);
+            }
+            Kind::SdCard { spi, .. } => {
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-PinCS", self.id), 0.0, 1e-7);
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-PinDI", self.id), 0.0, 1e-7);
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-PinCK", self.id), 0.0, 1e-7);
+                if spi.do_driven {
+                    let v = if spi.do_high { 3.3 } else { 0.0 };
+                    stamp_pin_to_gnd(
+                        pin_net,
+                        nodes,
+                        &format!("{}-PinDO", self.id),
+                        v,
+                        SOURCE_ADMIT,
+                    );
+                } else {
+                    stamp_pin_to_gnd(pin_net, nodes, &format!("{}-PinDO", self.id), 0.0, 1e-7);
+                }
             }
             Kind::Esp01 { uart, .. } => {
                 let v = if uart.tx_high { 3.3 } else { 0.0 };
@@ -1541,6 +1557,18 @@ impl Comp {
                     v,
                     SOURCE_ADMIT,
                 );
+            }
+            Kind::SerialPort { uart, .. } => {
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-rx", self.id), 0.0, 1e-7);
+                let v = if uart.tx_high { 5.0 } else { 0.0 };
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-tx", self.id), v, SOURCE_ADMIT);
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-gnd", self.id), 0.0, 1e-7);
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-vcc", self.id), 0.0, 1e-7);
+            }
+            Kind::SerialTerm { uart, .. } => {
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-rx", self.id), 0.0, 1e-7);
+                let v = if uart.tx_high { 5.0 } else { 0.0 };
+                stamp_pin_to_gnd(pin_net, nodes, &format!("{}-tx", self.id), v, SOURCE_ADMIT);
             }
             Kind::VarResistor { resistance }
             | Kind::Ldr { resistance, .. }
@@ -1699,11 +1727,7 @@ impl Comp {
             Kind::AudioOut { source, .. } => {
                 stamp_two_terminal(self, pin_net, nodes, source.stamp_admit(), 0.0);
             }
-            Kind::SerialPort { .. }
-            | Kind::SerialTerm { .. }
-            | Kind::Bus { .. }
-            | Kind::Header { .. }
-            | Kind::Socket { .. } => {}
+            Kind::Bus { .. } | Kind::Header { .. } | Kind::Socket { .. } => {}
             Kind::Tunnel { .. } | Kind::Subcircuit { .. } | Kind::McuItem(_) => {}
         }
     }

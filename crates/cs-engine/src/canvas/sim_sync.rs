@@ -113,8 +113,21 @@ impl Canvas {
             }
         }
         for it in self.scene.items_mut() {
-            if let Part::DcMotor(ref mut motor) = it.kind {
-                motor.speed = 0.0;
+            match &mut it.kind {
+                Part::DcMotor(motor) => {
+                    motor.speed = 0.0;
+                }
+                Part::TftDisplay(tft) => {
+                    tft.fb.clear();
+                    tft.last_sync_seq = 0;
+                    tft.image_cache = None;
+                }
+                Part::Pcf8833(pcf) => {
+                    pcf.fb.clear();
+                    pcf.last_sync_seq = 0;
+                    pcf.image_cache = None;
+                }
+                _ => {}
             }
         }
         self.sim_running = false;
@@ -365,6 +378,44 @@ impl Canvas {
                                         motor.angle = a;
                                         self.dirty.mark_item(&it.id);
                                         motor_anim = true;
+                                    }
+                                }
+                            }
+                        } else if let Part::TftDisplay(ref mut tft_part) = it.kind {
+                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
+                            {
+                                if let crate::elements::Kind::TftDisplay { tft, .. } = &comp.kind {
+                                    if tft_part.last_sync_seq != tft.dirty_seq {
+                                        tft_part.last_sync_seq = tft.dirty_seq;
+                                        let active_fb = if tft.display_on && !tft.sleep {
+                                            &tft.fb[..]
+                                        } else {
+                                            &[][..]
+                                        };
+                                        tft_part.fb.clear();
+                                        tft_part.fb.extend_from_slice(active_fb);
+                                        tft_part.update_image_cache();
+                                        self.dirty.mark_item(&it.id);
+                                    }
+                                }
+                            }
+                        } else if let Part::Pcf8833(ref mut pcf_part) = it.kind {
+                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
+                            {
+                                if let crate::elements::Kind::Pcf8833Display { pcf, .. } =
+                                    &comp.kind
+                                {
+                                    if pcf_part.last_sync_seq != pcf.tft.dirty_seq {
+                                        pcf_part.last_sync_seq = pcf.tft.dirty_seq;
+                                        let active_fb = if pcf.tft.display_on && !pcf.tft.sleep {
+                                            &pcf.tft.fb[..]
+                                        } else {
+                                            &[][..]
+                                        };
+                                        pcf_part.fb.clear();
+                                        pcf_part.fb.extend_from_slice(active_fb);
+                                        pcf_part.update_image_cache();
+                                        self.dirty.mark_item(&it.id);
                                     }
                                 }
                             }

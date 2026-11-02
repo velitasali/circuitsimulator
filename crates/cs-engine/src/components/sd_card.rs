@@ -2,12 +2,12 @@
 
 use super::props::{PropDef, PropError, PropValue, expect_string};
 use super::{CompPin, Component, Stampable};
-use crate::canvas::PinGeom;
-use crate::canvas::Rect;
+use crate::canvas::{Item, PinGeom, Rect};
+use crate::digital::SdCardSpi;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 
-impl crate::canvas::Item {
+impl Item {
     pub fn sd_card(id: impl Into<String>, x: f64, y: f64, file: impl Into<String>) -> Self {
         Self::new(id, x, y, SdCard { file: file.into() })
     }
@@ -36,6 +36,7 @@ impl SdCard {
         Kind::SdCard {
             file: self.file.clone(),
             card_inserted: true,
+            spi: SdCardSpi::new(&self.file),
         }
     }
 

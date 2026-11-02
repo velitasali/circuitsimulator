@@ -364,6 +364,7 @@ pub enum Kind {
     SdCard {
         file: String,
         card_inserted: bool,
+        spi: crate::digital::SdCardSpi,
     },
     Esp01 {
         baud_rate: u32,
@@ -376,6 +377,7 @@ pub enum Kind {
         height: u32,
         scale: f64,
         bgr: bool,
+        tft: crate::digital::TftState,
     },
     Pcd8544(crate::digital::Pcd8544State),
     Sh1107(crate::digital::Sh1107State),
@@ -383,6 +385,7 @@ pub enum Kind {
     Pcf8833Display {
         width: u32,
         height: u32,
+        pcf: crate::digital::Pcf8833State,
     },
     Aip31068(crate::digital::Aip31068State),
     VarResistor {
@@ -543,9 +546,11 @@ pub enum Kind {
     SerialPort {
         port_name: String,
         baud_rate: u32,
+        uart: crate::digital::SerialUart,
     },
     SerialTerm {
         baud_rate: u32,
+        uart: crate::digital::SerialUart,
     },
     SubPackage,
 }
@@ -1309,9 +1314,27 @@ impl Kind {
                 let v = pin_volt(pin).unwrap_or(0.0);
                 Some(-v * crate::instruments::PLOT_INPUT_ADMIT)
             }
+            (Kind::SdCard { spi, .. }, _) => {
+                if pin.ends_with("-PinDO") && spi.do_driven {
+                    let v = pin_volt(pin).unwrap_or(0.0);
+                    let v_target = if spi.do_high { 3.3 } else { 0.0 };
+                    Some((v_target - v) * crate::SOURCE_ADMIT)
+                } else {
+                    let v = pin_volt(pin).unwrap_or(0.0);
+                    Some(-v * crate::instruments::PLOT_INPUT_ADMIT)
+                }
+            }
+            (Kind::SerialPort { uart, .. } | Kind::SerialTerm { uart, .. }, _) => {
+                let v = pin_volt(pin).unwrap_or(0.0);
+                if pin.ends_with("-tx") {
+                    let v_target = if uart.tx_high { 5.0 } else { 0.0 };
+                    Some((v_target - v) * crate::SOURCE_ADMIT)
+                } else {
+                    Some(-v * crate::instruments::PLOT_INPUT_ADMIT)
+                }
+            }
             (
                 Kind::SevenSegmentBCD { .. }
-                | Kind::SdCard { .. }
                 | Kind::TftDisplay { .. }
                 | Kind::Pcf8833Display { .. },
                 _,

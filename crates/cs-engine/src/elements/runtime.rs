@@ -428,6 +428,21 @@ impl Kind {
             (Kind::Esp01 { uart, .. }, Kind::Esp01 { uart: prev, .. }) => {
                 *uart = prev.clone();
             }
+            (Kind::SdCard { spi, .. }, Kind::SdCard { spi: prev, .. }) => {
+                *spi = prev.clone();
+            }
+            (Kind::SerialPort { uart, .. }, Kind::SerialPort { uart: prev, .. }) => {
+                *uart = prev.clone();
+            }
+            (Kind::SerialTerm { uart, .. }, Kind::SerialTerm { uart: prev, .. }) => {
+                *uart = prev.clone();
+            }
+            (Kind::TftDisplay { tft, .. }, Kind::TftDisplay { tft: prev, .. }) => {
+                *tft = prev.clone();
+            }
+            (Kind::Pcf8833Display { pcf, .. }, Kind::Pcf8833Display { pcf: prev, .. }) => {
+                *pcf = prev.clone();
+            }
             _ => {}
         }
     }

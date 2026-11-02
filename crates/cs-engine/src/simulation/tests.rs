@@ -3119,3 +3119,273 @@ fn named_net_regroup_keeps_voltage_stamps_and_other_channels() {
         assert!(ff.q.get_out_state());
     }
 }
+
+#[test]
+fn test_serial_term_tx_and_rx_loopback() {
+    let mut c = Circuit::new();
+    c.add_serial_term("Term1", 9600);
+    // Loopback wire: Term1-tx -> Term1-rx
+    c.connect("Term1-tx", "Term1-rx");
+
+    c.solve().unwrap();
+    let tx_v = c.pin_voltage("Term1-tx").expect("Term1-tx voltage");
+    assert!(tx_v > 4.5, "UART TX should idle high near 5V, got {tx_v}");
+    assert!(c.current_out_of_pin("Term1-tx").is_some());
+    assert!(c.current_out_of_pin("Term1-rx").is_some());
+
+    // Clear previous logs
+    serial::clear("Term1:Terminal");
+    serial::clear("Term1");
+
+    // Send 'A' from the terminal
+    serial::send_text("Term1:Terminal", "A");
+
+    // Run for 12 bit times at 9600 baud (~1.25 ms)
+    c.run_ps(1_300_000_000).unwrap();
+
+    let out = serial::out_text("Term1:Terminal");
+    assert!(
+        out.contains('A'),
+        "Expected 'A' in terminal output, got: {out:?}"
+    );
+}
+
+#[test]
+fn test_serial_port_tx_and_rx_loopback() {
+    let mut c = Circuit::new();
+    c.add_serial_port("SP1", "COM1", 19200);
+    // Loopback wire: SP1-tx -> SP1-rx
+    c.connect("SP1-tx", "SP1-rx");
+
+    c.solve().unwrap();
+    let tx_v = c.pin_voltage("SP1-tx").expect("SP1-tx voltage");
+    assert!(tx_v > 4.5, "UART TX should idle high near 5V, got {tx_v}");
+    assert!(c.current_out_of_pin("SP1-tx").is_some());
+    assert!(c.current_out_of_pin("SP1-rx").is_some());
+
+    // Clear previous logs
+    serial::clear("SP1:Serial");
+    serial::clear("SP1");
+
+    // Send 'OK' from the serial monitor
+    serial::send_text("SP1:Serial", "OK");
+
+    // Run for 25 bit times at 19200 baud (~1.3 ms)
+    c.run_ps(1_500_000_000).unwrap();
+
+    let out = serial::out_text("SP1:Serial");
+    assert!(
+        out.contains("OK"),
+        "Expected 'OK' in serial monitor output, got: {out:?}"
+    );
+}
+
+#[test]
+fn test_sd_card_in_circuit_spi_cmd0() {
+    let mut c = Circuit::new();
+    c.add_ground("GND").add_sdcard("SD1", "");
+    assert!(c.set_component_memory_bytes("SD1", &[0xAA, 0xBB, 0xCC, 0xDD]));
+    assert!(c.set_component_memory_byte("SD1", 4, 0xEE));
+    let mem = c.component_memory_bytes("SD1").expect("SD1 memory");
+    assert_eq!(&mem[..5], &[0xAA, 0xBB, 0xCC, 0xDD, 0xEE]);
+
+    // Controllable sources for CS, SCK, MOSI
+    c.add_fixed_volt("V_CS", 5.0)
+        .add_fixed_volt("V_CK", 0.0)
+        .add_fixed_volt("V_DI", 5.0)
+        .add_fixed_volt("V_PU", 3.3)
+        .add_resistor("R_PU", 10_000.0)
+        .connect("V_CS-outnod", "SD1-PinCS")
+        .connect("V_CK-outnod", "SD1-PinCK")
+        .connect("V_DI-outnod", "SD1-PinDI")
+        .connect("V_PU-outnod", "R_PU-lPin")
+        .connect("R_PU-rPin", "SD1-PinDO");
+
+    c.solve().unwrap();
+    let do_v = c.pin_voltage("SD1-PinDO").unwrap();
+    assert!(
+        do_v > 3.0,
+        "PinDO should be pulled up near 3.3V, got {do_v}"
+    );
+
+    // Select card: CS = 0V
+    set_volt(&mut c, "V_CS", 0.0);
+    c.re_solve().unwrap();
+
+    let spi_bit = |c: &mut Circuit, di: bool| -> bool {
+        set_volt(c, "V_DI", if di { 3.3 } else { 0.0 });
+        set_volt(c, "V_CK", 3.3);
+        c.re_solve().unwrap();
+        let sample = c.pin_voltage("SD1-PinDO").unwrap() > 2.0;
+        set_volt(c, "V_CK", 0.0);
+        c.re_solve().unwrap();
+        sample
+    };
+
+    let spi_byte = |c: &mut Circuit, b: u8| -> u8 {
+        let mut rx = 0u8;
+        for i in 0..8 {
+            let di = (b & (0x80 >> i)) != 0;
+            if spi_bit(c, di) {
+                rx |= 0x80 >> i;
+            }
+        }
+        rx
+    };
+
+    // Send CMD0: 0x40, 0x00, 0x00, 0x00, 0x00, 0x95
+    spi_byte(&mut c, 0x40);
+    spi_byte(&mut c, 0x00);
+    spi_byte(&mut c, 0x00);
+    spi_byte(&mut c, 0x00);
+    spi_byte(&mut c, 0x00);
+    spi_byte(&mut c, 0x95);
+
+    // Read turnaround byte
+    let turn = spi_byte(&mut c, 0xFF);
+    assert_eq!(turn, 0xFF);
+
+    // Read R1 response byte: 0x01 (in idle state)
+    let r1 = spi_byte(&mut c, 0xFF);
+    assert_eq!(
+        r1, 0x01,
+        "Expected R1=0x01 (in idle state), got: 0x{r1:02X}"
+    );
+    assert!(c.current_out_of_pin("SD1-PinDO").is_some());
+}
+
+#[test]
+fn test_tft_display_in_circuit_spi() {
+    let mut c = Circuit::new();
+    c.add_ground("GND")
+        .add_tft_display("TFT1", "ILI9341", 10, 10, 1.0, false);
+
+    // Control sources: CS, DC, CK, DI, RS
+    c.add_fixed_volt("V_CS", 5.0)
+        .add_fixed_volt("V_DC", 0.0)
+        .add_fixed_volt("V_CK", 0.0)
+        .add_fixed_volt("V_DI", 0.0)
+        .add_fixed_volt("V_RS", 5.0)
+        .connect("V_CS-outnod", "TFT1-PinCS")
+        .connect("V_DC-outnod", "TFT1-PinDC")
+        .connect("V_CK-outnod", "TFT1-PinCK")
+        .connect("V_DI-outnod", "TFT1-PinDI")
+        .connect("V_RS-outnod", "TFT1-PinRS");
+
+    c.solve().unwrap();
+
+    // Select TFT: CS = 0V
+    set_volt(&mut c, "V_CS", 0.0);
+    c.re_solve().unwrap();
+
+    let send_byte = |c: &mut Circuit, dc: bool, b: u8| {
+        set_volt(c, "V_DC", if dc { 3.3 } else { 0.0 });
+        for i in 0..8 {
+            let di = (b & (0x80 >> i)) != 0;
+            set_volt(c, "V_DI", if di { 3.3 } else { 0.0 });
+            set_volt(c, "V_CK", 3.3);
+            c.re_solve().unwrap();
+            set_volt(c, "V_CK", 0.0);
+            c.re_solve().unwrap();
+        }
+    };
+
+    // CASET (0x2A): cols 2..2
+    send_byte(&mut c, false, 0x2A);
+    send_byte(&mut c, true, 0x00);
+    send_byte(&mut c, true, 2);
+    send_byte(&mut c, true, 0x00);
+    send_byte(&mut c, true, 2);
+
+    // RASET (0x2B): rows 3..3
+    send_byte(&mut c, false, 0x2B);
+    send_byte(&mut c, true, 0x00);
+    send_byte(&mut c, true, 3);
+    send_byte(&mut c, true, 0x00);
+    send_byte(&mut c, true, 3);
+
+    // RAMWR (0x2C): 1 pixel Red (0xF800)
+    send_byte(&mut c, false, 0x2C);
+    send_byte(&mut c, true, 0xF8);
+    send_byte(&mut c, true, 0x00);
+
+    // Verify pixel in TFT element framebuffer
+    match &c.comp("TFT1").unwrap().kind {
+        Kind::TftDisplay { tft, .. } => {
+            let idx = 3 * 10 + 2;
+            assert_eq!(
+                tft.fb[idx], 0xF800,
+                "Pixel at (2, 3) should be Red (0xF800)"
+            );
+        }
+        _ => panic!("Expected Kind::TftDisplay"),
+    }
+}
+
+#[test]
+fn test_pcf8833_in_circuit_spi() {
+    let mut c = Circuit::new();
+    c.add_ground("GND").add_pcf8833("LCD1", 10, 10);
+
+    // Control sources: CS, CLK, DATA, RESET
+    c.add_fixed_volt("V_CS", 5.0)
+        .add_fixed_volt("V_CK", 0.0)
+        .add_fixed_volt("V_DI", 0.0)
+        .add_fixed_volt("V_RS", 5.0)
+        .connect("V_CS-outnod", "LCD1-PinCS")
+        .connect("V_CK-outnod", "LCD1-PinCLK")
+        .connect("V_DI-outnod", "LCD1-PinDATA")
+        .connect("V_RS-outnod", "LCD1-PinRESET");
+
+    c.solve().unwrap();
+
+    // Select LCD: CS = 0V
+    set_volt(&mut c, "V_CS", 0.0);
+    c.re_solve().unwrap();
+
+    let send_9bit = |c: &mut Circuit, dc: bool, byte: u8| {
+        // Bit 0: D/C
+        set_volt(c, "V_DI", if dc { 3.3 } else { 0.0 });
+        set_volt(c, "V_CK", 3.3);
+        c.re_solve().unwrap();
+        set_volt(c, "V_CK", 0.0);
+        c.re_solve().unwrap();
+
+        // Bits 1..8: data
+        for i in 0..8 {
+            let di = (byte & (0x80 >> i)) != 0;
+            set_volt(c, "V_DI", if di { 3.3 } else { 0.0 });
+            set_volt(c, "V_CK", 3.3);
+            c.re_solve().unwrap();
+            set_volt(c, "V_CK", 0.0);
+            c.re_solve().unwrap();
+        }
+    };
+
+    // CASET (0x2A): col 4..4
+    send_9bit(&mut c, false, 0x2A);
+    send_9bit(&mut c, true, 4);
+    send_9bit(&mut c, true, 4);
+
+    // RASET (0x2B): row 7..7
+    send_9bit(&mut c, false, 0x2B);
+    send_9bit(&mut c, true, 7);
+    send_9bit(&mut c, true, 7);
+
+    // RAMWR (0x2C): 1 pixel Green (0x07E0)
+    send_9bit(&mut c, false, 0x2C);
+    send_9bit(&mut c, true, 0x07);
+    send_9bit(&mut c, true, 0xE0);
+
+    // Verify pixel in PCF8833 element framebuffer
+    match &c.comp("LCD1").unwrap().kind {
+        Kind::Pcf8833Display { pcf, .. } => {
+            let idx = 7 * 10 + 4;
+            assert_eq!(
+                pcf.tft.fb[idx], 0x07E0,
+                "Pixel at (4, 7) should be Green (0x07E0)"
+            );
+        }
+        _ => panic!("Expected Kind::Pcf8833Display"),
+    }
+}

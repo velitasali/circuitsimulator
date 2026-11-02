@@ -99,6 +99,42 @@ pub(super) fn on_pins(kind: &mut Kind, id: &str, v: impl Fn(&str) -> f64, t: u64
             let rx_high = pin("pin1") > 2.0;
             uart.on_pins(*baud_rate, rx_high, t)
         }
+        Kind::SerialPort {
+            baud_rate, uart, ..
+        } => {
+            let rx_high = pin("rx") > 2.0;
+            uart.on_pins(id, *baud_rate, rx_high, t)
+        }
+        Kind::SerialTerm {
+            baud_rate, uart, ..
+        } => {
+            let rx_high = pin("rx") > 2.0;
+            uart.on_pins(id, *baud_rate, rx_high, t)
+        }
+        Kind::SdCard { spi, .. } => {
+            let cs_high = pin("PinCS") > 2.0;
+            let sck_high = pin("PinCK") > 2.0;
+            let di_high = pin("PinDI") > 2.0;
+            let changed = spi.step(cs_high, sck_high, di_high);
+            Drive::stamp(changed)
+        }
+        Kind::TftDisplay { tft, .. } => {
+            let cs_high = pin("PinCS") > 2.0;
+            let dc_high = pin("PinDC") > 2.0;
+            let sck_high = pin("PinCK") > 2.0;
+            let di_high = pin("PinDI") > 2.0;
+            let rs_high = pin("PinRS") > 2.0;
+            tft.step(cs_high, dc_high, sck_high, di_high, rs_high);
+            Drive::QUIET
+        }
+        Kind::Pcf8833Display { pcf, .. } => {
+            let cs_high = pin("PinCS") > 2.0;
+            let clk_high = pin("PinCLK") > 2.0;
+            let data_high = pin("PinDATA") > 2.0;
+            let rst_high = pin("PinRESET") > 2.0;
+            pcf.step(cs_high, clk_high, data_high, rst_high);
+            Drive::QUIET
+        }
         _ => Drive::QUIET,
     }
 }
@@ -138,6 +174,18 @@ pub(super) fn on_event(
         } => {
             let rx_high = v(&format!("{id}-pin1")) > 2.0;
             Some(uart.on_event(*baud_rate, rx_high, t))
+        }
+        Kind::SerialPort {
+            baud_rate, uart, ..
+        } => {
+            let rx_high = v(&format!("{id}-rx")) > 2.0;
+            Some(uart.on_event(id, *baud_rate, rx_high, t))
+        }
+        Kind::SerialTerm {
+            baud_rate, uart, ..
+        } => {
+            let rx_high = v(&format!("{id}-rx")) > 2.0;
+            Some(uart.on_event(id, *baud_rate, rx_high, t))
         }
         _ => None,
     }

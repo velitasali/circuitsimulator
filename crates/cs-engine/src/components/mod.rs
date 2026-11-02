@@ -1641,32 +1641,19 @@ impl Part {
             Self::SdCard(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::SdCard {
-                        file: p.file.clone(),
-                        card_inserted: true,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Esp01(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Esp01 {
-                        baud_rate: p.baud_rate,
-                        debug: p.debug,
-                        uart: crate::digital::EspUart::default(),
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::TftDisplay(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::TftDisplay {
-                        controller: p.controller.as_str().to_string(),
-                        width: p.width,
-                        height: p.height,
-                        scale: p.scale,
-                        bgr: p.bgr,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Pcd8544(p) => {
@@ -1702,10 +1689,7 @@ impl Part {
             Self::Pcf8833(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Pcf8833Display {
-                        width: p.width,
-                        height: p.height,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Aip31068(p) => {
@@ -2156,7 +2140,19 @@ impl Part {
                     kind: p.to_element_kind(),
                 });
             }
-            Self::SerialPort(_) | Self::SerialTerm(_) | Self::SubPackage(_) => {}
+            Self::SerialPort(p) => {
+                c.add_comp(crate::elements::Comp {
+                    id: id.to_string(),
+                    kind: p.to_element_kind(),
+                });
+            }
+            Self::SerialTerm(p) => {
+                c.add_comp(crate::elements::Comp {
+                    id: id.to_string(),
+                    kind: p.to_element_kind(),
+                });
+            }
+            Self::SubPackage(_) => {}
         }
     }
 }

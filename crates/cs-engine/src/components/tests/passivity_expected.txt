@@ -69,8 +69,8 @@ Tunnel: current-gap
 Bus: current-gap
 Socket: current-gap
 Header: current-gap
-SerialPort: not-inserted
-SerialTerm: not-inserted
+SerialPort: driver 5.000 V implicit-return
+SerialTerm: driver 5.000 V implicit-return
 Subcircuit: not-inserted
 SubPackage: not-inserted
 Dial: no-pins

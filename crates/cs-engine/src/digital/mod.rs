@@ -22,11 +22,14 @@ mod pcd8544;
 mod pin;
 mod port;
 mod queue;
+mod sd_card;
 mod sensors;
+mod serial_uart;
 mod sh1107;
 mod spi;
 mod ssd1306;
 mod testunit;
+mod tft;
 mod twi;
 mod usart;
 mod ws2812;
@@ -35,10 +38,13 @@ pub use aip31068::Aip31068State;
 pub use ks0108::Ks0108State;
 pub use max72xx::Max72Fb;
 pub use pcd8544::Pcd8544State;
+pub use sd_card::SdCardSpi;
 pub use sensors::{
     DhtLink, Drive, Ds1307Bus, Ds1621Bus, EspUart, OwLink, Sr04Echo, dht_frame, sqw_half,
 };
+pub use serial_uart::SerialUart;
 pub use sh1107::Sh1107State;
+pub use tft::{Pcf8833State, TftState};
 pub use ws2812::Ws2812Fb;
 
 pub use arithmetic::{

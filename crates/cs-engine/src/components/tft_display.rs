@@ -1,13 +1,19 @@
 //! Color TFT LCD display with SPI interface.
 
+use std::fmt;
+
 use super::component::PropGroup;
+use super::drawable::Drawable;
 use super::props::{
     PropDef, PropError, PropValue, expect_bool, expect_float, expect_int, expect_string,
 };
 use super::{CompPin, Component, Stampable};
-use crate::canvas::Rect;
+use crate::canvas::draw::{Align, Color, Draw, PaintCtx};
+use crate::canvas::{ImageBuf, Item, Rect, Scene};
+use crate::digital::TftState;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
+use crate::theme::COMPONENT_BORDER_WIDTH;
 
 const MIN_DIM: i64 = 1;
 const MAX_DIM: i64 = 4096;
@@ -49,8 +55,8 @@ impl TftController {
     }
 }
 
-impl std::fmt::Display for TftController {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for TftController {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
@@ -59,7 +65,7 @@ pub const TFT_CONTROLLER_OPTIONS: &[&str] = &[
     "ILI9341", "ST7735", "ST7789", "SSD1283A", "SSD1351", "GC9A01A",
 ];
 
-impl crate::canvas::Item {
+impl Item {
     pub fn tft_display(
         id: impl Into<String>,
         x: f64,
@@ -103,6 +109,9 @@ pub struct TftDisplay {
     pub height: u32,
     pub scale: f64,
     pub bgr: bool,
+    pub fb: Vec<u16>,
+    pub last_sync_seq: u64,
+    pub image_cache: Option<ImageBuf>,
 }
 
 impl Default for TftDisplay {
@@ -113,6 +122,9 @@ impl Default for TftDisplay {
             height: 320,
             scale: 1.0,
             bgr: false,
+            fb: Vec::new(),
+            last_sync_seq: 0,
+            image_cache: None,
         }
     }
 }
@@ -127,6 +139,55 @@ impl TftDisplay {
         self.height as usize
     }
 
+    pub fn update_image_cache(&mut self) {
+        let expected_len = (self.width as usize) * (self.height as usize);
+        if self.fb.is_empty() || self.fb.len() != expected_len {
+            self.image_cache = None;
+            return;
+        }
+        let mut rgba = Vec::with_capacity(self.fb.len() * 4);
+        if self.controller == TftController::Gc9a01a {
+            let cx = self.width as f64 / 2.0;
+            let cy = self.height as f64 / 2.0;
+            for (i, &pixel) in self.fb.iter().enumerate() {
+                let px = (i % (self.width as usize)) as f64 + 0.5;
+                let py = (i / (self.width as usize)) as f64 + 0.5;
+                let nx = (px - cx) / cx.max(0.5);
+                let ny = (py - cy) / cy.max(0.5);
+                if nx * nx + ny * ny > 1.0 {
+                    rgba.extend_from_slice(&[0, 0, 0, 0]);
+                } else {
+                    let r5 = ((pixel >> 11) & 0x1F) as u8;
+                    let g6 = ((pixel >> 5) & 0x3F) as u8;
+                    let b5 = (pixel & 0x1F) as u8;
+                    let r8 = (r5 << 3) | (r5 >> 2);
+                    let g8 = (g6 << 2) | (g6 >> 4);
+                    let b8 = (b5 << 3) | (b5 >> 2);
+                    if self.bgr {
+                        rgba.extend_from_slice(&[b8, g8, r8, 255]);
+                    } else {
+                        rgba.extend_from_slice(&[r8, g8, b8, 255]);
+                    }
+                }
+            }
+        } else {
+            for &pixel in &self.fb {
+                let r5 = ((pixel >> 11) & 0x1F) as u8;
+                let g6 = ((pixel >> 5) & 0x3F) as u8;
+                let b5 = (pixel & 0x1F) as u8;
+                let r8 = (r5 << 3) | (r5 >> 2);
+                let g8 = (g6 << 2) | (g6 >> 4);
+                let b8 = (b5 << 3) | (b5 >> 2);
+                if self.bgr {
+                    rgba.extend_from_slice(&[b8, g8, r8, 255]);
+                } else {
+                    rgba.extend_from_slice(&[r8, g8, b8, 255]);
+                }
+            }
+        }
+        self.image_cache = ImageBuf::from_rgba(self.width, self.height, rgba);
+    }
+
     pub fn to_element_kind(&self) -> Kind {
         Kind::TftDisplay {
             controller: self.controller.as_str().to_string(),
@@ -134,6 +195,7 @@ impl TftDisplay {
             height: self.height,
             scale: self.scale,
             bgr: self.bgr,
+            tft: TftState::new(self.width, self.height, self.bgr),
         }
     }
 
@@ -270,10 +332,7 @@ impl Stampable for TftDisplay {
     fn stamp(&self, _matrix: &mut CircMatrix, _pin_nodes: &[usize], _dt: f64) {}
 }
 
-use crate::canvas::draw::{Align, Color, Draw, PaintCtx};
-use crate::theme::COMPONENT_BORDER_WIDTH;
-
-impl super::drawable::Drawable for TftDisplay {
+impl Drawable for TftDisplay {
     fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
         let sw = (self.width as f64 * self.scale).max(32.0);
         let sh = (self.height as f64 * self.scale).max(32.0);
@@ -303,6 +362,9 @@ impl super::drawable::Drawable for TftDisplay {
             d.fill_circle(0.0, 0.0, r + 6.0, pcb_color);
             d.stroke_circle(0.0, 0.0, r + 6.0, ctx.pal.border, COMPONENT_BORDER_WIDTH);
             d.fill_circle(0.0, 0.0, r, screen_color);
+            if let Some(ref img) = self.image_cache {
+                d.draw_pixmap_rect(-sw / 2.0, -sh / 2.0, sw, sh, img, 1.0);
+            }
             d.stroke_circle(0.0, 0.0, r, screen_border, 1.0);
         } else {
             // Rectangular TFT (ILI9341, ST7789, ST7735, etc.)
@@ -332,6 +394,9 @@ impl super::drawable::Drawable for TftDisplay {
             );
             // Screen glass
             d.fill_rect(-sw / 2.0, -sh / 2.0, sw, sh, screen_color);
+            if let Some(ref img) = self.image_cache {
+                d.draw_pixmap_rect(-sw / 2.0, -sh / 2.0, sw, sh, img, 1.0);
+            }
             d.stroke_rect(-sw / 2.0, -sh / 2.0, sw, sh, screen_border, 1.0);
             // Label
             d.text(
@@ -347,7 +412,7 @@ impl super::drawable::Drawable for TftDisplay {
     }
 }
 
-impl crate::canvas::Scene {
+impl Scene {
     pub fn add_tft_display(
         &mut self,
         x: f64,
@@ -361,8 +426,7 @@ impl crate::canvas::Scene {
         display.controller = TftController::from_str_name(controller);
         display.width = width;
         display.height = height;
-        self.items
-            .push(crate::canvas::Item::new(&id, x, y, display));
+        self.items.push(Item::new(&id, x, y, display));
         id
     }
 }

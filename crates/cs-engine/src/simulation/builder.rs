@@ -446,6 +446,41 @@ impl Circuit {
         self
     }
 
+    pub fn add_serial_port(
+        &mut self,
+        id: impl Into<String>,
+        port_name: impl Into<String>,
+        baud_rate: u32,
+    ) -> &mut Self {
+        self.components
+            .push(Comp::serial_port(id, port_name, baud_rate));
+        self
+    }
+
+    pub fn add_serial_term(&mut self, id: impl Into<String>, baud_rate: u32) -> &mut Self {
+        self.components.push(Comp::serial_term(id, baud_rate));
+        self
+    }
+
+    pub fn add_tft_display(
+        &mut self,
+        id: impl Into<String>,
+        controller: impl Into<String>,
+        width: u32,
+        height: u32,
+        scale: f64,
+        bgr: bool,
+    ) -> &mut Self {
+        self.components
+            .push(Comp::tft_display(id, controller, width, height, scale, bgr));
+        self
+    }
+
+    pub fn add_pcf8833(&mut self, id: impl Into<String>, width: u32, height: u32) -> &mut Self {
+        self.components.push(Comp::pcf8833(id, width, height));
+        self
+    }
+
     pub fn add_and(&mut self, id: impl Into<String>, n_inputs: usize) -> &mut Self {
         let id = id.into();
         self.components

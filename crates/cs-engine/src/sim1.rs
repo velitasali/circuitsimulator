@@ -2221,6 +2221,7 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                         kind: Kind::SerialPort {
                             port_name: port,
                             baud_rate: baud,
+                            uart: crate::digital::SerialUart::default(),
                         },
                     },
                     &properties,
@@ -2234,7 +2235,10 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
-                        kind: Kind::SerialTerm { baud_rate: baud },
+                        kind: Kind::SerialTerm {
+                            baud_rate: baud,
+                            uart: crate::digital::SerialUart::default(),
+                        },
                     },
                     &properties,
                 ));

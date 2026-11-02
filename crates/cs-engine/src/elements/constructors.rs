@@ -48,6 +48,26 @@ impl Comp {
         }
     }
 
+    pub fn volt_source(id: impl Into<String>, volts: f64) -> Self {
+        Self {
+            id: id.into(),
+            kind: Kind::VoltSource {
+                value: volts,
+                running: true,
+            },
+        }
+    }
+
+    pub fn curr_source(id: impl Into<String>, amps: f64) -> Self {
+        Self {
+            id: id.into(),
+            kind: Kind::CurrSource {
+                value: amps,
+                running: true,
+            },
+        }
+    }
+
     pub fn junction(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),

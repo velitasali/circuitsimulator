@@ -420,6 +420,7 @@ fn compile_resources() {
         "about.qml",
         "examples.qml",
         "BodeView.qml",
+        "CurveTracerView.qml",
         "appdialog.qml",
         "circuitdialog.qml",
         "AppComboBox.qml",

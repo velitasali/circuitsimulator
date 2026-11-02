@@ -410,6 +410,30 @@ ApplicationWindow {
     }
 
     AppWindow {
+        id: curveTracerWin
+        title: win.tr("DC Parameter Sweep / Curve Tracer")
+        width: 920
+        height: 620
+        source: visible ? "CurveTracerView.qml" : ""
+        visible: false
+
+        onVisibleChanged: {
+            if (visible) {
+                x = win.x + Math.round((win.width - width) / 2)
+                y = win.y + Math.round((win.height - height) / 2)
+                raise()
+                requestActivate()
+            }
+        }
+        onClosing: (close) => {
+            if (!win.isQuitting) {
+                close.accepted = false
+                visible = false
+            }
+        }
+    }
+
+    AppWindow {
         id: oscWin
         title: win.tr("Oscilloscope")
         width: 900
@@ -762,6 +786,8 @@ ApplicationWindow {
                 examplesWin.visible = true
             } else if (id === "sim.bode") {
                 bodeWin.visible = true
+            } else if (id === "sim.dcSweep") {
+                curveTracerWin.visible = true
             } else if (id === "file.exportSpice") {
                 saveSpiceDialog.open()
             } else if (id === "file.exportKicad") {

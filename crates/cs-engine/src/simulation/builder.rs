@@ -34,6 +34,16 @@ impl Circuit {
         self
     }
 
+    pub fn add_volt_source(&mut self, id: impl Into<String>, volts: f64) -> &mut Self {
+        self.components.push(Comp::volt_source(id, volts));
+        self
+    }
+
+    pub fn add_curr_source(&mut self, id: impl Into<String>, amps: f64) -> &mut Self {
+        self.components.push(Comp::curr_source(id, amps));
+        self
+    }
+
     pub fn add_node(&mut self, id: impl Into<String>) -> &mut Self {
         self.components.push(Comp::junction(id));
         self

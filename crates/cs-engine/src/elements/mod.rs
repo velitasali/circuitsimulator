@@ -62,7 +62,7 @@ pub const SWITCH_CLOSED_ADMIT: f64 = 1e3;
 /// C++ AnalogClock default period `1e6` picoseconds.
 pub const ANALOG_DT_DEFAULT: f64 = 1e-6;
 
-const RESISTOR_MIN_OHMS: f64 = 1e-12;
+pub(crate) const RESISTOR_MIN_OHMS: f64 = 1e-12;
 const BATTERY_MIN_OHMS: f64 = 1e-14;
 const CAP_MIN: f64 = 1e-15;
 const IND_MIN: f64 = 1e-12;

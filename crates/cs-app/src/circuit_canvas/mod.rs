@@ -3107,6 +3107,46 @@ impl CircuitCanvas {
         plots::ac_sweep_json(&self.inner, &source, &probe, f_start, f_stop, per_decade)
     }
 
+    /// Independent DC sources for the DC parameter sweep / curve tracer.
+    #[qslot]
+    fn dc_sources(&self) -> Value {
+        plots::dc_sources_json(&self.inner)
+    }
+
+    /// Connected pin ids, for the DC parameter sweep probe combo.
+    #[qslot]
+    fn dc_probes(&self) -> Value {
+        plots::dc_probes_json(&self.inner)
+    }
+
+    /// DC operating-point parameter sweep stepping primary and optional secondary sources.
+    #[qslot]
+    fn dc_sweep(
+        &self,
+        primary_source: String,
+        primary_start: f64,
+        primary_stop: f64,
+        primary_step: f64,
+        secondary_source: String,
+        secondary_start: f64,
+        secondary_stop: f64,
+        secondary_step: f64,
+        probe_pin: String,
+    ) -> Value {
+        plots::dc_sweep_json(
+            &self.inner,
+            &primary_source,
+            primary_start,
+            primary_stop,
+            primary_step,
+            &secondary_source,
+            secondary_start,
+            secondary_stop,
+            secondary_step,
+            &probe_pin,
+        )
+    }
+
     fn save_netlist(&mut self, url: &str, spice: bool) {
         let path = strip_file_url(url);
         if path.is_empty() {

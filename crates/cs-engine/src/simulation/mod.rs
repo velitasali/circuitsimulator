@@ -14,6 +14,7 @@ pub(crate) use periph_sync::CachedInstrument;
 
 mod ac;
 mod builder;
+pub mod dc_sweep;
 mod digital_queue;
 mod matrix_solver;
 mod netlist;
@@ -23,6 +24,8 @@ mod periph_sync;
 mod reactive;
 #[cfg(test)]
 mod tests;
+
+pub use dc_sweep::{DcCurve, DcPoint, DcSourceInfo, DcSweepParams, DcSweepResult};
 
 #[derive(Clone, Debug)]
 pub struct Circuit {

@@ -53,6 +53,49 @@ pub(super) fn ac_probes_json(canvas: &Canvas) -> Value {
     json!(canvas.scene().to_circuit().ac_probes())
 }
 
+pub(super) fn dc_sources_json(canvas: &Canvas) -> Value {
+    json!(canvas.scene().to_circuit().dc_sources())
+}
+
+pub(super) fn dc_probes_json(canvas: &Canvas) -> Value {
+    json!(canvas.scene().to_circuit().dc_probes())
+}
+
+pub(super) fn dc_sweep_json(
+    canvas: &Canvas,
+    primary_source: &str,
+    primary_start: f64,
+    primary_stop: f64,
+    primary_step: f64,
+    secondary_source: &str,
+    secondary_start: f64,
+    secondary_stop: f64,
+    secondary_step: f64,
+    probe_pin: &str,
+) -> Value {
+    let circuit = canvas.scene().to_circuit();
+    let sec_source = if secondary_source.trim().is_empty() {
+        None
+    } else {
+        Some(secondary_source.to_string())
+    };
+    let params = cs_engine::simulation::DcSweepParams {
+        primary_source: primary_source.to_string(),
+        primary_start,
+        primary_stop,
+        primary_step,
+        secondary_source: sec_source,
+        secondary_start,
+        secondary_stop,
+        secondary_step,
+        probe_pin: probe_pin.to_string(),
+    };
+    match circuit.dc_sweep(&params) {
+        Ok(result) => json!(result),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
 /// Small-signal sweep of a copy of the schematic. The running simulator is left alone.
 pub(super) fn ac_sweep_json(
     canvas: &Canvas,

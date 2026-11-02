@@ -1935,6 +1935,7 @@ fn relay_kind(
         inductance: 0.0,
         coil_i: 0.0,
         active: false,
+        state: Default::default(),
     }
 }
 
@@ -1992,6 +1993,7 @@ fn relay_inductance_delays_pull_in_until_the_coil_current_rises() {
                 inductance: 0.1,
                 coil_i: 0.0,
                 active: false,
+                state: Default::default(),
             },
         })
         .add_resistor("RL", 1_000.0)
@@ -2292,6 +2294,7 @@ fn stepper_angle_follows_energized_coil() {
                 steps: 32,
                 resistance: 100.0,
                 angle: 0.0,
+                state: Default::default(),
             },
         })
         .add_ground("GND")

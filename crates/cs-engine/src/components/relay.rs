@@ -4,7 +4,7 @@ use super::component::{PropGroup, resistor_g, stamp_conductance_between};
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float, expect_int};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Rect;
-use crate::elements::{Kind, SWITCH_CLOSED_ADMIT};
+use crate::elements::{Kind, RelayState, SWITCH_CLOSED_ADMIT};
 use crate::matrix::CircMatrix;
 
 const MIN_POLES: i64 = 1;
@@ -19,6 +19,9 @@ const DEFAULT_ION: f64 = 0.02;
 const DEFAULT_IOFF: f64 = 0.01;
 const DEFAULT_L: f64 = 0.1;
 const DEFAULT_R: f64 = 100.0;
+const DEFAULT_BOUNCE_TIME: f64 = 0.002;
+const DEFAULT_BREAKDOWN_V: f64 = 500.0;
+const DEFAULT_CONTACT_R: f64 = 0.05;
 
 impl crate::canvas::Item {
     #[allow(clippy::too_many_arguments)]
@@ -73,6 +76,9 @@ impl crate::canvas::Item {
                 i_off,
                 inductance,
                 r_coil,
+                bounce_time: DEFAULT_BOUNCE_TIME,
+                breakdown_v: DEFAULT_BREAKDOWN_V,
+                contact_r: DEFAULT_CONTACT_R,
                 active: false,
             },
         )
@@ -88,6 +94,9 @@ pub struct Relay {
     pub i_off: f64,
     pub inductance: f64,
     pub r_coil: f64,
+    pub bounce_time: f64,
+    pub breakdown_v: f64,
+    pub contact_r: f64,
     pub active: bool,
 }
 
@@ -101,6 +110,9 @@ impl Default for Relay {
             i_off: DEFAULT_IOFF,
             inductance: DEFAULT_L,
             r_coil: DEFAULT_R,
+            bounce_time: DEFAULT_BOUNCE_TIME,
+            breakdown_v: DEFAULT_BREAKDOWN_V,
+            contact_r: DEFAULT_CONTACT_R,
             active: false,
         }
     }
@@ -128,6 +140,7 @@ impl Relay {
             inductance: self.inductance,
             coil_i: 0.0,
             active: self.active,
+            state: RelayState::new(self.bounce_time, self.breakdown_v, self.contact_r),
         }
     }
 
@@ -178,6 +191,30 @@ impl Relay {
     }
     fn set_rcoil(&mut self, v: PropValue) -> Result<(), PropError> {
         self.r_coil = expect_float("Rcoil", v)?.clamp(MIN_OHMS, MAX_OHMS);
+        Ok(())
+    }
+
+    fn get_bounce_time(&self) -> PropValue {
+        PropValue::Float(self.bounce_time)
+    }
+    fn set_bounce_time(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.bounce_time = expect_float("BounceTime", v)?.clamp(0.0, 0.05);
+        Ok(())
+    }
+
+    fn get_breakdown_v(&self) -> PropValue {
+        PropValue::Float(self.breakdown_v)
+    }
+    fn set_breakdown_v(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.breakdown_v = expect_float("BreakdownV", v)?.clamp(10.0, 10_000.0);
+        Ok(())
+    }
+
+    fn get_contact_r(&self) -> PropValue {
+        PropValue::Float(self.contact_r)
+    }
+    fn set_contact_r(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.contact_r = expect_float("ContactR", v)?.clamp(1e-4, 10.0);
         Ok(())
     }
 }
@@ -264,6 +301,36 @@ impl Component for Relay {
                 Relay::set_rcoil,
             )
             .with_info("Coil resistance."),
+            PropDef::float(
+                "BounceTime",
+                "Bounce Time",
+                "s",
+                0.0,
+                0.05,
+                Relay::get_bounce_time,
+                Relay::set_bounce_time,
+            )
+            .with_info("Contact bounce duration upon switching."),
+            PropDef::float(
+                "BreakdownV",
+                "Breakdown Voltage",
+                "V",
+                10.0,
+                10_000.0,
+                Relay::get_breakdown_v,
+                Relay::set_breakdown_v,
+            )
+            .with_info("Contact dielectric breakdown voltage."),
+            PropDef::float(
+                "ContactR",
+                "Contact Resistance",
+                "Ω",
+                1e-4,
+                10.0,
+                Relay::get_contact_r,
+                Relay::set_contact_r,
+            )
+            .with_info("Closed contact series resistance."),
         ];
         PROPS
     }
@@ -273,7 +340,10 @@ impl Component for Relay {
             self.prop_rows(),
             &[
                 ("Main", &["NormClose", "DoubleThrow", "Poles"]),
-                ("Electric", &["IOn", "IOff"]),
+                (
+                    "Electric",
+                    &["IOn", "IOff", "BounceTime", "BreakdownV", "ContactR"],
+                ),
                 ("Coil", &["Inductance", "Rcoil"]),
             ],
         )

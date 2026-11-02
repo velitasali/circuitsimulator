@@ -297,25 +297,24 @@ impl Circuit {
                 speed,
                 ref mut pos,
                 target_pos,
+                ref mut state,
                 ..
             } = c.kind
             {
-                if dt_s > 0.0 && (target_pos - *pos).abs() > 1e-4 {
-                    let max_move = dt_s / speed.max(1e-4) * 60.0;
-                    let delta = target_pos - *pos;
-                    let abs_delta = delta.abs();
-                    let step = if abs_delta > max_move {
-                        delta.signum() * max_move
-                    } else {
-                        delta
-                    };
-                    *pos += step;
-                }
+                let pc = pin_caches.get(i);
+                let volt = |slot: Option<usize>| -> Option<f64> {
+                    slot.and_then(|j| nodes.get(j)).map(|n| n.volt)
+                };
+                let v_plus = pc.and_then(|p| volt(p.left)).unwrap_or(0.0);
+                let v_gnd = pc.and_then(|p| volt(p.mid)).unwrap_or(0.0);
+                let v_supply = (v_plus - v_gnd).max(0.0);
+                state.step_dynamics(pos, target_pos, speed, v_supply, dt_s);
             } else if let Kind::Stepper {
                 bipolar,
                 steps,
                 resistance,
                 ref mut angle,
+                ref mut state,
             } = c.kind
             {
                 let pc = pin_caches.get(i);
@@ -340,24 +339,7 @@ impl Circuit {
                         coil(vb1, vco) - coil(vb2, vco),
                     )
                 };
-                let imag = (ia * ia + ib * ib).sqrt();
-                if dt_s > 0.0 && imag > 1e-4 {
-                    let pole_pairs = (steps.max(1) as f64 / 4.0).max(1.0);
-                    let period = 360.0 / pole_pairs;
-                    let field = ib.atan2(ia).to_degrees() / pole_pairs;
-                    let field_mod = field.rem_euclid(period);
-                    let rotor_mod = angle.rem_euclid(period);
-                    let mut err = field_mod - rotor_mod;
-                    if err > period * 0.5 {
-                        err -= period;
-                    }
-                    if err < -period * 0.5 {
-                        err += period;
-                    }
-                    // 5 ms to close the angle error at a given coil vector.
-                    const TAU_S: f64 = 0.005;
-                    *angle = (*angle + err * (dt_s / TAU_S).min(1.0)).rem_euclid(360.0);
-                }
+                state.step_dynamics(angle, ia, ib, steps, resistance, dt_s);
             }
         }
     }

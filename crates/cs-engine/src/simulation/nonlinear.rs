@@ -21,6 +21,7 @@ impl Circuit {
                     | Kind::Diac { .. }
                     | Kind::AnalogMux { .. }
                     | Kind::Relay { .. }
+                    | Kind::Servo { .. }
                     | Kind::Csource {
                         control_pins: true,
                         ..

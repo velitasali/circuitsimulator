@@ -6,7 +6,14 @@ pub fn si_multiplier(unit: &str) -> f64 {
     if u.is_empty() {
         return 1.0;
     }
-    if u == "m" {
+    if u == "m"
+        || u == "N·m"
+        || u == "Nm"
+        || u == "N"
+        || u == "kg·m²"
+        || u == "kg·cm"
+        || u == "N·m·s/rad"
+    {
         return 1.0;
     }
     let u_lower = u.to_ascii_lowercase();

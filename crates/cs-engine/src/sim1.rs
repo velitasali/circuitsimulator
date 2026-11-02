@@ -1322,6 +1322,7 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                             inductance,
                             coil_i: 0.0,
                             active: false,
+                            state: Default::default(),
                         },
                     },
                     &properties,

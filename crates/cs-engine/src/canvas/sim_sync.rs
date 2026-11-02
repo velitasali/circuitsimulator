@@ -359,6 +359,16 @@ impl Canvas {
                                     }
                                 }
                             }
+                        } else if let Part::Relay(ref mut relay) = it.kind {
+                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
+                            {
+                                if let crate::elements::Kind::Relay { active: a, .. } = comp.kind {
+                                    if relay.active != a {
+                                        relay.active = a;
+                                        self.dirty.mark_item(&it.id);
+                                    }
+                                }
+                            }
                         } else if let Part::Servo(ref mut servo) = it.kind {
                             if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
                             {

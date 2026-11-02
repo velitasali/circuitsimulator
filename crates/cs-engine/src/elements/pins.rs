@@ -1160,11 +1160,13 @@ impl Comp {
             Kind::Adc(_) => pin_net.get(&format!("{}-in0", self.id)).copied(),
             Kind::Transformer { .. } => pin_net.get(&self.transformer_s1_pin()).copied(),
             Kind::Stepper { .. } => pin_net.get(&format!("{}-PinB1", self.id)).copied(),
+            Kind::Relay { .. } => pin_net.get(&format!("{}-c1", self.id)).copied(),
             _ => pin_net.get(&self.comparator_in0_pin()).copied(),
         };
         let in1 = match self.kind {
             Kind::Transformer { .. } => pin_net.get(&self.transformer_s2_pin()).copied(),
             Kind::Stepper { .. } => pin_net.get(&format!("{}-PinB2", self.id)).copied(),
+            Kind::Relay { .. } => pin_net.get(&format!("{}-c2", self.id)).copied(),
             _ => pin_net.get(&self.comparator_in1_pin()).copied(),
         };
         let out = match self.kind {

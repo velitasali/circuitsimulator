@@ -7,7 +7,7 @@ use super::{CompPin, Component, Stampable};
 use crate::canvas::PinGeom;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Align, Draw, PaintCtx};
-use crate::elements::Kind;
+use crate::elements::{Kind, StepperState};
 use crate::matrix::CircMatrix;
 use crate::theme::COMPONENT_BORDER_WIDTH;
 
@@ -15,6 +15,10 @@ const MIN_STEPS: i64 = 1;
 const MAX_STEPS: i64 = 10_000;
 const MIN_R: f64 = 1e-3;
 const MAX_R: f64 = 1e9;
+const DEFAULT_HOLDING_TORQUE: f64 = 0.4;
+const DEFAULT_INERTIA: f64 = 6e-6;
+const DEFAULT_FRICTION: f64 = 0.004;
+const DEFAULT_LOAD_TORQUE: f64 = 0.0;
 
 impl crate::canvas::Item {
     pub fn stepper(
@@ -49,6 +53,10 @@ pub struct Stepper {
     pub bipolar: bool,
     pub steps: i32,
     pub resistance: f64,
+    pub holding_torque: f64,
+    pub inertia: f64,
+    pub friction: f64,
+    pub load_torque: f64,
     pub angle: f64,
 }
 
@@ -58,6 +66,10 @@ impl Default for Stepper {
             bipolar: false,
             steps: 32,
             resistance: 100.0,
+            holding_torque: DEFAULT_HOLDING_TORQUE,
+            inertia: DEFAULT_INERTIA,
+            friction: DEFAULT_FRICTION,
+            load_torque: DEFAULT_LOAD_TORQUE,
             angle: 0.0,
         }
     }
@@ -71,6 +83,12 @@ impl Stepper {
             steps: self.steps,
             resistance: self.resistance,
             angle: self.angle,
+            state: StepperState::new(
+                self.holding_torque,
+                self.inertia,
+                self.friction,
+                self.load_torque,
+            ),
         }
     }
 
@@ -95,6 +113,38 @@ impl Stepper {
     }
     fn set_resistance(&mut self, v: PropValue) -> Result<(), PropError> {
         self.resistance = expect_float("Resistance", v)?.clamp(MIN_R, MAX_R);
+        Ok(())
+    }
+
+    fn get_holding_torque(&self) -> PropValue {
+        PropValue::Float(self.holding_torque)
+    }
+    fn set_holding_torque(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.holding_torque = expect_float("HoldingTorque", v)?.clamp(0.001, 100.0);
+        Ok(())
+    }
+
+    fn get_inertia(&self) -> PropValue {
+        PropValue::Float(self.inertia)
+    }
+    fn set_inertia(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.inertia = expect_float("Inertia", v)?.clamp(1e-8, 1.0);
+        Ok(())
+    }
+
+    fn get_friction(&self) -> PropValue {
+        PropValue::Float(self.friction)
+    }
+    fn set_friction(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.friction = expect_float("Friction", v)?.clamp(0.0, 10.0);
+        Ok(())
+    }
+
+    fn get_load_torque(&self) -> PropValue {
+        PropValue::Float(self.load_torque)
+    }
+    fn set_load_torque(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.load_torque = expect_float("LoadTorque", v)?.clamp(0.0, 100.0);
         Ok(())
     }
 }
@@ -140,6 +190,46 @@ impl Component for Stepper {
                 Stepper::set_resistance,
             )
             .with_info("Resistance of each winding."),
+            PropDef::float(
+                "HoldingTorque",
+                "Holding Torque",
+                "N·m",
+                0.001,
+                100.0,
+                Stepper::get_holding_torque,
+                Stepper::set_holding_torque,
+            )
+            .with_info("Peak holding torque at rated current."),
+            PropDef::float(
+                "Inertia",
+                "Rotor Inertia",
+                "kg·m²",
+                1e-8,
+                1.0,
+                Stepper::get_inertia,
+                Stepper::set_inertia,
+            )
+            .with_info("Mechanical rotor and shaft moment of inertia."),
+            PropDef::float(
+                "Friction",
+                "Viscous Friction",
+                "N·m·s/rad",
+                0.0,
+                10.0,
+                Stepper::get_friction,
+                Stepper::set_friction,
+            )
+            .with_info("Rotor bearing and aerodynamic viscous damping coefficient."),
+            PropDef::float(
+                "LoadTorque",
+                "Load Torque",
+                "N·m",
+                0.0,
+                100.0,
+                Stepper::get_load_torque,
+                Stepper::set_load_torque,
+            )
+            .with_info("External mechanical load torque opposing rotation."),
         ];
         PROPS
     }

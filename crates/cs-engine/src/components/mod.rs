@@ -1616,26 +1616,13 @@ impl Part {
             Self::Stepper(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Stepper {
-                        bipolar: p.bipolar,
-                        steps: p.steps,
-                        resistance: p.resistance,
-                        angle: p.angle,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Servo(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Servo {
-                        speed: p.speed,
-                        min_pulse: p.min_pulse,
-                        max_pulse: p.max_pulse,
-                        pos: p.pos,
-                        target_pos: p.pos,
-                        pulse_start_ps: 0,
-                        sig_high: false,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::SdCard(p) => {

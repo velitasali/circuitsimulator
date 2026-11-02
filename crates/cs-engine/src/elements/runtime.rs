@@ -79,15 +79,22 @@ impl Kind {
                 }
             }
             (
-                Kind::Relay { active, coil_i, .. },
+                Kind::Relay {
+                    active,
+                    coil_i,
+                    state,
+                    ..
+                },
                 Kind::Relay {
                     active: prev,
                     coil_i: prev_i,
+                    state: prev_state,
                     ..
                 },
             ) => {
                 *active = *prev;
                 *coil_i = *prev_i;
+                state.copy_runtime_from(prev_state);
             }
             (Kind::Csource { ctrl, .. }, Kind::Csource { ctrl: prev, .. }) => {
                 *ctrl = *prev;
@@ -115,12 +122,15 @@ impl Kind {
                 };
             }
             (
-                Kind::Stepper { angle, .. },
+                Kind::Stepper { angle, state, .. },
                 Kind::Stepper {
-                    angle: prev_angle, ..
+                    angle: prev_angle,
+                    state: prev_state,
+                    ..
                 },
             ) => {
                 *angle = *prev_angle;
+                state.copy_runtime_from(prev_state);
             }
             (
                 Kind::DcMotor { angle, speed, .. },
@@ -139,6 +149,7 @@ impl Kind {
                     target_pos,
                     pulse_start_ps,
                     sig_high,
+                    state,
                     ..
                 },
                 Kind::Servo {
@@ -146,6 +157,7 @@ impl Kind {
                     target_pos: prev_target,
                     pulse_start_ps: prev_pulse,
                     sig_high: prev_sig,
+                    state: prev_state,
                     ..
                 },
             ) => {
@@ -153,6 +165,7 @@ impl Kind {
                 *target_pos = *prev_target;
                 *pulse_start_ps = *prev_pulse;
                 *sig_high = *prev_sig;
+                state.copy_runtime_from(prev_state);
             }
             (Kind::Scr { state }, Kind::Scr { state: prev }) => {
                 state.copy_runtime_from(prev);

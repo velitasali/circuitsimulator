@@ -47,6 +47,7 @@ fn relay_contact_closes_from_coil_current() {
                 inductance: 0.0,
                 coil_i: 0.0,
                 active: false,
+                state: Default::default(),
             },
         })
         .add_resistor("RL", 1_000.0)

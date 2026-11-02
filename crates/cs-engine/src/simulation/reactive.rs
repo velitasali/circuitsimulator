@@ -20,7 +20,14 @@ impl Circuit {
                     | Kind::Scr { .. }
                     | Kind::Triac { .. }
                     | Kind::Diac { .. }
-            ) || matches!(&c.kind, Kind::Relay { inductance, .. } if *inductance > 0.0)
+            ) || matches!(
+                &c.kind,
+                Kind::Relay {
+                    inductance,
+                    state,
+                    ..
+                } if *inductance > 0.0 || state.in_bounce || state.arcing
+            )
         })
     }
 

@@ -572,6 +572,7 @@ impl Comp {
                 steps,
                 resistance,
                 angle: 0.0,
+                state: StepperState::default(),
             },
         }
     }
@@ -587,6 +588,35 @@ impl Comp {
                 target_pos: 90.0,
                 pulse_start_ps: 0,
                 sig_high: false,
+                state: ServoState::default(),
+            },
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn relay(
+        id: impl Into<String>,
+        norm_close: bool,
+        double_throw: bool,
+        poles: usize,
+        i_on: f64,
+        i_off: f64,
+        r_coil: f64,
+        inductance: f64,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            kind: Kind::Relay {
+                norm_close,
+                double_throw,
+                poles,
+                i_on,
+                i_off,
+                r_coil,
+                inductance,
+                coil_i: 0.0,
+                active: false,
+                state: RelayState::default(),
             },
         }
     }

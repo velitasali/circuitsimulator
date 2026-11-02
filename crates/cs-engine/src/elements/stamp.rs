@@ -1094,6 +1094,7 @@ impl Comp {
                 inductance,
                 coil_i,
                 active,
+                state,
                 ..
             } => {
                 let r = r_coil.max(1e-6);
@@ -1116,6 +1117,8 @@ impl Comp {
                     i_src,
                 );
                 let pulled = relay_pulled(*active, *norm_close);
+                let g_closed = 1.0 / state.contact_r.max(1e-6);
+                let g_arc = 0.1;
                 let n = (*poles).max(1);
                 for i in 0..n {
                     let common = format!(
@@ -1124,20 +1127,60 @@ impl Comp {
                         crate::elements::pins::relay_common_suffix(i)
                     );
                     if *double_throw {
-                        let throw_idx = if pulled { 0 } else { 1 };
-                        let throw = format!(
+                        let (is_t0, is_t1) = if state.in_bounce {
+                            if pulled {
+                                (state.contact_closed, false)
+                            } else {
+                                (false, state.contact_closed)
+                            }
+                        } else {
+                            (pulled, !pulled)
+                        };
+                        let throw0 = format!(
                             "{}{}",
                             self.id,
-                            crate::elements::pins::relay_throw_suffix(i, throw_idx)
+                            crate::elements::pins::relay_throw_suffix(i, 0)
                         );
-                        stamp_between(pin_net, nodes, &common, &throw, SWITCH_CLOSED_ADMIT, 0.0);
-                    } else if pulled {
+                        let throw1 = format!(
+                            "{}{}",
+                            self.id,
+                            crate::elements::pins::relay_throw_suffix(i, 1)
+                        );
+                        let g0 = if is_t0 {
+                            g_closed
+                        } else if state.arcing && pulled {
+                            g_arc
+                        } else {
+                            1e-12
+                        };
+                        let g1 = if is_t1 {
+                            g_closed
+                        } else if state.arcing && !pulled {
+                            g_arc
+                        } else {
+                            1e-12
+                        };
+                        stamp_between(pin_net, nodes, &common, &throw0, g0, 0.0);
+                        stamp_between(pin_net, nodes, &common, &throw1, g1, 0.0);
+                    } else {
+                        let is_closed = if state.in_bounce {
+                            pulled && state.contact_closed
+                        } else {
+                            pulled
+                        };
                         let throw = format!(
                             "{}{}",
                             self.id,
                             crate::elements::pins::relay_throw_suffix(i, 0)
                         );
-                        stamp_between(pin_net, nodes, &common, &throw, SWITCH_CLOSED_ADMIT, 0.0);
+                        let g = if is_closed {
+                            g_closed
+                        } else if state.arcing {
+                            g_arc
+                        } else {
+                            1e-12
+                        };
+                        stamp_between(pin_net, nodes, &common, &throw, g, 0.0);
                     }
                 }
             }
@@ -1444,9 +1487,31 @@ impl Comp {
                     );
                 }
             }
-            Kind::Servo { .. } => {
+            Kind::Servo { state, .. } => {
                 // High input impedance on Sig pin
                 stamp_pin_to_gnd(pin_net, nodes, &format!("{}-PinSig", self.id), 0.0, 1e-7);
+                // Dynamic electrical power consumption across V+ and GND
+                let v_plus = pin_net
+                    .get(&format!("{}-PinV+", self.id))
+                    .and_then(|&i| nodes.get(i))
+                    .map(|n| n.volt)
+                    .unwrap_or(5.0);
+                let v_gnd = pin_net
+                    .get(&format!("{}-PinGnd", self.id))
+                    .and_then(|&i| nodes.get(i))
+                    .map(|n| n.volt)
+                    .unwrap_or(0.0);
+                let v_supply = (v_plus - v_gnd).abs();
+                let v_eff = if v_supply >= 0.1 { v_supply } else { 5.0 };
+                let g_pwr = state.power_conductance(v_eff);
+                stamp_between(
+                    pin_net,
+                    nodes,
+                    &format!("{}-PinV+", self.id),
+                    &format!("{}-PinGnd", self.id),
+                    g_pwr,
+                    0.0,
+                );
             }
             Kind::SevenSegmentBCD { .. }
             | Kind::TftDisplay { .. }

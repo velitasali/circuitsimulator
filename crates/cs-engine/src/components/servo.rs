@@ -1,13 +1,13 @@
 //! RC servo motor component.
 
-use super::component::stamp_to_ground;
+use super::component::{stamp_conductance_between, stamp_to_ground};
 use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_float};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::PinGeom;
 use crate::canvas::Rect;
 use crate::canvas::draw::{Align, Color, Draw, PaintCtx};
-use crate::elements::Kind;
+use crate::elements::{Kind, ServoState};
 use crate::matrix::CircMatrix;
 use crate::theme::COMPONENT_BORDER_WIDTH;
 
@@ -15,6 +15,11 @@ const MIN_SPEED: f64 = 0.001;
 const MAX_SPEED: f64 = 100.0;
 const MIN_PULSE: f64 = 100.0;
 const MAX_PULSE: f64 = 10_000.0;
+const DEFAULT_IDLE_CURRENT: f64 = 0.015;
+const DEFAULT_RUN_CURRENT: f64 = 0.25;
+const DEFAULT_STALL_CURRENT: f64 = 1.0;
+const DEFAULT_LOAD_TORQUE: f64 = 0.0;
+const DEFAULT_STALL_TORQUE: f64 = 3.5;
 
 impl crate::canvas::Item {
     pub fn servo(
@@ -44,6 +49,11 @@ impl crate::canvas::Item {
                 speed,
                 min_pulse,
                 max_pulse,
+                idle_current: DEFAULT_IDLE_CURRENT,
+                run_current: DEFAULT_RUN_CURRENT,
+                stall_current: DEFAULT_STALL_CURRENT,
+                load_torque: DEFAULT_LOAD_TORQUE,
+                stall_torque: DEFAULT_STALL_TORQUE,
                 pos: 90.0,
             },
         )
@@ -55,6 +65,11 @@ pub struct Servo {
     pub speed: f64,
     pub min_pulse: f64,
     pub max_pulse: f64,
+    pub idle_current: f64,
+    pub run_current: f64,
+    pub stall_current: f64,
+    pub load_torque: f64,
+    pub stall_torque: f64,
     pub pos: f64,
 }
 
@@ -64,6 +79,11 @@ impl Default for Servo {
             speed: 0.2,
             min_pulse: 1000.0,
             max_pulse: 2000.0,
+            idle_current: DEFAULT_IDLE_CURRENT,
+            run_current: DEFAULT_RUN_CURRENT,
+            stall_current: DEFAULT_STALL_CURRENT,
+            load_torque: DEFAULT_LOAD_TORQUE,
+            stall_torque: DEFAULT_STALL_TORQUE,
             pos: 90.0,
         }
     }
@@ -80,6 +100,13 @@ impl Servo {
             target_pos: self.pos,
             pulse_start_ps: 0,
             sig_high: false,
+            state: ServoState::new(
+                self.idle_current,
+                self.run_current,
+                self.stall_current,
+                self.load_torque,
+                self.stall_torque,
+            ),
         }
     }
 
@@ -104,6 +131,46 @@ impl Servo {
     }
     fn set_max_pulse(&mut self, v: PropValue) -> Result<(), PropError> {
         self.max_pulse = expect_float("MaxPulse", v)?.clamp(MIN_PULSE, MAX_PULSE);
+        Ok(())
+    }
+
+    fn get_idle_current(&self) -> PropValue {
+        PropValue::Float(self.idle_current)
+    }
+    fn set_idle_current(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.idle_current = expect_float("IdleCurrent", v)?.clamp(0.0, 1.0);
+        Ok(())
+    }
+
+    fn get_run_current(&self) -> PropValue {
+        PropValue::Float(self.run_current)
+    }
+    fn set_run_current(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.run_current = expect_float("RunCurrent", v)?.clamp(0.001, 5.0);
+        Ok(())
+    }
+
+    fn get_stall_current(&self) -> PropValue {
+        PropValue::Float(self.stall_current)
+    }
+    fn set_stall_current(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.stall_current = expect_float("StallCurrent", v)?.clamp(0.01, 20.0);
+        Ok(())
+    }
+
+    fn get_load_torque(&self) -> PropValue {
+        PropValue::Float(self.load_torque)
+    }
+    fn set_load_torque(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.load_torque = expect_float("LoadTorque", v)?.clamp(0.0, 50.0);
+        Ok(())
+    }
+
+    fn get_stall_torque(&self) -> PropValue {
+        PropValue::Float(self.stall_torque)
+    }
+    fn set_stall_torque(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.stall_torque = expect_float("StallTorque", v)?.clamp(0.01, 50.0);
         Ok(())
     }
 }
@@ -149,6 +216,56 @@ impl Component for Servo {
                 Servo::set_max_pulse,
             )
             .with_info("Pulse width for rotation = 180º"),
+            PropDef::float(
+                "IdleCurrent",
+                "Idle Current",
+                "A",
+                0.0,
+                1.0,
+                Servo::get_idle_current,
+                Servo::set_idle_current,
+            )
+            .with_info("Quiescent current when holding steady state."),
+            PropDef::float(
+                "RunCurrent",
+                "Running Current",
+                "A",
+                0.001,
+                5.0,
+                Servo::get_run_current,
+                Servo::set_run_current,
+            )
+            .with_info("Operating current while rotating towards target."),
+            PropDef::float(
+                "StallCurrent",
+                "Stall Current",
+                "A",
+                0.01,
+                20.0,
+                Servo::get_stall_current,
+                Servo::set_stall_current,
+            )
+            .with_info("Maximum current when jammed or under max stall torque."),
+            PropDef::float(
+                "LoadTorque",
+                "Load Torque",
+                "kg·cm",
+                0.0,
+                50.0,
+                Servo::get_load_torque,
+                Servo::set_load_torque,
+            )
+            .with_info("External mechanical load torque opposing rotation."),
+            PropDef::float(
+                "StallTorque",
+                "Stall Torque",
+                "kg·cm",
+                0.01,
+                50.0,
+                Servo::get_stall_torque,
+                Servo::set_stall_torque,
+            )
+            .with_info("Maximum holding / stall torque capability of the servo."),
         ];
         PROPS
     }
@@ -180,6 +297,9 @@ impl Stampable for Servo {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
         // High input impedance on Sig pin (index 2)
         stamp_to_ground(matrix, pin_nodes, 2, 0.0, 1e-7);
+        // Quiescent power consumption across V+ (index 0) and Gnd (index 1)
+        let g_idle = (self.idle_current / 5.0).max(1e-6);
+        stamp_conductance_between(matrix, pin_nodes, 0, 1, g_idle);
     }
 }
 

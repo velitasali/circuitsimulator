@@ -9,7 +9,6 @@ VoltSource: driver 5.000 V implicit-return
 CurrSource: driver 10.000 V implicit-return
 Push: current-gap
 SwitchDip: current-gap
-Relay: current-gap
 KeyPad: current-gap
 Diode: current-gap
 Zener: current-gap
@@ -36,8 +35,6 @@ DHT22: current-gap
 DS18B20: current-gap
 DS1621: current-gap
 DS1307: current-gap
-Stepper: current-gap
-Servo: current-gap
 Esp01: driver 3.300 V current-gap
 Pcd8544: current-gap
 Sh1107: current-gap

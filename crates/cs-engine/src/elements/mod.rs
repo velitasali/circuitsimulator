@@ -1,5 +1,6 @@
 pub mod comparator;
 pub mod diode;
+pub mod electromechanical;
 pub mod opamp;
 pub mod thyristor;
 pub mod transformer;
@@ -22,6 +23,7 @@ pub use diode::{
     DIODE_DEFAULT_EM, DIODE_DEFAULT_RS, DIODE_DEFAULT_SAT_NA, DiodeState, LED_DEFAULT_IMAX,
     LED_DEFAULT_OHMS, LED_DEFAULT_VTH, LedState, VT as DIODE_VT, ZENER_DEFAULT_BV,
 };
+pub use electromechanical::{RelayState, ServoState, StepperState};
 pub use opamp::{
     OPAMP_ACCURACY, OPAMP_DEFAULT_GAIN, OPAMP_DEFAULT_OUT_IMP, OPAMP_DEFAULT_VOLT_NEG,
     OPAMP_DEFAULT_VOLT_POS, OpAmpState,
@@ -276,6 +278,7 @@ pub enum Kind {
         /// Coil current from `lPin` to `rPin`, updated by the RL companion.
         coil_i: f64,
         active: bool,
+        state: RelayState,
     },
     Potentiometer {
         resistance: f64,
@@ -355,6 +358,7 @@ pub enum Kind {
         steps: i32,
         resistance: f64,
         angle: f64,
+        state: StepperState,
     },
     Servo {
         speed: f64,
@@ -364,6 +368,7 @@ pub enum Kind {
         target_pos: f64,
         pulse_start_ps: u64,
         sig_high: bool,
+        state: ServoState,
     },
     SdCard {
         file: String,
@@ -637,18 +642,43 @@ impl Kind {
                     true
                 }
             }
+            Kind::Servo {
+                speed,
+                pos,
+                target_pos,
+                state,
+                ..
+            } => {
+                let vp = cache
+                    .left
+                    .and_then(|j| nodes.get(j))
+                    .map(|n| n.volt)
+                    .unwrap_or(0.0);
+                let vg = cache
+                    .mid
+                    .and_then(|j| nodes.get(j))
+                    .map(|n| n.volt)
+                    .unwrap_or(0.0);
+                let v_supply = (vp - vg).abs();
+                let prev_draw = state.current_draw;
+                state.step_dynamics(pos, *target_pos, *speed, v_supply, dt);
+                (state.current_draw - prev_draw).abs() < 1e-4
+            }
             Kind::Relay {
+                norm_close,
                 i_on,
                 i_off,
                 r_coil,
                 inductance,
                 coil_i,
                 active,
+                state,
                 ..
             } => {
                 let (Some(n0), Some(n1)) = (cache.left, cache.right) else {
                     if *active {
                         *active = false;
+                        state.contact_closed = false;
                         return false;
                     }
                     return true;
@@ -672,12 +702,32 @@ impl Kind {
                 } else {
                     *active
                 };
+                let mut changed = false;
                 if *active != next {
                     *active = next;
-                    false
-                } else {
-                    true
+                    state.on_armature_switch(sim_time);
+                    changed = true;
                 }
+
+                let is_energized = if *norm_close { !*active } else { *active };
+                let v_common = cache
+                    .in0
+                    .and_then(|j| nodes.get(j))
+                    .map(|n| n.volt)
+                    .unwrap_or(0.0);
+                let v_throw = cache
+                    .in1
+                    .and_then(|j| nodes.get(j))
+                    .map(|n| n.volt)
+                    .unwrap_or(0.0);
+                let v_contact = v_common - v_throw;
+                let i_contact = v_contact * state.contact_conductance();
+
+                if state.update_contact_state(is_energized, v_contact, i_contact, sim_time) {
+                    changed = true;
+                }
+
+                !changed
             }
             Kind::Csource {
                 control_pins,
@@ -1460,6 +1510,75 @@ impl Kind {
                 let p = cpu.pins.iter().find(|p| p.id == pin)?;
                 let v = pin_volt(pin).unwrap_or(0.0);
                 Some(p.current_out(v))
+            }
+            (Kind::Servo { state, .. }, _) => {
+                if pin.ends_with("-PinV+") {
+                    Some(-state.current_draw)
+                } else if pin.ends_with("-PinGnd") {
+                    Some(state.current_draw)
+                } else if pin.ends_with("-PinSig") {
+                    let v = pin_volt(pin).unwrap_or(0.0);
+                    Some(-v * 1e-7)
+                } else {
+                    None
+                }
+            }
+            (
+                Kind::Stepper {
+                    bipolar,
+                    resistance,
+                    ..
+                },
+                _,
+            ) => {
+                let r = resistance.max(1e-6);
+                let va1 = pin_volt(&format!("{comp_id}-PinA1")).unwrap_or(0.0);
+                let va2 = pin_volt(&format!("{comp_id}-PinA2")).unwrap_or(0.0);
+                let vb1 = pin_volt(&format!("{comp_id}-PinB1")).unwrap_or(0.0);
+                let vb2 = pin_volt(&format!("{comp_id}-PinB2")).unwrap_or(0.0);
+                let vco = pin_volt(&format!("{comp_id}-PinCo")).unwrap_or(0.0);
+                if pin.ends_with("-PinA1") {
+                    Some(if *bipolar {
+                        (va2 - va1) / r
+                    } else {
+                        (vco - va1) / r
+                    })
+                } else if pin.ends_with("-PinA2") {
+                    Some(if *bipolar {
+                        (va1 - va2) / r
+                    } else {
+                        (vco - va2) / r
+                    })
+                } else if pin.ends_with("-PinB1") {
+                    Some(if *bipolar {
+                        (vb2 - vb1) / r
+                    } else {
+                        (vco - vb1) / r
+                    })
+                } else if pin.ends_with("-PinB2") {
+                    Some(if *bipolar {
+                        (vb1 - vb2) / r
+                    } else {
+                        (vco - vb2) / r
+                    })
+                } else if pin.ends_with("-PinCo") && !*bipolar {
+                    Some(((va1 - vco) + (va2 - vco) + (vb1 - vco) + (vb2 - vco)) / r)
+                } else {
+                    None
+                }
+            }
+            (Kind::Relay { coil_i, state, .. }, _) => {
+                if pin.ends_with("-lPin") {
+                    Some(-coil_i)
+                } else if pin.ends_with("-rPin") {
+                    Some(*coil_i)
+                } else if pin.contains("-c1") || pin.contains("-c2") || pin.contains("-c3") {
+                    let v = pin_volt(pin).unwrap_or(0.0);
+                    let g = state.contact_conductance();
+                    Some(-v * g)
+                } else {
+                    None
+                }
             }
             _ => None,
         }

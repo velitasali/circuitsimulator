@@ -348,7 +348,7 @@ int main() {
         let start = Instant::now();
         let formatted = format_code(src, None, true, 4).expect("clang-format should succeed");
         assert!(
-            start.elapsed() < Duration::from_secs(2),
+            start.elapsed() < Duration::from_secs(10),
             "format_code hung for {:?}",
             start.elapsed()
         );

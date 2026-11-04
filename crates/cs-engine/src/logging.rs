@@ -237,10 +237,13 @@ macro_rules! log_comp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_log_categories_routing_and_funneling() {
+        let _guard = TEST_LOCK.lock().unwrap();
         clear_all();
 
         let funnel_logs = Arc::new(Mutex::new(Vec::<(LogCategory, String)>::new()));
@@ -282,6 +285,7 @@ mod tests {
 
     #[test]
     fn test_clear_buffers() {
+        let _guard = TEST_LOCK.lock().unwrap();
         clear_all();
         log_sim("sim msg");
         log_compiler("comp msg");

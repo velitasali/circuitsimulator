@@ -385,7 +385,7 @@ impl Drop for SharedArena {
 
 #[cfg(target_os = "linux")]
 #[link(name = "rt")]
-extern "C" {}
+unsafe extern "C" {}
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,16 @@
+Decimal/Hexadecimal Encoder.
+
+Use the slider to set the output value.
+
+
+Property: (default value)
+
+Main:
+- Code: (HEX)
+   Configure type of encodig:
+   HEX: binary 0 to 15
+   BCD: binary 0 to 9
+   GRAY: Gray code 0 to 15
+
+- Value: (0)
+   Current value (save circuit to keep last value).

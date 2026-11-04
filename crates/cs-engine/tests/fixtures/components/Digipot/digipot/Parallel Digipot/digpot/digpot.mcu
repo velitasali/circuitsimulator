@@ -1,0 +1,11 @@
+<iou name="digpot" core="scripted" script="digpot.as" linkable="true" >
+
+  <propertygroup name="Main">
+    <property name="Bits"       type="uint"   add="true" />
+    <property name="Resistance" type="double" add="true" />
+  </propertygroup>
+  
+  <ioport name="PORTA" pins="16" />
+  <ioport name="PORTB" pins="CS" />
+
+</iou>

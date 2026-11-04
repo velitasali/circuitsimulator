@@ -1,0 +1,65 @@
+<circuit version="1.1.0-SR0" rev="1973" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="1" >
+
+<item itemtype="ADC" CircId="ADC-5" mainComp="false" Show_id="true" Show_Val="false" Pos="-12,68" rotation="0" hflip="1" vflip="1" label="ADC" idLabPos="-8.8625,-78.1373" labelrot="0" valLabPos="-16,20" valLabRot="0" Num_Bits="16 _bits" Vref="5 V" Out_High_V="5 V" Out_Low_V="0 V" Out_Imped="40 Ω" Inverted="false" Open_Collector="false" pd_n="1 _Gates" Tpd_ps="10000 ps" Tr_ps="3000 ps" Tf_ps="4000 ps" />
+
+<item itemtype="Voltage Source" CircId="Voltage Source-6" mainComp="false" ShowProp="MaxValue" Show_id="false" Show_Val="true" Pos="-76,60" rotation="0" hflip="1" vflip="1" label="Voltage Source-6" idLabPos="-32,-48" labelrot="0" valLabPos="-8,30" valLabRot="0" Running="true" Value_Volt="2.115 V" MaxValue="5 V" MinValue="0 V" />
+
+<item itemtype="Subcircuit" CircId="Parallel Digipot-8" mainComp="false" Show_id="true" Show_Val="false" Pos="76,68" rotation="0" hflip="1" vflip="1" label="digipot" idLabPos="-3,-15" labelrot="0" valLabPos="-16,20" valLabRot="0" Resistance="1000" Bits="16">
+<mainCompProps MainCompId="digpot-1" Links="8@Potentiometer-3," MainMcu="true" />
+</item>
+
+<item itemtype="Rail" CircId="Rail-9" mainComp="false" ShowProp="Voltage" Show_id="false" Show_Val="true" Pos="124,36" rotation="90" hflip="1" vflip="1" label="Rail-9" idLabPos="-5,-10" labelrot="-90" valLabPos="-12,6" valLabRot="-90" Voltage="5 V" />
+
+<item itemtype="Ground" CircId="Ground-10" mainComp="false" Show_id="false" Show_Val="false" Pos="124,132" rotation="0" hflip="1" vflip="1" label="Ground-10" idLabPos="-16,8" labelrot="0" valLabPos="-16,20" valLabRot="0" />
+
+<item itemtype="Probe" CircId="Probe-11" mainComp="false" Show_id="false" Show_Val="true" Pos="148,68" rotation="-45" hflip="1" vflip="1" label="Probe-11" idLabPos="16,-16" labelrot="45" valLabPos="16,0" valLabRot="45" ShowVolt="true" Threshold="2.5 V" />
+
+<item itemtype="Bus" CircId="Bus-12" mainComp="false" Show_id="false" Show_Val="false" Pos="28,132" rotation="0" hflip="1" vflip="1" label="Bus-12" idLabPos="-16,-24" labelrot="0" valLabPos="-16,20" valLabRot="0" Num_Bits="16 _bits" Start_Bit="0" />
+
+<item itemtype="Fixed Voltage" CircId="Fixed Voltage-13" mainComp="false" Show_id="true" Show_Val="false" Pos="12,164" rotation="0" hflip="1" vflip="1" label="!CS" idLabPos="-51.2924,-6.43367" labelrot="0" valLabPos="-16,8" valLabRot="0" Voltage="5 V" Out="false" />
+
+<item itemtype="Connector" uid="Connector-11" startpinid="Voltage Source-6-outPin" endpinid="ADC-5-in0" pointList="-48,76,-48,12,-36,12" />
+
+<item itemtype="Connector" uid="Connector-18" startpinid="Parallel Digipot-8-RH" endpinid="Rail-9-outnod" pointList="108,76,124,76,124,52" />
+
+<item itemtype="Connector" uid="Connector-19" startpinid="Parallel Digipot-8-RL" endpinid="Ground-10-Gnd" pointList="108,92,124,92,124,116" />
+
+<item itemtype="Connector" uid="Connector-20" startpinid="Probe-11-inpin" endpinid="Parallel Digipot-8-RW" pointList="132,84,108,84" />
+
+<item itemtype="Connector" uid="Connector-21" startpinid="Bus-12-ePin1" endpinid="ADC-5-out0" pointList="20,12,12,12" />
+
+<item itemtype="Connector" uid="Connector-22" startpinid="Bus-12-ePin2" endpinid="ADC-5-out1" pointList="20,20,12,20" />
+
+<item itemtype="Connector" uid="Connector-23" startpinid="Bus-12-ePin3" endpinid="ADC-5-out2" pointList="20,28,12,28" />
+
+<item itemtype="Connector" uid="Connector-24" startpinid="Bus-12-ePin4" endpinid="ADC-5-out3" pointList="20,36,12,36" />
+
+<item itemtype="Connector" uid="Connector-25" startpinid="Bus-12-ePin5" endpinid="ADC-5-out4" pointList="20,44,12,44" />
+
+<item itemtype="Connector" uid="Connector-26" startpinid="Bus-12-ePin6" endpinid="ADC-5-out5" pointList="20,52,12,52" />
+
+<item itemtype="Connector" uid="Connector-27" startpinid="Bus-12-ePin7" endpinid="ADC-5-out6" pointList="20,60,12,60" />
+
+<item itemtype="Connector" uid="Connector-28" startpinid="Bus-12-ePin8" endpinid="ADC-5-out7" pointList="20,68,12,68" />
+
+<item itemtype="Connector" uid="Connector-29" startpinid="Bus-12-ePin9" endpinid="ADC-5-out8" pointList="20,76,12,76" />
+
+<item itemtype="Connector" uid="Connector-30" startpinid="Bus-12-ePin10" endpinid="ADC-5-out9" pointList="20,84,12,84" />
+
+<item itemtype="Connector" uid="Connector-31" startpinid="Bus-12-ePin11" endpinid="ADC-5-out10" pointList="20,92,12,92" />
+
+<item itemtype="Connector" uid="Connector-32" startpinid="Bus-12-ePin12" endpinid="ADC-5-out11" pointList="20,100,12,100" />
+
+<item itemtype="Connector" uid="Connector-33" startpinid="Bus-12-ePin13" endpinid="ADC-5-out12" pointList="20,108,12,108" />
+
+<item itemtype="Connector" uid="Connector-34" startpinid="Bus-12-ePin14" endpinid="ADC-5-out13" pointList="20,116,12,116" />
+
+<item itemtype="Connector" uid="Connector-35" startpinid="Bus-12-ePin15" endpinid="ADC-5-out14" pointList="20,124,12,124" />
+
+<item itemtype="Connector" uid="Connector-36" startpinid="Bus-12-ePin16" endpinid="ADC-5-out15" pointList="20,132,12,132" />
+
+<item itemtype="Connector" uid="Connector-37" startpinid="Bus-12-busPinI" endpinid="Parallel Digipot-8-Data" pointList="28,12,28,4,60,4,60,76,76,76" />
+
+<item itemtype="Connector" uid="Connector-38" startpinid="Fixed Voltage-13-outnod" endpinid="Parallel Digipot-8-CS" pointList="28,164,60,164,60,92,76,92" />
+
+</circuit>

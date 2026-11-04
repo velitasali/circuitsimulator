@@ -1,0 +1,12 @@
+Digital Potentiometer with SPI interface.
+
+
+Property: (default value)
+
+Main:
+- Steps: (256)
+   Ladder steps of the Potentiometer.
+   Maximum value is 256 (1 byte).
+
+- Resistance: (100 kΩ)
+   Potentiometer Resistance.

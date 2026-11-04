@@ -95,7 +95,7 @@ fn isolated_parts_register_a_stamp() {
         .lines()
         .filter(|line| line.ends_with("panic"))
         .collect();
-    if !hard.is_empty() || report != EXPECTED {
+    if !hard.is_empty() || report.replace("\r\n", "\n") != EXPECTED.replace("\r\n", "\n") {
         let path = std::env::temp_dir().join("stamp_report.txt");
         std::fs::write(&path, &report).expect("write stamp report");
         panic!(

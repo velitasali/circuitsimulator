@@ -1,0 +1,25 @@
+<circuit version="" rev="1703" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="1" >
+
+<item itemtype="MCU" CircId="digpot-1" mainComp="false" Show_id="true" Show_Val="true" Pos="28,68" rotation="0" hflip="1" vflip="1" label="digpot-1" idLabPos="0,-20" labelrot="0" valLabPos="-16,20" valLabRot="0" Logic_Symbol="false" Links="Potentiometer-3," />
+
+<item itemtype="Potentiometer" CircId="Potentiometer-3" mainComp="false" ShowProp="Value_Ohm" Show_id="false" Show_Val="true" Pos="124,84" rotation="0" hflip="1" vflip="1" label="Potentiometer-3" idLabPos="-16,-40" labelrot="0" valLabPos="15,-20" valLabRot="0" Resistance="1000 Ω" Value_Ohm="507 Ω" Slider="false" Scale="1" />
+
+<item itemtype="ADC" CircId="ADC-5" mainComp="false" Show_id="false" Show_Val="false" Pos="-12,92" rotation="0" hflip="1" vflip="1" label="ADC-5" idLabPos="-16,-80" labelrot="0" valLabPos="-16,20" valLabRot="0" Num_Bits="6 _Bits" Vref="5 V" Out_High_V="5 V" Out_Low_V="0 V" Out_Imped="40 Ω" Inverted="false" Open_Collector="false" pd_n="1 _Gates" Tpd_ps="10000 ps" Tr_ps="3000 ps" Tf_ps="4000 ps" />
+
+<item itemtype="Voltage Source" CircId="Voltage Source-6" mainComp="false" ShowProp="MaxValue" Show_id="false" Show_Val="true" Pos="-76,60" rotation="0" hflip="1" vflip="1" label="Voltage Source-6" idLabPos="-32,-48" labelrot="0" valLabPos="-8,30" valLabRot="0" Running="true" Value_Volt="2.555 V" MaxValue="5 V" />
+
+<item itemtype="Connector" uid="Connector-5" startpinid="ADC-5-out0" endpinid="digpot-1-PORTAA" pointList="12,76,20,76" />
+
+<item itemtype="Connector" uid="Connector-6" startpinid="ADC-5-out1" endpinid="digpot-1-PORTAB" pointList="12,84,20,84" />
+
+<item itemtype="Connector" uid="Connector-7" startpinid="ADC-5-out2" endpinid="digpot-1-PORTAC" pointList="12,92,20,92" />
+
+<item itemtype="Connector" uid="Connector-8" startpinid="ADC-5-out3" endpinid="digpot-1-PORTAD" pointList="12,100,20,100" />
+
+<item itemtype="Connector" uid="Connector-9" startpinid="ADC-5-out4" endpinid="digpot-1-PORTAE" pointList="12,108,20,108" />
+
+<item itemtype="Connector" uid="Connector-10" startpinid="ADC-5-out5" endpinid="digpot-1-PORTAF" pointList="12,116,20,116" />
+
+<item itemtype="Connector" uid="Connector-11" startpinid="Voltage Source-6-outPin" endpinid="ADC-5-in0" pointList="-48,76,-36,76" />
+
+</circuit>

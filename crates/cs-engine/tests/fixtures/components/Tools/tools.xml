@@ -1,0 +1,9 @@
+<!DOCTYPE SimulIDE>
+
+<itemlib>
+
+  <itemset category="Logic/Tools" type="Subcircuit" folder="tools" icon="subc.png" >
+    <item name="Encoder"  info="Hex/Dec Manual encoder" />
+  </itemset>
+
+</itemlib>

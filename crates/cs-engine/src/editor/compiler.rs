@@ -1297,12 +1297,13 @@ mod tests {
             r.error
         );
         println!("Firmware: {}", r.firmware);
-        if logs
-            .iter()
-            .any(|l| l.contains("bad CPU type in executable"))
-        {
+        if logs.iter().any(|l| {
+            l.contains("bad CPU type in executable")
+                || l.contains("arduino-cli not found")
+                || l.contains("No Arduino toolchain found")
+        }) {
             eprintln!(
-                "Skipping compile_job_arduino_mega_display: local Arduino AVR toolchain is 32-bit (bad CPU type)"
+                "Skipping compile_job_arduino_mega_display: local Arduino AVR toolchain or arduino-cli not installed"
             );
             return;
         }

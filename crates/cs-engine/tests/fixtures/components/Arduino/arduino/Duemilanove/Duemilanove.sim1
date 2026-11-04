@@ -1,0 +1,165 @@
+<circuit version="1.2.0-RC1" rev="2300" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="0" width="3200" height="2400" >
+
+<item itemtype="Package" CircId="Package-42" mainComp="false" Show_id="true" Show_Val="false" Pos="-528,-380" rotation="0" hflip="1" vflip="1" label="Arduino Uno Board" idLabPos="24,-18" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="4.7283e-308" boardHflip="1" boardVflip="1" SubcType="Board" Width="20" Height="28" Name="Duemilanove" Package_File="Duemilanove.package" Logic_Symbol="false" Custom_Color="false" BckGndColor="#ffffff" Background="due_board.png" Border="false" BckGndData="89504e470d0a1a0a0000000d49484452000000a0000000e0080600000084976d4100000006624b474400ff00ff00ffa0bda793000000097048597300000dd700000dd70142289b780000000774494d4507e10219163734ef05a2b10000105d4944415478daed9d5b6c1ce77986df39edccce9e28929257a628c9916d166924c4adad42922dc1b2dbc4bd4a8bc6a91318288ab43110b437bd688ba286d0b4a87a95008d515df800cb85ed3a711ba30502276e7c869bd48512b1521dd9d4015a4a162572b9e79d732f565a6ab933bbb3cb256729be0f4080e288bbda6f1efd876ffefffb05ac435e7ae97bdfddbf7fef378ac58a051219b22c09f3f3f397de78e347771d3972c4edeb35d6db873e7efc9fbf79efbdbff6c41f7fe3fbd2eb3b7f2e538368f99707bf3679f8f0439f00b8b31f09a5f5f4619f79e699070f1f3efce29ffce9bf493fdcfe73defd21e0fbe7a7a52f8c4d25f7ecf9953fd8b163c7536fbdf5564f120aebe5833efbecb393f7df7ff093bffbfbd795e7d5ff0afe771f7ba171ed89c73deab1026ec431642c5f3af4556b622299fbc94ffef3ee23478ed861df465c0fb178eeb9e7b47beef9f5e9e79f7f570a25dff2ef49fff2858ce5636fbfa8e472a56d0f1e7ef8e323478e841e1aad8b9bf4e69b6f9f39772ebff30f7ff6aa123a683dfcef2521650b11cb170f3e664d6c4bcf5ef9f4d2d4a38f3e6aaefb16f0b5d7fefd3f5c57ee4f3eb68483932f642cbfface4b4aee6271e2b6ecedbf7ce5955762eb5ac0975f7ef96feff8ccae2f3cf4bd630aed583f7ceddd8684d9ec4457098756c0e3c78fffeedebdbff1177ff6e471a65ad6a984172f1626b66e9d38d3494261d94cf3b30f3ffc9bbf88c562918bb965cb66f1cb5ff947bc3af6e1caba0f8e01d7740cb89c17eeff8af5d8ef7f51b9766dbe253d934824c493274fce0937cb77f0e0a113dff9ce1bca77edf7845b2278946f70120e3896bf9dbb077ff59707aecacbe57be7bd5f0a7bbc64e02f9edc571edec03df1b8c73ce080e3d8472c777fb0a9c35501d3fb169a7f929f7efae9cf1d3c78e87fbefded1f2b4f39ef0bbbdd0b8097078444fbef7a15ecf9e0219cdc373fdcc123d1c6d17db3cb5ff8fc928077dc71e7ab3ff8c17f2b4f39ef0b009098d804d149f8fe5a2dbe13ce79de1b12cc031f7f0a6cc9fa5e2b8c6c8577e654cbcf645114a5336716841bf361c5aa01460d9aa6b5369c8200dbaac3618c490724c782eb3a50d5567f3ccf83e83a6dfef8a638cae5120cc3806535563b6ddebc19aaaa82f691302c2e16a0285518860100d8b163073ccfbf470fccb12d2ccce3934f660000870e1d6a084848080401b872e50a72b91c006072721282e09f5811192e1225b2bfc102d2e90c76efdeddecbf09e9852d5bb6607c7c1c00609a66600fea2b603caec3f3bce644c4b66d542a15404b33b2a42ba954baa5d1aad7eb8d6fd410029a311da2dcfee8ae06c05634469774c4d0fc1f625401d892d2b6feaf4dc098598564fb2fe372441936634c3aa0d6839f94d5e299706918cbb29048249a3317cff3208a22aa8c2f09816d5bd0f5257f445184ebbae1c780d56a058542018b8b8b0080a9a929e60149684aa512e6e6ae36fdb9efbefb02d3308179c07abdd6cce3ecdab58b51253d51ad563137370700705d977940329cf8b680a2286274740c7bf78e5defd3edeb7db8c48891ae88a284898909dc7efbed00804aa5826432195e405d4fb4259f2b950aa08f30baa42ba954aac51fcff31afea89bba0b58d14720c6fd13ce26f380a40be5d478e03533a6b7f5a16d0226aa8b8179c0aa3e823ac619651248b274ad398cbb19d77561cb6ab83c60ad56452633d292c7114511553e12262167c023234bfec8b20cd775b118760c689a26ce9e9d69598e954ea7990724a1308c3a4e9f3edd4ce33df2c8234cc390e1849bbec9aa20495273095650eb1728a02ccb181b1bc7d8d8d27a2edbb601817940d21d555591cd6691cd363627e5f3f9c6102eac808944b22d0f58abd5009dcbf24977fcf2c8f57a1dd0430858d5331003562e984a9cd1259d67c089e04de9b6a2755f0fa8570b906cb32d8f2308024aaec33c20e9dcfa55f2cd31605b0316d3db1229beb3e052a904c7719a5fb1580cbaae33ba2414c56201b66d37bf344deb6d4f88eb3a989dcdb5e401158525fa48381cc7c1cccc0cf38064f809cc036a5a1c939393cdf11f21bd904ea79afe789ed7db8a6855d5a06942730d9761188d2e584930b2a42bf1b80e5d1790c98c5c1f13161b730835a480cb0b13018d8d4ae0309084c0cf1fdbb6c3b580b6acc215fd8786b61c637449e7098814dc4a793e5eb50928db0604b38e58ac5d36cb36b92f987444722c789e8b586ca9bfbd31fe2bf93ce0f0ed824ba5221425d6569eadc8e55824048542018a126b76bb131313bded0b06589e8df48fe779b87cf972330f98cd66990724c34987f26c699667237d2108424b7936c3307c67c681022e95675b9a42b33c1b094b22d1ba07d834cd46171c260f68cb2a04bdbd67ae77996213025c2fcfe6d3d8852ecf26db46e0b64c5bd16031c6a403ab529e0d00cbb391d0d8b68d4422d13226ec691252ad56502c1691cf3716174e4d4d359ee5310f4842502a15313737d7529eade7631a6ab52acbb391be617936b22e082ccf3636368ed151966723bd2349724b79b672b98c542a155e40bf6d75e57219486c6274495792c9a47f793f966723abcd3b774f065edb698c23818f3a0bc8f26c6425b81d661567e3d7b05bb817b829a1e7db05d7eb35a4d31996672303677a7fb5fb18d0300c9667236b02d3308402928d4b40793605e3e39b5bcab359960588cc0392351050d775fff26c09a661c82a0bc8f26c24520183cab3014059637936d23ff74e8fc0289ec3f4814d9dbbe052a984542ad594505555c8b28c32d330a40b0f7cfc69e0b54256008a97017411d0751de47217dbf380847441722cb8ae03556d9d2f789e07d175c2ad882664252c2e16a0285518860100d8b16347ef0b526331b559e59c905e1004e0ca952bcd05cd939393bd97675355add9ed9aa6d9b05966995eb2cab360c0bfbc96699a149084e6e68de9a66986af11bd78f57398de7735f895b7cf33baa423a954ba65cc57afd7af77ad2104ec281f215d3034ff93d1436f4c2764250c64633a212bc1b62de87aa2654173cff50109e99752a984b9b9ab2d1bd37b4ac310b252b8319dac0bd8029281238a52cbc6f44aa5d23c738602925527954ab5e4013dcf0bbf31fdc04515ef4f1a8c22e98b722a78bda819d3db8abbb409e8b857b1ffacffc6f45a3c03e77c1627f7f16908f12759ba76bd1b6e9d5eb8ae0b5b56bbe70115ab0618b5b6e7c18220c0b6eadc1a4c42cd804746469a335f5996e1ba2e16c38e01cbe5120cc3683ba886f6913018461da74f9f5ed979c10b0bf33871e2044e9c38d15c5848c8a0e12c98ac0a9224359760f55c23ba71504d8607d590be50d5c66afa1b2beaf3f97ce09ea22e07d53426223ca886f4825f81d37abd0ee8210434633a449f73816b689c134248c71970872abab6a2755f0f1833ab81052a1d51e679c1a473eb57c937c7807e8d5b5f07d5789ec7836a48688ac50252a9a5e19a5fcde88e0256ab15140a85e67aaea9a929e60149681cc7c1cccccccaf280f57a0db95c0eb95cae79f2352183867940b22aa4d3294c4e4e3687703dad88164511a3a363d8bb9707d590de89c775e8ba804c66e4fa98b0d8386b500d29a05f1ea752a900fa08a34bbae257d8206818c7836ac86027201d0e35f77c6a4ef2a01a325024c782e7b988c596fadb1be3bf92cfd64cdf2eb856ab229319e14135a42f0a85021425d6ec762726267adb176c9a260faa217de3791e2e5fbedccc0366b3596ecb24c309f38064e00882d0529ecd300cdf9971a080b22c636c6cbce5a01adbb601817940d29d4422d936a41304217c1e309148fa1f54a3ab8c2ee988a125019fc62e7479361e54435642f7f26c566701830eaa110401259707d590eed8b68d4422d1e2ce4d73e4ee5d70a9546aa9e5118fc7a1280a4a4cc39010944a45cccdcdb59467bb31a49b3ef0f9ee02baae83d9d95c4b1e50511446968486e5d9c8ba20300fa869f1e67aae4efb3a09598e24c92de5d9cae53252a9547801555583a609cd71a061188d2e584930baa42b7e7b404297676bb47eed891ccbb2000e034917deb97b32f0da4e631cc0b5ce02dab20a57f41f1ada3efb85096999c07698559c8d5febde02cab601c1ac23166b97cdb24dee0b26ab3f0929958a5094585b79b622f38064c0b03c1b194e010989ac0b6e94674bb33c1b8946c0a5f26cd767bf2ccf46d64a405b5621e8ed3d731d9db7dc1132100165db08dc96692bdab2d55c84ac4217bcbc3c1b009667236b2760b55a41b158443edf2836383535d5a8edc13c2019308169985aadcaf26c243a010989ac0b1645116363e3181d6579361281807ee5d9cae532d0a1023a21031190e5d948a402b23c1b89bc0baed76b48a7332ccf46a211d0300c9667236b02d33084021276c1ad3f94158c8f6f6e29cf66591620320f48d640405dd7fdcbb325349cdc37cfa891d51390e5d948a4020695670380b2e60048316a64752721a552a9a5acbeaaaa2df5de0859d531a0eb3ac8e52eb6e70109598b169090485b400088c55464b3594688acbd80aaaa4155b566b76b9a66a33a82ac336264f505f42bcf669a260524ab2fe0bb77dec6a8104e420805248402120a480805241490100a482820211490ac038ebd20e0d80b42ff02de78812e2f4288af3b7edf871670f92f5142d28f7c5dfc1143bf002524fdcad7e19ad8b36494907012428696271ef77ab926f6f40261ae13e2e7488037624f92513ed28f841dbc11435b4cf9483f1276f14666774b3809211490100a4828202114905040422820b9e59119828d83ee6c83fdb377db7e6ec594dea4b16d086e708a589ef80caadb3d0a485aa94a39e017efadf875ac6e7fc17381edbbd8059368b095f02d2a052403a797e7b7149070164c28202191b0e6b3e03d1fc8f0dc0f0128117f740b1076627aff082dd828023e79e8f7f0ab0fd6e1b9bf05cbb691d075589605d3342149833d87cef33cc8f2f58f270880e7c1b22c88a208cbb270e1c205d46a354c2fced2828d22e0483201a96e62e6dc39689a864bb3b34d210645269369a4026c1b9665c1711c088280643209cbb2204952a3de35d978029e9a390fc75cc0eca54bd0f5d529785e2c957c7fbe90cff36e6ff449c88d1338574b3e42013b522816e1380ea34ea21170249341b95c66d4493402a61371a8aacaa8dfe2488e3da45d70b94a013742abe67ac329a065591004d636221109188bc5380921d109e8791e6ab51aa34e22ea825d8f671093e80484a6e2ead5ab8c3a894640c771108fc719f55b1c5714875340c3343906dc0008de90a6616ab53a05a480d10998d0752e4420d109a82832144561d4493402baae0bd7751975128d80966dc3b66d469d442360bd5ae324844427a0e6b903df7c44860fa7877bbcb6eb015329a45229dea15b1ca98705276bbe1c4bd334de21d244561425f6c003dba1fc74f5bbc6d8680a62edda5005e09bf2fd1be6663f73ea75d4d7e07ddc62be6b5cb71d482299d4e3f2471f9d7a6d6aeab35fdaba3561acf63fecccece5db2af97a72986ecaef7ce9ee998d20dfb163ffb4a9fee6bf8eaec57bd9e7ff0ff3d7de5ef8fad7ff28702fac2c4bd2a953fffbe19a2e4ffe87a3478f8aa2f8e7f30b0b4373638e1e3dba519668ff3580bf59c3f77b12c0b7866a0c288a2213d1243a013d8f47cf91655df15abe9961188c38894e402e4420910ac8f11f89740c483614df1a3a0117e6e7978a4692288410d6f06bf85a40d334591c924437069cd8b68d1127d109288a1c72124e42c8466d0159988844da0272353489b4051ce4710c842d2021ebab05bc70fe3ceebceb2ee4fb5c0fb869749477ec16e3ff015e65a047fe8d648d0000000049454e44ae426082" Pins="Pin; type=; xpos=8; ypos=16; angle=180; length=1; space=5; id=0; label=0 RX&#xa;Pin; type=; xpos=8; ypos=24; angle=180; length=1; space=5; id=1; label=1 TX&#xa;Pin; type=; xpos=8; ypos=32; angle=180; length=1; space=5; id=2; label=2&#xa;Pin; type=; xpos=8; ypos=40; angle=180; length=1; space=5; id=3; label=3 PWM&#xa;Pin; type=; xpos=8; ypos=48; angle=180; length=1; space=5; id=4; label=4&#xa;Pin; type=; xpos=8; ypos=56; angle=180; length=1; space=5; id=5; label=5 PWM&#xa;Pin; type=; xpos=8; ypos=64; angle=180; length=1; space=5; id=6; label=6 PWM&#xa;Pin; type=; xpos=8; ypos=72; angle=180; length=1; space=5; id=7; label=7&#xa;Pin; type=; xpos=8; ypos=88; angle=180; length=1; space=5; id=8; label=8&#xa;Pin; type=; xpos=8; ypos=96; angle=180; length=1; space=5; id=9; label=9 PWM&#xa;Pin; type=; xpos=8; ypos=104; angle=180; length=1; space=5; id=10; label=10 PWM&#xa;Pin; type=; xpos=8; ypos=112; angle=180; length=1; space=5; id=11; label=11 PWM&#xa;Pin; type=; xpos=8; ypos=120; angle=180; length=1; space=5; id=12; label=12&#xa;Pin; type=; xpos=8; ypos=128; angle=180; length=1; space=5; id=13; label=13&#xa;Pin; type=; xpos=8; ypos=136; angle=180; length=1; space=5; id=GND2; label=GND&#xa;Pin; type=; xpos=8; ypos=144; angle=180; length=1; space=5; id=AREF; label=Aref&#xa;Pin; type=; xpos=152; ypos=16; angle=0; length=1; space=5; id=A5; label=A5&#xa;Pin; type=; xpos=152; ypos=24; angle=0; length=1; space=5; id=A4; label=A4&#xa;Pin; type=; xpos=152; ypos=32; angle=0; length=1; space=5; id=A3; label=A3&#xa;Pin; type=; xpos=152; ypos=40; angle=0; length=1; space=5; id=A2; label=A2&#xa;Pin; type=; xpos=152; ypos=48; angle=0; length=1; space=5; id=A1; label=A1&#xa;Pin; type=; xpos=152; ypos=56; angle=0; length=1; space=5; id=A0; label=A0&#xa;Pin; type=; xpos=152; ypos=72; angle=0; length=1; space=5; id=Vin; label=Vin&#xa;Pin; type=; xpos=152; ypos=80; angle=0; length=1; space=5; id=GND0; label=GND&#xa;Pin; type=; xpos=152; ypos=88; angle=0; length=1; space=5; id=GND1; label=GND&#xa;Pin; type=; xpos=152; ypos=96; angle=0; length=1; space=5; id=5V0; label=5V&#xa;Pin; type=; xpos=152; ypos=104; angle=0; length=1; space=5; id=3V3; label=3V3&#xa;Pin; type=; xpos=152; ypos=112; angle=0; length=1; space=5; id=RST; label=RST&#xa;" />
+
+<item itemtype="Tunnel" CircId="Tunnel-5" mainComp="false" Show_id="false" Show_Val="false" Pos="-148,-252" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="388,12" circPos="-140,-368" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="GND2" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-6" mainComp="false" Show_id="false" Show_Val="false" Pos="-148,-276" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="388,12" circPos="-140,-368" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="GND0" IsBus="false" />
+
+<item itemtype="Rail" CircId="Rail-7" mainComp="false" ShowProp="Voltage" Show_id="false" Show_Val="true" Pos="-172,-340" rotation="0" hflip="1" vflip="1" label="Rail-57" idLabPos="-16,-24" labelrot="0" valLabPos="-32,-4" valLabRot="0" boardPos="356,96" circPos="-172,-284" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Voltage="12 V" />
+
+<item itemtype="Tunnel" CircId="Tunnel-8" mainComp="false" Show_id="false" Show_Val="false" Pos="-140,-340" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="388,96" circPos="-140,-284" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="Vin" IsBus="false" />
+
+<item itemtype="LedBar" CircId="LedBar-9" mainComp="false" Show_id="false" Show_Val="false" Pos="-324,-264" rotation="-180" hflip="1" vflip="1" label="LedBar-63" idLabPos="-16,-44" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="40,104" circPos="-324,-264" boardRot="-180" circRot="-180" boardHflip="1" boardVflip="1" Color="Yellow" Size="1 _Leds" Grounded="true" Threshold="2.4 V" MaxCurrent="0.03 A" Resistance="60 Ω" />
+
+<item itemtype="Buffer" CircId="Buffer-10" mainComp="false" Show_id="false" Show_Val="false" Pos="-284,-240" rotation="-180" hflip="1" vflip="1" label="Buffer-62" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="244,140" circPos="-284,-240" boardRot="-180" circRot="-180" boardHflip="1" boardVflip="1" Small="false" Family="Custom" SupplyV="5 V" Input_High_V="2.5 V" Input_Low_V="2.5 V" Input_Imped="1e+14 Ω" Invert_Inputs="false" Out_High_V="5 V" Out_Low_V="0 V" Out_Imped="40 Ω" initHigh="false" Pullups="0 Ω" Inverted="false" Open_Collector="false" Tristate="false" pd_n="1" Tpd_ps="10000 ps" Tr_ps="3000 ps" Tf_ps="4000 ps" />
+
+<item itemtype="Tunnel" CircId="Tunnel-11" mainComp="false" Show_id="false" Show_Val="false" Pos="-140,-356" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="388,48" circPos="-140,-332" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="3V3" IsBus="false" />
+
+<item itemtype="Rail" CircId="Rail-12" mainComp="false" ShowProp="Voltage" Show_id="false" Show_Val="true" Pos="-172,-356" rotation="0" hflip="1" vflip="1" label="Rail-57" idLabPos="-16,-24" labelrot="0" valLabPos="-34,-5" valLabRot="0" boardPos="356,48" circPos="-172,-332" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Voltage="3.3 V" />
+
+<item itemtype="Rail" CircId="Rail-13" mainComp="false" ShowProp="Voltage" Show_id="false" Show_Val="true" Pos="-172,-324" rotation="0" hflip="1" vflip="1" label="Rail-56" idLabPos="-16,-24" labelrot="0" valLabPos="-25,-4" valLabRot="0" boardPos="356,72" circPos="-172,-308" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Voltage="5 V" />
+
+<item itemtype="Tunnel" CircId="Tunnel-14" mainComp="false" Show_id="false" Show_Val="false" Pos="-148,-264" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="388,12" circPos="-140,-368" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="GND1" IsBus="false" />
+
+<item itemtype="Ground" CircId="Ground-15" mainComp="false" Show_id="false" Show_Val="false" Pos="-172,-228" rotation="0" hflip="1" vflip="1" label="Ground-53" idLabPos="-16,8" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="356,28" circPos="-172,-352" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" />
+
+<item itemtype="Tunnel" CircId="Tunnel-16" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-264" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,116" circPos="-252,-264" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="9" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-17" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-272" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,108" circPos="-252,-272" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="10" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-18" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-280" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,100" circPos="-252,-280" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="11" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-19" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-288" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,92" circPos="-252,-288" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="12" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-20" mainComp="false" Show_id="false" Show_Val="false" Pos="-208,-296" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,84" circPos="-252,-296" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="13" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-21" mainComp="false" Show_id="false" Show_Val="false" Pos="-140,-324" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,76" circPos="-252,-304" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="5V0" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-22" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-312" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,68" circPos="-252,-312" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="AREF" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-23" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-328" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,52" circPos="-252,-328" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="A0" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-24" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-336" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,44" circPos="-252,-336" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="A1" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-25" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-344" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,36" circPos="-252,-344" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="A2" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-26" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-352" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,28" circPos="-252,-352" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="A3" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-27" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-360" rotation="0" hflip="-1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,20" circPos="-252,-360" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="A4" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-28" mainComp="false" Show_id="false" Show_Val="false" Pos="-252,-368" rotation="0" hflip="-1" vflip="-1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="276,12" circPos="-252,-368" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="A5" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-29" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-264" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,116" circPos="-316,-264" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="8" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-30" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-272" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,108" circPos="-316,-272" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="7" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-31" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-280" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,100" circPos="-316,-280" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="6" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-32" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-288" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,92" circPos="-316,-288" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="5" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-35" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-328" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,52" circPos="-316,-328" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="4" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-36" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-336" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,44" circPos="-316,-336" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="3" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-37" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-344" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,36" circPos="-316,-344" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="2" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-38" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-352" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,28" circPos="-316,-352" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="1" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-39" mainComp="false" Show_id="false" Show_Val="false" Pos="-316,-360" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,20" circPos="-316,-360" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="0" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-40" mainComp="false" Show_id="false" Show_Val="false" Pos="-324,-368" rotation="0" hflip="1" vflip="1" label="Tunnel-3" idLabPos="-16,-24" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="212,12" circPos="-316,-368" boardRot="0" circRot="0" boardHflip="1" boardVflip="1" Name="RST" IsBus="false" />
+
+<item itemtype="MCU" CircId="mega168-109" mainComp="true" Show_id="true" Show_Val="false" Pos="-300,-376" rotation="0" hflip="1" vflip="1" label="mega168-109" idLabPos="0,-20" labelrot="0" valLabPos="0,0" valLabRot="0" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="0" boardHflip="1" boardVflip="1" Package="1- mega168_DIP" Frequency="16 MHz" ForceFreq="true" savePGM="false" Auto_Load="false" saveEepr="false" Rst_enabled="true" Ext_Osc="true" Wdt_enabled="false" Clk_Out="false" MainMcu="true" SerialMon="-1" />
+
+<item itemtype="Resistor" CircId="Resistor-137" mainComp="false" ShowProp="Resistance" Show_id="false" Show_Val="true" Pos="-284,-404" rotation="0" hflip="1" vflip="1" label="Resistor-137" idLabPos="-16,-24" labelrot="0" valLabPos="-12.1357,-14.9777" valLabRot="0" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="0" boardHflip="1" boardVflip="1" Resistance="10 kΩ" />
+
+<item itemtype="Rail" CircId="Rail-141" mainComp="false" ShowProp="Voltage" Show_id="false" Show_Val="true" Pos="-260,-428" rotation="-270" hflip="1" vflip="1" label="Rail-141" idLabPos="-16,-24" labelrot="0" valLabPos="-12.1739,6.57997" valLabRot="-90" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="0" boardHflip="1" boardVflip="1" Voltage="5 V" />
+
+<item itemtype="Node" CircId="Node-3" mainComp="false" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="0" boardHflip="1" boardVflip="1" Pos="-172,-252" />
+
+<item itemtype="Node" CircId="Node-4" mainComp="false" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="0" boardHflip="1" boardVflip="1" Pos="-172,-264" />
+
+<item itemtype="Node" CircId="Node-134" mainComp="false" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="0" boardHflip="1" boardVflip="1" Pos="-148,-324" />
+
+<item itemtype="Node" CircId="Node-137" mainComp="false" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="0" boardHflip="1" boardVflip="1" Pos="-220,-296" />
+
+<item itemtype="Node" CircId="Node-138" mainComp="false" boardPos="-1e+06,-1e+06" circPos="0,0" boardRot="-1e+06" circRot="0" boardHflip="1" boardVflip="1" Pos="-316,-368" />
+
+<item itemtype="Connector" uid="connector-1" startpinid="Ground-15-Gnd" endpinid="Node-3-0" pointList="-172,-244,-172,-252" />
+
+<item itemtype="Connector" uid="connector-2" startpinid="Tunnel-11-pin" endpinid="Rail-12-outnod" pointList="-140,-356,-156,-356" />
+
+<item itemtype="Connector" uid="connector-3" startpinid="LedBar-9-led0-pinP" endpinid="Buffer-10-out" pointList="-308,-240,-300,-240" />
+
+<item itemtype="Connector" uid="connector-4" startpinid="Tunnel-8-pin" endpinid="Rail-7-outnod" pointList="-140,-340,-156,-340" />
+
+<item itemtype="Connector" uid="connector-5" startpinid="Tunnel-6-pin" endpinid="Node-4-1" pointList="-148,-276,-172,-276,-172,-264" />
+
+<item itemtype="Connector" uid="connector-6" startpinid="Node-4-2" endpinid="Tunnel-14-pin" pointList="-172,-264,-148,-264" />
+
+<item itemtype="Connector" uid="connector-7" startpinid="Tunnel-5-pin" endpinid="Node-3-1" pointList="-148,-252,-172,-252" />
+
+<item itemtype="Connector" uid="connector-8" startpinid="Node-3-2" endpinid="Node-4-0" pointList="-172,-252,-172,-264" />
+
+<item itemtype="Connector" uid="connector-9" startpinid="Tunnel-20-pin" endpinid="Node-137-0" pointList="-208,-296,-220,-296" />
+
+<item itemtype="Connector" uid="connector-10" startpinid="Tunnel-21-pin" endpinid="Node-134-0" pointList="-140,-324,-148,-324" />
+
+<item itemtype="Connector" uid="connector-11" startpinid="mega168-109-PORTB0" endpinid="Tunnel-29-pin" pointList="-308,-264,-316,-264" />
+
+<item itemtype="Connector" uid="connector-12" startpinid="mega168-109-PORTC6" endpinid="Node-138-0" pointList="-308,-368,-316,-368" />
+
+<item itemtype="Connector" uid="connector-13" startpinid="mega168-109-PORTD0" endpinid="Tunnel-39-pin" pointList="-308,-360,-316,-360" />
+
+<item itemtype="Connector" uid="connector-14" startpinid="mega168-109-PORTD1" endpinid="Tunnel-38-pin" pointList="-308,-352,-316,-352" />
+
+<item itemtype="Connector" uid="connector-15" startpinid="mega168-109-PORTD2" endpinid="Tunnel-37-pin" pointList="-308,-344,-316,-344" />
+
+<item itemtype="Connector" uid="connector-16" startpinid="mega168-109-PORTD3" endpinid="Tunnel-36-pin" pointList="-308,-336,-316,-336" />
+
+<item itemtype="Connector" uid="connector-17" startpinid="mega168-109-PORTD4" endpinid="Tunnel-35-pin" pointList="-308,-328,-316,-328" />
+
+<item itemtype="Connector" uid="connector-18" startpinid="mega168-109-PORTD5" endpinid="Tunnel-32-pin" pointList="-308,-288,-316,-288" />
+
+<item itemtype="Connector" uid="connector-19" startpinid="mega168-109-PORTD6" endpinid="Tunnel-31-pin" pointList="-308,-280,-316,-280" />
+
+<item itemtype="Connector" uid="connector-20" startpinid="mega168-109-PORTD7" endpinid="Tunnel-30-pin" pointList="-308,-272,-316,-272" />
+
+<item itemtype="Connector" uid="connector-21" startpinid="mega168-109-PORTB1" endpinid="Tunnel-16-pin" pointList="-260,-264,-252,-264" />
+
+<item itemtype="Connector" uid="connector-22" startpinid="mega168-109-PORTB2" endpinid="Tunnel-17-pin" pointList="-260,-272,-252,-272" />
+
+<item itemtype="Connector" uid="connector-23" startpinid="mega168-109-PORTB3" endpinid="Tunnel-18-pin" pointList="-260,-280,-252,-280" />
+
+<item itemtype="Connector" uid="connector-24" startpinid="mega168-109-PORTB4" endpinid="Tunnel-19-pin" pointList="-260,-288,-252,-288" />
+
+<item itemtype="Connector" uid="connector-25" startpinid="mega168-109-PORTC0" endpinid="Tunnel-23-pin" pointList="-260,-328,-252,-328" />
+
+<item itemtype="Connector" uid="connector-26" startpinid="mega168-109-PORTC1" endpinid="Tunnel-24-pin" pointList="-260,-336,-252,-336" />
+
+<item itemtype="Connector" uid="connector-27" startpinid="mega168-109-PORTC2" endpinid="Tunnel-25-pin" pointList="-260,-344,-252,-344" />
+
+<item itemtype="Connector" uid="connector-28" startpinid="mega168-109-PORTC3" endpinid="Tunnel-26-pin" pointList="-260,-352,-252,-352" />
+
+<item itemtype="Connector" uid="connector-29" startpinid="mega168-109-PORTC4" endpinid="Tunnel-27-pin" pointList="-260,-360,-252,-360" />
+
+<item itemtype="Connector" uid="connector-30" startpinid="mega168-109-PORTC5" endpinid="Tunnel-28-pin" pointList="-260,-368,-252,-368" />
+
+<item itemtype="Connector" uid="connector-31" startpinid="mega168-109-PORTV1" endpinid="Tunnel-22-pin" pointList="-260,-312,-252,-312" />
+
+<item itemtype="Connector" uid="connector-32" startpinid="mega168-109-PORTV0" endpinid="Node-134-1" pointList="-260,-304,-148,-304,-148,-324" />
+
+<item itemtype="Connector" uid="connector-33" startpinid="Node-134-2" endpinid="Rail-13-outnod" pointList="-148,-324,-156,-324" />
+
+<item itemtype="Connector" uid="connector-34" startpinid="mega168-109-PORTB5" endpinid="Node-137-1" pointList="-260,-296,-220,-296" />
+
+<item itemtype="Connector" uid="connector-35" startpinid="Node-137-2" endpinid="Buffer-10-in0" pointList="-220,-296,-220,-240,-268,-240" />
+
+<item itemtype="Connector" uid="Connector-139" startpinid="Node-138-2" endpinid="Tunnel-40-pin" pointList="-316,-368,-324,-368" />
+
+<item itemtype="Connector" uid="Connector-140" startpinid="Node-138-1" endpinid="Resistor-137-lPin" pointList="-316,-368,-316,-404,-300,-404" />
+
+<item itemtype="Connector" uid="Connector-142" startpinid="Resistor-137-rPin" endpinid="Rail-141-outnod" pointList="-268,-404,-260,-404,-260,-412" />
+
+</circuit>

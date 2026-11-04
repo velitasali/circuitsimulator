@@ -1,0 +1,41 @@
+<!DOCTYPE SimulIDE>
+
+<iou name="6522" core="scripted" script="6522_core.as" data="18" clkpin="P2">
+
+    <regblock name="REGs" start="0x00" end="0x11" >
+        <register name="ORB"   addr="0x00" />
+        <register name="ORA"   addr="0x01" />
+        <register name="DDRB"  addr="0x02" />
+        <register name="DDRA"  addr="0x03" />
+        <register name="T1CL"  addr="0x04" />
+        <register name="T1CH"  addr="0x05" />
+        <register name="T1LL"  addr="0x06" />
+        <register name="T1LH"  addr="0x07" />
+        <register name="T2CL"  addr="0x08" />
+        <register name="T2CH"  addr="0x09" />
+        <register name="SR"    addr="0x0A" />
+        <register name="ACR"   addr="0x0B" />
+        <register name="PCR"   addr="0x0C" />
+        <register name="IFR"   addr="0x0D" />
+        <register name="IER"   addr="0x0E" />
+        <register name="ORA1"  addr="0x0F" />
+
+        <register name="IRB"   addr="0x10" />
+        <register name="IRA"   addr="0x11" />
+    </regblock>
+
+    <mcuport name="PORTA" pins="8" outreg="ORA" dirreg="DDRA"/>
+
+    <mcuport name="PORTB" pins="8" outreg="ORB" dirreg="DDRB"/>
+
+    <ioport name="PORTE" pins="CA1,CA2,CB1,CB2" />
+
+    <ioport name="PORTC" pins="CS1,CS2" />
+
+    <ioport name="PORTD" pins="8" />
+
+    <ioport name="PORTR" pins="4" />
+
+    <ioport name="PORTI" pins="RW,IRQ,P2" />
+
+</iou>

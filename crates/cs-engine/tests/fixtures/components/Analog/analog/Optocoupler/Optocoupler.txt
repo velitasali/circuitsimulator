@@ -1,0 +1,25 @@
+Optocoupler modelled with a LED and Mosfet.
+
+Property: (default value)
+
+Led:
+- Fordward Voltage: (1.8 V)
+   Led threshold voltage.
+
+- Max Current: (8 mA)
+   At this value we get the maximum brightness.
+   Beyond this limit the LED gets damaged.
+   If this current is surpassed by a significant ammount
+   the LED will blink in red.
+
+- Resistance: ( 0.6 Ω)
+   LED Resistance.
+
+Mosfet:
+- RDSon (0.05 Ω)
+   DS Resistance in the lower part 
+   of the linear region when conducting:
+   VGS > Vth and VDS < ( VGS – Vth )
+
+- Threshold: (3 V)
+   Gate-Source Voltage to start conduction.

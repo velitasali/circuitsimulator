@@ -371,7 +371,23 @@ fn qemu_esp32_canvas_lifecycle() {
 #[test]
 fn mcu_canvas_lifecycle_and_relaunch_roundtrip() {
     let mut s = Scene::new();
-    let search = crate::subcircuit::SubcSearch::from_circuit_path(None).with_standard_catalog();
+    let mcu_xml = r#"<mcu core="AVR" data="256" prog="64" progword="2" inst_cycle="1" freq="16000000">
+  <datablock start="0" end="0x1F"/>
+  <regblock start="0x20" end="0x5F" streg="SREG">
+    <register name="PINB" addr="0x36" reset="0"/>
+    <register name="DDRB" addr="0x37" reset="0"/>
+    <register name="PORTB" addr="0x38" reset="0"/>
+    <register name="SPL" addr="0x5D" reset="0"/>
+    <register name="SPH" addr="0x5E" reset="0"/>
+    <register name="SREG" addr="0x5F" reset="0" bits="C,Z,N,V,S,H,T,I"/>
+  </regblock>
+  <datablock start="0x60" end="0xFF"/>
+  <stack spreg="SPL,SPH" increment="post-dec"/>
+  <port name="PORTB" pins="8" outreg="PORTB" dirreg="DDRB" inreg="PINB"/>
+</mcu>"#;
+    let search = crate::subcircuit::SubcSearch::from_circuit_path(None)
+        .with_standard_catalog()
+        .with_memory_mcu("mega328", mcu_xml);
     let id = s
         .add_mcu("mega328", 100.0, 100.0, &search)
         .expect("add mega328");

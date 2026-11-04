@@ -1,0 +1,20 @@
+Digital Potentiometer with Parallel interface.
+
+Pins:
+- Data: data pin.
+   16 bit Bus pin for input data.
+
+- !CS: Chip Select pin.
+   Active Low.
+
+
+Property: (default value)
+
+Main:
+- Resistance: (100 kΩ)
+   Potentiometer Resistance.
+
+- Bits: (6)
+   Size of the parallel interface and Potentiometer steps.
+   Maximum size: 16 bits.
+

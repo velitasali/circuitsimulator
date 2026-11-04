@@ -1,0 +1,12 @@
+<!DOCTYPE SimulIDE>
+
+<iou name="Encoder_script" core="scripted" script="Encoderscript.as" linker="true">
+    
+  <propertygroup name="Main">
+    <property name="Code"  type="enum" unit="HEX,BCD,GRAY" add="true" />
+    <property name="Value" type="uint" add="true" />
+  </propertygroup>
+
+  <ioport name="PORTA" pins="1,2,4,8" />
+
+</iou>

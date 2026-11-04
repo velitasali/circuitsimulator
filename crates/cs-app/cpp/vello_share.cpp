@@ -4,6 +4,11 @@
 // (Linux) publishes the frame. If this process cannot open the share, adopt()
 // fails and the canvas copies the image instead.
 
+#if defined(__linux__)
+#undef VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+#endif
+
 #include "vello_share.h"
 
 #include <QQuickWindow>
@@ -29,7 +34,6 @@
 #endif
 
 #if defined(__linux__)
-#include <vulkan/vulkan.h>
 #include <QOpenGLContext>
 #endif
 
@@ -797,7 +801,7 @@ static bool import_qt_vulkan(VkDevice device, int slot) {
     auto bind_mem = reinterpret_cast<PFN_vkBindImageMemory>(vkGetDeviceProcAddr(device, "vkBindImageMemory"));
     auto get_req = reinterpret_cast<PFN_vkGetImageMemoryRequirements>(
         vkGetDeviceProcAddr(device, "vkGetImageMemoryRequirements"));
-    auto import_fd = reinterpret_cast<PFN_vkGetMemoryFdKHR>(nullptr);
+    PFN_vkGetMemoryFdKHR import_fd = nullptr;
     (void)import_fd;
     auto import_mem = reinterpret_cast<PFN_vkAllocateMemory>(alloc_mem);
     if (!create_image || !import_mem || !bind_mem || !get_req) {

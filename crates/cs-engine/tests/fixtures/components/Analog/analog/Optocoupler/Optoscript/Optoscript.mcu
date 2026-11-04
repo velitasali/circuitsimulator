@@ -1,0 +1,16 @@
+<!DOCTYPE SimulIDE>
+
+<iou name="Optoscript" core="scripted" script="Optoscript.as" linker="true">
+
+  <propertygroup name="Led">
+    <property name="Fordward Voltage" type="double" unit="V" add="true" />
+    <property name="Max Current"      type="double" unit="A" add="true" />
+    <property name="Resistance"       type="double" unit="Ω" add="true" />
+  </propertygroup>
+
+  <propertygroup name="Mosfet">
+    <property name="RDSon"     type="double" unit="Ω" add="true" />
+    <property name="Threshold" type="double" unit="V" add="true" />
+  </propertygroup>
+
+</iou>

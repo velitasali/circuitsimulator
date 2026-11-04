@@ -1,0 +1,17 @@
+Digital Potentiometer with I2C interface.
+
+Pins A0 to A2 determine the lower 3 bits of Address.
+
+
+Property: (default value)
+
+Main:
+- Control Code: (80)
+   Device address.
+
+- Steps: (256)
+   Ladder steps of the Potentiometer.
+   Maximum value is 256 (1 byte).
+
+- Resistance: (100 kΩ)
+   Potentiometer Resistance.

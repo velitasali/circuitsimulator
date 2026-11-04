@@ -259,6 +259,19 @@ pub fn standard_dirs() -> Vec<PathBuf> {
     }
     dirs.push(PathBuf::from("data"));
     dirs.push(PathBuf::from("./data"));
+    let fixture_comps = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/components");
+    if fixture_comps.is_dir() {
+        dirs.push(fixture_comps.clone());
+        if let Ok(rd) = std::fs::read_dir(&fixture_comps) {
+            let mut kids: Vec<PathBuf> = rd
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect();
+            kids.sort();
+            dirs.extend(kids);
+        }
+    }
     dirs
 }
 

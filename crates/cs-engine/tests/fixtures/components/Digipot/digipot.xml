@@ -1,0 +1,11 @@
+<!DOCTYPE SimulIDE>
+
+<itemlib>
+
+  <itemset category="Micro/Peripherals" type="Subcircuit" folder="digipot" >
+    <item name="I2C Digipot"  info="" />
+    <item name="SPI Digipot"  info="" />
+    <item name="Parallel Digipot"  info="" />
+  </itemset>
+
+</itemlib>

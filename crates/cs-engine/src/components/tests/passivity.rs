@@ -157,7 +157,7 @@ fn hard_failures(report: &str) -> Vec<&str> {
 fn passive_pins_rest_near_ground_and_obey_kcl() {
     let report = build_report();
     let hard = hard_failures(&report);
-    if !hard.is_empty() || report != EXPECTED {
+    if !hard.is_empty() || report.replace("\r\n", "\n") != EXPECTED.replace("\r\n", "\n") {
         let path = std::env::temp_dir().join("passivity_report.txt");
         std::fs::write(&path, &report).expect("write passivity report");
         panic!(

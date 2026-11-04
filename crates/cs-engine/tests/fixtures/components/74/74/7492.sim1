@@ -1,0 +1,53 @@
+<circuit version="1.2.0-RC1" rev="250528" stepSize="1000000" stepsPS="1000000" NLsteps="100000" reaStep="1000000" animate="0" width="3200" height="2400" >
+
+<item itemtype="Package" CircId="Package-88" mainComp="false" Show_id="true" Show_Val="false" Pos="-244,-268" rotation="0" hflip="1" vflip="1" label="2- DIP" idLabPos="2.01236,-15.5728" labelrot="0" valLabPos="0,0" valLabRot="0" SubcType="Logic" Width="4" Height="8" Name="7492" Logic_Symbol="false" Custom_Color="false" BckGndColor="#ffffff" Border="false" Pins="Pin; type=; xpos=-8; ypos=8; angle=180; length=8; space=0; id=CK1; label=Ck1&#xa;Pin; type=nc; xpos=-8; ypos=16; angle=180; length=8; space=0; id=NC1; label=NC&#xa;Pin; type=nc; xpos=-8; ypos=24; angle=180; length=8; space=0; id=NC2; label=NC&#xa;Pin; type=nc; xpos=-8; ypos=32; angle=180; length=8; space=0; id=NC3; label=NC&#xa;Pin; type=nc; xpos=-8; ypos=40; angle=180; length=8; space=0; id=Vcc; label=Vcc&#xa;Pin; type=; xpos=-8; ypos=48; angle=180; length=8; space=0; id=MR1; label=MR1&#xa;Pin; type=; xpos=-8; ypos=56; angle=180; length=8; space=0; id=MR2; label=MR2&#xa;Pin; type=; xpos=40; ypos=56; angle=0; length=8; space=0; id=Q3; label=Q3&#xa;Pin; type=; xpos=40; ypos=48; angle=0; length=8; space=0; id=Q2; label=Q2&#xa;Pin; type=nc; xpos=40; ypos=40; angle=0; length=8; space=0; id=Gnd; label=Gnd&#xa;Pin; type=; xpos=40; ypos=32; angle=0; length=8; space=0; id=Q1; label=Q1&#xa;Pin; type=; xpos=40; ypos=24; angle=0; length=8; space=0; id=Q0; label=Q0&#xa;Pin; type=nc; xpos=40; ypos=16; angle=0; length=8; space=0; id=NC; label=NC4&#xa;Pin; type=; xpos=40; ypos=8; angle=0; length=8; space=0; id=CK0; label=Ck0&#xa;" />
+
+<item itemtype="Package" CircId="Package-89" mainComp="false" Show_id="true" Show_Val="false" Pos="-148,-268" rotation="0" hflip="1" vflip="1" label="1- Logic Symbol" idLabPos="-19.2204,-17.2415" labelrot="0" valLabPos="0,0" valLabRot="0" SubcType="Logic" Width="4" Height="6" Name="7492" Logic_Symbol="true" Custom_Color="false" BckGndColor="#ffffff" Border="false" Pins="Pin; type=; xpos=-8; ypos=8; angle=180; length=8; space=0; id=MR1; label=MR1&#xa;Pin; type=; xpos=-8; ypos=16; angle=180; length=8; space=0; id=MR2; label=MR2&#xa;Pin; type=inv; xpos=-8; ypos=32; angle=180; length=8; space=0; id=CK0; label=>Ck0&#xa;Pin; type=inv; xpos=-8; ypos=40; angle=180; length=8; space=0; id=CK1; label=>Ck1&#xa;Pin; type=; xpos=40; ypos=8; angle=0; length=8; space=0; id=Q0; label=Q0&#xa;Pin; type=; xpos=40; ypos=16; angle=0; length=8; space=0; id=Q1; label=Q1&#xa;Pin; type=; xpos=40; ypos=24; angle=0; length=8; space=0; id=Q2; label=Q2&#xa;Pin; type=; xpos=40; ypos=32; angle=0; length=8; space=0; id=Q3; label=Q3&#xa;" />
+
+<item itemtype="BinCounter" CircId="BinCounter-112" mainComp="false" Show_id="false" Show_Val="false" Pos="-132,-156" rotation="0" hflip="1" vflip="1" label="BinCounter-112" idLabPos="-16,-24" labelrot="0" valLabPos="-16,20" valLabRot="0" Bits="3 _bits" Max_Value="5" Parallel_input="false" RCO="false" Bidir="false" Clock_Inverted="true" Reset_Inverted="false" Family="Custom" SupplyV="5 V" Input_High_V="2.5 V" Input_Low_V="2.5 V" Input_Imped="1000 MΩ" InPullups="0 Ω" Invert_Inputs="false" Out_High_V="5 V" Out_Low_V="0 V" Out_Imped="40 Ω" Oen_Imped="1e+16 Ω" Pullups="0 Ω" Inverted="false" Open_Collector="false" pd_n="1" Tpd_ps="10 ns" Tr_ps="3 ns" Tf_ps="4 ns" />
+
+<item itemtype="Tunnel" CircId="Tunnel-113" mainComp="false" Show_id="false" Show_Val="false" Pos="-100,-156" rotation="0" hflip="-1" vflip="1" label="Tunnel-113" idLabPos="-29,7" labelrot="0" valLabPos="16,0" valLabRot="45" Name="Q2" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-115" mainComp="false" Show_id="false" Show_Val="false" Pos="-100,-164" rotation="0" hflip="-1" vflip="1" label="Tunnel-115" idLabPos="-30,5" labelrot="0" valLabPos="16,0" valLabRot="45" Name="Q1" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-119" mainComp="false" Show_id="false" Show_Val="false" Pos="-100,-148" rotation="0" hflip="-1" vflip="1" label="Tunnel-119" idLabPos="-29,5" labelrot="0" valLabPos="16,0" valLabRot="45" Name="Q3" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-120" mainComp="false" Show_id="false" Show_Val="false" Pos="-160,-164" rotation="0" hflip="1" vflip="1" label="Tunnel-120" idLabPos="-95,-6" labelrot="0" valLabPos="-16,8" valLabRot="0" Name="CK1" IsBus="false" />
+
+<item itemtype="And Gate" CircId="And Gate-121" mainComp="false" Show_id="false" Show_Val="false" Pos="-216,-156" rotation="0" hflip="1" vflip="1" label="And Gate-121" idLabPos="-16,-24" labelrot="0" valLabPos="-16,20" valLabRot="0" Family="Custom" SupplyV="5 V" Input_High_V="2.5 V" Input_Low_V="2.5 V" Input_Imped="1000 MΩ" InPullups="0 Ω" Num_Inputs="2" Invert_Inputs="false" initHigh="false" Out_High_V="5 V" Out_Low_V="0 V" Out_Imped="40 Ω" Oen_Imped="1e+16 Ω" Pullups="0 Ω" Inverted="false" Open_Collector="false" pd_n="1" Tpd_ps="10 ns" Tr_ps="3 ns" Tf_ps="4 ns" />
+
+<item itemtype="Tunnel" CircId="Tunnel-123" mainComp="false" Show_id="false" Show_Val="false" Pos="-240,-152" rotation="0" hflip="1" vflip="1" label="Tunnel-123" idLabPos="-92,-6" labelrot="0" valLabPos="-16,8" valLabRot="0" Name="MR2" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-124" mainComp="false" Show_id="false" Show_Val="false" Pos="-240,-160" rotation="0" hflip="1" vflip="1" label="Tunnel-124" idLabPos="-90,-5" labelrot="0" valLabPos="-16,8" valLabRot="0" Name="MR1" IsBus="false" />
+
+<item itemtype="Counter" CircId="Counter-125" mainComp="false" Show_id="false" Show_Val="false" Pos="-140,-196" rotation="0" hflip="1" vflip="1" label="Counter-125" idLabPos="-16,-24" labelrot="0" valLabPos="-16,20" valLabRot="0" Pin_SET="false" Clock_Inverted="true" Reset_Inverted="false" Max_Value="1" Family="Custom" SupplyV="5 V" Input_High_V="2.5 V" Input_Low_V="2.5 V" Input_Imped="1000 MΩ" InPullups="0 Ω" Out_High_V="5 V" Out_Low_V="0 V" Out_Imped="40 Ω" Oen_Imped="1e+16 Ω" pd_n="1" Tpd_ps="10 ns" Tr_ps="3 ns" Tf_ps="4 ns" />
+
+<item itemtype="Tunnel" CircId="Tunnel-126" mainComp="false" Show_id="false" Show_Val="false" Pos="-108,-196" rotation="0" hflip="-1" vflip="1" label="Tunnel-126" idLabPos="-30,4" labelrot="0" valLabPos="16,0" valLabRot="45" Name="Q0" IsBus="false" />
+
+<item itemtype="Tunnel" CircId="Tunnel-127" mainComp="false" Show_id="false" Show_Val="false" Pos="-164,-196" rotation="0" hflip="1" vflip="1" label="Tunnel-127" idLabPos="-89,-7" labelrot="0" valLabPos="-16,8" valLabRot="0" Name="CK0" IsBus="false" />
+
+<item itemtype="Node" CircId="Node-117" mainComp="false" Pos="-192,-156" />
+
+<item itemtype="Connector" uid="connector-128" startpinid="And Gate-121-out" endpinid="Node-117-0" pointList="-200,-156,-192,-156" />
+
+<item itemtype="Connector" uid="connector-129" startpinid="Node-117-1" endpinid="Counter-125-in1" pointList="-192,-156,-192,-188,-156,-188" />
+
+<item itemtype="Connector" uid="connector-132" startpinid="Tunnel-126-pin" endpinid="Counter-125-out0" pointList="-108,-196,-116,-196" />
+
+<item itemtype="Connector" uid="connector-133" startpinid="Tunnel-127-pin" endpinid="Counter-125-in0" pointList="-164,-196,-156,-196" />
+
+<item itemtype="Connector" uid="connector-134" startpinid="Tunnel-120-pin" endpinid="BinCounter-112-Pin_clk" pointList="-160,-164,-156,-164" />
+
+<item itemtype="Connector" uid="connector-135" startpinid="Tunnel-124-pin" endpinid="And Gate-121-in0" pointList="-240,-160,-232,-160" />
+
+<item itemtype="Connector" uid="connector-136" startpinid="Tunnel-119-pin" endpinid="BinCounter-112-out2" pointList="-100,-148,-108,-148" />
+
+<item itemtype="Connector" uid="connector-139" startpinid="Tunnel-113-pin" endpinid="BinCounter-112-out1" pointList="-100,-156,-108,-156" />
+
+<item itemtype="Connector" uid="connector-140" startpinid="Tunnel-115-pin" endpinid="BinCounter-112-out0" pointList="-100,-164,-108,-164" />
+
+<item itemtype="Connector" uid="connector-143" startpinid="Node-117-2" endpinid="BinCounter-112-Pin_rst" pointList="-192,-156,-156,-156" />
+
+<item itemtype="Connector" uid="connector-144" startpinid="Tunnel-123-pin" endpinid="And Gate-121-in1" pointList="-240,-152,-232,-152" />
+
+</circuit>

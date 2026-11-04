@@ -1,0 +1,171 @@
+<!DOCTYPE SimulIDE>
+
+<itemlib>
+  <itemset category="Logic/7400 Series" icon="ic2.png"/>
+
+  <itemset category="7400 Series/00-99" type="Subcircuit" folder="74">
+    <item name="7400"  info="quad 2-input NAND gate" ></item>
+    <item name="7401"  info="quad 2-input NAND gate, open-collector" ></item>
+    <item name="7402"  info="quad 2-input NOR gate" ></item>
+    <item name="7403"  info="quad 2-input NAND gate, open-collector" ></item>
+    <item name="7404"  info="hex inverter gate" ></item>
+    <item name="7405"  info="hex inverter gate, open-collector" ></item>
+    <item name="7406"  info="hex inverter gate, open-collector" ></item>
+    <item name="7407"  info="hex buffer gate, open-collector" ></item>
+    <item name="7408"  info="quad 2-input AND gate" ></item>
+    <item name="7409"  info="quad 2-input AND gate, open-collector" ></item>
+    <item name="7410"  info="triple 3-input NAND gate " ></item>
+    <item name="7411"  info="triple 3-input AND gate" ></item>
+    <item name="7412"  info="triple 3-input NAND gate, open-collector" ></item>
+    <item name="7413"  info="dual 4-input NAND gate, Schmitt trigger" ></item>
+    <item name="7414"  info="hex inverter gate, Schmitt trigger" ></item>
+    <item name="7415"  info="triple 3-input AND gate, open-collector" ></item>
+    <item name="7418"  info="dual 4-input NAND gate, Schmitt trigger" ></item>
+    <item name="7420"  info="dual 4-input NAND gate" ></item>
+    <item name="7421"  info="dual 4-input AND gate" ></item>
+    <item name="7422"  info="dual 4-input NAND gate, open-collector" ></item>
+    <item name="7424"  info="quad 2-input NAND gate, Schmitt trigger" ></item>
+    <item name="7425"  info="dual 4-input NOR gate with strobe " ></item>
+    <item name="7426"  info="quad 2-input NAND gate, open-collector" ></item>
+    <item name="7427"  info="triple 3-input NOR gate" ></item>
+    <item name="7430"  info="single 8-input NAND gate" ></item>
+    <item name="7432"  info="quad 2-input OR gate" ></item>
+    <item name="7433"  info="quad 2-input NOR gate, open-collector" ></item>
+    <item name="7434"  info="hex buffer gate" ></item>
+    <item name="7435"  info="hex buffer gate, open-collector" ></item>
+    <item name="7436"  info="quad 2-input NOR gate" ></item>
+    <item name="7442"  info="BCD to decimal decoder" ></item>
+    <item name="7445"  info="BCD to decimal decoder, open-collector" ></item>
+    <item name="7446"  info="BCD to 7-segment display decoder, open-collector" ></item>
+    <item name="7448"  info="BCD to 7-segment display decoder, open-collector, pullups" ></item>
+    <item name="7449"  info="BCD to 7-segment display decoder, open-collector" ></item>
+    <item name="7456"  info="50:1 frequency divider" ></item>
+    <item name="7457"  info="60:1 frequency divider" ></item>
+    <item name="7468"  info="dual 4-bit decade counters" ></item>
+    <item name="7469"  info="dual 4-bit binary counters" ></item>
+    <item name="7470"  info="AND-gated positive edge triggered J-K flip-flop, asynchronous preset and clear" ></item>
+    <item name="7475"  info="4-bit bistable latch, complementary outputs" ></item>
+    <item name="7482"  info="2-bit binary full adder" ></item>
+    <item name="7483"  info="4-bit binary full adder" ></item>
+    <item name="7485"  info="4-bit magnitude comparator" ></item>
+    <item name="7486"  info="quad 2-input XOR gate" ></item>
+    <item name="7490"  info="decade counter (separate divide-by-2 and divide-by-5 sections)" ></item>
+    <item name="7492"  info="divide-by-12 counter (separate divide-by-2 and divide-by-6 sections)" ></item>
+    <item name="7493"  info="4-bit binary counter (separate divide-by-2 and divide-by-8 sections)" ></item>
+    <item name="7495"  info="4-bit shift register, parallel in, parallel out, serial input" ></item>
+  </itemset>
+    
+  <itemset category="7400 Series/100-199" type="Subcircuit" folder="74">
+    <item name="74100"  info="dual 4-bit bistable latch" ></item>
+    <item name="74101"  info="AND-OR-gated J-K negative-edge-triggered flip-flop, preset" ></item>
+    <item name="74102"  info="AND-gated J-K negative-edge-triggered flip-flop, preset and clear " ></item>
+    <item name="74103"  info="dual J-K negative-edge-triggered flip-flop, clear" ></item>
+    <item name="74104"  info="J-K master-slave flip-flop" ></item>
+    <item name="74105"  info="J-K master-slave flip-flop, J2 and K2 inverted" ></item>
+    <item name="74106"  info="dual J-K negative-edge-triggered flip-flop, preset and clear" ></item>
+    <item name="74107"  info="dual J-K flip-flop, clear" ></item>
+    <item name="74109"  info="dual J-NotK positive-edge-triggered flip-flop, clear and preset" ></item>
+    <item name="74110"  info="AND-gated J-K master-slave flip-flop, data lockout " ></item>
+    <item name="74111"  info="dual J-K master-slave flip-flop, data lockout, reset, set" ></item>
+    <item name="74112"  info="dual J-K negative-edge-triggered flip-flop, clear, preset" ></item>
+    <item name="74113"  info="dual J-K negative-edge-triggered flip-flop, preset" ></item>
+    <item name="74114"  info="dual J-K negative-edge-triggered flip-flop, preset, shared clock and clear" ></item>
+    <item name="74115"  info="dual J-K master-slave flip-flop, data lockout, reset" ></item>
+    <item name="74137"  info="3-to-8 line decoder/demultiplexer, address latch, inverting outputs" ></item>
+    <item name="74138"  info="3-to-8 line decoder/demultiplexer, inverting outputs" ></item>
+    <item name="74139"  info="dual 2-to-4 line decoder/demultiplexer, inverting outputs" ></item>
+    <item name="74141"  info="BCD to decimal decoder/driver for cold-cathode indicator / Nixie tube" ></item>
+    <item name="74145"  info="BCD to decimal decoder/driver" ></item>
+    <item name="74151"  info="8-line to 1-line data selector/multiplexer " ></item>
+    <item name="74157"  info="quad 2-line to 1-line data selector/multiplexer, non-inverting outputs" ></item>
+    <item name="74158"  info="quad 2-line to 1-line data selector/multiplexer, inverting outputs" ></item>
+    <item name="74159"  info="4-to-16 line decoder/demultiplexer" ></item>
+    <item name="74160"  info="synchronous presettable 4-bit decade counter, asynchronous clear" ></item>
+    <item name="74161"  info="synchronous presettable 4-bit binary counter, asynchronous clear" ></item>
+    <item name="74162"  info="synchronous presettable 4-bit decade counter, synchronous clear" ></item>
+    <item name="74163"  info="synchronous presettable 4-bit binary counter, synchronous clear" ></item>
+    <item name="74164"  info="8-bit serial-in parallel-out (SIPO) shift register, asynchronous clear" ></item>
+    <item name="74165"  info="8-bit parallel-in serial-out (PISO) shift register, parallel load, complementary outputs" ></item>
+    <item name="74166"  info="parallel-load 8-bit shift register" ></item>
+    <item name="74168"  info="synchronous presettable 4-bit up/down decade counter" ></item>
+    <item name="74169"  info="synchronous presettable 4-bit up/down binary counter" ></item>
+    <item name="74173"  info="quad D flip-flop, shared clock and asynchronous clear and enable" ></item>
+    <item name="74174"  info="hex D flip-flop, shared clock and asynchronous clear, Q outputs" ></item>
+    <item name="74175"  info="quad D edge-triggered flip-flop, shared clock and asynchronous clear" ></item>
+    <item name="74176"  info="presettable decade (bi-quinary) counter/latch" ></item>
+    <item name="74177"  info="presettable binary counter/latch" ></item>
+    <item name="74178"  info="4-bit parallel-access shift register" ></item>
+    <item name="74179"  info="4-bit parallel-access shift register, asynchronous clear input" ></item>
+    <item name="74184"  info="BCD to binary converter" ></item>
+    <item name="74185"  info="6-bit binary to BCD converter" ></item>
+    <item name="74194"  info="4-bit bidirectional universal shift register" ></item>
+    <item name="74195"  info="4-bit parallel-access shift register" ></item>
+  </itemset>
+    
+  <itemset category="7400 Series/200-1999" type="Subcircuit" folder="74">
+    <item name="74219"  info="64-bit RAM (16x4), non-inverting outputs" ></item>
+    <item name="74238"  info="3-to-8 line decoder/demultiplexer, active high outputs" ></item>
+    <item name="74242"  info="quad bus transceiver, inverting outputs" ></item>
+    <item name="74243"  info="quad bus transceiver, non-inverting outputs" ></item>
+    <item name="74245"  info="octal bus transceiver, non-inverting outputs" ></item>
+    <item name="74246"  info="BCD to 7-segment decoder/driver" ></item>
+    <item name="74248"  info="BCD to 7-segment decoder/driver" ></item>
+    <item name="74249"  info="BCD to 7-segment decoder/driver" ></item>
+    <item name="74251"  info="8-line to 1-line data selector/multiplexer, complementary outputs" ></item>
+    <item name="74257"  info="quad 2-line to 1-line data selector/multiplexer, non-inverting outputs" ></item>
+    <item name="74258"  info="quad 2-line to 1-line data selector/multiplexer, inverting outputs" ></item>
+    <item name="74259"  info="8-bit bit addressable input latch with clr" ></item>
+    <item name="74273"  info="8-bit register, asynchronous clear" ></item>
+    <item name="74283"  info="4-bit binary full adder (has carry in function) " ></item>
+    <item name="74295"  info="4-bit bidirectional shift register" ></item>
+    <item name="74298"  info="quad 2-input multiplexer, storage" ></item>
+    <item name="74299"  info="8-bit bidirectional universal shift/storage register" ></item>
+    <item name="74323"  info="8-bit bidirectional universal shift/storage register, synchronous clear" ></item>
+    <item name="74352"  info="dual 4-line to 1-line data selectors/multiplexers, inverting outputs" ></item>
+    <item name="74353"  info="dual 4-line to 1-line data selectors/multiplexers, inverting outputs" ></item>
+    <item name="74354"  info="8-line to 1-line data selector/multiplexer, transparent registers" ></item>
+    <item name="74355"  info="8-line to 1-line data selector/multiplexer, transparent registers, open-collector" ></item>
+    <item name="74356"  info="8-line to 1-line data selector/multiplexer, edge-triggered registers " ></item>
+    <item name="74357"  info="8-line to 1-line data selector/multiplexer, edge-triggered registers, open-collector" ></item>
+    <item name="74365"  info="hex buffer, non-inverting outputs" ></item>
+    <item name="74366"  info="hex buffer, inverting outputs" ></item>
+    <item name="74367"  info="hex buffer, non-inverting outputs " ></item>
+    <item name="74368"  info="hex buffer, inverting outputs" ></item>
+    <item name="74373"  info="octal transparent latch" ></item>
+    <item name="74374"  info="octal register" ></item>
+    <item name="74375"  info="quad bistable latch" ></item>
+    <item name="74376"  info="quad J-NotK flip-flop, shared clock and clear" ></item>
+    <item name="74393"  info="dual 4-bit binary counter, asynchronous clear" ></item>
+    <item name="74540"  info="octal buffer, inverting outputs" ></item>
+    <item name="74541"  info="octal buffer, non-inverting outputs" ></item>
+    <item name="74573"  info="octal D-type transparent latch" ></item>
+    <item name="74574"  info="octal D-type edge-triggered flip-flop" ></item>
+    <item name="74590"  info="8-bit binary counter, output registers" ></item>
+    <item name="74591"  info="8-bit binary counter, output registers" ></item>
+    <item name="74640"  info="octal bus transceiver, inverting outputs" ></item>
+    <item name="74641"  info="octal bus transceiver, non-inverting outputs" ></item>
+    <item name="74642"  info="octal bus transceiver, inverting outputs" ></item>
+    <item name="74645"  info="octal bus transceiver, non-inverting outputs" ></item>
+    <item name="74682"  info="8-bit magnitude comparator" ></item>
+    <item name="74684"  info="8-bit magnitude comparator" ></item>
+    <item name="74688"  info="8-bit magnitude comparator, enable" ></item>
+  </itemset>
+    
+  <itemset category="7400 Series/2000-up" type="Subcircuit" folder="74">
+    <item name="744017"  info="5-stage ÷10 Johnson counter" ></item>
+    <item name="744020"  info="14-stage binary counter" ></item>
+    <item name="744022"  info="4-stage ÷8 Johnson counter" ></item>
+    <item name="744024"  info="7-stage ripple carry binary counter" ></item>
+    <item name="744040"  info="12-stage binary ripple counter" ></item>
+    <item name="744060"  info="14-stage binary ripple counter with oscillator" ></item>
+    <item name="744094"  info="8-bit three-state shift register/latch" ></item>
+    <item name="744511"  info="BCD to 7-segment decoder" ></item>
+    <item name="744514"  info="4-to-16 line decoder/demultiplexer, input latches" ></item>
+    <item name="744515"  info="4-to-16 line decoder/demultiplexer with input latches; inverting" ></item>
+    <item name="744518"  info="dual 4-bit synchronous decade counter" ></item>
+    <item name="744520"  info="dual 4-bit synchronous binary counter" ></item>
+    <item name="744543"  info="BCD to 7-segment latch/decoder/driver for LCDs" ></item>
+  </itemset>
+
+</itemlib>
+

@@ -89,6 +89,9 @@ fn dim(value: u32) -> Option<u32> {
 
 impl Gpu {
     fn open() -> Option<Self> {
+        if std::env::var("CS_NO_GPU").is_ok() {
+            return None;
+        }
         let mut cx = RenderContext::new();
         // Same choice as the schematic presenter, so a process does not open
         // DX12 for the canvas and Vulkan for instrument frames.

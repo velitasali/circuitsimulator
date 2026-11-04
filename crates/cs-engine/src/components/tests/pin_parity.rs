@@ -200,13 +200,15 @@ fn first_diff(got: &str, expected: &str) -> String {
 #[test]
 fn pin_parity_and_live_prefix() {
     let report = build_report();
-    if report != EXPECTED {
+    let norm_report = report.replace("\r\n", "\n");
+    let norm_expected = EXPECTED.replace("\r\n", "\n");
+    if norm_report != norm_expected {
         let path = std::env::temp_dir().join("pin_parity_report.txt");
         std::fs::write(&path, &report).expect("write pin parity report");
         panic!(
             "pin parity inventory changed\nfull report: {}\nUpdate pin_parity_expected.txt when a mismatch is fixed or a new one appears.\n{}",
             path.display(),
-            first_diff(&report, EXPECTED)
+            first_diff(&norm_report, &norm_expected)
         );
     }
 }

@@ -1,0 +1,222 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  build:
+    name: Package (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            os: ubuntu-latest
+            qt-arch: linux_gcc_64
+          - name: Windows
+            os: windows-latest
+            qt-arch: win64_mingw
+          - name: macOS
+            os: macos-latest
+            qt-arch: clang_64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Verify tag matches Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
+          $cargoToml = Get-Content -Raw Cargo.toml
+          if ($cargoToml -match '(?ms)^\[workspace\.package\]\s+.*?^\s*version\s*=\s*"([^"]+)"') {
+            $cargoVersion = $Matches[1]
+          } else {
+            Write-Error "Could not parse [workspace.package] version from Cargo.toml"
+            exit 1
+          }
+          Write-Host "Tag version:   $tagVersion"
+          Write-Host "Cargo version: $cargoVersion"
+          if ($tagVersion -ne $cargoVersion) {
+            Write-Error "Git tag (${{ github.ref_name }}) does not match Cargo.toml workspace version ($cargoVersion)."
+            exit 1
+          }
+
+      - name: Install MinGW
+        if: runner.os == 'Windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-vulkan-loader
+            mingw-w64-x86_64-mesa
+          path-type: inherit
+
+      - name: Select the MinGW compilers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CC=gcc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CXX=g++" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "WGPU_BACKEND=vulkan" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $msysRoot = "${{ steps.msys2.outputs.msys2-location }}"
+          $lvpJson = Join-Path $msysRoot "mingw64\share\vulkan\icd.d\lvp_icd.x86_64.json"
+          if (Test-Path $lvpJson) {
+            "VK_ICD_FILENAMES=$lvpJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ runner.os == 'Windows' && 'stable-x86_64-pc-windows-gnu' || 'stable' }}
+
+      - name: Confirm the Windows GNU host
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $info = rustc -vV | Out-String
+          Write-Host $info
+          if ($info -notmatch "host: x86_64-pc-windows-gnu") { exit 1 }
+
+      - name: Install Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config g++ libudev-dev libvulkan-dev mesa-vulkan-drivers file desktop-file-utils
+          sudo apt-get install -y libasound2-dev || sudo apt-get install -y libasound-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.10.3"
+          arch: ${{ matrix.qt-arch }}
+          modules: qtshadertools
+          cache: true
+
+      - name: Patch Qt 6.10 qyieldcpu.h on macOS
+        if: runner.os == 'macOS'
+        run: |
+          python3 -c "
+          import glob, os
+          qt_root = os.environ.get('QT_ROOT_DIR', '')
+          for p in glob.glob(f'{qt_root}/**/qyieldcpu.h', recursive=True):
+              try:
+                  os.chmod(p, 0o644)
+              except Exception:
+                  pass
+              with open(p, 'r') as f:
+                  content = f.read()
+              if '<arm_acle.h>' not in content:
+                  with open(p, 'w') as f:
+                      f.write('#if defined(__ARM_ACLE) || defined(__arm64__) || defined(__aarch64__)\n#include <arm_acle.h>\n#endif\n' + content)
+                  print(f'Patched {p}')
+          "
+
+      - name: Prefer the MinGW runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msysRoot = "${{ steps.msys2.outputs.msys2-location }}"
+          if (-not (Test-Path $msysRoot)) {
+            $msysRoot = "C:\msys64"
+          }
+          $mingw = Join-Path $msysRoot "mingw64\bin"
+          Write-Host "Prepending MinGW bin to PATH: $mingw"
+          $mingw | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $lvpJson = Join-Path $msysRoot "mingw64\share\vulkan\icd.d\lvp_icd.x86_64.json"
+          if (Test-Path $lvpJson) {
+            Write-Host "Configuring Vulkan Lavapipe ICD: $lvpJson"
+            "VK_ICD_FILENAMES=$lvpJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release -p cs-app
+
+      - name: Package Linux AppImage
+        if: runner.os == 'Linux'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          mkdir -p "$HOME/.local/bin" release-assets
+          curl -fL "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" -o "$HOME/.local/bin/linuxdeploy"
+          curl -fL "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage" -o "$HOME/.local/bin/linuxdeploy-plugin-qt"
+          curl -fL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o "$HOME/.local/bin/appimagetool"
+          chmod +x "$HOME/.local/bin/linuxdeploy" "$HOME/.local/bin/linuxdeploy-plugin-qt" "$HOME/.local/bin/appimagetool"
+          export PATH="$HOME/.local/bin:$PATH"
+          ./scripts/linux/package.sh release
+          cp dist/linux/CircuitSimulator-x86_64.AppImage release-assets/CircuitSimulator-x86_64.AppImage
+
+      - name: Package Windows Installer & Portable Archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          pwsh scripts/windows/package.ps1 -Configuration release -BuildInstaller
+          Copy-Item dist/CircuitSimulator-setup.exe release-assets/CircuitSimulator-setup.exe
+          Compress-Archive -Path "dist/windows/*" -DestinationPath "release-assets/CircuitSimulator-windows-x86_64.zip" -Force
+
+      - name: Package macOS Disk Image
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p release-assets
+          ./scripts/macos/bundle.sh release
+          ./scripts/macos/package.sh "target/release/Circuit Simulator.app"
+          cp "target/release/Circuit Simulator.dmg" release-assets/CircuitSimulator-macos.dmg
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256 checksums
+        working-directory: release-assets
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true

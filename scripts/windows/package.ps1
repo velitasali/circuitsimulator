@@ -15,6 +15,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+
+$CargoTomlPath = Join-Path $Root "Cargo.toml"
+$CargoToml = Get-Content -Raw $CargoTomlPath
+if ($CargoToml -match '(?ms)^\[workspace\.package\]\s+.*?^\s*version\s*=\s*"([^"]+)"') {
+    $Version = $Matches[1]
+} else {
+    throw "Could not parse [workspace.package] version from $CargoTomlPath"
+}
+
 $ExeName = "circuitsimulator.exe"
 $Built = Join-Path $Root "target\$Configuration\$ExeName"
 if (-not (Test-Path $Built)) {
@@ -89,8 +98,8 @@ if ($BuildInstaller) {
     if (-not $Iscc) {
         throw "Inno Setup compiler (ISCC.exe) was not found on PATH or standard installation directories. Install Inno Setup 6 (winget install JRSoftware.InnoSetup or choco install innosetup) to compile the installer."
     }
-    Write-Host "Compiling Inno Setup installer..."
-    & $Iscc $IssScript
+    Write-Host "Compiling Inno Setup installer (version $Version)..."
+    & $Iscc "/DMyAppVersion=$Version" $IssScript
     if ($LASTEXITCODE -ne 0) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
@@ -98,7 +107,7 @@ if ($BuildInstaller) {
     Write-Host "Installer created successfully: $InstallerExe"
 } elseif ($Iscc) {
     Write-Host "Inno Setup compiler found at: $Iscc"
-    Write-Host "To compile the installer, re-run with -BuildInstaller or execute: & `"$Iscc`" `"$IssScript`""
+    Write-Host "To compile the installer, re-run with -BuildInstaller or execute: & `"$Iscc`" `"/DMyAppVersion=$Version`" `"$IssScript`""
 } else {
-    Write-Host "To create an installer executable, install Inno Setup 6 and run: iscc `"$IssScript`""
+    Write-Host "To create an installer executable, install Inno Setup 6 and run: iscc `"/DMyAppVersion=$Version`" `"$IssScript`""
 }

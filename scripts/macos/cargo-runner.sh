@@ -12,6 +12,8 @@ if [ "$BIN_NAME" != "circuitsimulator" ]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+VERSION="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\([^"]*\)"/\1/p' "$REPO_ROOT/Cargo.toml" | head -n 1)"
+VERSION="${VERSION:-0.1.0}"
 BIN_DIR="$(dirname "$BIN_PATH")"
 APP_BUNDLE="$BIN_DIR/Circuit Simulator.app"
 CONTENTS="$APP_BUNDLE/Contents"
@@ -33,7 +35,7 @@ if [ -f "$REPO_ROOT/resources/icons/Assets.car" ]; then
 fi
 
 # Ensure Info.plist is in place
-cat << 'PLIST' > "$CONTENTS/Info.plist"
+cat << PLIST > "$CONTENTS/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -56,8 +58,12 @@ cat << 'PLIST' > "$CONTENTS/Info.plist"
 	<string>Circuit Simulator</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${VERSION}</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>${VERSION}</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13</string>
 	<key>NSPrincipalClass</key>

@@ -4,6 +4,9 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BUILD_TYPE="${1:-debug}"
 
+VERSION="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\([^"]*\)"/\1/p' "$REPO_ROOT/Cargo.toml" | head -n 1)"
+VERSION="${VERSION:-0.1.0}"
+
 TARGET_DIR="$REPO_ROOT/target/$BUILD_TYPE"
 BINARY="$TARGET_DIR/circuitsimulator"
 
@@ -35,7 +38,7 @@ if [ -f "$REPO_ROOT/resources/icons/Assets.car" ]; then
     cp "$REPO_ROOT/resources/icons/Assets.car" "$RESOURCES_DIR/"
 fi
 
-cat << 'PLIST' > "$CONTENTS/Info.plist"
+cat << PLIST > "$CONTENTS/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -58,8 +61,12 @@ cat << 'PLIST' > "$CONTENTS/Info.plist"
 	<string>Circuit Simulator</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${VERSION}</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>${VERSION}</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13</string>
 	<key>NSPrincipalClass</key>

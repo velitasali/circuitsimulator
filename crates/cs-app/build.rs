@@ -4,6 +4,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../../Cargo.toml");
     let (rev, date) = compile_stamp();
     println!("cargo:rustc-env=CS_REVNO={rev}");
     println!("cargo:rustc-env=CS_BUILDDATE={date}");
@@ -389,7 +390,19 @@ fn compile_stamp() -> (String, String) {
 }
 
 fn date_format(fmt: &str) -> Option<String> {
-    let out = Command::new("date").arg(format!("+{fmt}")).output().ok()?;
+    if let Ok(out) = Command::new("date").arg(format!("+{fmt}")).output()
+        && out.status.success()
+        && let Ok(s) = String::from_utf8(out.stdout)
+    {
+        let s = s.trim();
+        if !s.is_empty() {
+            return Some(s.to_string());
+        }
+    }
+    let out = Command::new("git")
+        .args(["log", "-1", "--format=%cd", &format!("--date=format:{fmt}")])
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }

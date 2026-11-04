@@ -4,8 +4,8 @@
 # Usage:
 #   scripts/macos/package.sh [path/to/circuitsimulator.app]
 #
-# If no path is given, the newest release build under
-# build_template/executables/*/release/*.app is used.
+# If no path is given, target/release/Circuit Simulator.app is used (or the
+# newest release build under build_template/executables/*/release/*.app).
 #
 # Requires: qmake's macdeployqt (found automatically via `qmake -query QT_INSTALL_BINS`).
 
@@ -15,11 +15,15 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 APP_PATH="$1"
 if [ -z "$APP_PATH" ]; then
-    APP_PATH="$(find "$REPO_ROOT/build_template/executables" -maxdepth 3 -type d -name '*.app' -path '*/release/*' 2>/dev/null | sort | tail -n 1)"
+    if [ -d "$REPO_ROOT/target/release/Circuit Simulator.app" ]; then
+        APP_PATH="$REPO_ROOT/target/release/Circuit Simulator.app"
+    else
+        APP_PATH="$(find "$REPO_ROOT/build_template/executables" -maxdepth 3 -type d -name '*.app' -path '*/release/*' 2>/dev/null | sort | tail -n 1)"
+    fi
 fi
 
 if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-    echo "error: could not find a release .app bundle. Build with 'make' first, or pass the .app path explicitly." >&2
+    echo "error: could not find a release .app bundle. Build with 'scripts/macos/bundle.sh release' first, or pass the .app path explicitly." >&2
     exit 1
 fi
 

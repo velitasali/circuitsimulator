@@ -3,7 +3,10 @@
 ; Build with: iscc scripts\windows\circuitsimulator.iss
 
 #define MyAppName "Circuit Simulator"
-#define MyAppVersion "0.1.0"
+#ifndef MyAppVersion
+  #define CargoToml AddBackslash(SourcePath) + "..\..\Cargo.toml"
+  #define MyAppVersion StringChange(ReadIni(CargoToml, "workspace.package", "version", "0.1.0"), '"', '')
+#endif
 #define MyAppPublisher "Veli Tasalı"
 #define MyAppURL "https://github.com/velitasali/CircuitSimulator"
 #define MyAppExeName "circuitsimulator.exe"

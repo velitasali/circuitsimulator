@@ -103,6 +103,17 @@ To build a standalone macOS `.app` bundle:
 
 The output bundle will be generated at `target/release/Circuit Simulator.app`.
 
+### Windows Installer & Bundle
+
+To build a standalone Windows staging directory and Inno Setup installer:
+
+```powershell
+# Build and package with Inno Setup (requires Qt 6 and Inno Setup 6)
+pwsh scripts/windows/package.ps1 -Configuration release -BuildInstaller
+```
+
+The installer executable will be generated at `dist/CircuitSimulator-setup.exe`.
+
 ### Running Tests
 
 ```sh

@@ -1,0 +1,150 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main, "tasali/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Qt 6.10 keeps the repository layout aqtinstall 3.3.0 can fetch.
+          # 6.11 on Windows needs a newer aqt. The C++ sources require Qt 6.6.
+          - name: Ubuntu
+            os: ubuntu-latest
+            qt-arch: linux_gcc_64
+          # AngelScript's Windows calling convention is the MinGW one
+          # (AS_X64_MINGW), and cs-app passes GCC -std=c++17 to cc.
+          - name: Windows
+            os: windows-latest
+            qt-arch: win64_mingw
+          - name: macOS
+            os: macos-latest
+            qt-arch: clang_64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install MinGW
+        if: runner.os == 'Windows'
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-vulkan-loader
+            mingw-w64-x86_64-mesa
+          path-type: inherit
+
+      - name: Select the MinGW compilers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CC=gcc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CXX=g++" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "WGPU_BACKEND=vulkan" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $msysRoot = "${{ steps.msys2.outputs.msys2-location }}"
+          $lvpJson = Join-Path $msysRoot "mingw64\share\vulkan\icd.d\lvp_icd.x86_64.json"
+          if (Test-Path $lvpJson) {
+            "VK_ICD_FILENAMES=$lvpJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ runner.os == 'Windows' && 'stable-x86_64-pc-windows-gnu' || 'stable' }}
+          components: rustfmt, clippy
+
+      - name: Confirm the Windows GNU host
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $info = rustc -vV | Out-String
+          Write-Host $info
+          if ($info -notmatch "host: x86_64-pc-windows-gnu") { exit 1 }
+
+      - name: Install Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config g++ libudev-dev libvulkan-dev mesa-vulkan-drivers
+          sudo apt-get install -y libasound2-dev || sudo apt-get install -y libasound-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.10.3"
+          arch: ${{ matrix.qt-arch }}
+          modules: qtshadertools
+          cache: true
+
+      - name: Patch Qt 6.10 qyieldcpu.h on macOS
+        if: runner.os == 'macOS'
+        run: |
+          python3 -c "
+          import glob, os
+          qt_root = os.environ.get('QT_ROOT_DIR', '')
+          for p in glob.glob(f'{qt_root}/**/qyieldcpu.h', recursive=True):
+              try:
+                  os.chmod(p, 0o644)
+              except Exception:
+                  pass
+              with open(p, 'r') as f:
+                  content = f.read()
+              if '<arm_acle.h>' not in content:
+                  with open(p, 'w') as f:
+                      f.write('#if defined(__ARM_ACLE) || defined(__arm64__) || defined(__aarch64__)\n#include <arm_acle.h>\n#endif\n' + content)
+                  print(f'Patched {p}')
+          "
+
+      # Qt's bin is prepended above. Put MinGW back in front so rustc links
+      # with this gcc and the test process loads its libstdc++.
+      - name: Prefer the MinGW runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msysRoot = "${{ steps.msys2.outputs.msys2-location }}"
+          if (-not (Test-Path $msysRoot)) {
+            $msysRoot = "C:\msys64"
+          }
+          $mingw = Join-Path $msysRoot "mingw64\bin"
+          Write-Host "Prepending MinGW bin to PATH: $mingw"
+          $mingw | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $lvpJson = Join-Path $msysRoot "mingw64\share\vulkan\icd.d\lvp_icd.x86_64.json"
+          if (Test-Path $lvpJson) {
+            Write-Host "Configuring Vulkan Lavapipe ICD: $lvpJson"
+            "VK_ICD_FILENAMES=$lvpJson" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Test
+        run: cargo test --workspace -- --nocapture
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets

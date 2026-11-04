@@ -23,6 +23,7 @@ Thumbs.db
 # Build output directories
 build/
 build-*/
+dist/
 
 # Rust
 /target/

@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*"
+      - "[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
 
 concurrency:
@@ -41,10 +41,10 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Verify tag matches Cargo.toml version
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
-          $tagVersion = "${{ github.ref_name }}".TrimStart('v')
+          $tagVersion = "${{ github.ref_name }}"
           $cargoToml = Get-Content -Raw Cargo.toml
           if ($cargoToml -match '(?ms)^\[workspace\.package\]\s+.*?^\s*version\s*=\s*"([^"]+)"') {
             $cargoVersion = $Matches[1]
@@ -55,7 +55,7 @@ jobs:
           Write-Host "Tag version:   $tagVersion"
           Write-Host "Cargo version: $cargoVersion"
           if ($tagVersion -ne $cargoVersion) {
-            Write-Error "Git tag (${{ github.ref_name }}) does not match Cargo.toml workspace version ($cargoVersion)."
+            Write-Error "Git tag ($tagVersion) does not match Cargo.toml workspace version ($cargoVersion)."
             exit 1
           }
 
@@ -164,9 +164,9 @@ jobs:
           curl -fL "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" -o "$HOME/.local/bin/linuxdeploy"
           curl -fL "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage" -o "$HOME/.local/bin/linuxdeploy-plugin-qt"
           curl -fL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -o "$HOME/.local/bin/appimagetool"
-          chmod +x "$HOME/.local/bin/linuxdeploy" "$HOME/.local/bin/linuxdeploy-plugin-qt" "$HOME/.local/bin/appimagetool"
+          chmod +x "$HOME/.local/bin/linuxdeploy" "$HOME/.local/bin/linuxdeploy-plugin-qt" "$HOME/.local/bin/appimagetool" scripts/linux/package.sh
           export PATH="$HOME/.local/bin:$PATH"
-          ./scripts/linux/package.sh release
+          sh ./scripts/linux/package.sh release
           cp dist/linux/CircuitSimulator-x86_64.AppImage release-assets/CircuitSimulator-x86_64.AppImage
 
       - name: Package Windows Installer & Portable Archive
@@ -196,7 +196,7 @@ jobs:
   publish:
     name: Publish GitHub Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write

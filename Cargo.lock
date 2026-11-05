@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "cs-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ash",
  "cc",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "cs-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cpal",
  "cs-mcu",
@@ -431,14 +431,14 @@ dependencies = [
 
 [[package]]
 name = "cs-mcu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "quick-xml",
 ]
 
 [[package]]
 name = "cs-qemu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "libc",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "cs-script"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
 ]

@@ -4,6 +4,8 @@
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -12,6 +14,9 @@ use std::thread;
 
 use super::compiler::command_exists;
 use crate::theme::{ColorId, ColorTheme};
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const INO_PREAMBLE: &str = "#include <Arduino.h>\n";
 
@@ -527,13 +532,14 @@ impl LspClient {
         if self.stdin.is_some() {
             return;
         }
-        let mut child = match Command::new(server)
-            .args(["--header-insertion=never", "--query-driver=**"])
+        let mut cmd = Command::new(server);
+        cmd.args(["--header-insertion=never", "--query-driver=**"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
                 push_event(

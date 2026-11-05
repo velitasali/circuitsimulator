@@ -1,4 +1,5 @@
 #![recursion_limit = "1024"]
+#![windows_subsystem = "windows"]
 
 mod app;
 mod app_dialog;
@@ -24,12 +25,18 @@ mod serial;
 mod tab_switcher;
 mod vello_preview;
 
+use std::env;
+use std::fs;
+use std::io;
+use std::process;
+
 use app::App;
 use app_dialog::AppDialog;
 use circuit_canvas::CircuitCanvas;
 use circuit_panel::CircuitPanel;
 use command_center::CommandCenter;
 use component_list::ComponentList;
+use cs_engine::headless::{self, Cli, OpenKind};
 use editor_panel::EditorPanel;
 use file_browser::FileBrowser;
 use info_widget::InfoWidget;
@@ -43,47 +50,101 @@ use qtbridge::QApp;
 use serial::{SerialMonitor, SerialTerminal};
 use tab_switcher::TabSwitcher;
 
+#[cfg(windows)]
+fn attach_parent_console() {
+    unsafe extern "system" {
+        fn AttachConsole(dw_process_id: u32) -> i32;
+        fn GetStdHandle(n_std_handle: u32) -> isize;
+        fn SetStdHandle(n_std_handle: u32, h_handle: isize) -> i32;
+    }
+    const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
+    const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+    const STD_ERROR_HANDLE: u32 = -12i32 as u32;
+    const INVALID_HANDLE_VALUE: isize = -1;
+
+    unsafe {
+        let out = GetStdHandle(STD_OUTPUT_HANDLE);
+        let err = GetStdHandle(STD_ERROR_HANDLE);
+        let has_out = out != 0 && out != INVALID_HANDLE_VALUE;
+        let has_err = err != 0 && err != INVALID_HANDLE_VALUE;
+
+        if (!has_out || !has_err) && AttachConsole(ATTACH_PARENT_PROCESS) != 0 {
+            if has_out {
+                let _ = SetStdHandle(STD_OUTPUT_HANDLE, out);
+            }
+            if has_err {
+                let _ = SetStdHandle(STD_ERROR_HANDLE, err);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn remove_legacy_dlls() {
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let legacy = dir.join("D3Dcompiler_47.dll");
+            if legacy.exists() {
+                let _ = fs::remove_file(legacy);
+            }
+            let sw = dir.join("opengl32sw.dll");
+            if sw.exists() {
+                let _ = fs::remove_file(sw);
+            }
+        }
+    }
+}
+
 fn main() {
-    match cs_engine::headless::parse_args(std::env::args()) {
-        cs_engine::headless::Cli::Help => {
-            print!("{}", cs_engine::headless::help_text());
+    #[cfg(windows)]
+    remove_legacy_dlls();
+
+    let cli = headless::parse_args(env::args());
+    #[cfg(windows)]
+    if !matches!(cli, Cli::Gui { .. }) {
+        attach_parent_console();
+    }
+
+    match cli {
+        Cli::Help => {
+            print!("{}", headless::help_text());
             return;
         }
-        cs_engine::headless::Cli::Error(msg) => {
+        Cli::Error(msg) => {
             eprintln!("{msg}");
-            std::process::exit(2);
+            process::exit(2);
         }
-        cs_engine::headless::Cli::RunCirc { path } => {
-            if let Err(e) = cs_engine::headless::run_circ(&path, |_| true) {
+        Cli::RunCirc { path } => {
+            if let Err(e) = headless::run_circ(&path, |_| true) {
                 eprintln!("{e}");
-                std::process::exit(1);
+                process::exit(1);
             }
             return;
         }
-        cs_engine::headless::Cli::Test { folder } => {
-            match cs_engine::headless::run_batch_folder(&folder) {
+        Cli::Test { folder } => {
+            match headless::run_batch_folder(&folder) {
                 Ok(report) => {
-                    let _ = cs_engine::headless::print_batch_report(&report, std::io::stderr());
+                    let _ = headless::print_batch_report(&report, io::stderr());
                     if !report.ok() {
-                        std::process::exit(1);
+                        process::exit(1);
                     }
                 }
                 Err(e) => {
                     eprintln!("{e}");
-                    std::process::exit(1);
+                    process::exit(1);
                 }
             }
             return;
         }
-        cs_engine::headless::Cli::Gui { open } => {
-            if std::env::args().any(|a| a == "-noproject") {
+        Cli::Gui { open } => {
+            if env::args().any(|a| a == "-noproject") {
                 let _ = pending::NO_PROJECT.set(true);
             }
             match open {
-                Some(cs_engine::headless::OpenKind::Circuit(p)) => {
+                Some(OpenKind::Circuit(p)) => {
                     let _ = pending::OPEN_CIRCUIT.set(p.to_string_lossy().into_owned());
                 }
-                Some(cs_engine::headless::OpenKind::Editor(p)) => {
+                Some(OpenKind::Editor(p)) => {
                     let _ = pending::OPEN_EDITOR.set(p.to_string_lossy().into_owned());
                 }
                 None => {}

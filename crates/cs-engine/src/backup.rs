@@ -6,6 +6,8 @@
 //! are isolated.
 
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
+use std::ffi::c_void;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
@@ -410,14 +412,28 @@ pub fn pid_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
-        std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-            .output()
-            .map(|o| {
-                let text = String::from_utf8_lossy(&o.stdout);
-                text.split_whitespace().any(|tok| tok == pid.to_string())
-            })
-            .unwrap_or(false)
+        unsafe extern "system" {
+            fn OpenProcess(
+                dw_desired_access: u32,
+                b_inherit_handle: i32,
+                dw_process_id: u32,
+            ) -> *mut c_void;
+            fn GetExitCodeProcess(h_process: *mut c_void, lp_exit_code: *mut u32) -> i32;
+            fn CloseHandle(h_object: *mut c_void) -> i32;
+        }
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+        const STILL_ACTIVE: u32 = 259;
+
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return false;
+            }
+            let mut exit_code: u32 = 0;
+            let success = GetExitCodeProcess(handle, &mut exit_code);
+            CloseHandle(handle);
+            success != 0 && exit_code == STILL_ACTIVE
+        }
     }
     #[cfg(not(any(unix, windows)))]
     {

@@ -3,6 +3,10 @@
 
 use std::collections::BTreeMap;
 use std::io::BufRead;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -15,6 +19,9 @@ use quick_xml::Reader;
 use quick_xml::events::Event;
 
 use crate::settings::AppSettings;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CompileStep {
@@ -498,9 +505,6 @@ fn first_number(s: &str) -> Option<i32> {
 }
 
 #[cfg(unix)]
-use std::os::unix::process::CommandExt;
-
-#[cfg(unix)]
 unsafe extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
 }
@@ -540,6 +544,8 @@ pub(crate) fn run_command_logged_cancel(
 
     #[cfg(unix)]
     cmd.process_group(0);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     cmd.env_remove("DYLD_LIBRARY_PATH");
     cmd.env_remove("DYLD_FALLBACK_LIBRARY_PATH");

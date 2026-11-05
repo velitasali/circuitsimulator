@@ -2,8 +2,13 @@
 //! paused circuit (see `QemuDevice::stopQemuProcess`).
 
 use crate::{Error, Result};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub struct QemuProcess {
     child: Option<Child>,
@@ -20,15 +25,16 @@ impl QemuProcess {
                 executable.display()
             )));
         }
-        let child = Command::new(executable)
-            .args(args)
+        let mut cmd = Command::new(executable);
+        cmd.args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|e| {
-                Error::Process(format!("could not spawn {}: {e}", executable.display()))
-            })?;
+            .stderr(Stdio::inherit());
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let child = cmd.spawn().map_err(|e| {
+            Error::Process(format!("could not spawn {}: {e}", executable.display()))
+        })?;
         Ok(Self {
             child: Some(child),
             stopped: false,

@@ -1,6 +1,8 @@
 //! Arduino compilation via arduino-cli. C++ InoDebugger::compile.
 
 use std::collections::HashMap;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,6 +12,9 @@ use super::compiler::{
     CompileResult, DEFAULT_COMPILE_TIMEOUT, command_exists, parse_error_lines,
     run_command_logged_cancel,
 };
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 fn cli_name() -> &'static str {
     if cfg!(windows) {
@@ -461,6 +466,8 @@ pub fn list_arduino_boards(tool_path: &str) -> Vec<BoardEntry> {
     if let Some(cli) = find_arduino_cli(tool_path) {
         let mut cmd = Command::new(&cli);
         cmd.args(["board", "listall"]);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
         if let Ok(out) = cmd.output() {
             let stdout = String::from_utf8_lossy(&out.stdout);
             for entry in parse_board_list(&stdout) {
@@ -560,6 +567,8 @@ pub fn resolve_dio_flash_mode_with_cli(fqbn: &str, cli: Option<&Path>) -> (Strin
     };
 
     let mut cmd = Command::new(cli_path);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd.args(["board", "details", "--fqbn", fqbn, "--format", "json"]);
     cmd.env("TERM", "dumb");
     cmd.env_remove("DYLD_LIBRARY_PATH");
@@ -987,6 +996,8 @@ pub fn start_arduino_compile(
     let _ = std::fs::remove_file(build_dir.join("libraries.cache"));
 
     let mut cmd = Command::new(&cli);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd.stdin(std::process::Stdio::null());
     cmd.env("TERM", "dumb");
     cmd.env_remove("DYLD_LIBRARY_PATH");

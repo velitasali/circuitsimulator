@@ -154,9 +154,9 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
                 Qt::QueuedConnection);
         }
     }
-    // No shared texture yet. Upload the read-back image through the same
+    // No shared texture yet or sharing failed. Upload the read-back image through the same
     // frame slot the oscilloscope window uses.
-    if (share_gen == 0) {
+    if (cs_vello_share_generation() == 0 || !node || node->texture() == nullptr) {
         return cs_upload_image_frame(
             CS_FRAME_CANVAS, node, window(), width(), height(), &m_last_generation);
     }

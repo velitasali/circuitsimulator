@@ -171,12 +171,32 @@ jobs:
 
       - name: Package Windows Installer & Portable Archive
         if: runner.os == 'Windows'
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          PFX_PASS: ${{ secrets.WINDOWS_PFX_PASSWORD }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          pwsh scripts/windows/package.ps1 -Configuration release -BuildInstaller
+          $signArgs = @{}
+          $pfxPath = "$env:RUNNER_TEMP\cert.pfx"
+          if ($env:PFX_BASE64 -and $env:PFX_PASS) {
+            Write-Host "Configuring code signing certificate..."
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_BASE64))
+            $signArgs = @{ CertPath = $pfxPath; CertPassword = $env:PFX_PASS }
+          } else {
+            Write-Host "No signing secrets provided; proceeding unsigned."
+          }
+          try {
+            & ./scripts/windows/package.ps1 -Configuration release -BuildInstaller @signArgs
+          }
+          finally {
+            if (Test-Path $pfxPath) { Remove-Item -Force $pfxPath }
+          }
           Copy-Item dist/CircuitSimulator-setup.exe release-assets/CircuitSimulator-setup.exe
           Compress-Archive -Path "dist/windows/*" -DestinationPath "release-assets/CircuitSimulator-windows-x86_64.zip" -Force
+          if (Test-Path "resources/CircuitSimulator-Public.cer") {
+            Copy-Item "resources/CircuitSimulator-Public.cer" release-assets/CircuitSimulator-Public.cer
+          }
 
       - name: Package macOS Disk Image
         if: runner.os == 'macOS'

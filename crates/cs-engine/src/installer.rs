@@ -6,7 +6,13 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 use flate2::read::DeflateDecoder;
 
@@ -106,11 +112,11 @@ pub fn download_url_string(url: &str) -> Result<String, String> {
 
 /// Downloads a URL to a byte buffer using `curl`.
 pub fn download_url_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let output = std::process::Command::new("curl")
-        .arg("-sSL")
-        .arg("--max-time")
-        .arg("30")
-        .arg(url)
+    let mut cmd = Command::new("curl");
+    cmd.arg("-sSL").arg("--max-time").arg("30").arg(url);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let output = cmd
         .output()
         .map_err(|e| format!("Failed to execute curl: {e}"))?;
 

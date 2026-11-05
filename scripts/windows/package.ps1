@@ -10,7 +10,10 @@
 param(
     [ValidateSet("release", "debug")]
     [string]$Configuration = "release",
-    [switch]$BuildInstaller
+    [switch]$BuildInstaller,
+    [string]$CertPath = "",
+    [string]$CertPassword = "",
+    [string]$CertThumbprint = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,10 +51,16 @@ if (-not (Test-Path $Deploy)) {
 }
 
 $QmlDir = Join-Path $Root "qml"
-& $Deploy --compiler-runtime --qmldir $QmlDir (Join-Path $Dest $ExeName)
+& $Deploy --no-opengl-sw --compiler-runtime --qmldir $QmlDir (Join-Path $Dest $ExeName)
 if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
+
+# Remove ancient D3Dcompiler_47.dll and opengl32sw.dll if copied by windeployqt.
+# Modern Windows 10/11 includes the DirectX 12 compatible compiler in System32.
+# An outdated 2014 D3Dcompiler_47.dll in the app directory breaks wgpu/Vello GPU rendering.
+Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Dest "D3Dcompiler_47.dll")
+Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Dest "opengl32sw.dll")
 
 # The MinGW runtime that linked the exe has to be the one the process loads.
 # windeployqt copies it when it can see gcc. Copy the usual trio if gcc is
@@ -75,6 +84,54 @@ Qt libraries were copied by windeployqt and must stay next to the exe.
 "@ | Set-Content -Encoding utf8 (Join-Path $Dest "README.txt")
 
 Write-Host "Bundle written to $Dest"
+
+function Find-SignTool {
+    $cmd = Get-Command signtool -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+    if (Test-Path $kits) {
+        $found = Get-ChildItem -Path $kits -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -like "*\x64\*" } |
+            Select-Object -First 1
+        if ($found) { return $found.FullName }
+    }
+    return $null
+}
+
+function Invoke-SignBinary {
+    param([string]$FilePath)
+    if (-not ($CertPath -or $CertThumbprint)) { return }
+    $st = Find-SignTool
+    if (-not $st) {
+        throw "signtool.exe was not found. Install the Windows SDK or ensure signtool.exe is on PATH."
+    }
+    Write-Host "Signing $FilePath..."
+    $signArgs = @("sign", "/fd", "SHA256")
+    if ($CertPath) {
+        $signArgs += @("/f", $CertPath)
+        if ($CertPassword) {
+            $signArgs += @("/p", $CertPassword)
+        }
+    } elseif ($CertThumbprint) {
+        $signArgs += @("/sha1", $CertThumbprint)
+    }
+    $tsArgs = $signArgs + @("/tr", "http://timestamp.digicert.com", "/td", "SHA256", $FilePath)
+    & $st $tsArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Timestamped signing failed; retrying without timestamp..."
+        $noTsArgs = $signArgs + @($FilePath)
+        & $st $noTsArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "Signing failed for $FilePath with exit code $LASTEXITCODE"
+        }
+    }
+    Write-Host "Successfully signed: $FilePath"
+}
+
+# Sign the main executable before bundling or archiving
+if ($CertPath -or $CertThumbprint) {
+    Invoke-SignBinary (Join-Path $Dest $ExeName)
+}
 
 $IssScript = Join-Path $PSScriptRoot "circuitsimulator.iss"
 
@@ -104,6 +161,9 @@ if ($BuildInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
     $InstallerExe = Join-Path $Root "dist\CircuitSimulator-setup.exe"
+    if ($CertPath -or $CertThumbprint) {
+        Invoke-SignBinary $InstallerExe
+    }
     Write-Host "Installer created successfully: $InstallerExe"
 } elseif ($Iscc) {
     Write-Host "Inno Setup compiler found at: $Iscc"

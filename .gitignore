@@ -38,3 +38,9 @@ dist/
 *~
 *.autosave
 *.json.gz
+
+# Private keys & certificates
+*.pfx
+*.p12
+*.key
+*.pem

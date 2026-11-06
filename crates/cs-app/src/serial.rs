@@ -83,7 +83,9 @@ impl SerialMonitor {
     #[qsignal]
     fn open_monitors_changed(&mut self);
     #[qsignal]
-    fn request_show_monitor(&mut self, id: String);
+    fn request_show_monitor(&mut self, id: String, title: String);
+    #[qsignal]
+    fn monitor_closed(&mut self, id: String);
     #[qsignal]
     fn monitor_updated(&mut self, id: String, in_text: String, out_text: String);
 
@@ -235,13 +237,13 @@ impl SerialMonitor {
         };
         cs_engine::serial::ensure_session(&id);
         if let Some(session) = self.sessions.get_mut(&id) {
-            session.title = display_title;
+            session.title = display_title.clone();
         } else {
             self.sessions.insert(
                 id.clone(),
                 MonitorSession {
                     id: id.clone(),
-                    title: display_title,
+                    title: display_title.clone(),
                 },
             );
         }
@@ -255,7 +257,7 @@ impl SerialMonitor {
         let in_txt = cs_engine::serial::in_text(&id);
         let out_txt = cs_engine::serial::out_text(&id);
         self.monitor_updated(id.clone(), in_txt, out_txt);
-        self.request_show_monitor(id);
+        self.request_show_monitor(id, display_title);
     }
 
     #[qslot]
@@ -263,7 +265,16 @@ impl SerialMonitor {
         if let Some(pos) = self.open_monitors.iter().position(|x| x == &id) {
             self.open_monitors.remove(pos);
             self.open_monitors_changed();
+            self.monitor_closed(id);
         }
+    }
+
+    #[qslot]
+    fn title_for(&self, id: String) -> String {
+        self.sessions
+            .get(&id)
+            .map(|s| s.title.clone())
+            .unwrap_or_else(|| cs_engine::i18n::tr("Serial Monitor"))
     }
 
     #[qslot]

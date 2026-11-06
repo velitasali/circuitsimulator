@@ -271,3 +271,34 @@ fn test_serial_term_open_button_triggers_serial_terminal() {
         "Clicking outside Open button must not trigger open_terminal"
     );
 }
+
+#[test]
+fn test_subcircuit_nested_mcu_monitors_offline() {
+    let mut canvas = Canvas::empty();
+    let board_sim1 = r#"<circuit version="2.0.0" >
+<item itemtype="MCU" CircId="mega328-1" label="mega328" />
+</circuit>"#;
+
+    let board_item = cs_engine::canvas::Item::subcircuit(
+        "Arduino-1",
+        0.0,
+        0.0,
+        "Arduino_Uno",
+        cs_engine::package::Package::default(),
+        board_sim1,
+        None,
+        false,
+    );
+    canvas.scene_mut().add_saved_item(board_item);
+
+    // Verify simulation is NOT running
+    assert!(!canvas.sim_running());
+
+    canvas.scene_mut().select_only(0);
+
+    let monitors = canvas.selected_item_monitors();
+    assert!(
+        monitors.contains(&"USART0".to_string()) || monitors.contains(&"USART".to_string()),
+        "selected_item_monitors for Arduino board must include USART offline, got: {monitors:?}"
+    );
+}

@@ -319,9 +319,34 @@ impl InstallerManager {
     /// Loads the list from the local `components.txt` if present.
     pub fn load_local_list(&mut self) {
         let comp_file = self.comps_dir.join("components.txt");
-        let content = fs::read_to_string(&comp_file).unwrap_or_default();
+        let content = if comp_file.is_file() {
+            fs::read_to_string(&comp_file).unwrap_or_default()
+        } else {
+            crate::catalog::standard_dirs()
+                .into_iter()
+                .find_map(|d| {
+                    let f = d.join("components.txt");
+                    if f.is_file() {
+                        fs::read_to_string(f).ok()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default()
+        };
         let settings = crate::settings::get();
-        self.items = parse_components_txt(&content, &settings.installed_components);
+        let mut items = parse_components_txt(&content, &settings.installed_components);
+        for item in &mut items {
+            if !item.installed() && !item.is_group_header() {
+                for dir in crate::catalog::standard_dirs() {
+                    if dir.join(&item.name).is_dir() {
+                        item.version = item.version_next;
+                        break;
+                    }
+                }
+            }
+        }
+        self.items = items;
     }
 
     /// Fetches the latest `components.txt` from the remote server, saves it, and parses it.
@@ -336,7 +361,17 @@ impl InstallerManager {
         let _ = fs::write(&comp_file, &content);
 
         let settings = crate::settings::get();
-        let new_items = parse_components_txt(&content, &settings.installed_components);
+        let mut new_items = parse_components_txt(&content, &settings.installed_components);
+        for item in &mut new_items {
+            if !item.installed() && !item.is_group_header() {
+                for dir in crate::catalog::standard_dirs() {
+                    if dir.join(&item.name).is_dir() {
+                        item.version = item.version_next;
+                        break;
+                    }
+                }
+            }
+        }
 
         let has_updates = new_items.iter().any(|i| i.can_update());
         self.items = new_items;

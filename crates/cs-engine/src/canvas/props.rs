@@ -497,6 +497,22 @@ impl Canvas {
                 }
             }
         }
+        if let Some(dev) = self
+            .scene
+            .collect_programmable_devices(&self.search(), None)
+            .into_iter()
+            .find(|d| d.uid == uid || d.id == uid)
+        {
+            if let Ok((desc, _)) = crate::mcu::load_desc_with(&dev.kind, &self.search()) {
+                let mut names: Vec<String> = desc.usarts.iter().map(|u| u.name.clone()).collect();
+                names.extend(desc.twis.iter().map(|t| t.name.clone()));
+                names.extend(desc.spis.iter().map(|s| s.name.clone()));
+                if !names.is_empty() {
+                    return names;
+                }
+            }
+            return vec!["USART".into(), "TWI".into(), "SPI".into()];
+        }
         Vec::new()
     }
 

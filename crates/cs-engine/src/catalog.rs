@@ -3,6 +3,8 @@
 //! other XML types are stored for lookup but not added to the canvas catalog.
 
 use std::collections::HashMap;
+use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use quick_xml::Reader;
@@ -255,6 +257,27 @@ pub fn standard_dirs() -> Vec<PathBuf> {
                 .collect();
             kids.sort();
             dirs.extend(kids);
+        }
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let app_comps = exe_dir.join("components");
+            if app_comps.is_dir() {
+                dirs.push(app_comps.clone());
+                if let Ok(rd) = fs::read_dir(&app_comps) {
+                    let mut kids: Vec<PathBuf> = rd
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| p.is_dir())
+                        .collect();
+                    kids.sort();
+                    dirs.extend(kids);
+                }
+            }
+            let app_data = exe_dir.join("data");
+            if app_data.is_dir() {
+                dirs.push(app_data);
+            }
         }
     }
     dirs.push(PathBuf::from("data"));

@@ -502,52 +502,75 @@ ApplicationWindow {
         }
     }
 
-    Instantiator {
-        id: serialMonInstantiator
-        model: SerialMonitor.openMonitors || []
-        delegate: AppWindow {
+    property var serialMonWindows: ({})
+
+    function showSerialMonitor(monId, title) {
+        if (!monId)
+            return
+        var existing = serialMonWindows[monId]
+        if (existing) {
+            existing.bringToFront()
+            return
+        }
+        var count = Object.keys(serialMonWindows).length
+        var offset = (count % 8) * 28
+        var posX = win.x + Math.round((win.width - 560) / 2) + offset
+        var posY = win.y + Math.round((win.height - 420) / 2) + offset
+        var winTitle = title ? title : SerialMonitor.titleFor(monId)
+        var w = serialMonComp.createObject(win, {
+            monId: monId,
+            title: winTitle,
+            x: posX,
+            y: posY
+        })
+        if (w) {
+            serialMonWindows[monId] = w
+        }
+    }
+
+    function dismissSerialMonitor(monId) {
+        if (!monId)
+            return
+        var w = serialMonWindows[monId]
+        if (w) {
+            delete serialMonWindows[monId]
+            w.destroy()
+        }
+    }
+
+    Connections {
+        target: SerialMonitor
+        function onRequestShowMonitor(id, title) {
+            win.showSerialMonitor(id, title)
+        }
+        function onMonitorClosed(id) {
+            win.dismissSerialMonitor(id)
+        }
+    }
+
+    Component {
+        id: serialMonComp
+        AppWindow {
             id: monWin
-            required property var modelData
-            required property int index
-            readonly property string monId: modelData.id || ""
-            title: modelData.title || win.tr("Serial Monitor")
+            property string monId: ""
             width: 560
             height: 420
-            source: "serialmon.qml"
             visible: true
             ownerWindow: win
 
             Component.onCompleted: {
-                var offset = (index % 8) * 28
-                x = win.x + Math.round((win.width - width) / 2) + offset
-                y = win.y + Math.round((win.height - height) / 2) + offset
-                if (panel)
-                    panel.monitorId = monId
-            }
-
-            Connections {
-                target: monWin
-                function onPanelChanged() {
-                    if (monWin.panel)
-                        monWin.panel.monitorId = monWin.monId
-                }
-            }
-
-            Connections {
-                target: SerialMonitor
-                function onRequestShowMonitor(id) {
-                    if (id === monWin.monId) {
-                        monWin.bringToFront()
-                    }
-                }
+                loadSource("qrc:/qt/qml/cs_app/serialmon.qml", { monitorId: monId })
             }
 
             onClosing: (close) => {
+                close.accepted = true
+                if (win.serialMonWindows && win.serialMonWindows[monId]) {
+                    delete win.serialMonWindows[monId]
+                }
                 if (!win.isQuitting) {
-                    close.accepted = false
-                    visible = false
                     SerialMonitor.closeMonitor(monId)
                 }
+                monWin.destroy()
             }
         }
     }

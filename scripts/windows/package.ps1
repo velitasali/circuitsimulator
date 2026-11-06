@@ -77,6 +77,34 @@ if ($Gcc) {
     }
 }
 
+# Copy bundled standard components so clean installations have MCU/peripheral definitions out of the box.
+$CompSrc = Join-Path $Root "crates\cs-engine\tests\fixtures\components"
+if (Test-Path $CompSrc) {
+    Write-Host "Copying standard components to bundle..."
+    Copy-Item -Recurse -Force $CompSrc (Join-Path $Dest "components")
+}
+
+# Copy bundled data directory (models, packages, syntax definitions, compiler templates)
+$DataSrc = Join-Path $Root "resources\data"
+if (Test-Path $DataSrc) {
+    Write-Host "Copying data folder to bundle..."
+    $DestData = Join-Path $Dest "data"
+    Copy-Item -Recurse -Force $DataSrc $DestData
+}
+
+# Bundle QEMU co-simulation binary and dependencies into data/bin for out-of-the-box ESP32/STM32 simulation
+$QemuOut = Join-Path $Root "resources\qemu-cosim\build\out"
+$QemuExe = Join-Path $QemuOut "qemu-system-xtensa.exe"
+if (Test-Path $QemuExe) {
+    Write-Host "Copying QEMU co-simulation binary and dependencies to bundle..."
+    $DestBin = Join-Path $Dest "data\bin"
+    if (-not (Test-Path $DestBin)) {
+        New-Item -ItemType Directory -Force -Path $DestBin | Out-Null
+    }
+    Copy-Item -Force $QemuExe $DestBin
+    Get-ChildItem -Path $QemuOut -Filter "*.dll" | Copy-Item -Destination $DestBin -Force
+}
+
 @"
 Circuit Simulator
 Run circuitsimulator.exe in this folder.

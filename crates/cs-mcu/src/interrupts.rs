@@ -207,6 +207,9 @@ impl Interrupts {
         }
         let cbs = iv.callbacks.clone();
         if iv.raised {
+            if iv.enabled != 0 && self.active != Some(idx) && !self.running.contains(&idx) {
+                self.add_pending(idx);
+            }
             return cbs;
         }
         iv.raised = true;
@@ -301,14 +304,12 @@ impl Interrupts {
             if auto {
                 self.clear_flag(active, data);
             }
-            if let Some(prev) = self.running.pop() {
-                self.active = Some(prev);
-            } else {
-                let cont = self.ints[active].continuous && self.ints[active].raised;
-                self.active = None;
-                if cont {
-                    self.add_pending(active);
-                }
+            let keep_pending = (self.ints[active].continuous || !auto)
+                && self.ints[active].raised
+                && self.ints[active].enabled != 0;
+            self.active = self.running.pop();
+            if keep_pending {
+                self.add_pending(active);
             }
             self.write_global_flag(data, 1);
             return None;

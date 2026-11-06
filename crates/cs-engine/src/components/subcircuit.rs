@@ -1,10 +1,11 @@
 //! Subcircuit: nested schematic item with IC package footprint.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float, expect_string};
 use super::{CompPin, Component, Stampable};
-use crate::canvas::Rect;
+use crate::canvas::{Item, Rect, Scene};
 use crate::digital::{
     LOGIC_DELAY, LOGIC_FALL, LOGIC_IN_HIGH, LOGIC_IN_IMP, LOGIC_IN_LOW, LOGIC_OUT_HIGH,
     LOGIC_OUT_IMP, LOGIC_OUT_LOW, LOGIC_RISE, LogicOverride,
@@ -12,6 +13,7 @@ use crate::digital::{
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 use crate::package::{Package, SubcType};
+use crate::subcircuit::{self, SubcSearch};
 
 const LOGIC_PROP_IDS: &[&str] = &[
     "Input_High_V",
@@ -35,17 +37,19 @@ pub struct Subcircuit {
     pub nested_src: String,
     pub nested_path: Option<String>,
     pub logic_symbol: bool,
+    pub program: String,
+    pub firmware_dir: Option<PathBuf>,
     /// SimulIDE `LogicSubc` levels. Pushed onto inner parts only after a field is set.
     pub logic: LogicOverride,
 }
 
-impl crate::canvas::Item {
+impl Item {
     pub fn subcircuit(
         id: impl Into<String>,
         x: f64,
         y: f64,
         device: impl Into<String>,
-        package: crate::package::Package,
+        package: Package,
         nested_src: impl Into<String>,
         nested_path: Option<String>,
         logic_symbol: bool,
@@ -61,6 +65,8 @@ impl crate::canvas::Item {
                 nested_src: nested_src.into(),
                 nested_path,
                 logic_symbol,
+                program: String::new(),
+                firmware_dir: None,
                 logic: LogicOverride::default(),
             },
         )
@@ -76,6 +82,8 @@ impl Default for Subcircuit {
             nested_src: String::new(),
             nested_path: None,
             logic_symbol: false,
+            program: String::new(),
+            firmware_dir: None,
             logic: LogicOverride::default(),
         }
     }
@@ -128,6 +136,18 @@ impl Subcircuit {
     }
     fn set_device(&mut self, v: PropValue) -> Result<(), PropError> {
         self.device = expect_string("Device", v)?;
+        Ok(())
+    }
+
+    fn get_program(&self) -> PropValue {
+        PropValue::String(self.program.clone())
+    }
+    fn set_program(&mut self, v: PropValue) -> Result<(), PropError> {
+        let s = expect_string("Program", v)?;
+        self.program = s.clone();
+        if !self.nested_src.is_empty() {
+            self.nested_src = subcircuit::set_nested_mcu_program(&self.nested_src, None, &s);
+        }
         Ok(())
     }
 
@@ -270,6 +290,13 @@ impl Component for Subcircuit {
                 Subcircuit::set_device,
             )
             .with_info("Target device part name and model."),
+            PropDef::string(
+                "Program",
+                "Program",
+                Subcircuit::get_program,
+                Subcircuit::set_program,
+            )
+            .with_info("Path to the compiled firmware binary for nested MCUs."),
             PropDef::float(
                 "Input_High_V",
                 "Low to High Threshold",
@@ -367,16 +394,20 @@ impl Component for Subcircuit {
     fn saves_prop(&self, id: &str) -> bool {
         if LOGIC_PROP_IDS.contains(&id) {
             self.is_logic()
+        } else if id == "Program" {
+            !self.program.is_empty()
         } else {
             true
         }
     }
 
     fn prop_groups(&self) -> Vec<super::PropGroup> {
-        let rows = self
+        let has_mcu = !self.program.is_empty() || subcircuit::has_nested_mcu(&self.nested_src);
+        let rows: Vec<_> = self
             .prop_rows()
             .into_iter()
             .filter(|r| self.is_logic() || !LOGIC_PROP_IDS.contains(&r.name))
+            .filter(|r| has_mcu || r.name != "Program")
             .collect();
         if !self.is_logic() {
             return vec![super::PropGroup::new("Main", rows)];
@@ -384,7 +415,7 @@ impl Component for Subcircuit {
         super::group_rows_by(
             rows,
             &[
-                ("Main", &["LogicSymbol", "Package", "Device"]),
+                ("Main", &["LogicSymbol", "Package", "Device", "Program"]),
                 (
                     "Electric",
                     &[
@@ -459,6 +490,37 @@ impl super::drawable::Drawable for Subcircuit {
     }
 }
 
+impl Scene {
+    pub fn add_subcircuit(
+        &mut self,
+        device: &str,
+        x: f64,
+        y: f64,
+        search: &SubcSearch,
+    ) -> Option<String> {
+        let id = format!("{device}-{}", self.next_subc);
+        let view = subcircuit::load_view(&id, device, search, false, None).ok()?;
+        let mut item = Item::subcircuit(
+            id.clone(),
+            x,
+            y,
+            view.device,
+            view.package,
+            view.nested_src,
+            view.nested_path,
+            view.logic_symbol,
+        );
+        if let super::Part::Subcircuit(subc) = &mut item.kind {
+            subc.packages = view.packages;
+            if let Some(prog) = subcircuit::nested_mcu_program(&subc.nested_src) {
+                subc.program = prog;
+            }
+        }
+        self.add_saved_item(item);
+        Some(id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -511,6 +573,8 @@ mod tests {
             nested_src: String::new(),
             nested_path: None,
             logic_symbol: true,
+            program: String::new(),
+            firmware_dir: None,
             logic: LogicOverride::default(),
         };
         match sub.to_element_kind() {

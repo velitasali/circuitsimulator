@@ -334,6 +334,15 @@ Item {
             detachSubMenu(footprintsMenu)
         }
 
+        Connections {
+            target: CircuitCanvas
+            function onHasItemSelectionChanged() {
+                if (!CircuitCanvas.hasItemSelection && itemMenu.visible) {
+                    itemMenu.close()
+                }
+            }
+        }
+
         // C++ Chip::addActivateAction — checkable, tick when active, disabled once active.
         ContextMenuItem {
             text: root.tr("Activate")
@@ -421,13 +430,30 @@ Item {
             }
         }
 
+        ContextMenuItem {
+            id: directSerialMonItem
+            text: itemMenu.isQemu ? root.tr("Open Serial Monitor.") : root.tr("Open Monitor.")
+            iconLigature: "terminal"
+            visible: itemMenu.showMcuActions && itemMenu.hasMonitors
+            onTriggered: {
+                var uid = itemMenu.firmwareUid || itemMenu.itemUid
+                var list = CircuitCanvas.selectedItemMonitors || []
+                var monName = list.length > 0 ? list[0] : (itemMenu.isQemu ? "USART1" : "USART")
+                var title = uid ? (uid + "-" + monName) : monName
+                var monId = uid ? (uid + ":" + monName) : monName
+                SerialMonitor.openMonitor(monId, title)
+            }
+        }
+
         AppContextMenu {
             id: monitorMenu
-            title: itemMenu.isQemu ? root.tr("Open Serial Monitor.") : root.tr("Open Monitor.")
+            title: root.tr("Other Monitors")
             iconLigature: "terminal"
             Instantiator {
                 id: monitorRepeater
-                model: CircuitCanvas.selectedItemMonitors || []
+                model: (CircuitCanvas.selectedItemMonitors && CircuitCanvas.selectedItemMonitors.length > 1)
+                       ? CircuitCanvas.selectedItemMonitors.slice(1)
+                       : []
                 delegate: ContextMenuItem {
                     required property var modelData
                     text: "" + modelData
@@ -438,8 +464,14 @@ Item {
                         SerialMonitor.openMonitor(monId, title)
                     }
                 }
-                onObjectAdded: (index, object) => monitorMenu.insertItem(index, object)
-                onObjectRemoved: (_, object) => monitorMenu.removeItem(object)
+                onObjectAdded: (index, object) => {
+                    monitorMenu.insertItem(index, object)
+                    itemMenu.syncSubMenuRow(monitorMenu, itemMenu.hasMonitors && itemMenu.showMcuActions && monitorRepeater.count > 0)
+                }
+                onObjectRemoved: (_, object) => {
+                    monitorMenu.removeItem(object)
+                    itemMenu.syncSubMenuRow(monitorMenu, itemMenu.hasMonitors && itemMenu.showMcuActions && monitorRepeater.count > 0)
+                }
             }
         }
 
@@ -625,13 +657,14 @@ Item {
             onTriggered: if (itemMenu.itemUid) CircuitCanvas.startLinking(itemMenu.itemUid)
         }
 
-        ContextMenuSeparator { visible: itemMenu.hasSpecial }
+        ContextMenuSeparator { visible: itemMenu.hasSpecial && CircuitCanvas.hasItemSelection }
 
         // C++ Component::contextMenu: Copy, Cut, Remove, Properties, then rotate/flip
         ContextMenuItem {
             text: root.tr("Copy")
             shortcutText: root.shortcutFor("edit.copy") || "Ctrl+C"
             iconLigature: "content_copy"
+            visible: CircuitCanvas.hasItemSelection
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.copySelection()
         }
@@ -639,6 +672,7 @@ Item {
             text: root.tr("Cut")
             shortcutText: root.shortcutFor("edit.cut") || "Ctrl+X"
             iconLigature: "content_cut"
+            visible: CircuitCanvas.hasItemSelection
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.cutSelection()
         }
@@ -646,6 +680,7 @@ Item {
             text: root.tr("Remove")
             shortcutText: root.shortcutFor("edit.delete") || "Del"
             iconLigature: "delete"
+            visible: CircuitCanvas.hasItemSelection
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.removeSelection()
         }

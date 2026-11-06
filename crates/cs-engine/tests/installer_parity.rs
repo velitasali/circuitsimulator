@@ -1,7 +1,8 @@
-use cs_engine::catalog;
+use cs_engine::catalog::Catalog;
 use cs_engine::installer;
 use std::collections::BTreeMap;
 use std::fs;
+use std::{env, process};
 
 #[test]
 fn test_installer_catalog_parsing_and_status() {
@@ -55,8 +56,7 @@ Tools; Digital tools; Tools.zip; 2507102250
 
 #[test]
 fn test_installer_zip_extraction_and_catalog_reload() {
-    let tmp_dir =
-        std::env::temp_dir().join(format!("cs_test_installer_extract_{}", std::process::id()));
+    let tmp_dir = env::temp_dir().join(format!("cs_test_installer_extract_{}", process::id()));
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
 
@@ -118,12 +118,60 @@ fn test_installer_zip_extraction_and_catalog_reload() {
     assert!(xml_file.exists());
 
     // Test catalog loading from extracted set
-    let mut cat = catalog::Catalog::new();
+    let mut cat = Catalog::new();
     cat.load_dir(&tmp_dir.join("MockSet"));
     assert!(cat.get("MockComp").is_some());
     let item = cat.get("MockComp").unwrap();
     assert_eq!(item.name, "MockComp");
     assert_eq!(item.typ, "Subcircuit");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_bundled_components_first_run_seeding() {
+    let tmp_dir = env::temp_dir().join(format!("cs_test_bundled_seed_{}", process::id()));
+    let _ = fs::remove_dir_all(&tmp_dir);
+
+    assert!(!tmp_dir.join("components.txt").exists());
+    installer::ensure_bundled_components_seeded(&tmp_dir);
+
+    assert!(tmp_dir.join("components.txt").is_file());
+    assert!(tmp_dir.join("Arduino").is_dir());
+    assert!(tmp_dir.join("AVR").is_dir());
+    assert!(tmp_dir.join("PIC").is_dir());
+    assert!(tmp_dir.join("74").is_dir());
+
+    let mut cat = Catalog::new();
+    cat.load_dir(&tmp_dir.join("Arduino"));
+    cat.load_dir(&tmp_dir.join("AVR"));
+    assert!(cat.get("Uno").is_some());
+    assert!(cat.get("mega328").is_some());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_bundled_components_seeding_when_components_txt_preexists() {
+    let tmp_dir = env::temp_dir().join(format!("cs_test_preexist_comp_txt_{}", process::id()));
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let remote_txt = "MCUs and CPUs:\nAVR; avr microcontrollers.; AVR.zip; 9999999999\n";
+    let comp_file = tmp_dir.join("components.txt");
+    fs::write(&comp_file, remote_txt).unwrap();
+
+    installer::ensure_bundled_components_seeded(&tmp_dir);
+
+    assert!(tmp_dir.join(".bundled_seeded").is_file());
+    assert!(tmp_dir.join("Arduino").is_dir());
+    assert!(tmp_dir.join("AVR").is_dir());
+    assert_eq!(fs::read_to_string(&comp_file).unwrap(), remote_txt);
+
+    // Subsequent call must respect `.bundled_seeded` and avoid re-extracting deleted sets.
+    fs::remove_dir_all(tmp_dir.join("Arduino")).unwrap();
+    installer::ensure_bundled_components_seeded(&tmp_dir);
+    assert!(!tmp_dir.join("Arduino").exists());
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }

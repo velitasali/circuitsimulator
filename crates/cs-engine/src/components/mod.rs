@@ -125,7 +125,13 @@ mod wave_gen;
 mod ws2812;
 mod xor_gate;
 
+use std::path::{Path, PathBuf};
+
 use crate::canvas::Point;
+use crate::elements::Comp;
+use crate::mcu as core_mcu;
+use crate::subcircuit as subc_lookup;
+use crate::subcircuit::SubcSearch;
 
 pub use adc::Adc;
 pub use aip31068::Aip31068;
@@ -1362,10 +1368,10 @@ impl Part {
                 );
             }
             Self::Subcircuit(p) => {
-                let search =
-                    crate::subcircuit::SubcSearch::from_circuit_path(p.nested_path.as_deref())
-                        .with_memory(&p.device, p.nested_src.clone());
-                if let Ok(inst) = crate::subcircuit::instantiate(
+                let search = SubcSearch::from_circuit_path(p.nested_path.as_deref())
+                    .with_memory(&p.device, p.nested_src.clone())
+                    .with_standard_catalog();
+                if let Ok(inst) = subc_lookup::instantiate(
                     id,
                     &p.device,
                     &p.nested_src,
@@ -1375,7 +1381,16 @@ impl Part {
                     0,
                     p.simulation_logic(),
                 ) {
-                    for comp in inst.components {
+                    let num_id = subc_lookup::instance_num_id(id, &p.device);
+                    let pfx = format!("{num_id}@");
+                    for mut comp in inst.components {
+                        rebind_nested_firmware(
+                            &mut comp,
+                            id,
+                            &pfx,
+                            &p.program,
+                            p.firmware_dir.as_deref(),
+                        );
                         c.add_comp(comp);
                     }
                     for (a, b) in inst.connectors {
@@ -2257,6 +2272,52 @@ impl_from_part! {
     Shape(Shape),
     Mcu(Mcu),
     QemuDevice(QemuDevice),
+}
+
+fn update_nested_firmware_dir(fw: &str, fw_dir: &mut Option<PathBuf>, user_dir: Option<&Path>) {
+    if let Some(dir) = user_dir {
+        let exists_in_user_dir = !fw.is_empty()
+            && core_mcu::resolve_firmware(Some(dir), fw).is_some_and(|p| p.is_file());
+        if fw_dir.is_none() || exists_in_user_dir {
+            *fw_dir = Some(dir.to_path_buf());
+        }
+    }
+}
+
+fn rebind_nested_firmware(
+    comp: &mut Comp,
+    subc_id: &str,
+    num_prefix: &str,
+    program: &str,
+    user_dir: Option<&Path>,
+) {
+    let inner_id = comp.id.strip_prefix(num_prefix).unwrap_or(&comp.id);
+    let canonical_id = format!("{subc_id}/{inner_id}");
+    match &mut comp.kind {
+        Kind::Mcu(m) => {
+            m.set_serial_id(&canonical_id);
+            if !program.is_empty() {
+                m.firmware = Some(program.to_string());
+            }
+            if let Some(fw) = m.firmware.as_deref() {
+                update_nested_firmware_dir(fw, &mut m.firmware_dir, user_dir);
+                if let Some(path) = m.firmware_path() {
+                    let _ = m.load_firmware_file(&path);
+                }
+            }
+            comp.id = canonical_id;
+        }
+        Kind::QemuDevice(q) => {
+            q.set_serial_id(&canonical_id);
+            if !program.is_empty() {
+                q.firmware = program.to_string();
+            }
+            let fw = q.firmware.clone();
+            update_nested_firmware_dir(&fw, &mut q.firmware_dir, user_dir);
+            comp.id = canonical_id;
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]

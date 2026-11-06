@@ -5178,6 +5178,10 @@ has been deleted or renamed by another program.
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Other Monitors</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../src/microsim/mcu.cpp" line="230"/>
         <source>Package</source>
         <translation type="unfinished"></translation>

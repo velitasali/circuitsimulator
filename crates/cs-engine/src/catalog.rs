@@ -3,7 +3,11 @@
 //! other XML types are stored for lookup but not added to the canvas catalog.
 
 use std::collections::HashMap;
+use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
+
+use crate::{installer, settings};
 
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -179,7 +183,7 @@ impl Catalog {
         for dir in standard_dirs() {
             c.load_dir(&dir);
         }
-        let settings = crate::settings::get();
+        let settings = settings::get();
         if !settings.user_path.is_empty() {
             c.load_test_dir(Path::new(&settings.user_path));
         }
@@ -214,63 +218,70 @@ pub fn reload_standard() -> Catalog {
     c
 }
 
+fn push_dir_with_children(dirs: &mut Vec<PathBuf>, dir: PathBuf) {
+    if !dir.is_dir() {
+        return;
+    }
+    dirs.push(dir.clone());
+    if let Ok(rd) = fs::read_dir(&dir) {
+        let mut kids: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        kids.sort();
+        dirs.extend(kids);
+    }
+}
+
 /// Directory where downloadable component sets are installed.
 pub fn components_dir() -> PathBuf {
-    let settings = crate::settings::get();
-    if !settings.user_path.is_empty() {
-        let u = PathBuf::from(&settings.user_path).join("components");
-        if u.exists() {
-            return u;
-        }
-    }
-    if let Some(data) = dirs::data_dir() {
-        let comps = data.join("Circuit Simulator").join("components");
-        let _ = std::fs::create_dir_all(&comps);
-        comps
+    let settings = settings::get();
+    let comps = if !settings.user_path.is_empty() {
+        PathBuf::from(&settings.user_path).join("components")
+    } else if let Some(data) = dirs::data_dir() {
+        data.join("Circuit Simulator").join("components")
     } else {
-        let p = PathBuf::from("components");
-        let _ = std::fs::create_dir_all(&p);
-        p
-    }
+        PathBuf::from("components")
+    };
+    let _ = fs::create_dir_all(&comps);
+    installer::ensure_bundled_components_seeded(&comps);
+    comps
 }
 
 pub fn standard_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    let settings = crate::settings::get();
+    let settings = settings::get();
     if !settings.user_path.is_empty() {
         let u = PathBuf::from(&settings.user_path);
-        dirs.push(u.clone());
-        dirs.push(u.join("components"));
+        dirs.push(u);
     }
     if let Some(data) = dirs::data_dir() {
         let root = data.join("Circuit Simulator");
         dirs.push(root.join("data"));
-        let comps = root.join("components");
-        dirs.push(comps.clone());
-        if let Ok(rd) = std::fs::read_dir(&comps) {
-            let mut kids: Vec<PathBuf> = rd
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_dir())
-                .collect();
-            kids.sort();
-            dirs.extend(kids);
+    }
+    let comps = components_dir();
+    push_dir_with_children(&mut dirs, comps.clone());
+    if let Ok(exe) = env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            for comp_rel in ["components", "../Resources/components", "../components"] {
+                let app_comps = exe_dir.join(comp_rel);
+                push_dir_with_children(&mut dirs, app_comps);
+            }
+            for data_rel in ["data", "../Resources/data", "../data"] {
+                let app_data = exe_dir.join(data_rel);
+                if app_data.is_dir() {
+                    dirs.push(app_data);
+                }
+            }
         }
     }
     dirs.push(PathBuf::from("data"));
     dirs.push(PathBuf::from("./data"));
-    let fixture_comps = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/components");
-    if fixture_comps.is_dir() {
-        dirs.push(fixture_comps.clone());
-        if let Ok(rd) = std::fs::read_dir(&fixture_comps) {
-            let mut kids: Vec<PathBuf> = rd
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_dir())
-                .collect();
-            kids.sort();
-            dirs.extend(kids);
-        }
+    if !comps.join("components.txt").is_file() {
+        let fixture_comps =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/components");
+        push_dir_with_children(&mut dirs, fixture_comps);
     }
     dirs
 }
@@ -281,6 +292,7 @@ fn parse_itemlib(src: &str, xml_file: &Path) -> Vec<CatalogItem> {
     let mut buf = Vec::new();
     let mut out = Vec::new();
     let mut in_lib = false;
+    let mut group_prefix: Option<(String, String)> = None;
     let mut set_category = String::new();
     let mut set_type = String::new();
     let mut set_folder = String::new();
@@ -302,9 +314,22 @@ fn parse_itemlib(src: &str, xml_file: &Path) -> Vec<CatalogItem> {
                     "itemset" if in_lib => {
                         let mut cat = attrs.get("category").cloned().unwrap_or_default();
                         cat = cat.replace("IC 74", "Logic/IC 74");
+                        let typ_attr = attrs.get("type").cloned().unwrap_or_default();
+                        let folder_attr = attrs.get("folder").cloned().unwrap_or_default();
+                        if typ_attr.is_empty() && folder_attr.is_empty() {
+                            if let Some((parent, child)) = cat.rsplit_once('/') {
+                                if !parent.is_empty() && !child.is_empty() {
+                                    group_prefix = Some((parent.to_string(), child.to_string()));
+                                }
+                            }
+                        } else if let Some((parent, child)) = &group_prefix {
+                            if cat == *child || cat.starts_with(&format!("{child}/")) {
+                                cat = format!("{parent}/{cat}");
+                            }
+                        }
                         set_category = cat;
-                        set_type = attrs.get("type").cloned().unwrap_or_default();
-                        set_folder = attrs.get("folder").cloned().unwrap_or_default();
+                        set_type = typ_attr;
+                        set_folder = folder_attr;
                     }
                     "item" if in_lib => {
                         let Some(item_name) = attrs.get("name").cloned() else {

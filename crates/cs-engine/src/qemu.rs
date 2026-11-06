@@ -644,6 +644,12 @@ impl QemuComp {
             .collect();
     }
 
+    /// Rebinds logical/serial identity without altering electrical pin IDs.
+    pub fn set_serial_id(&mut self, id: &str) {
+        self.uid = id.to_string();
+        self.refresh_cached_port_ids();
+    }
+
     pub fn rebind_id(&mut self, new_id: &str) {
         let old = self.uid.clone();
         if old == new_id {

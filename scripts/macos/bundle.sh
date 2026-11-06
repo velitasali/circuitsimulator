@@ -38,6 +38,24 @@ if [ -f "$REPO_ROOT/resources/icons/Assets.car" ]; then
     cp "$REPO_ROOT/resources/icons/Assets.car" "$RESOURCES_DIR/"
 fi
 
+# Bundle QEMU co-simulation binary if built locally
+QEMU_EXE="$REPO_ROOT/resources/qemu-cosim/build/out/qemu-system-xtensa"
+if [ -f "$QEMU_EXE" ]; then
+    echo "Copying QEMU co-simulation binary to bundle..."
+    mkdir -p "$RESOURCES_DIR/data/bin"
+    cp "$QEMU_EXE" "$RESOURCES_DIR/data/bin/qemu-system-xtensa"
+    chmod +x "$RESOURCES_DIR/data/bin/qemu-system-xtensa"
+    for rom_dir in \
+        "$REPO_ROOT/resources/qemu-cosim/build/out/qemu-bundle/qemu/share" \
+        "$REPO_ROOT/resources/qemu-cosim/build/src/pc-bios"
+    do
+        if [ -f "$rom_dir/esp32-v3-rom.bin" ]; then
+            cp "$rom_dir"/esp32-v3-rom*.bin "$RESOURCES_DIR/data/bin/"
+            break
+        fi
+    done
+fi
+
 cat << PLIST > "$CONTENTS/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

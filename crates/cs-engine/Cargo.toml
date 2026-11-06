@@ -23,3 +23,7 @@ serialport = "4"
 skrifa = "0.35"
 # Headless frames for Save Image and render_viewport. The window presenter stays in cs-app.
 vello = { version = "0.5", default-features = false, features = ["wgpu"] }
+
+[build-dependencies]
+flate2 = "1"
+

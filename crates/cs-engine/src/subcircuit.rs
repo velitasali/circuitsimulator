@@ -10,7 +10,7 @@ use crate::catalog::Catalog;
 use crate::digital::LogicOverride;
 use crate::elements::{Comp, Kind};
 use crate::package::{Package, SubcType, convert_package, packages_from_sim1, select_package};
-use crate::sim1::{ParsedCircuit, parse_sim1, parse_xml_props};
+use crate::sim1::{ParsedCircuit, parse_sim1, parse_xml_props, prop};
 use crate::{Error, Result};
 
 const MAX_NEST: u32 = 16;
@@ -177,23 +177,31 @@ fn sibling_package_files(dir: &Path, device: &str) -> Vec<(String, PathBuf)> {
 
 /// C++ `Chip::getDevice`.
 pub fn device_from_id(id: &str) -> String {
-    let mut parts: Vec<&str> = id.split('-').collect();
+    let leaf = id.rsplit('/').next().unwrap_or(id);
+    let leaf = leaf.rsplit('@').next().unwrap_or(leaf);
+    let mut parts: Vec<&str> = leaf.split('-').collect();
     if parts.len() <= 1 {
-        return id.to_string();
+        return leaf.to_string();
     }
     parts.pop();
-    let device = parts.join("-");
-    if let Some((head, tail)) = device.split_once('@') {
-        if head.parse::<i64>().is_ok() {
-            return tail.rsplit('@').next().unwrap_or(tail).to_string();
-        }
-    }
-    device
+    parts.join("-")
 }
 
 /// C++ `numId = m_id; numId.remove(m_device + "-")`.
 pub fn instance_num_id(id: &str, device: &str) -> String {
-    id.replace(&format!("{device}-"), "")
+    if !device.is_empty() {
+        let pat = format!("{device}-");
+        if id.contains(&pat) {
+            return id.replace(&pat, "");
+        }
+    }
+    if let Some((head, suffix)) = id.rsplit_once('-') {
+        if let Some((prefix, _)) = head.rsplit_once('@') {
+            return format!("{prefix}@{suffix}");
+        }
+        return suffix.to_string();
+    }
+    id.to_string()
 }
 
 fn load_packages(
@@ -568,6 +576,102 @@ fn rebuild_item(properties: &[(String, String)]) -> String {
     s
 }
 
+fn is_nested_mcu_type(typ: &str) -> bool {
+    matches!(typ, "MCU" | "Mcu" | "QemuDevice")
+}
+
+/// Returns `true` if `src` contains at least one nested MCU or QemuDevice item.
+pub fn has_nested_mcu(src: &str) -> bool {
+    for line in src.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("<item") {
+            continue;
+        }
+        let properties = parse_xml_props(trimmed);
+        if let Some(typ) = properties
+            .first()
+            .filter(|p| p.0 == "itemtype")
+            .map(|p| p.1.as_str())
+        {
+            if is_nested_mcu_type(typ) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Returns the `Program` / `program` attribute of the first nested MCU or QemuDevice item, if non-empty.
+pub fn nested_mcu_program(src: &str) -> Option<String> {
+    for line in src.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("<item") {
+            continue;
+        }
+        let properties = parse_xml_props(trimmed);
+        let Some(typ) = properties
+            .first()
+            .filter(|p| p.0 == "itemtype")
+            .map(|p| p.1.as_str())
+        else {
+            continue;
+        };
+        if !is_nested_mcu_type(typ) {
+            continue;
+        }
+        if let Some(prog) = prop(&properties, "Program")
+            .or_else(|| prop(&properties, "program"))
+            .filter(|s| !s.is_empty())
+        {
+            return Some(prog.to_string());
+        }
+    }
+    None
+}
+
+/// Updates the `Program` attribute on a matching (or first, if `target_inner_id` is `None`)
+/// nested MCU or QemuDevice `<item>` line in `src`.
+pub fn set_nested_mcu_program(src: &str, target_inner_id: Option<&str>, program: &str) -> String {
+    let mut updated = false;
+    src.lines()
+        .map(|line| {
+            if updated {
+                return line.to_string();
+            }
+            let trimmed = line.trim();
+            if !trimmed.starts_with("<item") {
+                return line.to_string();
+            }
+            let mut properties = parse_xml_props(trimmed);
+            let Some(typ) = properties
+                .first()
+                .filter(|p| p.0 == "itemtype")
+                .map(|p| p.1.as_str())
+            else {
+                return line.to_string();
+            };
+            if !is_nested_mcu_type(typ) {
+                return line.to_string();
+            }
+            if let Some(target) = target_inner_id {
+                if prop(&properties, "CircId") != Some(target) {
+                    return line.to_string();
+                }
+            }
+            if let Some((_, val)) = properties.iter_mut().find(|(k, _)| k == "Program") {
+                *val = program.to_string();
+            } else if let Some((_, val)) = properties.iter_mut().find(|(k, _)| k == "program") {
+                *val = program.to_string();
+            } else {
+                properties.push(("Program".to_string(), program.to_string()));
+            }
+            updated = true;
+            rebuild_item(&properties)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Layout used by the canvas chip, plus nested source for later flatten.
 #[derive(Clone, Debug)]
 pub struct SubcView {
@@ -669,8 +773,36 @@ mod tests {
         assert_eq!(device_from_id("vdiv-1"), "vdiv");
         assert_eq!(device_from_id("74HC00-12"), "74HC00");
         assert_eq!(device_from_id("1@74HC00-2"), "74HC00");
+        assert_eq!(device_from_id("Arduino-1@mega328-2"), "mega328");
+        assert_eq!(device_from_id("Uno-1/mega328-109"), "mega328");
         assert_eq!(instance_num_id("vdiv-1", "vdiv"), "1");
         assert_eq!(instance_num_id("1@74HC00-2", "74HC00"), "1@2");
+        assert_eq!(instance_num_id("Arduino-1", "Arduino_Uno"), "1");
+        assert_eq!(instance_num_id("1@Arduino-2", "Arduino_Uno"), "1@2");
+    }
+
+    #[test]
+    fn nested_mcu_program_helpers() {
+        let plain = "<circuit>\n<item itemtype=\"Resistor\" CircId=\"R-1\" />\n</circuit>";
+        assert!(!has_nested_mcu(plain));
+        assert_eq!(nested_mcu_program(plain), None);
+
+        let board = r#"<circuit>
+<item itemtype="Package" CircId="Package-1" />
+<item itemtype="MCU" CircId="mega328-109" Program="" />
+<item itemtype="MCU" CircId="tiny85-2" Program="aux.hex" />
+</circuit>"#;
+        assert!(has_nested_mcu(board));
+        assert_eq!(nested_mcu_program(board).as_deref(), Some("aux.hex"));
+
+        let updated = set_nested_mcu_program(board, Some("mega328-109"), "blink.hex");
+        assert_eq!(nested_mcu_program(&updated).as_deref(), Some("blink.hex"));
+        assert!(updated.contains(r#"CircId="mega328-109" Program="blink.hex""#));
+        assert!(updated.contains(r#"CircId="tiny85-2" Program="aux.hex""#));
+
+        let no_prog_attr = "<circuit>\n<item itemtype=\"Mcu\" CircId=\"mega328-1\" />\n</circuit>";
+        let inserted = set_nested_mcu_program(no_prog_attr, None, "fw.hex");
+        assert_eq!(nested_mcu_program(&inserted).as_deref(), Some("fw.hex"));
     }
 
     #[test]

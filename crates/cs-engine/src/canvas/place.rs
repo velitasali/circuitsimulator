@@ -145,6 +145,7 @@ pub enum PlaceKind {
     Image,
     Mcu,
     QemuDevice,
+    Subcircuit,
 }
 
 impl PlaceKind {
@@ -274,6 +275,7 @@ impl PlaceKind {
             Self::Image => "Image",
             Self::Mcu => "MCU",
             Self::QemuDevice => "QemuDevice",
+            Self::Subcircuit => "Subcircuit",
         }
     }
 
@@ -403,6 +405,7 @@ impl PlaceKind {
             "Image" => Some(Self::Image),
             "MCU" => Some(Self::Mcu),
             "QemuDevice" => Some(Self::QemuDevice),
+            "Subcircuit" => Some(Self::Subcircuit),
             _ => None,
         }
     }
@@ -921,6 +924,10 @@ impl Canvas {
                 .scene
                 .add_qemu(name, p.x, p.y, &self.search())
                 .is_some(),
+            PlaceKind::Subcircuit => self
+                .scene
+                .add_subcircuit(name, p.x, p.y, &self.search())
+                .is_some(),
         }
     }
 
@@ -970,7 +977,7 @@ impl Canvas {
         let mut all_specs: Vec<String> = crate::library::all_placeable_specs()
             .into_iter()
             .map(|(caption, typ)| {
-                if typ == "QemuDevice" || typ == "MCU" {
+                if typ == "QemuDevice" || typ == "MCU" || typ == "Subcircuit" {
                     format!("{caption},{typ}")
                 } else {
                     typ

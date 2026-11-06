@@ -5204,6 +5204,10 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
         <translation>Monitörü açın.</translation>
     </message>
     <message>
+        <source>Other Monitors</source>
+        <translation>Diğer Monitörler</translation>
+    </message>
+    <message>
         <location filename="../../src/microsim/mcu.cpp" line="230" />
         <source>Package</source>
         <translation>Paket</translation>

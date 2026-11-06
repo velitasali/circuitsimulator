@@ -6,6 +6,7 @@ use crate::canvas::export;
 use crate::canvas::scene::{Part, Scene};
 use crate::canvas::{Canvas, Point};
 use crate::components::ShapeKind;
+use crate::{mcu, subcircuit};
 
 #[derive(Clone, Debug)]
 pub struct MemoryItemInfo {
@@ -29,7 +30,10 @@ impl Canvas {
         if let Some(c) = self.running.as_mut() {
             if let Some(target) = target_id {
                 for (id, m) in c.mcus_mut() {
-                    if id == target || target.strip_suffix(id).is_some_and(|p| p.ends_with('/')) {
+                    if id == target
+                        || target.strip_suffix(id).is_some_and(|p| p.ends_with('/'))
+                        || id.strip_prefix(target).is_some_and(|s| s.starts_with('/'))
+                    {
                         if m.load_firmware_file(p).is_ok() {
                             m.firmware = Some(path.to_string());
                             ok = true;
@@ -67,25 +71,32 @@ impl Canvas {
         let mut target_id = uid;
         let first_id;
         if target_id.is_empty() {
-            if let Some(it) = self
-                .scene
-                .items()
-                .iter()
-                .find(|it| matches!(it.kind, Part::Mcu(_) | Part::QemuDevice(_)))
-            {
+            if let Some(it) = self.scene.items().iter().find(|it| match &it.kind {
+                Part::Mcu(_) | Part::QemuDevice(_) => true,
+                Part::Subcircuit(s) => subcircuit::has_nested_mcu(&s.nested_src),
+                _ => false,
+            }) {
                 first_id = it.id.clone();
                 target_id = &first_id;
             }
         }
         let resolved = self.resolve_item_uid(target_id);
         let target_id = resolved.as_str();
+        let base_id = target_id
+            .split_once('/')
+            .map(|(b, _)| b)
+            .unwrap_or(target_id);
 
-        if let Some(it) = self.scene.item_by_id(target_id) {
+        if let Some(it) = self
+            .scene
+            .item_by_id(target_id)
+            .or_else(|| self.scene.item_by_id(base_id))
+        {
             match &it.kind {
                 Part::Mcu(mcu) => {
                     return mcu.mcu.firmware.as_ref().and_then(|prog| {
                         let dir = mcu.mcu.firmware_dir.as_deref().or(circuit_dir);
-                        crate::mcu::resolve_firmware(dir, prog)
+                        mcu::resolve_firmware(dir, prog)
                     });
                 }
                 Part::QemuDevice(qemu) => {
@@ -93,10 +104,19 @@ impl Canvas {
                         return None;
                     }
                     let dir = qemu.qemu.firmware_dir.as_deref().or(circuit_dir);
-                    return crate::mcu::resolve_firmware(dir, &qemu.qemu.firmware).or_else(|| {
+                    return mcu::resolve_firmware(dir, &qemu.qemu.firmware).or_else(|| {
                         let p = std::path::PathBuf::from(&qemu.qemu.firmware);
                         if p.exists() { Some(p) } else { None }
                     });
+                }
+                Part::Subcircuit(subc) => {
+                    let prog = if !subc.program.is_empty() {
+                        Some(subc.program.clone())
+                    } else {
+                        subcircuit::nested_mcu_program(&subc.nested_src)
+                    }?;
+                    let dir = subc.firmware_dir.as_deref().or(circuit_dir);
+                    return mcu::resolve_firmware(dir, &prog);
                 }
                 _ => {}
             }
@@ -112,14 +132,14 @@ impl Canvas {
                     crate::elements::Kind::Mcu(mcu) => {
                         let prog = mcu.firmware.as_deref()?;
                         let dir = mcu.firmware_dir.as_deref().or(circuit_dir);
-                        return crate::mcu::resolve_firmware(dir, prog);
+                        return mcu::resolve_firmware(dir, prog);
                     }
                     crate::elements::Kind::QemuDevice(qemu) => {
                         if qemu.firmware.is_empty() {
                             return None;
                         }
                         let dir = qemu.firmware_dir.as_deref().or(circuit_dir);
-                        return crate::mcu::resolve_firmware(dir, &qemu.firmware);
+                        return mcu::resolve_firmware(dir, &qemu.firmware);
                     }
                     _ => {}
                 }
@@ -131,7 +151,7 @@ impl Canvas {
                 if id == target_id || target_id.strip_suffix(id).is_some_and(|p| p.ends_with('/')) {
                     let prog = m.firmware.as_deref()?;
                     let dir = m.firmware_dir.as_deref().or(circuit_dir);
-                    return crate::mcu::resolve_firmware(dir, prog);
+                    return mcu::resolve_firmware(dir, prog);
                 }
             }
         }
@@ -189,7 +209,16 @@ impl Canvas {
             self.history.undo.pop();
             return c;
         }
-        if let Some(it) = self.scene.item_by_id_mut(&uid) {
+        let (base_id, inner_id) = uid
+            .split_once('/')
+            .map(|(b, i)| (b, Some(i)))
+            .unwrap_or((&uid, None));
+        let lookup_id = if self.scene.item_by_id(&uid).is_some() {
+            uid.as_str()
+        } else {
+            base_id
+        };
+        if let Some(it) = self.scene.item_by_id_mut(lookup_id) {
             match &mut it.kind {
                 Part::Mcu(mcu) => {
                     mcu.mcu.firmware = Some(rel);
@@ -198,6 +227,14 @@ impl Canvas {
                 Part::QemuDevice(qemu) => {
                     qemu.qemu.firmware = rel;
                     qemu.qemu.firmware_dir = firm_dir;
+                }
+                Part::Subcircuit(subc) => {
+                    subc.program = rel.clone();
+                    subc.firmware_dir = firm_dir;
+                    if !subc.nested_src.is_empty() {
+                        subc.nested_src =
+                            subcircuit::set_nested_mcu_program(&subc.nested_src, inner_id, &rel);
+                    }
                 }
                 _ => {}
             }
@@ -799,12 +836,16 @@ impl Canvas {
     }
 
     pub fn selected_has_firmware(&self) -> bool {
-        let Some(it) = self.selected_or_nested_mcu() else {
+        let Some(it) = self.scene.items().iter().find(|it| it.selected) else {
             return false;
         };
         match &it.kind {
             Part::Mcu(mcu) => mcu.mcu.firmware.is_some(),
             Part::QemuDevice(qemu) => !qemu.qemu.firmware.is_empty(),
+            Part::Subcircuit(subc) => {
+                !subc.program.is_empty()
+                    || subcircuit::nested_mcu_program(&subc.nested_src).is_some()
+            }
             _ => false,
         }
     }
@@ -835,10 +876,12 @@ impl Canvas {
         let devices = self
             .scene
             .collect_programmable_devices(&self.search(), None);
+        let child_prefix = format!("{}/", it.id);
         devices
-            .into_iter()
-            .find(|d| d.label.starts_with(&it.label) || d.id.contains(&it.id))
-            .map(|d| d.uid)
+            .iter()
+            .find(|d| d.id == it.id || d.id.starts_with(&child_prefix))
+            .or_else(|| devices.iter().find(|d| d.label.starts_with(&it.label)))
+            .map(|d| d.uid.clone())
     }
 
     /// Load a WAV file into a WaveGen item. C++ `WaveGen::slotLoad` / `WaveGen::setFile`.

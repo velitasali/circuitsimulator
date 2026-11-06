@@ -2,7 +2,7 @@
 
 use super::host::CpuHost;
 use super::{Cpu, Device};
-use crate::dataspace::{DataSpace, Watch};
+use crate::dataspace::{DataSpace, Watch, Watcher};
 use crate::desc::{ConfigSpec, CoreKind};
 
 pub(crate) fn watch_config(data: &mut DataSpace, cfg: &ConfigSpec, a: Watch, b: Watch, c: Watch) {
@@ -35,16 +35,16 @@ pub(crate) fn watch_config(data: &mut DataSpace, cfg: &ConfigSpec, a: Watch, b: 
 impl CpuHost {
     pub(crate) fn read_reg(&mut self, addr: u16) -> u8 {
         let v = self.data.get(addr);
-        let mut fired = [crate::dataspace::Watcher {
+        let mut fired = [Watcher {
             watch: Watch::PortOut(0),
             mask: 0,
-        }; 4];
+        }; 16];
         let n = {
             let ws = self.data.read_watchers(addr);
             if ws.is_empty() {
                 return v;
             }
-            let n = ws.len().min(4);
+            let n = ws.len().min(16);
             fired[..n].copy_from_slice(&ws[..n]);
             n
         };
@@ -59,17 +59,17 @@ impl CpuHost {
     }
 
     pub(crate) fn write_reg(&mut self, addr: u16, v: u8, masked: bool) {
-        let mut fired = [crate::dataspace::Watcher {
+        let mut fired = [Watcher {
             watch: Watch::PortOut(0),
             mask: 0,
-        }; 4];
+        }; 16];
         let n = {
             let ws = self.data.write_watchers(addr);
             if ws.is_empty() {
                 self.data.write_reg_val(addr, v, masked);
                 return;
             }
-            let n = ws.len().min(4);
+            let n = ws.len().min(16);
             fired[..n].copy_from_slice(&ws[..n]);
             n
         };

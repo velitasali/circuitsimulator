@@ -224,7 +224,7 @@ fn test_all_components_prop_groups_are_readable() {
     let mut canvas = Canvas::empty();
     let specs = cs_engine::library::all_placeable_specs();
     for (caption, typ) in &specs {
-        let spec = if typ == "QemuDevice" || typ == "MCU" {
+        let spec = if typ == "QemuDevice" || typ == "MCU" || typ == "Subcircuit" {
             format!("{caption},{typ}")
         } else {
             typ.clone()

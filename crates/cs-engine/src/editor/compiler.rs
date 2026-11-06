@@ -2,6 +2,7 @@
 //! C++ `Compiler::loadCompiler` / `compile` / `replaceData`.
 
 use std::collections::BTreeMap;
+use std::env;
 use std::io::BufRead;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -1092,6 +1093,19 @@ pub fn load_compilers(settings: &AppSettings) -> BTreeMap<String, CompilerSpec> 
         dirs.push(root.join("compilers/compilers"));
         dirs.push(root.join("compilers/assemblers"));
     }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            for rel in [
+                "data/codeeditor",
+                "../Resources/data/codeeditor",
+                "../data/codeeditor",
+            ] {
+                let base = exe_dir.join(rel);
+                dirs.push(base.join("compilers/compilers"));
+                dirs.push(base.join("compilers/assemblers"));
+            }
+        }
+    }
     dirs.push(PathBuf::from(
         "resources/data/codeeditor/compilers/compilers",
     ));
@@ -1099,6 +1113,7 @@ pub fn load_compilers(settings: &AppSettings) -> BTreeMap<String, CompilerSpec> 
         "resources/data/codeeditor/compilers/assemblers",
     ));
     dirs.push(PathBuf::from("data/codeeditor/compilers/compilers"));
+    dirs.push(PathBuf::from("data/codeeditor/compilers/assemblers"));
     for d in &dirs {
         load_dir(&mut map, d);
     }

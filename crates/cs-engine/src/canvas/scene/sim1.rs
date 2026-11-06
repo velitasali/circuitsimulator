@@ -8,6 +8,7 @@ use crate::canvas::geom::Point;
 use crate::canvas::wire::Wire;
 use crate::circ1;
 use crate::components::*;
+use crate::subcircuit;
 
 fn remap_pin(pin: &str, map: &std::collections::HashMap<String, String>) -> String {
     for (old, new) in map {
@@ -302,7 +303,8 @@ impl Scene {
                     qemu.qemu = view.qemu;
                 }
                 Part::Subcircuit(subc) => {
-                    if let Ok(view) = crate::subcircuit::load_view(
+                    subc.firmware_dir = search.circuit_dir.clone();
+                    if let Ok(view) = subcircuit::load_view(
                         &item.id,
                         &subc.device,
                         search,
@@ -311,9 +313,26 @@ impl Scene {
                     ) {
                         subc.package = view.package;
                         subc.packages = view.packages;
-                        subc.nested_src = view.nested_src;
                         subc.nested_path = view.nested_path;
                         subc.logic_symbol = view.logic_symbol;
+                        if !subc.program.is_empty() {
+                            subc.nested_src = subcircuit::set_nested_mcu_program(
+                                &view.nested_src,
+                                None,
+                                &subc.program,
+                            );
+                        } else {
+                            subc.nested_src = view.nested_src;
+                            if let Some(prog) = subcircuit::nested_mcu_program(&subc.nested_src) {
+                                subc.program = prog;
+                            }
+                        }
+                    } else if !subc.program.is_empty() && !subc.nested_src.is_empty() {
+                        subc.nested_src = subcircuit::set_nested_mcu_program(
+                            &subc.nested_src,
+                            None,
+                            &subc.program,
+                        );
                     }
                 }
                 Part::WaveGen(wg) => {

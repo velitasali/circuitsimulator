@@ -461,11 +461,28 @@ impl Library {
         last
     }
 
-    /// Add MCU family entries from itemlib XML (C++ `loadXml` type="MCU").
+    /// Add MCU and Subcircuit entries from itemlib XML (C++ `loadXml`).
     pub fn add_catalog_mcus(&mut self, catalog: &crate::catalog::Catalog) {
-        for item in catalog.mcu_items() {
+        for item in catalog.items() {
+            let (kind, comp_type, aliases) = match item.typ.as_str() {
+                "MCU" => (
+                    PlaceKind::Mcu,
+                    "MCU",
+                    vec![
+                        "MCU".into(),
+                        "Microcontroller".into(),
+                        item.category.clone(),
+                    ],
+                ),
+                "Subcircuit" => (
+                    PlaceKind::Subcircuit,
+                    "Subcircuit",
+                    vec!["Subcircuit".into(), item.category.clone()],
+                ),
+                _ => continue,
+            };
             if self.items.iter().any(|i| {
-                i.item_type == TYPE_COMPONENT && i.caption == item.name && i.comp_type == "MCU"
+                i.item_type == TYPE_COMPONENT && i.caption == item.name && i.comp_type == comp_type
             }) {
                 continue;
             }
@@ -475,15 +492,11 @@ impl Library {
                 caption: item.name.clone(),
                 parent,
                 item_type: TYPE_COMPONENT,
-                comp_type: "MCU".into(),
-                kind: Some(PlaceKind::Mcu),
+                comp_type: comp_type.into(),
+                kind: Some(kind),
                 expanded: false,
                 icon: "ic2.svg".into(),
-                aliases: vec![
-                    "MCU".into(),
-                    "Microcontroller".into(),
-                    item.category.clone(),
-                ],
+                aliases,
             });
         }
     }

@@ -64,6 +64,24 @@ if [ "$CONFIG" = "release" ] && command -v strip >/dev/null 2>&1; then
     strip --strip-debug "$APPDIR/usr/bin/circuitsimulator"
 fi
 
+# Bundle QEMU co-simulation binary if built locally
+QEMU_EXE="$ROOT/resources/qemu-cosim/build/out/qemu-system-xtensa"
+if [ -f "$QEMU_EXE" ]; then
+    echo "Copying QEMU co-simulation binary to AppDir..."
+    mkdir -p "$APPDIR/usr/data/bin"
+    cp "$QEMU_EXE" "$APPDIR/usr/data/bin/qemu-system-xtensa"
+    chmod +x "$APPDIR/usr/data/bin/qemu-system-xtensa"
+    for rom_dir in \
+        "$ROOT/resources/qemu-cosim/build/out/qemu-bundle/qemu/share" \
+        "$ROOT/resources/qemu-cosim/build/src/pc-bios"
+    do
+        if [ -f "$rom_dir/esp32-v3-rom.bin" ]; then
+            cp "$rom_dir"/esp32-v3-rom*.bin "$APPDIR/usr/data/bin/"
+            break
+        fi
+    done
+fi
+
 # Configure Qt discovery for linuxdeploy-plugin-qt when QT_ROOT or qmake is available.
 if [ -n "${QT_ROOT:-}" ] && [ -x "$QT_ROOT/bin/qmake" ]; then
     PATH="$QT_ROOT/bin:$PATH"

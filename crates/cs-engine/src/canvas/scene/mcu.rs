@@ -4,6 +4,7 @@ use super::Scene;
 use super::item::{Item, ProgrammableDevice};
 use crate::Circuit;
 use crate::components::Part;
+use crate::subcircuit;
 
 impl Scene {
     pub fn hidden_mcu_snap(&self) -> crate::mcu::McuSnap {
@@ -294,17 +295,35 @@ impl Scene {
         if !path.is_file() {
             return false;
         }
+        let path_str = path.to_string_lossy().into_owned();
         if let Some(target) = target_device_id {
+            let (subc_target, inner_target) = target
+                .split_once('/')
+                .map(|(s, i)| (s, Some(i)))
+                .unwrap_or((target, None));
             for it in &mut self.items {
                 if it.id == target {
                     if let Part::Mcu(mcu) = &mut it.kind {
                         if mcu.mcu.load_firmware_file(path).is_ok() {
-                            mcu.mcu.firmware = Some(path.to_string_lossy().into_owned());
+                            mcu.mcu.firmware = Some(path_str);
                             return true;
                         }
                     } else if let Part::QemuDevice(qemu) = &mut it.kind {
-                        qemu.qemu.firmware = path.to_string_lossy().into_owned();
+                        qemu.qemu.firmware = path_str;
                         return true;
+                    }
+                }
+                if it.id == subc_target {
+                    if let Part::Subcircuit(subc) = &mut it.kind {
+                        if subcircuit::has_nested_mcu(&subc.nested_src) {
+                            subc.program = path_str.clone();
+                            subc.nested_src = subcircuit::set_nested_mcu_program(
+                                &subc.nested_src,
+                                inner_target,
+                                &path_str,
+                            );
+                            return true;
+                        }
                     }
                 }
             }
@@ -312,7 +331,7 @@ impl Scene {
                 if c.id == target || target.strip_suffix(&c.id).is_some_and(|p| p.ends_with('/')) {
                     if let crate::elements::Kind::Mcu(mcu) = &mut c.kind {
                         if mcu.load_firmware_file(path).is_ok() {
-                            mcu.firmware = Some(path.to_string_lossy().into_owned());
+                            mcu.firmware = Some(path_str);
                             return true;
                         }
                     }
@@ -322,7 +341,14 @@ impl Scene {
         for it in &mut self.items {
             if let Part::Mcu(mcu) = &mut it.kind {
                 if mcu.mcu.load_firmware_file(path).is_ok() {
-                    mcu.mcu.firmware = Some(path.to_string_lossy().into_owned());
+                    mcu.mcu.firmware = Some(path_str);
+                    return true;
+                }
+            } else if let Part::Subcircuit(subc) = &mut it.kind {
+                if subcircuit::has_nested_mcu(&subc.nested_src) {
+                    subc.program = path_str.clone();
+                    subc.nested_src =
+                        subcircuit::set_nested_mcu_program(&subc.nested_src, None, &path_str);
                     return true;
                 }
             }

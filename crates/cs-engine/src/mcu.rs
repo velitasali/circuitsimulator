@@ -233,6 +233,12 @@ impl McuComp {
             .collect();
     }
 
+    /// Rebinds logical/serial identity without altering electrical pin IDs.
+    pub fn set_serial_id(&mut self, id: &str) {
+        self.device.id = id.to_string();
+        self.refresh_cached_port_ids();
+    }
+
     pub fn update_node_indices(&mut self, pin_net: &rustc_hash::FxHashMap<String, usize>) {
         self.node_indices = self
             .pins

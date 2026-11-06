@@ -5172,6 +5172,10 @@ Can't find file:
         <translation>Open Monitor.</translation>
     </message>
     <message>
+        <source>Other Monitors</source>
+        <translation>Other Monitors</translation>
+    </message>
+    <message>
         <location filename="../../src/microsim/mcu.cpp" line="529" />
         <source>All files (*.*);;Hex Files (*.hex)</source>
         <translation>All files (*.*);;Hex Files (*.hex)</translation>

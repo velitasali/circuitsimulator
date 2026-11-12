@@ -75,9 +75,9 @@ CircuitSimulator/
 ### Prerequisites
 
 - **Rust Toolchain**: Rust 2024 edition (Rust 1.85 or later) — [rustup.rs](https://rustup.rs)
-- **Qt 6**: Qt Core, Gui, Quick, Qml development packages along with build tools (`moc`, `rcc`, `qsb`, `qmake`)
+- **Qt 6**: Qt 6.9+ (CI builds with Qt 6.10.3) Core, Gui, Quick, Qml development packages along with `qtshadertools` (`moc`, `rcc`, `qsb`, `qmake`). On Linux, if building against distribution Qt packages rather than the Qt installer, also install private headers and shader baker (e.g., `qt6-base-private-dev` and `qt6-shader-baker` on Debian/Ubuntu)
 - **C++ Compiler**: A C++17 compatible compiler (Clang, GCC, or MSVC)
-- **Host Dependencies (Linux)**: `pkg-config`, `libasound2-dev` (ALSA), `libudev-dev`
+- **Host Dependencies (Linux)**: `pkg-config`, `libasound2-dev` (ALSA), `libudev-dev`, `libvulkan-dev`
 
 ### Build Instructions
 
@@ -92,6 +92,17 @@ cargo build -p cs-app --release
 # Run the application
 cargo run -p cs-app --release
 ```
+
+### Linux AppImage & Debian Package
+
+To build a standalone Linux AppImage and `.deb` package (requires `linuxdeploy` / `linuxdeploy-plugin-qt` / `appimagetool` on `PATH` for the AppImage, and `dpkg-deb` for the `.deb`):
+
+```sh
+cargo build -p cs-app --release
+QT_ROOT="$HOME/Qt/6.10.3/gcc_64" ./scripts/linux/package.sh release
+```
+
+Outputs are written to `dist/linux/`.
 
 ### macOS Application Bundle
 

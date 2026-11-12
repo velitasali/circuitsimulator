@@ -28,7 +28,7 @@ jobs:
       matrix:
         include:
           - name: Ubuntu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             qt-arch: linux_gcc_64
           - name: Windows
             os: windows-latest
@@ -155,7 +155,7 @@ jobs:
       - name: Build release binary
         run: cargo build --release -p cs-app
 
-      - name: Package Linux AppImage
+      - name: Package Linux AppImage & Debian Package
         if: runner.os == 'Linux'
         env:
           APPIMAGE_EXTRACT_AND_RUN: "1"
@@ -168,6 +168,7 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           sh ./scripts/linux/package.sh release
           cp dist/linux/CircuitSimulator-x86_64.AppImage release-assets/CircuitSimulator-x86_64.AppImage
+          cp dist/linux/circuitsimulator_*.deb release-assets/
 
       - name: Package Windows Installer & Portable Archive
         if: runner.os == 'Windows'

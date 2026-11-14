@@ -26,6 +26,7 @@ mod tab_switcher;
 mod vello_preview;
 
 use std::env;
+#[cfg(windows)]
 use std::fs;
 use std::io;
 use std::process;

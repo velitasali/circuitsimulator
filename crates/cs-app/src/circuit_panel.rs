@@ -523,6 +523,13 @@ impl CircuitPanel {
     }
 
     #[qslot]
+    fn set_top_inset(&mut self, inset: f64) {
+        if self.overlays.set_top_inset(inset.round() as i32) {
+            self.overlay_layout_changed();
+        }
+    }
+
+    #[qslot]
     fn set_toolbar_size(&mut self, w: f64, h: f64) {
         if self
             .overlays

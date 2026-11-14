@@ -162,6 +162,19 @@ fn compile_theme() {
         build.include(&p);
         build.include(p.join("QtCore"));
         build.include(p.join("QtGui"));
+        build.include(p.join("QtQml"));
+        build.include(p.join("QtQuick"));
+        if let Some(rhi) = qtgui_rhi_header_include(&p) {
+            if let Some(priv_root) = rhi.parent() {
+                build.include(priv_root);
+                if let Some(ver) = priv_root.file_name() {
+                    let core_priv = p.join("QtCore").join(ver);
+                    build.include(&core_priv);
+                    build.include(core_priv.join("QtCore"));
+                }
+            }
+            build.include(rhi);
+        }
     }
 
     build.compile("cs_theme");
@@ -173,6 +186,7 @@ fn compile_theme() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         println!("cargo:rustc-link-lib=dwmapi");
         println!("cargo:rustc-link-lib=user32");
+        println!("cargo:rustc-link-lib=shell32");
     }
 }
 
@@ -316,6 +330,9 @@ fn compile_canvas_item() {
             build.include(rhi);
         }
     }
+    if os == "linux" {
+        add_vulkan_includes(&mut build);
+    }
 
     build.compile("cs_canvas_item");
 
@@ -373,13 +390,75 @@ fn qtgui_rhi_header_include(inc: &Path) -> Option<PathBuf> {
     None
 }
 
-fn qmake_query(key: &str) -> Option<String> {
-    let out = Command::new("qmake").args(["-query", key]).output().ok()?;
+fn qmake_raw(bin: &str, key: &str) -> Option<String> {
+    let out = Command::new(bin).args(["-query", key]).output().ok()?;
     if !out.status.success() {
         return None;
     }
-    let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    let s = String::from_utf8(out.stdout).ok()?;
+    let s = s.trim().to_string();
     if s.is_empty() { None } else { Some(s) }
+}
+
+fn qmake_bin() -> Option<&'static str> {
+    use std::sync::OnceLock;
+    static BIN: OnceLock<Option<String>> = OnceLock::new();
+    BIN.get_or_init(|| {
+        // qmake6 before qmake: a Qt 5 qmake is often earlier on PATH.
+        for bin in ["qmake6", "qmake"] {
+            let Some(version) = qmake_raw(bin, "QT_VERSION") else {
+                continue;
+            };
+            if version.starts_with("6.") {
+                return Some(bin.to_string());
+            }
+        }
+        None
+    })
+    .as_deref()
+}
+
+fn qmake_query(key: &str) -> Option<String> {
+    qmake_raw(qmake_bin()?, key)
+}
+
+fn add_vulkan_includes(build: &mut cc::Build) {
+    println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
+    if let Ok(out) = Command::new("pkg-config")
+        .args(["--cflags-only-I", "vulkan"])
+        .output()
+        && out.status.success()
+        && let Ok(text) = String::from_utf8(out.stdout)
+    {
+        for token in text.split_whitespace() {
+            let Some(dir) = token.strip_prefix("-I") else {
+                continue;
+            };
+            let path = PathBuf::from(dir);
+            if path.join("vulkan/vulkan.h").is_file() {
+                build.include(path);
+                return;
+            }
+        }
+    }
+    // The loader .pc can name an includedir that has no vulkan.h. Search these
+    // after the system headers so they cannot shadow a distro copy.
+    println!("cargo:rerun-if-env-changed=VULKAN_SDK");
+    println!("cargo:rerun-if-env-changed=HOME");
+    let mut candidates = Vec::new();
+    if let Ok(sdk) = std::env::var("VULKAN_SDK") {
+        candidates.push(PathBuf::from(sdk).join("include"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(PathBuf::from(home).join(".local/include"));
+    }
+    for dir in candidates {
+        if dir.join("vulkan/vulkan.h").is_file() {
+            build.flag("-idirafter");
+            build.flag(dir);
+            return;
+        }
+    }
 }
 
 fn compile_stamp() -> (String, String) {
@@ -429,6 +508,8 @@ fn compile_resources() {
     qrc.push_str("  <qresource prefix=\"/qt/qml/cs_app\">\n");
     let qml_files = [
         "Main.qml",
+        "TitleBar.qml",
+        "WindowResizeHandles.qml",
         "AppWindow.qml",
         "about.qml",
         "examples.qml",

@@ -151,6 +151,7 @@ pub struct Overlays {
     editor_pos: (i32, i32),
     editor_cluster_right: bool,
     toolbar_pos: (i32, i32),
+    top_inset: i32,
     order: Vec<OverlayId>,
     gesture: Gesture,
     snapshot: OverlaySnapshot,
@@ -177,6 +178,7 @@ impl Default for Overlays {
             editor_pos: (-1, -1),
             editor_cluster_right: false,
             toolbar_pos: (-1, -1),
+            top_inset: 0,
             order: vec![
                 OverlayId::SidePanel,
                 OverlayId::EditorPanel,
@@ -238,6 +240,16 @@ impl Overlays {
         }
         self.view_w = w;
         self.view_h = h;
+        self.relayout();
+        true
+    }
+
+    pub fn set_top_inset(&mut self, inset: i32) -> bool {
+        let inset = inset.max(0);
+        if self.top_inset == inset {
+            return false;
+        }
+        self.top_inset = inset;
         self.relayout();
         true
     }
@@ -510,6 +522,7 @@ impl Overlays {
         let dx = x - self.gesture.start_mouse.0;
         let dy = y - self.gesture.start_mouse.1;
         let margin = OVERLAY_MARGIN;
+        let top_min = margin + self.top_inset;
         let view_w = self.view_w;
         let view_h = self.view_h;
         let g = self.gesture.clone();
@@ -546,9 +559,9 @@ impl Overlays {
                 // a rejected height used to restore the drag-start top, so
                 // shrinking past the minimum jumped the panel to where the
                 // drag began (the top, for a panel that started there).
-                let h = clamp_i(g.start_h - dy, MIN_PANEL, view_h - margin);
+                let h = clamp_i(g.start_h - dy, MIN_PANEL, view_h - top_min);
                 *height = h;
-                p.1 = (g.start_pos.1 + g.start_h - h).max(margin);
+                p.1 = (g.start_pos.1 + g.start_h - h).max(top_min);
             }
             if left || top {
                 *panel_pos = p;
@@ -645,11 +658,12 @@ fn fitted_panel(
     default_anchor: bool,
     pos_y: i32,
     stored_h: i32,
+    top_min: i32,
     margin: i32,
     view_h: i32,
 ) -> (i32, i32) {
-    let bounds_h = (view_h - 2 * margin).max(0);
     let bottom = view_h - margin;
+    let bounds_h = (bottom - top_min).max(0);
 
     if default_anchor || stored_h <= 0 {
         let h = if stored_h > 0 {
@@ -658,18 +672,18 @@ fn fitted_panel(
             bounds_h
         };
         let y = if default_anchor {
-            margin
+            top_min
         } else {
-            clamp_i(pos_y, margin, margin.max(bottom - h))
+            clamp_i(pos_y, top_min, top_min.max(bottom - h))
         };
         return (y, h);
     }
 
     if bounds_h == 0 {
-        return (margin, 0);
+        return (top_min, 0);
     }
 
-    let y = pos_y.clamp(margin, bottom.max(margin));
+    let y = pos_y.clamp(top_min, bottom.max(top_min));
     let room = (bottom - y).max(0);
     let h = stored_h.min(bounds_h).min(room);
     (y, h)
@@ -677,6 +691,7 @@ fn fitted_panel(
 
 fn layout(s: &Overlays) -> OverlaySnapshot {
     let margin = OVERLAY_MARGIN;
+    let top_min = margin + s.top_inset;
     let btn = HANDLE_BTN;
     let gap = HANDLE_GAP;
 
@@ -684,7 +699,14 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
     let ep_default = s.editor_pos.0 < 0;
 
     let sp_w = s.side_w;
-    let (sp_py, sp_h) = fitted_panel(sp_default, s.side_pos.1, s.side_h, margin, s.view_h);
+    let (sp_py, sp_h) = fitted_panel(
+        sp_default,
+        s.side_pos.1,
+        s.side_h,
+        top_min,
+        margin,
+        s.view_h,
+    );
     let sp_px = if sp_default {
         margin
     } else {
@@ -693,7 +715,14 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
     };
 
     let ep_w = s.editor_w;
-    let (ep_py, ep_h) = fitted_panel(ep_default, s.editor_pos.1, s.editor_h, margin, s.view_h);
+    let (ep_py, ep_h) = fitted_panel(
+        ep_default,
+        s.editor_pos.1,
+        s.editor_h,
+        top_min,
+        margin,
+        s.view_h,
+    );
     let ep_px = if ep_default {
         s.view_w - margin - ep_w
     } else {
@@ -705,13 +734,13 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
     let tb_h = s.toolbar_h;
     let (tb_x, tb_y) = if s.toolbar_pos.0 >= 0 {
         let max_x = margin.max(s.view_w - margin - tb_w);
-        let max_y = margin.max(s.view_h - margin - tb_h);
+        let max_y = top_min.max(s.view_h - margin - tb_h);
         (
             clamp_i(s.toolbar_pos.0, margin, max_x),
-            clamp_i(s.toolbar_pos.1, margin, max_y),
+            clamp_i(s.toolbar_pos.1, top_min, max_y),
         )
     } else {
-        ((s.view_w - tb_w) / 2, margin)
+        ((s.view_w - tb_w) / 2, top_min)
     };
 
     let ic_w = s.info_w;
@@ -720,9 +749,9 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
     let mut ic_y = tb_y + tb_h + 4;
     {
         let max_x = margin.max(s.view_w - margin - ic_w);
-        let max_y = margin.max(s.view_h - margin - ic_h);
+        let max_y = top_min.max(s.view_h - margin - ic_h);
         ic_x = clamp_i(ic_x, margin, max_x);
-        ic_y = clamp_i(ic_y, margin, max_y);
+        ic_y = clamp_i(ic_y, top_min, max_y);
     }
 
     let mut rects = OverlaySnapshot::default();
@@ -847,7 +876,7 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
         } else {
             s.view_w - margin - btn
         };
-        put(&mut rects, "spToggle", x, margin, btn, btn);
+        put(&mut rects, "spToggle", x, top_min, btn, btn);
     }
 
     let ep_hx = cluster_x(ep_px, ep_w, s.editor_cluster_right, gap, btn);
@@ -860,7 +889,7 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
         } else {
             s.view_w - margin - btn
         };
-        put(&mut rects, "epToggle", x, margin, btn, btn);
+        put(&mut rects, "epToggle", x, top_min, btn, btn);
     }
 
     rects.put_flag("sidePanelVisible", s.side_shown);
@@ -1137,5 +1166,34 @@ mod tests {
         // Toggle expands editor panel back
         assert!(o.toggle_active_overlay());
         assert!(o.editor_shown());
+    }
+
+    #[test]
+    fn top_inset_reserves_top_strip_for_all_overlays() {
+        let mut o = sized();
+        assert!(o.set_top_inset(32));
+        assert!(!o.set_top_inset(32));
+
+        let top_min = OVERLAY_MARGIN + 32;
+        let sp = o.snapshot().rect("sidePanel");
+        assert_eq!(sp.y, top_min);
+        assert_eq!(sp.h, 800 - top_min - OVERLAY_MARGIN);
+
+        let tb = o.snapshot().rect("toolbar");
+        assert_eq!(tb.y, top_min);
+
+        let ep_toggle = o.snapshot().rect("epToggle");
+        assert_eq!(ep_toggle.y, top_min);
+
+        o.set_editor_shown(true);
+        let ep = o.snapshot().rect("editorPanel");
+        assert_eq!(ep.y, top_min);
+        assert_eq!(ep.h, 800 - top_min - OVERLAY_MARGIN);
+
+        // Dragging toolbar above top_min stays clamped below the reserved strip.
+        o.gesture_begin("toolbar", tb.x + 10, tb.y + 10);
+        o.gesture_move(tb.x + 10, 0);
+        o.gesture_end();
+        assert_eq!(o.snapshot().rect("toolbar").y, top_min);
     }
 }

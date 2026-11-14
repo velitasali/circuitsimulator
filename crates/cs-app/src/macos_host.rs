@@ -33,6 +33,8 @@ unsafe extern "C" {
     fn cs_macos_init_process(name: *const c_char);
     fn cs_macos_setup_window();
     fn cs_macos_set_titlebar_dark(dark: i32);
+    fn cs_macos_titlebar_mouse_down();
+    fn cs_macos_titlebar_leading_inset() -> i32;
     fn cs_macos_apply_theme(theme_name: *const c_char) -> i32;
     fn cs_macos_apply_app_icon(path: *const c_char);
     fn cs_macos_set_menu_callbacks(
@@ -64,6 +66,22 @@ pub fn setup_window() {
     unsafe {
         cs_macos_setup_window();
     }
+}
+
+pub fn titlebar_mouse_down() {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        cs_macos_titlebar_mouse_down();
+    }
+}
+
+pub fn titlebar_leading_inset() -> i32 {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        return cs_macos_titlebar_leading_inset();
+    }
+    #[cfg(not(target_os = "macos"))]
+    0
 }
 
 pub fn beep() {

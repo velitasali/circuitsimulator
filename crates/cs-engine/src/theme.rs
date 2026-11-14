@@ -131,6 +131,12 @@ pub enum ColorId {
     LaChannel6,
     LaChannel7,
     LaChannel8,
+    TitlebarCloseHoverBg,
+    TitlebarCloseHoverText,
+    /// Active drop shadow. Alpha 107/255 matches the previous 0.42 opacity.
+    WindowShadow,
+    /// Inactive drop shadow. Alpha 56/255 matches the previous 0.22 opacity.
+    WindowShadowInactive,
 }
 
 pub struct ColorTheme;
@@ -281,6 +287,10 @@ impl ColorTheme {
                 ColorId::LaChannel6 => (52, 152, 219, 255),
                 ColorId::LaChannel7 => (155, 89, 182, 255),
                 ColorId::LaChannel8 => (236, 240, 241, 255),
+                ColorId::TitlebarCloseHoverBg => (196, 43, 28, 255),
+                ColorId::TitlebarCloseHoverText => (255, 255, 255, 255),
+                ColorId::WindowShadow => (0, 0, 0, 107),
+                ColorId::WindowShadowInactive => (0, 0, 0, 56),
             }
         } else {
             match c {
@@ -393,6 +403,10 @@ impl ColorTheme {
                 ColorId::LaChannel6 => (52, 152, 219, 255),
                 ColorId::LaChannel7 => (155, 89, 182, 255),
                 ColorId::LaChannel8 => (236, 240, 241, 255),
+                ColorId::TitlebarCloseHoverBg => (196, 43, 28, 255),
+                ColorId::TitlebarCloseHoverText => (255, 255, 255, 255),
+                ColorId::WindowShadow => (0, 0, 0, 107),
+                ColorId::WindowShadowInactive => (0, 0, 0, 56),
             }
         }
     }
@@ -550,6 +564,18 @@ mod tests {
         let dark_hover = ColorTheme::get_rgba(ColorId::ItemHovered, true);
         assert_eq!(dark_hover, (110, 190, 255, 255));
         assert_eq!(ColorTheme::get_hex(ColorId::ItemHovered, true), "#6ebeff");
+    }
+
+    #[test]
+    fn window_shadow_keeps_qt_alpha() {
+        assert_eq!(
+            ColorTheme::get_hex(ColorId::WindowShadow, false),
+            "#6b000000"
+        );
+        assert_eq!(
+            ColorTheme::get_hex(ColorId::WindowShadowInactive, true),
+            "#38000000"
+        );
     }
 
     #[test]

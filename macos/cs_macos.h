@@ -19,6 +19,10 @@ void cs_macos_refresh_touchbar(void);
 void cs_macos_init_process(const char* name);
 void cs_macos_setup_window(void);
 void cs_macos_set_titlebar_dark(int dark);
+/* Drag the main window, or zoom it when this event is a double-click. */
+void cs_macos_titlebar_mouse_down(void);
+/* Left margin, in points, that clears the traffic lights. 8 in fullscreen. */
+int cs_macos_titlebar_leading_inset(void);
 int cs_macos_apply_theme(const char* theme_name);
 
 void cs_macos_apply_app_icon(const char* path);

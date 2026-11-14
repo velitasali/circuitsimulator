@@ -165,7 +165,7 @@ QSGNode *CircuitCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
 }
 
 extern "C" void cs_set_native_text_rendering() {
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS) || defined(Q_OS_LINUX)
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
 #else
     QQuickWindow::setTextRenderType(QQuickWindow::QtTextRendering);

@@ -51,6 +51,9 @@ Item {
                                                 appTheme.window.g,
                                                 appTheme.window.b, 0.85 )
 
+    property int topInset: 0
+    onTopInsetChanged: if ( ctx ) ctx.setTopInset( topInset )
+
     // CircuitWidget lays every overlay out against the canvas area's size, which
     // it used to take from resizeEvent(). Nothing reported it after the port, so
     // m_viewSize stayed (-1,-1) and every panel came out with a negative height,
@@ -59,6 +62,7 @@ Item {
     onWidthChanged: publishViewSize()
     onHeightChanged: publishViewSize()
     Component.onCompleted: {
+        if ( ctx ) ctx.setTopInset( topInset )
         publishViewSize()
         if ( ctx ) {
             ctx.setZoomPercent( CircuitCanvas.zoom )

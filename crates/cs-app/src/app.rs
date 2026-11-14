@@ -1,10 +1,12 @@
 use crate::macos_host;
 use crate::path_util::strip_file_url;
+use cs_engine::theme::{ColorId, ColorTheme};
 use qtbridge::qobject;
 
 pub struct App {
     window_title: String,
     native_menus: bool,
+    custom_titlebar: bool,
     dark_titlebar: bool,
     dark_theme: bool,
     version: String,
@@ -37,6 +39,7 @@ impl Default for App {
         Self {
             window_title: "Circuit Simulator".to_string(),
             native_menus: cfg!(target_os = "macos"),
+            custom_titlebar: true,
             dark_titlebar: dark,
             dark_theme: dark,
             version: format!("{} at Rev {}", env!("CARGO_PKG_VERSION"), env!("CS_REVNO")),
@@ -72,6 +75,7 @@ impl App {
         Notify = window_title_changed
     );
     qproperty!("nativeMenus", Read = native_menus, Constant);
+    qproperty!("customTitlebar", Read = custom_titlebar, Constant);
     qproperty!(
         "darkTitlebar",
         Read = dark_titlebar,
@@ -79,6 +83,22 @@ impl App {
         Notify = dark_titlebar_changed
     );
     qproperty!("darkTheme", Read = dark_theme, Notify = theme_changed);
+    qproperty!(
+        "closeHoverBg",
+        Read = close_hover_bg,
+        Notify = theme_changed
+    );
+    qproperty!(
+        "closeHoverText",
+        Read = close_hover_text,
+        Notify = theme_changed
+    );
+    qproperty!("windowShadow", Read = window_shadow, Notify = theme_changed);
+    qproperty!(
+        "windowShadowInactive",
+        Read = window_shadow_inactive,
+        Notify = theme_changed
+    );
     qproperty!("version", Read = version, Constant);
     qproperty!("compiled", Read = compiled, Constant);
     qproperty!("qtVersion", Read = qt_version, Constant);
@@ -227,12 +247,32 @@ impl App {
         self.native_menus
     }
 
+    fn custom_titlebar(&self) -> bool {
+        self.custom_titlebar
+    }
+
     fn dark_titlebar(&self) -> bool {
         self.dark_titlebar
     }
 
     fn dark_theme(&self) -> bool {
         self.dark_theme
+    }
+
+    fn close_hover_bg(&self) -> String {
+        ColorTheme::get_hex(ColorId::TitlebarCloseHoverBg, self.dark_theme)
+    }
+
+    fn close_hover_text(&self) -> String {
+        ColorTheme::get_hex(ColorId::TitlebarCloseHoverText, self.dark_theme)
+    }
+
+    fn window_shadow(&self) -> String {
+        ColorTheme::get_hex(ColorId::WindowShadow, self.dark_theme)
+    }
+
+    fn window_shadow_inactive(&self) -> String {
+        ColorTheme::get_hex(ColorId::WindowShadowInactive, self.dark_theme)
     }
 
     fn version(&self) -> String {
@@ -649,11 +689,25 @@ impl App {
         true
     }
 
+    // Shared borrow: showing the window re-enters QML property reads.
     #[qslot]
-    fn install_native_chrome(&mut self) {
+    fn install_native_chrome(&self) {
         macos_host::apply_app_icon();
         macos_host::set_titlebar_dark(self.dark_titlebar);
         macos_host::setup_window();
+    }
+
+    /// macOS title-strip press: drag the main window, or zoom on a double-click.
+    /// Windows drags through WM_NCHITTEST, so this is a no-op there.
+    #[qslot]
+    fn titlebar_mouse_down(&self) {
+        macos_host::titlebar_mouse_down();
+    }
+
+    /// Points from the left edge to clear the traffic lights. 0 on other platforms.
+    #[qslot]
+    fn titlebar_leading_inset(&self) -> i32 {
+        macos_host::titlebar_leading_inset()
     }
 
     #[qslot]

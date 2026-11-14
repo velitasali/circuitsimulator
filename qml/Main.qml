@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Window
 import QtQuick.Dialogs
 import cs_app
@@ -13,6 +14,7 @@ import cs_app
  */
 ApplicationWindow {
     id: win
+    objectName: "mainWindow"
     SystemPalette { id: appTheme }
 
     function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
@@ -57,11 +59,36 @@ ApplicationWindow {
     FontLoader { source: "qrc:/fonts/UbuntuMono-B.ttf" }
     FontLoader { source: "qrc:/fonts/UbuntuMono-BI.ttf" }
 
+    readonly property bool linuxCustomChrome: Qt.platform.os === "linux" && App.customTitlebar
+    readonly property bool linuxWayland: linuxCustomChrome && Qt.platform.pluginName === "wayland"
+    readonly property bool linuxMaximized: win.visibility === Window.Maximized || win.visibility === Window.FullScreen
+    property int linuxBaseShadowMargin: linuxCustomChrome ? 20 : 0
+    readonly property int linuxShadowMargin: (linuxCustomChrome && !linuxMaximized) ? linuxBaseShadowMargin : 0
+    // Grab handles hang this far outside windowFrame. theme.cpp reads the same property.
+    readonly property int linuxResizeOverhang: 3
+    readonly property int linuxResizeThickness: 5
+
+    // macOS: draw the client area under the traffic lights. The QML title strip
+    // (TitleBar) replaces the centered title. Linux: frameless with custom titlebar,
+    // client-side shadow gutter, and rounded corners. Windows removes its caption in native code.
+    flags: (Qt.platform.os === "osx" && App.customTitlebar)
+           ? (Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint)
+           : win.linuxCustomChrome
+           ? (Qt.Window | Qt.FramelessWindowHint)
+           : Qt.Window
+    // An explicit 0 stops ApplicationWindow from binding padding to the safe
+    // area, which would push the canvas down below the title strip.
+    topPadding: 0
+    leftPadding: 0
+    rightPadding: 0
+    bottomPadding: 0
+
     visible: true
-    minimumWidth: App.minWindowWidth
-    minimumHeight: App.minWindowHeight
-    width: 1200
-    height: 800
+    minimumWidth: App.minWindowWidth + win.linuxShadowMargin * 2
+    minimumHeight: App.minWindowHeight + win.linuxShadowMargin * 2
+    // setCustomMargins grows a Wayland window by the gutter. X11 does not, so only X11 adds it here.
+    width: 1200 + ((win.linuxCustomChrome && !win.linuxWayland) ? win.linuxBaseShadowMargin * 2 : 0)
+    height: 800 + ((win.linuxCustomChrome && !win.linuxWayland) ? win.linuxBaseShadowMargin * 2 : 0)
     title: {
         var _tick = App.i18nTick
         var state = CircuitCanvas.simRunning ? (CircuitCanvas.simPaused ? App.translate("[Paused] ") : App.translate("[Running] ")) : ""
@@ -71,7 +98,8 @@ ApplicationWindow {
         return state + proj + file + changed + " - " + App.translate("Circuit Simulator")
     }
     font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
-    color: appTheme.window
+    color: win.linuxCustomChrome ? "transparent" : appTheme.window
+    background: null
     palette.window: appTheme.window
     palette.windowText: appTheme.windowText
     palette.button: appTheme.button
@@ -83,10 +111,79 @@ ApplicationWindow {
     palette.text: appTheme.windowText
     palette.base: appTheme.base
 
-    Loader {
+    Item {
+        id: windowMask
+        anchors.fill: windowFrame
+        visible: false
+        layer.enabled: win.linuxShadowMargin > 0
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 10
+        }
+    }
+
+    RectangularShadow {
+        anchors.fill: windowFrame
+        visible: win.linuxShadowMargin > 0
+        radius: 10
+        blur: 14
+        offset: Qt.vector2d(0, 3)
+        color: win.active ? App.windowShadow : App.windowShadowInactive
+    }
+
+    Rectangle {
+        id: windowFrame
         anchors.fill: parent
-        source: "CircuitPanel.qml"
-        focus: true
+        anchors.margins: win.linuxShadowMargin
+        radius: win.linuxShadowMargin > 0 ? 10 : 0
+        color: appTheme.window
+        layer.enabled: win.linuxShadowMargin > 0
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: windowMask
+        }
+
+        TitleBar {
+            id: titleBar
+            visible: App.customTitlebar
+            window: win
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            z: 10
+        }
+
+        Loader {
+            id: circuitPanelLoader
+            anchors.fill: parent
+            source: "CircuitPanel.qml"
+            focus: true
+        }
+
+        Binding {
+            target: circuitPanelLoader.item
+            property: "topInset"
+            value: titleBar.visible ? titleBar.height : 0
+        }
+    }
+
+    Rectangle {
+        anchors.fill: windowFrame
+        z: 20
+        visible: win.linuxShadowMargin > 0
+        radius: 10
+        color: "transparent"
+        border.color: appTheme.mid
+        border.width: 1
+    }
+
+    WindowResizeHandles {
+        targetWindow: win
+        targetItem: windowFrame
+        overhang: win.linuxResizeOverhang
+        handleThickness: win.linuxResizeThickness
+        visible: win.linuxShadowMargin > 0
     }
 
     AppWindow {
@@ -1230,6 +1327,7 @@ ApplicationWindow {
         CompilerLog.setDark(isDark)
         InfoWidget.updateThemeColors(isDark)
         App.installNativeChrome()
+        Qt.callLater(function() { titleBar.refreshChrome() })
         CircuitPanel.installNativeChrome()
         win.show()
         win.raise()

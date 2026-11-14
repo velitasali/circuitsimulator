@@ -50,8 +50,8 @@ T.CheckBox {
 
         AppIcon {
             anchors.centerIn: parent
-            text: "check"
-            font.pixelSize: 14
+            icon: "check"
+            size: 14
             color: appTheme.highlightedText
             visible: control.checkState === Qt.Checked
         }

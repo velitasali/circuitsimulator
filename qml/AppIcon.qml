@@ -1,21 +1,24 @@
 import QtQuick
+import QtQuick.Controls.impl
 
-/* Reusable Material Symbols Rounded icon component.
- *
- * Configured with font hinting disabled and high-quality Qt distance field
- * rendering to ensure crisp, clean vector curves on all platforms (especially Windows).
- */
-Text {
+Item {
     id: root
 
-    property alias icon: root.text
+    property string icon: ""
+    property real size: 16
+    property color color: "#ffffff"
 
-    font.family: "Material Symbols Rounded"
-    font.pixelSize: 16
-    font.hintingPreference: Font.PreferNoHinting
+    implicitWidth: size
+    implicitHeight: size
 
-    renderType: Text.QtRendering
-
-    horizontalAlignment: Text.AlignHCenter
-    verticalAlignment: Text.AlignVCenter
+    ColorImage {
+        anchors.centerIn: parent
+        width: root.size
+        height: root.size
+        source: root.icon !== "" ? ("qrc:/icons/ui/" + root.icon + ".svg") : ""
+        sourceSize: Qt.size(Math.ceil(root.size), Math.ceil(root.size))
+        color: root.color
+        fillMode: Image.PreserveAspectFit
+        smooth: true
+    }
 }

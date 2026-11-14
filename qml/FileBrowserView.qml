@@ -337,9 +337,9 @@ Item {
 
                         AppIcon {
                             anchors.centerIn: parent
-                            text: root.fileIconPreview( newFileInput.text )
+                            icon: root.fileIconPreview( newFileInput.text )
                             color: appTheme.highlight
-                            font.pixelSize: 15
+                            size: 15
                         }
                     }
 
@@ -356,8 +356,8 @@ Item {
                         implicitHeight: 22
                         padding: 0
                         contentItem: AppIcon {
-                            text: "close"
-                            font.pixelSize: 14
+                            icon: "close"
+                            size: 14
                             color: appTheme.windowText
                             opacity: 0.6
                         }
@@ -380,8 +380,8 @@ Item {
                         spacing: 4
 
                         AppIcon {
-                            text: "folder"
-                            font.pixelSize: 12
+                            icon: "folder"
+                            size: 12
                             color: appTheme.windowText
                             opacity: 0.7
                         }
@@ -423,8 +423,8 @@ Item {
                             spacing: 4
 
                             AppIcon {
-                                text: root.fileIconPreview( newFileInput.text )
-                                font.pixelSize: 14
+                                icon: root.fileIconPreview( newFileInput.text )
+                                size: 14
                                 color: newFileInput.text.length > 0 ? appTheme.highlight : appTheme.windowText
                                 opacity: newFileInput.text.length > 0 ? 1.0 : 0.45
                             }
@@ -454,8 +454,8 @@ Item {
                                 implicitHeight: 18
                                 padding: 0
                                 contentItem: AppIcon {
-                                    text: "close"
-                                    font.pixelSize: 12
+                                    icon: "close"
+                                    size: 12
                                     color: appTheme.windowText
                                     opacity: 0.6
                                 }
@@ -648,9 +648,9 @@ Item {
 
                         AppIcon {
                             anchors.centerIn: parent
-                            text: "create_new_folder"
+                            icon: "create_new_folder"
                             color: appTheme.highlight
-                            font.pixelSize: 15
+                            size: 15
                         }
                     }
 
@@ -667,8 +667,8 @@ Item {
                         implicitHeight: 22
                         padding: 0
                         contentItem: AppIcon {
-                            text: "close"
-                            font.pixelSize: 14
+                            icon: "close"
+                            size: 14
                             color: appTheme.windowText
                             opacity: 0.6
                         }
@@ -691,8 +691,8 @@ Item {
                         spacing: 4
 
                         AppIcon {
-                            text: "folder"
-                            font.pixelSize: 12
+                            icon: "folder"
+                            size: 12
                             color: appTheme.windowText
                             opacity: 0.7
                         }
@@ -734,8 +734,8 @@ Item {
                             spacing: 4
 
                             AppIcon {
-                                text: "folder"
-                                font.pixelSize: 14
+                                icon: "folder"
+                                size: 14
                                 color: newDirInput.text.length > 0 ? appTheme.highlight : appTheme.windowText
                                 opacity: newDirInput.text.length > 0 ? 1.0 : 0.45
                             }
@@ -765,8 +765,8 @@ Item {
                                 implicitHeight: 18
                                 padding: 0
                                 contentItem: AppIcon {
-                                    text: "close"
-                                    font.pixelSize: 12
+                                    icon: "close"
+                                    size: 12
                                     color: appTheme.windowText
                                     opacity: 0.6
                                 }
@@ -914,9 +914,9 @@ Item {
 
                         AppIcon {
                             anchors.centerIn: parent
-                            text: "edit"
+                            icon: "edit"
                             color: appTheme.highlight
-                            font.pixelSize: 15
+                            size: 15
                         }
                     }
 
@@ -933,8 +933,8 @@ Item {
                         implicitHeight: 22
                         padding: 0
                         contentItem: AppIcon {
-                            text: "close"
-                            font.pixelSize: 14
+                            icon: "close"
+                            size: 14
                             color: appTheme.windowText
                             opacity: 0.6
                         }
@@ -957,8 +957,8 @@ Item {
                         spacing: 4
 
                         AppIcon {
-                            text: root.selectedIsDir ? "folder" : root.fileIconPreview( renameInput.text )
-                            font.pixelSize: 12
+                            icon: root.selectedIsDir ? "folder" : root.fileIconPreview( renameInput.text )
+                            size: 12
                             color: appTheme.windowText
                             opacity: 0.7
                         }
@@ -1000,8 +1000,8 @@ Item {
                             spacing: 4
 
                             AppIcon {
-                                text: root.selectedIsDir ? "folder" : root.fileIconPreview( renameInput.text )
-                                font.pixelSize: 14
+                                icon: root.selectedIsDir ? "folder" : root.fileIconPreview( renameInput.text )
+                                size: 14
                                 color: renameInput.text.length > 0 ? appTheme.highlight : appTheme.windowText
                                 opacity: renameInput.text.length > 0 ? 1.0 : 0.45
                             }
@@ -1031,8 +1031,8 @@ Item {
                                 implicitHeight: 18
                                 padding: 0
                                 contentItem: AppIcon {
-                                    text: "close"
-                                    font.pixelSize: 12
+                                    icon: "close"
+                                    size: 12
                                     color: appTheme.windowText
                                     opacity: 0.6
                                 }
@@ -1137,42 +1137,42 @@ Item {
 
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { text: "note_add"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "note_add"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "New File" )
                 ToolTip.visible: hovered
                 onClicked: root.openCreateFileDialog()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { text: "create_new_folder"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "create_new_folder"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "New Folder" )
                 ToolTip.visible: hovered
                 onClicked: root.openCreateFolderDialog()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { text: "refresh"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "refresh"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "Refresh" )
                 ToolTip.visible: hovered
                 onClicked: FileBrowser.reload()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { text: "expand_more"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "expand_more"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "Expand All" )
                 ToolTip.visible: hovered
                 onClicked: FileBrowser.expandAll()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { text: "expand_less"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "expand_less"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "Collapse All" )
                 ToolTip.visible: hovered
                 onClicked: FileBrowser.collapseAll()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { text: "folder_open"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "folder_open"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "Open Project Folder" )
                 ToolTip.visible: hovered
                 onClicked: folderDialog.open()
@@ -1270,8 +1270,8 @@ Item {
                             AppIcon {
                                 anchors.centerIn: parent
                                 visible: model.isDir
-                                text: model.expanded ? "expand_more" : "chevron_right"
-                                font.pixelSize: 16
+                                icon: model.expanded ? "expand_more" : "chevron_right"
+                                size: 16
                                 color: hoverHandler.hovered
                                        ? appTheme.highlightedText
                                        : ( model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
@@ -1290,7 +1290,7 @@ Item {
 
                         AppIcon {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: root.fileIconForName( model.name, model.isDir, model.expanded )
+                            icon: root.fileIconForName( model.name, model.isDir, model.expanded )
                             color: hoverHandler.hovered
                                    ? appTheme.highlightedText
                                    : ( model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )

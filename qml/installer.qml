@@ -113,7 +113,7 @@ Rectangle {
                             id: infoBtn
                             visible: !rowItem.modelData.isGroupHeader
                             implicitWidth: 28; implicitHeight: 28
-                            contentItem: AppIcon { text: "help"; color: appTheme.windowText }
+                            contentItem: AppIcon { icon: "help"; color: appTheme.windowText }
                             ToolTip.text: root.tr("Information")
                             ToolTip.visible: infoBtn.hovered
                             onClicked: Installer.showInfo(rowItem.modelData.name)
@@ -124,7 +124,7 @@ Rectangle {
                             visible: !rowItem.modelData.isGroupHeader && rowItem.modelData.canUpdate === true
                             enabled: !Installer.busy
                             implicitWidth: 28; implicitHeight: 28
-                            contentItem: AppIcon { text: "restart_alt"; color: appTheme.windowText }
+                            contentItem: AppIcon { icon: "restart_alt"; color: appTheme.windowText }
                             ToolTip.text: root.tr("Update")
                             ToolTip.visible: updtBtn.hovered
                             onClicked: Installer.toggleInstall(rowItem.modelData.name)
@@ -136,7 +136,7 @@ Rectangle {
                             enabled: !Installer.busy
                             implicitWidth: 28; implicitHeight: 28
                             contentItem: AppIcon {
-                                text: rowItem.modelData.installed ? "delete" : "file_download"
+                                icon: rowItem.modelData.installed ? "delete" : "file_download"
                                 color: appTheme.windowText
                             }
                             ToolTip.text: rowItem.modelData.installed ? root.tr("Uninstall") : root.tr("Install")

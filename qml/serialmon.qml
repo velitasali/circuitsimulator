@@ -219,7 +219,7 @@ Rectangle {
             AppToolButton {
                 checkable: true
                 checked: root.currentAddCR
-                contentItem: AppIcon { text: "keyboard_return"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "keyboard_return"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "Append carriage return" )
                 ToolTip.visible: hovered
                 onToggled: root.doSetAddCR(checked)

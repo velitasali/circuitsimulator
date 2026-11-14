@@ -171,8 +171,8 @@ Item {
                     visible: row.isCategory
                     width: 14
                     anchors.verticalCenter: parent.verticalCenter
-                    text: model.expanded ? "expand_more" : "chevron_right"
-                    font.pixelSize: 16
+                    icon: model.expanded ? "expand_more" : "chevron_right"
+                    size: 16
                     color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                 }
 

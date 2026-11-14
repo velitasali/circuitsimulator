@@ -39,6 +39,5 @@ All colors must be sourced from the central Color Theme (`crates/cs-engine/src/t
 - **Omit Redundant Default Sizes**: Since `font.pixelSize: App.fontNormal` is already the default in `AppText`, do **not** redundantly assign `font.pixelSize: App.fontNormal` on `AppText` instances. Only set `font.pixelSize` when using non-default sizes (`App.fontSmall`, `App.fontMicro`, `App.fontTiny`, `App.fontTitle`, or explicit numbers).
 - **Font Family Overrides**: Monospace or custom font overrides (e.g., `font.family: "Menlo"` or `"Ubuntu Mono"`) should be set directly on `AppText`, which cleanly overrides the default `App.fontFamily`.
 - **Exceptions**:
-  - `AppIcon.qml` remains a direct `Text` element because it specifically binds to the `"Material Symbols Rounded"` icon font.
   - Enum constants (`Text.WordWrap`, `Text.RichText`, `Text.ElideRight`, `Text.AlignVCenter`, etc.) and `TextMetrics` continue to use the Qt `Text` namespace.
 - **Composite `uiFont` Properties**: When dialogs or views declare a `readonly property font uiFont` used by controls (such as `AppComboBox`, `AppButton`, or `AppTextField`), always include `family: App.fontFamily` (e.g., `Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })`) so they react to global font family changes.

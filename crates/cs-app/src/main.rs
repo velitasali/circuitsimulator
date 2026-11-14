@@ -23,6 +23,7 @@ mod pending;
 mod plots;
 mod serial;
 mod tab_switcher;
+mod ui_icon;
 mod vello_preview;
 
 use std::env;

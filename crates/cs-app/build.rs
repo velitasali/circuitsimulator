@@ -578,42 +578,14 @@ fn compile_resources() {
     // 2. Icons
     let src_icons_comp = manifest.join("../../resources/icons/components");
     let src_icons_main = manifest.join("../../resources/icons/mainwindow");
+    let src_icons_ui = manifest.join("../../resources/icons/ui");
     println!("cargo:rerun-if-changed={}", src_icons_comp.display());
     println!("cargo:rerun-if-changed={}", src_icons_main.display());
+    println!("cargo:rerun-if-changed={}", src_icons_ui.display());
 
-    qrc.push_str("  <qresource prefix=\"/icons\">\n");
-    if let Ok(entries) = std::fs::read_dir(&icons_dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() {
-                if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                    println!("cargo:rerun-if-changed={}", p.display());
-                    qrc.push_str(&format!(
-                        "    <file alias=\"{name}\">{}</file>\n",
-                        p.display()
-                    ));
-                }
-            }
-        }
-    }
-    qrc.push_str("  </qresource>\n");
-
-    qrc.push_str("  <qresource prefix=\"/icons/components\">\n");
-    if let Ok(entries) = std::fs::read_dir(&src_icons_comp) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() {
-                if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                    println!("cargo:rerun-if-changed={}", p.display());
-                    qrc.push_str(&format!(
-                        "    <file alias=\"{name}\">{}</file>\n",
-                        p.display()
-                    ));
-                }
-            }
-        }
-    }
-    qrc.push_str("  </qresource>\n");
+    append_qresource_files(&mut qrc, "/icons", &icons_dir, true);
+    append_qresource_files(&mut qrc, "/icons/components", &src_icons_comp, true);
+    append_qresource_files(&mut qrc, "/icons/ui", &src_icons_ui, true);
 
     qrc.push_str("  <qresource prefix=\"/\">\n");
     if conf_path.exists() {
@@ -661,7 +633,6 @@ fn compile_resources() {
     // 3. Fonts
     qrc.push_str("  <qresource prefix=\"/fonts\">\n");
     let font_files = [
-        "MaterialSymbolsRounded.ttf",
         "Ubuntu-R.ttf",
         "Ubuntu-B.ttf",
         "UbuntuMono-R.ttf",
@@ -691,6 +662,27 @@ fn compile_resources() {
     if !status.success() {
         panic!("rcc failed on {}", qrc_file.display());
     }
+}
+
+fn append_qresource_files(qrc: &mut String, prefix: &str, dir: &Path, rerun: bool) {
+    qrc.push_str(&format!("  <qresource prefix=\"{prefix}\">\n"));
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                    if rerun {
+                        println!("cargo:rerun-if-changed={}", p.display());
+                    }
+                    qrc.push_str(&format!(
+                        "    <file alias=\"{name}\">{}</file>\n",
+                        p.display()
+                    ));
+                }
+            }
+        }
+    }
+    qrc.push_str("  </qresource>\n");
 }
 
 fn rcc_bin() -> PathBuf {

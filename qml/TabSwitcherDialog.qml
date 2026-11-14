@@ -100,8 +100,8 @@ Dialog {
                     spacing: 8
 
                     AppIcon {
-                        text: delegateItem.modelData.icon || (delegateItem.modelData.kind === "circuit" ? "account_tree" : "code")
-                        font.pixelSize: 16
+                        icon: delegateItem.modelData.icon || (delegateItem.modelData.kind === "circuit" ? "account_tree" : "code")
+                        size: 16
                         color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.windowText
                         Layout.preferredWidth: 18
                     }

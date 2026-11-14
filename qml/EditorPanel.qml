@@ -64,8 +64,8 @@ Item {
                                           : root.tr("Upload and Run on the active device")
                             ToolTip.delay: 500
                             contentItem: AppIcon {
-                                text: EditorPanel.compiling ? "stop_circle" : "play_arrow"
-                                font.pixelSize: 13
+                                icon: EditorPanel.compiling ? "stop_circle" : "play_arrow"
+                                size: 13
                                 color: tabBtn.itemColor
                             }
                             onClicked: {
@@ -89,8 +89,8 @@ Item {
                             ToolTip.text: root.tr("File Settings")
                             ToolTip.delay: 500
                             contentItem: AppIcon {
-                                text: "settings"
-                                font.pixelSize: 13
+                                icon: "settings"
+                                size: 13
                                 color: tabBtn.itemColor
                             }
                             onClicked: {
@@ -147,8 +147,8 @@ Item {
                 ToolTip.text: root.tr( "New File" )
                 ToolTip.delay: 500
                 contentItem: AppIcon {
-                    text: "add"
-                    font.pixelSize: 14
+                    icon: "add"
+                    size: 14
                     color: newFileBtn.textColor
                 }
                 onClicked: {

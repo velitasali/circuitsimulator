@@ -33,7 +33,7 @@ Rectangle {
             }
             Item { Layout.fillWidth: true }
             AppToolButton {
-                contentItem: AppIcon { text: "save"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "save"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "Save Log" )
                 ToolTip.visible: hovered
                 onClicked: SerialTerminal.requestSave()
@@ -97,7 +97,7 @@ Rectangle {
             }
             Item { Layout.fillWidth: true }
             AppToolButton {
-                contentItem: AppIcon { text: "file_open"; color: appTheme.windowText }
+                contentItem: AppIcon { icon: "file_open"; color: appTheme.windowText }
                 ToolTip.text: root.tr( "Load File" )
                 ToolTip.visible: hovered
                 onClicked: SerialTerminal.requestLoad()

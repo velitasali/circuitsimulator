@@ -151,8 +151,8 @@ Item {
                         ToolTip.text: root.tr(modelData.label)
                         onClicked: if ( ctx ) ctx.overlayClicked( "sidePanel" )
                         contentItem: AppIcon {
-                            text: sideTab.modelData.glyph
-                            font.pixelSize: 18
+                            icon: sideTab.modelData.glyph
+                            size: 18
                             color: sideTab.checked ? appTheme.highlightedText : appTheme.windowText
                         }
                     }
@@ -401,10 +401,10 @@ Item {
                 // travel), and towards where it will reappear once hidden --
                 // the opposite direction, since the pill has jumped to the far
                 // margin by then (see CircuitWidget::updateOverlayLayout).
-                text: !handle.modelData.toggle ? "drag_indicator"
+                icon: !handle.modelData.toggle ? "drag_indicator"
                     : ( root.rects[ handle.modelData.id + "ClusterRight" ] === handle.panelVisible )
                       ? "chevron_left" : "chevron_right"
-                font.pixelSize: 16
+                size: 16
                 color: appTheme.windowText
             }
 
@@ -494,8 +494,8 @@ Item {
 
                 AppIcon {
                     anchors.centerIn: parent
-                    text: "drag_indicator"
-                    font.pixelSize: 16
+                    icon: "drag_indicator"
+                    size: 16
                     color: appTheme.windowText
                 }
 
@@ -552,8 +552,8 @@ Item {
                     implicitHeight: 18
                     AppIcon {
                         anchors.centerIn: parent
-                        text: "menu"
-                        font.pixelSize: 16
+                        icon: "menu"
+                        size: 16
                         color: appMenuBtn.isCheckedActive ? appTheme.highlight : appMenuBtn.textColor
                     }
                 }
@@ -642,8 +642,8 @@ Item {
                                 AppIcon {
                                     anchors.centerIn: parent
                                     visible: modelData.iconLigature !== undefined && modelData.iconLigature !== ""
-                                    text: modelData.iconLigature || ""
-                                    font.pixelSize: 16
+                                    icon: modelData.iconLigature || ""
+                                    size: 16
                                     color: actionBtn.isCheckedActive ? appTheme.highlight : actionBtn.textColor
                                 }
                                 Image {
@@ -793,8 +793,8 @@ Item {
                 }
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "arrow_drop_down"
-                    font.pixelSize: 16
+                    icon: "arrow_drop_down"
+                    size: 16
                     color: appTheme.windowText
                 }
             }
@@ -818,8 +818,8 @@ Item {
                 spacing: 4
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "warning"
-                    font.pixelSize: 16
+                    icon: "warning"
+                    size: 16
                     color: ctx && ctx.warningsCrashed ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
                 }
                 AppText {
@@ -849,8 +849,8 @@ Item {
                 spacing: 4
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "warning"
-                    font.pixelSize: 16
+                    icon: "warning"
+                    size: 16
                     color: CircuitCanvas.msgWarnBg
                 }
                 AppText {
@@ -886,8 +886,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: (ctx && ctx.subcNav && ctx.subcNav.iconLigature) ? ctx.subcNav.iconLigature : "account_tree"
-                    font.pixelSize: 18
+                    icon: (ctx && ctx.subcNav && ctx.subcNav.iconLigature) ? ctx.subcNav.iconLigature : "account_tree"
+                    size: 18
                     color: appTheme.windowText
                 }
                 AppText {
@@ -900,8 +900,8 @@ Item {
                 }
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "arrow_drop_down"
-                    font.pixelSize: 16
+                    icon: "arrow_drop_down"
+                    size: 16
                     color: appTheme.windowText
                 }
             }
@@ -931,8 +931,8 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: (ctx && ctx.deviceSel && ctx.deviceSel.iconLigature) ? ctx.deviceSel.iconLigature : "memory"
-                    font.pixelSize: 18
+                    icon: (ctx && ctx.deviceSel && ctx.deviceSel.iconLigature) ? ctx.deviceSel.iconLigature : "memory"
+                    size: 18
                     color: appTheme.windowText
                 }
                 AppText {
@@ -945,8 +945,8 @@ Item {
                 }
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "arrow_drop_down"
-                    font.pixelSize: 16
+                    icon: "arrow_drop_down"
+                    size: 16
                     color: appTheme.windowText
                 }
             }
@@ -996,8 +996,8 @@ Item {
             ToolTip.text: App.translate( "Hide" )
             onClicked: ctx.hideInfo()
             contentItem: AppIcon {
-                text: "close"
-                font.pixelSize: 16
+                icon: "close"
+                size: 16
                 color: appTheme.windowText
             }
         }

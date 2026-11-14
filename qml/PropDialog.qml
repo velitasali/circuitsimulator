@@ -128,7 +128,7 @@ Rectangle {
         checked: row ? (row.showOnCanvas === true) : false
         implicitWidth: 26; implicitHeight: 26
         contentItem: AppIcon {
-            text: "visibility"
+            icon: "visibility"
             color: valBtn.isCheckedActive ? appTheme.highlight : appTheme.windowText
         }
         ToolTip.text: root.tr("Show property value on the canvas")
@@ -170,7 +170,7 @@ Rectangle {
                 checked: root.infoVisible
                 implicitWidth: 26; implicitHeight: 26
                 contentItem: AppIcon {
-                    text: "info"
+                    icon: "info"
                     color: infoBtn.isCheckedActive ? appTheme.highlight : appTheme.windowText
                 }
                 ToolTip.text: root.tr("Show info for this component and its properties")
@@ -238,7 +238,7 @@ Rectangle {
                 checked: root.currentShowId
                 implicitWidth: 26; implicitHeight: 26
                 contentItem: AppIcon {
-                    text: "visibility"
+                    icon: "visibility"
                     color: showIdBtn.isCheckedActive ? appTheme.highlight : appTheme.windowText
                 }
                 ToolTip.text: root.tr("Show component label on the canvas")

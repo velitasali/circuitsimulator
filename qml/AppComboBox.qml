@@ -110,8 +110,8 @@ T.ComboBox {
     indicator: AppIcon {
         x: control.mirrored ? control.padding : control.width - width - 4
         y: control.topPadding + (control.availableHeight - height) / 2
-        text: "arrow_drop_down"
-        font.pixelSize: 18
+        icon: "arrow_drop_down"
+        size: 18
         color: appTheme.windowText
     }
 

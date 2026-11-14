@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use crate::macos_host;
+use crate::ui_icon::UiIcon;
 use cs_engine::canvas::scene::ProgrammableDevice;
 use cs_engine::overlays::{OverlayEntry, OverlaySnapshot, Overlays};
 use cs_engine::subcircuit::SubcTreeNode;
@@ -273,7 +274,7 @@ impl CircuitPanel {
             "popupOpen": self.subc_popup_open,
             "buttonText": button_text,
             "buttonTooltip": button_tooltip,
-            "iconLigature": "account_tree",
+            "iconLigature": UiIcon::AccountTree.as_str(),
             "iconUri": "",
             "rows": rows_json,
         })
@@ -384,7 +385,7 @@ impl CircuitPanel {
             "popupOpen": self.device_popup_open,
             "buttonText": button_text,
             "buttonTooltip": button_tooltip,
-            "iconLigature": "memory",
+            "iconLigature": UiIcon::Memory.as_str(),
             "iconUri": "",
             "rows": rows_json,
         })
@@ -412,7 +413,7 @@ impl CircuitPanel {
             action(
                 "zoomIn",
                 &cs_engine::i18n::tr("Zoom In"),
-                "zoom_in",
+                UiIcon::ZoomIn,
                 true,
                 false,
                 false,
@@ -420,7 +421,7 @@ impl CircuitPanel {
             action(
                 "zoomOut",
                 &cs_engine::i18n::tr("Zoom Out"),
-                "zoom_out",
+                UiIcon::ZoomOut,
                 true,
                 false,
                 false,
@@ -430,7 +431,11 @@ impl CircuitPanel {
             action(
                 "power",
                 &power_text,
-                if self.running { "stop" } else { "play_arrow" },
+                if self.running {
+                    UiIcon::Stop
+                } else {
+                    UiIcon::PlayArrow
+                },
                 true,
                 false,
                 false,
@@ -438,7 +443,7 @@ impl CircuitPanel {
             action(
                 "pause",
                 &pause_text,
-                "pause",
+                UiIcon::Pause,
                 self.running,
                 true,
                 self.paused,
@@ -447,7 +452,7 @@ impl CircuitPanel {
             action(
                 "step",
                 &cs_engine::i18n::tr("Step Debugger"),
-                "step",
+                UiIcon::StepInto,
                 debug_vis,
                 false,
                 false,
@@ -455,7 +460,7 @@ impl CircuitPanel {
             action(
                 "stepOver",
                 &cs_engine::i18n::tr("Step Over"),
-                "step_over",
+                UiIcon::StepOver,
                 debug_vis,
                 false,
                 false,
@@ -463,7 +468,7 @@ impl CircuitPanel {
             action(
                 "reset",
                 &cs_engine::i18n::tr("Reset Debugger"),
-                "restart_alt",
+                UiIcon::RestartAlt,
                 debug_vis,
                 false,
                 false,
@@ -471,7 +476,7 @@ impl CircuitPanel {
             action(
                 "watch",
                 &cs_engine::i18n::tr("Variables"),
-                "visibility",
+                UiIcon::Visibility,
                 debug_vis,
                 false,
                 false,
@@ -479,7 +484,7 @@ impl CircuitPanel {
             action(
                 "stop",
                 &cs_engine::i18n::tr("Stop Debugger"),
-                "stop",
+                UiIcon::Stop,
                 debug_vis,
                 false,
                 false,
@@ -494,7 +499,7 @@ impl CircuitPanel {
             action(
                 "settCircuit",
                 &cs_engine::i18n::tr("Circuit Settings"),
-                "tune",
+                UiIcon::Tune,
                 true,
                 false,
                 false,
@@ -502,7 +507,7 @@ impl CircuitPanel {
             action(
                 "simInfo",
                 &cs_engine::i18n::tr("Simulation Info"),
-                "info",
+                UiIcon::Info,
                 self.running,
                 true,
                 self.sim_info_enabled,
@@ -1062,7 +1067,7 @@ impl CircuitPanel {
 fn action(
     id: &str,
     tooltip: &str,
-    ligature: &str,
+    icon: UiIcon,
     visible: bool,
     checkable: bool,
     checked: bool,
@@ -1076,7 +1081,7 @@ fn action(
         "visible": visible,
         "checkable": checkable,
         "checked": checked,
-        "iconLigature": ligature,
+        "iconLigature": icon.as_str(),
         "icon": "",
         "tint": "",
         "separator": false,

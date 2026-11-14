@@ -254,8 +254,8 @@ Item {
 
                 AppIcon {
                     anchors.centerIn: parent
-                    text: "close"
-                    font.pixelSize: 16
+                    icon: "close"
+                    size: 16
                     color: (closeMouse.containsMouse || closeMouse.pressed)
                         ? App.closeHoverText
                         : appTheme.windowText

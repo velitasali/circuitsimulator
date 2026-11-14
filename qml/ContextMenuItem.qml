@@ -78,8 +78,8 @@ T.MenuItem {
         x: control.width - width - 8
         y: (control.height - height) / 2
         visible: control.visible && !control.isSeparator && control.subMenu
-        text: "chevron_right"
-        font.pixelSize: 16
+        icon: "chevron_right"
+        size: 16
         color: control.highlighted ? appTheme.highlightedText : appTheme.windowText
     }
 
@@ -98,8 +98,8 @@ T.MenuItem {
             width: 18
             clip: true
             visible: control.iconLigature !== "" || control.checked
-            text: control.iconLigature !== "" ? control.iconLigature : (control.checked ? "check" : "")
-            font.pixelSize: 16
+            icon: control.iconLigature !== "" ? control.iconLigature : (control.checked ? "check" : "")
+            size: 16
             color: control.highlighted ? appTheme.highlightedText : appTheme.windowText
             opacity: control.enabled ? 1.0 : 0.4
         }

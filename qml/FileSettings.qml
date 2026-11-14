@@ -87,7 +87,7 @@ Rectangle {
                                       : root.tr("Compiler Settings")
                         ToolTip.visible: hovered
                         contentItem: AppIcon {
-                            text: "settings"
+                            icon: "settings"
                             color: appTheme.windowText
                             opacity: parent.enabled ? 1.0 : 0.4
                         }

@@ -98,8 +98,8 @@ Popup {
                         spacing: 6
 
                         AppIcon {
-                            text: "warning"
-                            font.pixelSize: 16
+                            icon: "warning"
+                            size: 16
                             color: modelData.crashed ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
                         }
 

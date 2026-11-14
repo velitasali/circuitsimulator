@@ -129,8 +129,8 @@ Dialog {
 
                     AppIcon {
                         visible: Boolean(delegateItem.modelData.icon)
-                        text: delegateItem.modelData.icon || ""
-                        font.pixelSize: 16
+                        icon: delegateItem.modelData.icon || ""
+                        size: 16
                         color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.windowText
                         Layout.preferredWidth: 18
                     }

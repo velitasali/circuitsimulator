@@ -1,6 +1,7 @@
 //! Command Center / Command Palette / Jump to Reference.
 
 use crate::menu_bar::{PALETTE_ACTIONS, PaletteAction};
+use crate::ui_icon::UiIcon;
 use qtbridge::qobject;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -292,7 +293,7 @@ impl CommandCenter {
                     item: json!({
                         "text": trans_label,
                         "shortcut": effective_shortcut,
-                        "icon": action.icon,
+                        "icon": action.icon.as_str(),
                         "type": "action",
                         "data": action.id,
                         "compType": "",
@@ -339,7 +340,7 @@ impl CommandCenter {
                         item: json!({
                             "text": insert_text,
                             "shortcut": "",
-                            "icon": "developer_board",
+                            "icon": UiIcon::DeveloperBoard.as_str(),
                             "type": "component",
                             "data": label,
                             "compType": comp_type,
@@ -384,7 +385,7 @@ impl CommandCenter {
                     item: json!({
                         "text": text,
                         "shortcut": "",
-                        "icon": "developer_board",
+                        "icon": UiIcon::DeveloperBoard.as_str(),
                         "tooltip": tooltip,
                         "type": "jump_comp",
                         "data": uid,
@@ -411,7 +412,7 @@ impl CommandCenter {
                         item: json!({
                             "text": text,
                             "shortcut": "",
-                            "icon": "developer_board",
+                            "icon": UiIcon::DeveloperBoard.as_str(),
                             "tooltip": tooltip,
                             "type": "jump_comp",
                             "data": uid,
@@ -455,17 +456,19 @@ impl CommandCenter {
                             .unwrap_or("")
                             .to_lowercase();
                         let icon = match ext.as_str() {
-                            "circ1" | "sim1" | "sim2" | "circ" => "schema",
+                            "circ1" | "sim1" | "sim2" | "circ" => UiIcon::Schema,
                             "c" | "cpp" | "cc" | "h" | "hpp" | "rs" | "ino" | "py" | "asm"
-                            | "s" => "code",
-                            "txt" | "md" | "json" | "xml" | "csv" | "hex" | "bin" => "description",
-                            _ => "draft",
+                            | "s" => UiIcon::Code,
+                            "txt" | "md" | "json" | "xml" | "csv" | "hex" | "bin" => {
+                                UiIcon::Description
+                            }
+                            _ => UiIcon::Draft,
                         };
 
                         self.items.push(json!({
                             "text": rel_path,
                             "shortcut": "",
-                            "icon": icon,
+                            "icon": icon.as_str(),
                             "tooltip": full_str,
                             "type": "jump_file",
                             "data": full_str,
@@ -478,14 +481,22 @@ impl CommandCenter {
 
         // 3. Quick jumps
         let quick_jumps = [
-            ("Jump to Side Panel", "view.sidePanel", "dock_to_left"),
-            ("Jump to Code Editor", "view.editorPanel", "code"),
-            ("Jump to Simulator Messages", "view.simLog", "terminal"),
-            ("Jump to Compiler Messages", "view.compLog", "pest_control"),
+            ("Jump to Side Panel", "view.sidePanel", UiIcon::DockToLeft),
+            ("Jump to Code Editor", "view.editorPanel", UiIcon::Code),
+            (
+                "Jump to Simulator Messages",
+                "view.simLog",
+                UiIcon::Terminal,
+            ),
+            (
+                "Jump to Compiler Messages",
+                "view.compLog",
+                UiIcon::PestControl,
+            ),
             (
                 "Add All Components to Canvas",
                 "circ.addAllComponents",
-                "grid_view",
+                UiIcon::GridView,
             ),
         ];
         for (label, id, icon) in quick_jumps {
@@ -497,7 +508,7 @@ impl CommandCenter {
                 self.items.push(json!({
                     "text": trans_label,
                     "shortcut": "",
-                    "icon": icon,
+                    "icon": icon.as_str(),
                     "type": "action",
                     "data": id,
                     "compType": "",

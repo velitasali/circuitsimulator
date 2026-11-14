@@ -51,7 +51,6 @@ ApplicationWindow {
     // Same set MainWindow registers through QFontDatabase in the C++ app.
     // FontLoader adds each family to the app font database, so App.fontFamily
     // (default "Ubuntu") and the settings font combo resolve them.
-    FontLoader { source: "qrc:/fonts/MaterialSymbolsRounded.ttf" }
     FontLoader { source: "qrc:/fonts/Ubuntu-R.ttf" }
     FontLoader { source: "qrc:/fonts/Ubuntu-B.ttf" }
     FontLoader { source: "qrc:/fonts/UbuntuMono-R.ttf" }

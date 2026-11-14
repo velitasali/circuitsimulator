@@ -73,8 +73,8 @@ T.SpinBox {
         AppIcon {
             anchors.centerIn: parent
             anchors.verticalCenterOffset: 2
-            text: "arrow_drop_up"
-            font.pixelSize: 12
+            icon: "arrow_drop_up"
+            size: 12
             color: appTheme.windowText
             opacity: control.up.pressed ? 0.5 : 1
         }
@@ -89,8 +89,8 @@ T.SpinBox {
         AppIcon {
             anchors.centerIn: parent
             anchors.verticalCenterOffset: -2
-            text: "arrow_drop_down"
-            font.pixelSize: 12
+            icon: "arrow_drop_down"
+            size: 12
             color: appTheme.windowText
             opacity: control.down.pressed ? 0.5 : 1
         }

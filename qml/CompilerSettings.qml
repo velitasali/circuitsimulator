@@ -132,7 +132,7 @@ Rectangle {
                             implicitHeight: 26
                             ToolTip.text: root.tr("Browse")
                             ToolTip.visible: hovered
-                            contentItem: AppIcon { text: "folder_open"; color: appTheme.windowText }
+                            contentItem: AppIcon { icon: "folder_open"; color: appTheme.windowText }
                             onClicked: toolPathDialog.open()
                         }
                     }
@@ -151,7 +151,7 @@ Rectangle {
                             anchors.fill: parent
                             anchors.margins: 4
                             spacing: 6
-                            AppIcon { text: "warning"; color: appTheme.windowText }
+                            AppIcon { icon: "warning"; color: appTheme.windowText }
                             AppText {
                                 text: EditorPanel.toolPathWarning
                                 color: appTheme.windowText
@@ -182,7 +182,7 @@ Rectangle {
                         implicitHeight: 26
                         ToolTip.text: root.tr("Browse")
                         ToolTip.visible: hovered
-                        contentItem: AppIcon { text: "folder_open"; color: appTheme.windowText }
+                        contentItem: AppIcon { icon: "folder_open"; color: appTheme.windowText }
                         onClicked: inclPathDialog.open()
                     }
                 }

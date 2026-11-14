@@ -529,6 +529,62 @@ Item {
                 }
             }
 
+            // Compact menu button for non-macOS systems (macOS uses native NSMenu)
+            AppToolButton {
+                id: appMenuBtn
+                visible: !App.nativeMenus
+                anchors.verticalCenter: toolbarRow.verticalCenter
+                checked: appMenu.opened
+                ToolTip.visible: hovered && !appMenu.opened
+                ToolTip.text: App.translate( "Menu" )
+                onClicked: {
+                    if ( appMenu.opened )
+                        root.closeAppMenu()
+                    else
+                        root.openAppMenu()
+                }
+                contentItem: Item {
+                    implicitWidth: 18
+                    implicitHeight: 18
+                    AppIcon {
+                        anchors.centerIn: parent
+                        text: "menu"
+                        font.pixelSize: 16
+                        color: appMenuBtn.isCheckedActive ? appTheme.highlight : appMenuBtn.textColor
+                    }
+                }
+
+                AppContextMenu {
+                    id: appMenu
+                    popupType: Popup.Item
+                    x: 0
+                    y: appMenuBtn.height + toolbar.bottomPadding + 4
+                    focus: true
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+                    property bool menuDirty: true
+                    onOpenedChanged: AppMenuBar.setAltMenuOpen(opened)
+                    onAboutToShow: {
+                        if ( menuDirty || count === 0 )
+                            root.rebuildAppMenu()
+                    }
+                }
+            }
+
+            // Separator to the right of the menu button
+            Item {
+                visible: !App.nativeMenus
+                implicitWidth: 7
+                implicitHeight: 18
+                anchors.verticalCenter: toolbarRow.verticalCenter
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 1
+                    height: parent.height
+                    color: appTheme.mid
+                    opacity: 0.6
+                }
+            }
+
             Repeater {
                 model: ctx ? ctx.toolbarItems : []
                 delegate: Loader {
@@ -983,6 +1039,150 @@ Item {
         id: canvasOverflowPopup
     }
 
+    Component {
+        id: menuItemComp
+        ContextMenuItem {
+            // Path into the AppMenuBar JSON; "" for separators/parents.
+            property string itemPath: ""
+            onTriggered: {
+                if ( itemPath !== "" )
+                    AppMenuBar.trigger( itemPath )
+            }
+        }
+    }
+
+    Component {
+        id: subMenuComp
+        AppContextMenu {
+            popupType: Popup.Item
+            focus: true
+        }
+    }
+
+    function clearMenu( menu ) {
+        for ( var i = menu.count - 1; i >= 0; --i ) {
+            var sub = menu.menuAt( i )
+            if ( sub ) {
+                // Leaves are QObject-parented to the panel, so destroying the
+                // submenu does not delete them.
+                clearMenu( sub )
+                var taken = menu.takeMenu( i )
+                if ( taken )
+                    taken.destroy()
+            } else {
+                var item = menu.takeItem( i )
+                if ( item )
+                    item.destroy()
+            }
+        }
+    }
+
+    function makeLeaf( parentMenu, entry ) {
+        var isSep = !!entry.separator
+        // Parent rows can never fire: submenu entries carry no action id
+        // and AppMenuBar.trigger ignores them, so itemPath stays "" there.
+        // Parent temporarily to `root` (in the scene), not to the Menu (a Popup),
+        // before addItem() reparents into the menu's visual hierarchy.
+        return menuItemComp.createObject( root, {
+            text: isSep ? "" : String( entry.text ),
+            enabled: !isSep && !!entry.enabled,
+            visible: entry.visible !== false,
+            isSeparator: isSep,
+            checkable: !isSep && !!entry.checkable && !entry.submenu,
+            checked: !!entry.checked,
+            shortcutText: entry.shortcut ? String( entry.shortcut ) : "",
+            itemPath: ( !isSep && !entry.submenu && entry.path ) ? String( entry.path ) : ""
+        } )
+    }
+
+    function populateMenu( menu, items ) {
+        menu.populating = true
+        clearMenu( menu )
+        if ( !items ) {
+            menu.populating = false
+            menu.updateGeometry()
+            return
+        }
+        for ( var i = 0; i < items.length; ++i ) {
+            var entry = items[i]
+            if ( !entry )
+                continue
+            if ( entry.submenu ) {
+                if ( entry.visible === false )
+                    continue
+                var sub = subMenuComp.createObject( menu, {
+                    title: String( entry.text )
+                } )
+                if ( !sub )
+                    continue
+                populateMenu( sub, entry.submenu )
+                menu.addMenu( sub )
+            } else {
+                var leaf = makeLeaf( menu, entry )
+                if ( leaf )
+                    menu.addItem( leaf )
+            }
+        }
+        menu.populating = false
+        menu.updateGeometry()
+    }
+
+    function rebuildAppMenu() {
+        appMenu.populating = true
+        clearMenu( appMenu )
+        var menus = AppMenuBar.menus || []
+        for ( var i = 0; i < menus.length; ++i ) {
+            var m = menus[i]
+            if ( !m )
+                continue
+            var sub = subMenuComp.createObject( appMenu, {
+                title: String( m.title || "" )
+            } )
+            if ( !sub )
+                continue
+            populateMenu( sub, m.items || [] )
+            appMenu.addMenu( sub )
+        }
+        appMenu.populating = false
+        appMenu.menuDirty = false
+        appMenu.updateGeometry()
+    }
+
+    function modalPopupOpen() {
+        var overlay = Overlay.overlay
+        if ( !overlay )
+            return false
+        var kids = overlay.children
+        for ( var i = 0; i < kids.length; ++i ) {
+            var child = kids[i]
+            if ( child && child !== appMenu && child.modal === true && child.visible )
+                return true
+        }
+        return false
+    }
+
+    function altMenuBlocked() {
+        return App.nativeMenus || CommandCenter.visible || TabSwitcher.visible || root.modalPopupOpen()
+    }
+
+    function openAppMenu() {
+        if ( root.altMenuBlocked() )
+            return
+        if ( ctx ) ctx.overlayClicked( "toolbar" )
+        if ( appMenu.menuDirty || appMenu.count === 0 )
+            root.rebuildAppMenu()
+        appMenu.open()
+    }
+
+    function closeAppMenu() {
+        for ( var i = 0; i < appMenu.count; ++i ) {
+            var sub = appMenu.menuAt( i )
+            if ( sub && sub.opened )
+                sub.close()
+        }
+        appMenu.close()
+    }
+
     Connections {
         target: CircuitCanvas
         function onZoomChanged() { ctx.setZoomPercent( CircuitCanvas.zoom ) }
@@ -1081,6 +1281,25 @@ Item {
             AppMenuBar.rebuild()
         }
         function onOpenCircuit( path ) { CircuitCanvas.loadPath( path ) }
+    }
+
+    Connections {
+        target: AppMenuBar
+        function onMenusChanged() {
+            appMenu.menuDirty = true
+        }
+        function onTogglePopupRequested() {
+            var wasOpen = appMenu.opened
+            if ( root.altMenuBlocked() ) {
+                AppMenuBar.noteAltToggled( false )
+                return
+            }
+            if ( wasOpen )
+                root.closeAppMenu()
+            else
+                root.openAppMenu()
+            AppMenuBar.noteAltToggled( appMenu.opened !== wasOpen )
+        }
     }
 
 }

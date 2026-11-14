@@ -3,10 +3,12 @@
 use super::EditorPanel;
 use cs_engine::backup;
 use cs_engine::editor::{
-    self, CompileCtx, CompileEvent, CompileJob, CompileResult, CompilerSpec, list_arduino_boards,
-    match_board, resolve_board_fqbn, save_cfg,
+    self, CompileCtx, CompileEvent, CompileJob, CompileResult, CompilerSpec, arduino,
+    list_arduino_boards, match_board, resolve_board_fqbn, save_cfg,
 };
 use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
 
 pub struct PendingCompile {
     pub job: CompileJob,
@@ -28,38 +30,48 @@ impl EditorPanel {
         } else {
             String::new()
         };
-        let tp = if tp.is_empty() {
+        let tp = if !tp.is_empty() {
+            tp
+        } else {
             let s = cs_engine::settings::get();
             s.compiler_tool_paths
                 .get("Arduino")
                 .cloned()
+                .filter(|p| !p.is_empty())
+                .or_else(|| arduino::tool_path_candidates().into_iter().next())
                 .unwrap_or_default()
-        } else {
-            tp
         };
-        if tp == self.arduino_list_path {
+        if self.arduino_list_path.as_deref() == Some(tp.as_str())
+            || self.board_loading_path.as_deref() == Some(tp.as_str())
+        {
             return;
         }
-        self.arduino_list_path = tp.clone();
-        self.arduino_boards = list_arduino_boards(&tp);
+        let (tx, rx) = mpsc::channel();
+        self.board_rx = Some(rx);
+        self.board_loading_path = Some(tp.clone());
+        self.compiling_changed();
+        thread::spawn(move || {
+            let boards = list_arduino_boards(&tp);
+            let _ = tx.send((tp, boards));
+        });
     }
 
     pub fn reapply_arduino_board(&mut self) {
-        let Some((board, custom, device, is_arduino)) = self.current_doc().map(|d| {
-            (
-                d.board.clone(),
-                d.custom_board.clone(),
-                d.device.clone(),
-                d.compiler.eq_ignore_ascii_case("arduino"),
-            )
-        }) else {
-            return;
-        };
-        if !is_arduino {
-            return;
-        }
-        let (b, cb, dev) = match_board(&board, &custom, &device, &self.arduino_boards);
-        if let Some(d) = self.current_doc_mut() {
+        for d in &mut self.docs {
+            if !d.compiler.eq_ignore_ascii_case("arduino") {
+                continue;
+            }
+            let qb = if !d.raw_board.is_empty() {
+                d.raw_board.clone()
+            } else {
+                d.board.clone()
+            };
+            let qc = if !d.raw_board.is_empty() {
+                d.raw_custom_board.clone()
+            } else {
+                d.custom_board.clone()
+            };
+            let (b, cb, dev) = match_board(&qb, &qc, &d.device, &self.arduino_boards);
             d.board = b;
             d.custom_board = cb;
             if !dev.is_empty() {

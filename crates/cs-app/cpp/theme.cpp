@@ -3,10 +3,12 @@
 #include <cstring>
 
 #include <QtCore/QEvent>
+#include <QtCore/QMetaObject>
 #include <QtCore/QtGlobal>
 #include <QtGui/QColor>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QIcon>
+#include <QtGui/QKeyEvent>
 #include <QtGui/QPalette>
 #include <QtGui/QStyleHints>
 #include <QtGui/QWindow>
@@ -22,6 +24,7 @@
 
 static int s_current_theme_dark = -1;
 static bool s_in_apply_theme = false;
+static int (*s_on_alt)(int phase) = nullptr;
 
 #ifdef Q_OS_WIN
 static void apply_dwm(QWindow* w, bool dark)
@@ -55,6 +58,7 @@ static bool windows_apps_use_dark()
         return registry.value(QStringLiteral("AppsUseLightTheme")).toInt() == 0;
     return false;
 }
+#endif
 
 class ThemeEventFilter : public QObject
 {
@@ -66,14 +70,106 @@ public:
 
     bool eventFilter(QObject* obj, QEvent* event) override
     {
-        if (event->type() == QEvent::Show || event->type() == QEvent::WinIdChange) {
-            if (auto* w = qobject_cast<QWindow*>(obj)) {
-                if (s_current_theme_dark >= 0)
-                    apply_dwm(w, s_current_theme_dark != 0);
-            }
+        const QEvent::Type type = event->type();
+        if (type == QEvent::ApplicationDeactivate) {
+            disarmAlt();
+            return QObject::eventFilter(obj, event);
         }
+
+        auto* w = qobject_cast<QWindow*>(obj);
+        if (!w)
+            return QObject::eventFilter(obj, event);
+
+#ifdef Q_OS_WIN
+        if (type == QEvent::Show || type == QEvent::WinIdChange) {
+            if (s_current_theme_dark >= 0)
+                apply_dwm(w, s_current_theme_dark != 0);
+        }
+#endif
+
+        if (w->transientParent() != nullptr) {
+            switch (type) {
+            case QEvent::KeyPress:
+            case QEvent::KeyRelease:
+            case QEvent::MouseButtonPress:
+            case QEvent::MouseButtonRelease:
+            case QEvent::MouseButtonDblClick:
+            case QEvent::Wheel:
+            case QEvent::WindowDeactivate:
+            case QEvent::FocusOut:
+            case QEvent::Hide:
+                disarmAlt();
+                break;
+            default:
+                break;
+            }
+            return QObject::eventFilter(obj, event);
+        }
+
+        switch (type) {
+        case QEvent::KeyPress: {
+            auto* ke = static_cast<QKeyEvent*>(event);
+            if (!ke->isAutoRepeat()) {
+                const Qt::KeyboardModifiers otherMods =
+                    ke->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier);
+                const bool bareAlt = ke->key() == Qt::Key_Alt && otherMods == Qt::NoModifier;
+                m_altArmed = bareAlt;
+                m_closeOnRelease = false;
+                // The open menu would close itself on this press, and the release
+                // would then open it again. Eat the press only while it is open
+                // so a press on the canvas still reaches Alt-click.
+                if (bareAlt && s_on_alt && s_on_alt(0)) {
+                    m_closeOnRelease = true;
+                    return true;
+                }
+            }
+            break;
+        }
+        case QEvent::KeyRelease: {
+            auto* ke = static_cast<QKeyEvent*>(event);
+            if (!ke->isAutoRepeat()) {
+                if (ke->key() == Qt::Key_Alt) {
+                    const Qt::KeyboardModifiers otherMods =
+                        ke->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier);
+                    const bool trigger = m_altArmed && (otherMods == Qt::NoModifier);
+                    const bool closeOnRelease = m_closeOnRelease;
+                    disarmAlt();
+                    if (trigger && s_on_alt) {
+                        const int toggled = s_on_alt(1);
+                        if (closeOnRelease || toggled)
+                            return true;
+                    }
+                } else {
+                    disarmAlt();
+                }
+            }
+            break;
+        }
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonRelease:
+        case QEvent::MouseButtonDblClick:
+        case QEvent::Wheel:
+        case QEvent::WindowDeactivate:
+        case QEvent::FocusOut:
+        case QEvent::Hide:
+            disarmAlt();
+            break;
+        default:
+            break;
+        }
+
         return QObject::eventFilter(obj, event);
     }
+
+private:
+    void disarmAlt()
+    {
+        m_altArmed = false;
+        m_closeOnRelease = false;
+    }
+
+    bool m_altArmed = false;
+    bool m_closeOnRelease = false;
 };
 
 static void ensure_filter()
@@ -87,7 +183,6 @@ static void ensure_filter()
     filter = new ThemeEventFilter(app);
     app->installEventFilter(filter);
 }
-#endif
 
 static QPalette make_palette(bool dark)
 {
@@ -171,6 +266,21 @@ void cs_set_titlebar_dark(int dark)
 #else
     (void)dark;
 #endif
+}
+
+void cs_install_alt_menu_filter(int (*on_alt)(int phase))
+{
+    s_on_alt = on_alt;
+    if (QGuiApplication::instance())
+        ensure_filter();
+}
+
+int cs_invoke_direct(void* obj, const char* method)
+{
+    auto* qobj = static_cast<QObject*>(obj);
+    if (!qobj || !method)
+        return 0;
+    return QMetaObject::invokeMethod(qobj, method, Qt::DirectConnection) ? 1 : 0;
 }
 
 int cs_apply_theme(const char* theme_name)

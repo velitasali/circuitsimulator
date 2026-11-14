@@ -141,7 +141,7 @@ Item {
             // rewrites that to the theme color and returns a file URL.
             Drag.active: dragHandler.active
             Drag.source: row
-            Drag.imageSource: ( !row.isCategory && model.iconUri )
+            Drag.imageSource: ( (hover.hovered || dragHandler.active) && !row.isCategory && model.iconUri )
                 ? ComponentList.tintedIconUrl( model.iconUri, appTheme.windowText.toString() )
                 : ""
             Drag.hotSpot.x: 16

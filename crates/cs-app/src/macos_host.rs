@@ -3,16 +3,21 @@
 #![allow(dead_code)]
 
 use std::ffi::CString;
+#[cfg(not(target_os = "macos"))]
+use std::ffi::c_void;
 use std::os::raw::c_char;
+#[cfg(target_os = "macos")]
+use std::sync::Mutex;
+#[cfg(not(target_os = "macos"))]
+use std::sync::atomic::AtomicPtr;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
-#[cfg(target_os = "macos")]
-use std::sync::Mutex;
 
+use qtbridge::QObjectHolder;
 #[cfg(target_os = "macos")]
-use qtbridge::{QObjectHolder, QmlMethodInvoker};
+use qtbridge::QmlMethodInvoker;
 
 static SIM_RUNNING: AtomicBool = AtomicBool::new(false);
 static SIM_PAUSED: AtomicBool = AtomicBool::new(false);
@@ -43,7 +48,16 @@ unsafe extern "C" {
     fn cs_apply_theme(theme_name: *const c_char) -> i32;
     fn cs_set_titlebar_dark(dark: i32);
     fn cs_apply_app_icon();
+    fn cs_install_alt_menu_filter(on_alt: extern "C" fn(i32) -> i32);
+    fn cs_invoke_direct(obj: *mut c_void, method: *const c_char) -> i32;
 }
+
+#[cfg(not(target_os = "macos"))]
+static ALT_MENU_OPEN: AtomicBool = AtomicBool::new(false);
+#[cfg(not(target_os = "macos"))]
+static ALT_TOGGLED: AtomicBool = AtomicBool::new(false);
+#[cfg(not(target_os = "macos"))]
+static MENU_OBJECT: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
 pub fn setup_window() {
     #[cfg(target_os = "macos")]
@@ -215,14 +229,51 @@ pub fn apply_app_icon() {
 #[cfg(target_os = "macos")]
 pub fn install_native_menu<T: QObjectHolder>(obj: &T) {
     let inv = obj.get_qml_method_invoker();
-    *MENU_INVOKER.lock().unwrap() = Some(inv);
+    if let Ok(mut guard) = MENU_INVOKER.lock() {
+        *guard = Some(inv);
+    }
     unsafe {
         cs_macos_set_menu_callbacks(on_menu_trigger, on_menu_about_to_show);
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn install_native_menu<T>(_obj: &T) {}
+pub fn set_alt_menu_open(open: bool) {
+    ALT_MENU_OPEN.store(open, Ordering::SeqCst);
+}
+
+#[cfg(target_os = "macos")]
+pub fn set_alt_menu_open(_open: bool) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn note_alt_toggled(toggled: bool) {
+    ALT_TOGGLED.store(toggled, Ordering::SeqCst);
+}
+
+#[cfg(target_os = "macos")]
+pub fn note_alt_toggled(_toggled: bool) {}
+
+#[cfg(not(target_os = "macos"))]
+extern "C" fn on_alt(phase: i32) -> i32 {
+    if phase == 0 {
+        return i32::from(ALT_MENU_OPEN.load(Ordering::SeqCst));
+    }
+    let obj = MENU_OBJECT.load(Ordering::SeqCst);
+    if obj.is_null() {
+        return 0;
+    }
+    ALT_TOGGLED.store(false, Ordering::SeqCst);
+    let ok = unsafe { cs_invoke_direct(obj, c"requestTogglePopup".as_ptr()) } != 0;
+    i32::from(ok && ALT_TOGGLED.load(Ordering::SeqCst))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn install_native_menu<T: QObjectHolder>(obj: &T) {
+    MENU_OBJECT.store(obj.get_qobject_ptr().cast(), Ordering::SeqCst);
+    unsafe {
+        cs_install_alt_menu_filter(on_alt);
+    }
+}
 
 pub fn set_native_menu_json(_json: &str) {
     #[cfg(target_os = "macos")]

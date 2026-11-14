@@ -1019,6 +1019,8 @@ impl AppMenuBar {
     #[qsignal]
     fn shortcuts_changed(&mut self);
     #[qsignal]
+    fn toggle_popup_requested(&mut self);
+    #[qsignal]
     fn action(&mut self, id: String);
 
     fn menus(&self) -> Vec<Value> {
@@ -1191,6 +1193,22 @@ impl AppMenuBar {
                 return;
             }
         }
+    }
+
+    #[qslot]
+    fn set_alt_menu_open(&mut self, open: bool) {
+        macos_host::set_alt_menu_open(open);
+    }
+
+    #[qslot]
+    fn note_alt_toggled(&mut self, toggled: bool) {
+        macos_host::note_alt_toggled(toggled);
+    }
+
+    #[qslot]
+    fn request_toggle_popup(&mut self) {
+        macos_host::note_alt_toggled(false);
+        self.toggle_popup_requested();
     }
 
     #[qslot]

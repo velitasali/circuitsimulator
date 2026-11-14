@@ -28,7 +28,7 @@ impl Default for CommandCenter {
         };
         let mut lib = cs_engine::library::Library::new();
         lib.add_catalog_mcus(&cs_engine::catalog::standard());
-        let mut cc = Self {
+        Self {
             search_text: String::new(),
             current_row: 0,
             items: Vec::new(),
@@ -37,9 +37,7 @@ impl Default for CommandCenter {
             project_dir: proj,
             editor_focused: false,
             lib,
-        };
-        cc.populate_jump_to_reference("");
-        cc
+        }
     }
 }
 
@@ -129,7 +127,7 @@ impl CommandCenter {
         if self.project_dir != dir {
             self.project_dir = dir;
             self.project_dir_changed();
-            if !self.search_text.starts_with('>') {
+            if self.visible && !self.search_text.starts_with('>') {
                 self.repopulate();
             }
         }
@@ -141,7 +139,7 @@ impl CommandCenter {
         }
         self.editor_focused = focused;
         self.editor_focused_changed();
-        if self.search_text.starts_with('>') {
+        if self.visible && self.search_text.starts_with('>') {
             self.repopulate();
         }
     }
@@ -187,7 +185,7 @@ impl CommandCenter {
     fn set_circuit_items(&mut self, items: Value) {
         if let Value::Array(arr) = items {
             self.circuit_items = arr;
-            if !self.search_text.starts_with('>') {
+            if self.visible && !self.search_text.starts_with('>') {
                 self.repopulate();
             }
         }

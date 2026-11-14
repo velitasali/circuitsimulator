@@ -1,7 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.impl
-import QtQuick.Templates as T
 import QtQuick.Window
 import QtQuick.Dialogs
 import cs_app
@@ -10,8 +8,8 @@ import cs_app
  * Extra windows (About, plots, MCU monitor, serial) are QML Window, not C++ QmlWindow.
  *
  * The menu bar is platform-split: macOS gets a real NSMenu (App.nativeMenus),
- * everyone else draws a template MenuBar from the same AppMenuBar JSON so the
- * app palette (including dark theme) actually applies on Windows.
+ * everyone else accesses the AppMenuBar tree from the compact menu button
+ * inside CircuitPanel's floating toolbar overlay.
  */
 ApplicationWindow {
     id: win
@@ -85,246 +83,6 @@ ApplicationWindow {
     palette.text: appTheme.windowText
     palette.base: appTheme.base
 
-    menuBar: App.nativeMenus ? null : inWindowBar
-    Loader { id: inWindowBar; sourceComponent: App.nativeMenus ? null : inWindowBarComponent }
-
-    // Repeater parents Menus as visual children; MenuBar only turns a Menu into a
-    // MenuBarItem through addMenu/insertMenu (contentData). Instantiator + insertMenu
-    // is the documented dynamic path — without it Windows gets an empty strip.
-    //
-    // Template types, not QtQuick.Controls.Windows: that style paints a light
-    // MenuBar and accent (often purple) hover from the OS palette, ignoring
-    // QGuiApplication::setPalette / dark theme.
-    Component {
-        id: inWindowBarComponent
-        T.MenuBar {
-            id: bar
-            // Templates do not bind implicit size; without this the Loader
-            // reports 0 height and ApplicationWindow hides the bar.
-            implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                                    contentWidth + leftPadding + rightPadding)
-            implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                                     contentHeight + topPadding + bottomPadding)
-            width: parent ? parent.width : implicitWidth
-            leftPadding: 4
-            rightPadding: 4
-            topPadding: 2
-            bottomPadding: 2
-            spacing: 0
-            font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
-
-            palette.window: appTheme.window
-            palette.windowText: appTheme.windowText
-            palette.button: appTheme.button
-            palette.buttonText: appTheme.buttonText
-            palette.highlight: appTheme.highlight
-            palette.highlightedText: appTheme.highlightedText
-            palette.mid: appTheme.mid
-            palette.midlight: appTheme.midlight
-            palette.text: appTheme.windowText
-            palette.base: appTheme.base
-
-            contentItem: Row {
-                spacing: bar.spacing
-                Repeater { model: bar.contentModel }
-            }
-
-            background: Rectangle {
-                implicitWidth: 200
-                implicitHeight: 28
-                color: appTheme.window
-            }
-
-            delegate: T.MenuBarItem {
-                id: barItem
-                implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                                        implicitContentWidth + leftPadding + rightPadding)
-                implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                                         implicitContentHeight + topPadding + bottomPadding)
-                font: bar.font
-                hoverEnabled: true
-                padding: 6
-                leftPadding: 10
-                rightPadding: 10
-
-                contentItem: IconLabel {
-                    spacing: barItem.spacing
-                    mirrored: barItem.mirrored
-                    display: barItem.display
-                    alignment: Qt.AlignLeft
-                    icon: barItem.icon
-                    text: barItem.text
-                    font: barItem.font
-                    color: barItem.enabled ? appTheme.windowText : appTheme.mid
-                }
-
-                background: Rectangle {
-                    implicitWidth: 20
-                    implicitHeight: 22
-                    radius: 4
-                    color: (barItem.highlighted || barItem.down) ? appTheme.midlight : "transparent"
-                }
-            }
-
-            Component {
-                id: menuItemComp
-                ContextMenuItem {
-                    // Path into the AppMenuBar JSON; "" for separators/parents.
-                    property string itemPath: ""
-                    onTriggered: {
-                        if (itemPath !== "")
-                            AppMenuBar.trigger(itemPath)
-                    }
-                }
-            }
-
-            Component {
-                id: subMenuComp
-                AppContextMenu {
-                    popupType: Popup.Item
-                }
-            }
-
-            // Qt only creates a cascading row (MenuItem.subMenu + arrow) when a
-            // Menu is registered via addMenu/insertMenu. Parenting a Menu to a
-            // MenuItem (the old createObject(menuItem) path) leaves subMenu null,
-            // so Windows showed the parent row with no cascade. macOS worked
-            // because menu.mm recurses over the same JSON with item.submenu.
-            // itemAt/menuAt/takeMenu/takeItem index over ALL rows (a submenu row
-            // answers both), so probe with menuAt and take the same index either way.
-            // All creation happens from onAboutToShow (menus fully in the scene
-            // by then) — never from Instantiator.onObjectAdded during startup,
-            // which fires before `bar` is placed and logs "Created graphical
-            // object was not placed in the graphics scene" at menuItemComp.
-            function clearMenu(menu) {
-                for (var i = menu.count - 1; i >= 0; --i) {
-                    if (menu.menuAt(i))
-                        menu.takeMenu(i).destroy()
-                    else
-                        menu.takeItem(i).destroy()
-                }
-            }
-
-            function makeLeaf(parentMenu, entry) {
-                var isSep = !!entry.separator
-                // Parent rows can never fire: submenu entries carry no action id
-                // and AppMenuBar.trigger ignores them, so itemPath stays "" there.
-                // NB: parent to `bar` (in the scene), NOT to the Menu (a Popup)
-                // and NOT null — both log "Created graphical object was not
-                // placed in the graphics scene". addItem() reparents into the
-                // menu's visual hierarchy right after.
-                return menuItemComp.createObject(bar, {
-                    text: isSep ? "" : String(entry.text),
-                    enabled: !isSep && !!entry.enabled,
-                    visible: entry.visible !== false,
-                    isSeparator: isSep,
-                    checkable: !isSep && !!entry.checkable && !entry.submenu,
-                    checked: !!entry.checked,
-                    shortcutText: entry.shortcut ? String(entry.shortcut) : "",
-                    itemPath: (!isSep && !entry.submenu && entry.path) ? String(entry.path) : ""
-                })
-            }
-
-            function populateMenu(menu, items) {
-                clearMenu(menu)
-                if (!items)
-                    return
-                for (var i = 0; i < items.length; ++i) {
-                    var entry = items[i]
-                    if (!entry)
-                        continue
-                    if (entry.submenu) {
-                        // QQuickMenu has no row-visible (visible opens the popup),
-                        // so a hidden submenu is skipped instead of inserted.
-                        if (entry.visible === false)
-                            continue
-                        // Menus are non-visual too, but unlike MenuItems they can
-                        // be created parented to the target menu: that is exactly
-                        // what static `Menu { Menu { ... } }` nesting does, and
-                        // addMenu() then adopts them (CircuitView's monitorMenu /
-                        // footprintsMenu rely on the same pattern).
-                        var sub = subMenuComp.createObject(menu, {
-                            title: String(entry.text)
-                        })
-                        if (!sub)
-                            continue
-                        populateMenu(sub, entry.submenu)
-                        menu.addMenu(sub)
-                    } else {
-                        var leaf = makeLeaf(menu, entry)
-                        if (leaf)
-                            menu.addItem(leaf)
-                    }
-                }
-            }
-
-            Instantiator {
-                id: topMenuInstantiator
-                model: AppMenuBar.menus
-                onObjectAdded: (index, object) => bar.insertMenu(index, object)
-                onObjectRemoved: (_, object) => bar.removeMenu(object)
-                delegate: AppContextMenu {
-                    id: topMenu
-                    popupType: Popup.Item
-                    required property var modelData
-                    title: modelData.title
-                    onAboutToShow: bar.populateTopMenu(topMenu, -1)
-                }
-            }
-
-            function populateTopMenu(menu, index) {
-                var menus = AppMenuBar.menus
-                if (!menus)
-                    return
-                var idx = index
-                if (idx === undefined || idx < 0) {
-                    idx = -1
-                    if (menu) {
-                        for (var k = 0; k < menus.length; ++k) {
-                            if (bar.menuAt(k) === menu) {
-                                idx = k
-                                break
-                            }
-                        }
-                        if (idx < 0 && menu.title !== undefined) {
-                            for (var j = 0; j < menus.length; ++j) {
-                                if (menus[j] && menus[j].title === menu.title) {
-                                    idx = j
-                                    break
-                                }
-                            }
-                        }
-                    }
-                }
-                if (idx < 0 || idx >= menus.length)
-                    return
-                var data = menus[idx]
-                if (!data)
-                    return
-                // Keep the bar label in sync when rebuild() retranslates titles;
-                // the Instantiator delegate keeps its creation-time modelData.
-                if (data.title !== undefined && menu.title !== data.title)
-                    menu.title = data.title
-                populateMenu(menu, data.items)
-            }
-
-            // Live updates (checked/enabled/recent lists) rebuild the top-level
-            // menus; skip while one is open so the popup is not torn down.
-            Connections {
-                target: AppMenuBar
-                function onMenusChanged() {
-                    if (bar.menus.length === 0)
-                        return
-                    for (var i = 0; i < bar.menus.length; ++i) {
-                        var m = bar.menuAt(i)
-                        if (m && !m.opened)
-                            bar.populateTopMenu(m, i)
-                    }
-                }
-            }
-        }
-    }
-
     Loader {
         anchors.fill: parent
         source: "CircuitPanel.qml"
@@ -335,7 +93,7 @@ ApplicationWindow {
         id: aboutWin
         title: App.translate("About Circuit Simulator")
         sizeToContent: true
-        source: "about.qml"
+        source: visible ? "about.qml" : ""
         visible: App.aboutVisible
 
         onVisibleChanged: {
@@ -358,7 +116,7 @@ ApplicationWindow {
         id: examplesWin
         title: App.translate("Example circuits")
         sizeToContent: true
-        source: "examples.qml"
+        source: visible ? "examples.qml" : ""
         visible: false
 
         onVisibleChanged: {
@@ -378,6 +136,7 @@ ApplicationWindow {
 
         Connections {
             target: examplesWin.panel
+            ignoreUnknownSignals: true
             function onExampleChosen(id) {
                 CircuitCanvas.loadExample(id)
                 examplesWin.visible = false
@@ -632,7 +391,7 @@ ApplicationWindow {
         sizeToContent: true
         minimumWidth: 420
         minimumHeight: 380
-        source: "appdialog.qml"
+        source: visible ? "appdialog.qml" : ""
         visible: App.settingsVisible
         onVisibleChanged: {
             if (visible) {
@@ -657,7 +416,7 @@ ApplicationWindow {
         height: 560
         minimumWidth: panel ? Math.max(360, Math.ceil(panel.implicitWidth)) : 360
         minimumHeight: 380
-        source: "circuitdialog.qml"
+        source: visible ? "circuitdialog.qml" : ""
         visible: App.circuitSettingsVisible
         onVisibleChanged: {
             if (visible) {
@@ -1283,11 +1042,11 @@ ApplicationWindow {
         }
     }
 
-    // Poll the background compiler while a compilation is running so that logs
+    // Poll the background compiler and board discovery while running so that logs
     // and completion events drain even if the code editor tab/window is hidden.
     Timer {
         interval: 50
-        running: EditorPanel.compiling
+        running: EditorPanel.compiling || EditorPanel.boardLoading
         repeat: true
         onTriggered: EditorPanel.pollLsp()
     }
@@ -1365,7 +1124,7 @@ ApplicationWindow {
         title: win.tr("Find/Replace")
         sizeToContent: true
         minimumWidth: 460
-        source: "FindReplace.qml"
+        source: visible ? "FindReplace.qml" : ""
         visible: EditorPanel.findVisible
         onVisibleChanged: {
             if (visible) {
@@ -1387,7 +1146,7 @@ ApplicationWindow {
         title: win.tr("File Settings")
         sizeToContent: true
         minimumWidth: 420
-        source: "FileSettings.qml"
+        source: visible ? "FileSettings.qml" : ""
         visible: EditorPanel.fileSettingsVisible
         onVisibleChanged: {
             if (visible) {
@@ -1411,7 +1170,7 @@ ApplicationWindow {
                : win.tr("Compiler Settings")
         sizeToContent: true
         minimumWidth: 420
-        source: "CompilerSettings.qml"
+        source: visible ? "CompilerSettings.qml" : ""
         visible: EditorPanel.compilerSettingsVisible
         onVisibleChanged: {
             if (visible) {

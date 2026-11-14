@@ -11,15 +11,15 @@ T.Menu {
     // Copied onto the parent row that addMenu/insertMenu builds from `delegate`.
     property string iconLigature: ""
 
-    // macOS style defaults to Popup.Native, which ignores this delegate and
-    // treats an empty submenu as a disabled row. Window matches src/gui and
-    // keeps hover-cascading submenus.
+    // Keep context menus and cascading submenus inside the window's overlay
+    // (Popup.Item) so Qt doesn't spin up separate QQuickPopupWindow OS windows
+    // whose outside-press/release filtering can prematurely close parent menus.
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
                             contentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              contentHeight + topPadding + bottomPadding)
 
-    popupType: Popup.Window
+    popupType: Popup.Item
     cascade: true
     margins: 0
     topInset: 0
@@ -55,6 +55,7 @@ T.Menu {
 
     property real contentImplicitWidth: 180
     property real contentImplicitHeight: 0
+    property bool populating: false
 
     function updateGeometry() {
         var maxW = 180
@@ -77,7 +78,10 @@ T.Menu {
             control.updateGeometry()
         }
     }
-    onCountChanged: updateGeometry()
+    onCountChanged: {
+        if (!populating)
+            updateGeometry()
+    }
 
     // macOS Menu.qml uses spacing: 2, so every hidden row still adds a gap.
     contentItem: ListView {

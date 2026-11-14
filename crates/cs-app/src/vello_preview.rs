@@ -157,7 +157,6 @@ mod gpu {
 
     struct Gpu {
         renderer: Renderer,
-        scene: Scene,
         #[cfg(target_os = "macos")]
         surfaces: [Option<ImportedSurface>; 2],
         /// Private frame used when the shared texture cannot be opened.
@@ -194,6 +193,7 @@ mod gpu {
 
     struct Slot {
         gpu: Option<Gpu>,
+        scene: Option<Scene>,
         failed: bool,
         phase: Phase,
         stop: bool,
@@ -201,6 +201,7 @@ mod gpu {
 
     static GPU: Mutex<Slot> = Mutex::new(Slot {
         gpu: None,
+        scene: None,
         failed: false,
         phase: Phase::Idle,
         stop: false,
@@ -275,6 +276,7 @@ mod gpu {
         }
         let mut slot = lock_gpu();
         slot.gpu = None;
+        slot.scene = None;
         slot.phase = Phase::Idle;
     }
 
@@ -308,20 +310,8 @@ mod gpu {
         if slot.failed || slot.stop || matches!(slot.phase, Phase::Waiting(_)) {
             return false;
         }
-        if slot.gpu.is_none() {
-            match init_gpu(width, height) {
-                Ok(gpu) => slot.gpu = Some(gpu),
-                Err(err) => {
-                    slot.failed = true;
-                    log_once(&err);
-                    return false;
-                }
-            }
-        }
-        let Some(gpu) = slot.gpu.as_mut() else {
-            return false;
-        };
-        vello_draw::record(&mut gpu.scene, canvas, palette, width, height, dpr);
+        let scene = slot.scene.get_or_insert_with(Scene::new);
+        vello_draw::record(scene, canvas, palette, width, height, dpr);
         slot.phase = Phase::Recorded(Pending {
             width,
             height,
@@ -373,20 +363,9 @@ mod gpu {
         if slot.gpu.is_none() {
             return RegionPresent::Fallback;
         }
-        let Some(gpu) = slot.gpu.as_mut() else {
-            return RegionPresent::Fallback;
-        };
+        let scene = slot.scene.get_or_insert_with(Scene::new);
         vello_draw::record_at(
-            &mut gpu.scene,
-            canvas,
-            palette,
-            full_w,
-            full_h,
-            x,
-            y,
-            patch_w,
-            patch_h,
-            dpr,
+            scene, canvas, palette, full_w, full_h, x, y, patch_w, patch_h, dpr,
         );
         slot.phase = Phase::Recorded(Pending {
             width: patch_w,
@@ -413,8 +392,35 @@ mod gpu {
                     return;
                 }
             }
-            if !matches!(slot.phase, Phase::Recorded(_)) {
-                continue;
+            let init_dims = match &slot.phase {
+                Phase::Recorded(pending) if slot.gpu.is_none() => {
+                    Some((pending.width, pending.height))
+                }
+                Phase::Recorded(_) => None,
+                _ => continue,
+            };
+            if let Some((w, h)) = init_dims {
+                drop(slot);
+                let res = init_gpu(w, h);
+                slot = lock_gpu();
+                if slot.stop {
+                    return;
+                }
+                match res {
+                    Ok(gpu) => {
+                        slot.gpu = Some(gpu);
+                    }
+                    Err(err) => {
+                        slot.failed = true;
+                        slot.phase = Phase::Idle;
+                        log_once(&err);
+                        continue;
+                    }
+                }
+                match &mut slot.phase {
+                    Phase::Recorded(pending) => pending.started = Instant::now(),
+                    _ => continue,
+                }
             }
             if let Err(err) = submit_recorded(&mut slot) {
                 #[cfg(any(windows, target_os = "linux"))]
@@ -461,17 +467,22 @@ mod gpu {
     }
 
     fn submit_recorded(slot: &mut Slot) -> Result<(), String> {
-        let Phase::Recorded(pending) = &slot.phase else {
+        let Slot {
+            gpu, scene, phase, ..
+        } = slot;
+        let Phase::Recorded(pending) = phase else {
             return Ok(());
         };
         let width = pending.width;
         let height = pending.height;
         let started = pending.started;
         let clear = pending.clear;
-        let gpu = slot
-            .gpu
+        let gpu = gpu
             .as_mut()
             .ok_or_else(|| "GPU released before submit".to_string())?;
+        let scene = scene
+            .as_ref()
+            .ok_or_else(|| "scene missing before submit".to_string())?;
         let patch = pending.patch_origin;
         let surface_slot = if patch.is_none() {
             bind_surface(gpu, width, height)?
@@ -498,9 +509,9 @@ mod gpu {
             antialiasing_method: AaConfig::Area,
         };
         gpu.renderer
-            .render_to_texture(device, queue, &gpu.scene, &view, &params)
+            .render_to_texture(device, queue, scene, &view, &params)
             .map_err(|err| err.to_string())?;
-        slot.phase = Phase::Waiting(Pending {
+        *phase = Phase::Waiting(Pending {
             width,
             height,
             started,
@@ -639,7 +650,11 @@ mod gpu {
                 RendererOptions {
                     use_cpu: false,
                     antialiasing_support: AaSupport::area_only(),
-                    num_init_threads: NonZeroUsize::new(1),
+                    num_init_threads: if cfg!(target_os = "macos") {
+                        NonZeroUsize::new(1)
+                    } else {
+                        None
+                    },
                     pipeline_cache: None,
                 },
             )
@@ -651,7 +666,6 @@ mod gpu {
         log_ready(width, height, "direct");
         Ok(Gpu {
             renderer,
-            scene: Scene::new(),
             #[cfg(target_os = "macos")]
             surfaces: [None, None],
             #[cfg(not(target_os = "macos"))]

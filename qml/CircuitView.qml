@@ -303,14 +303,6 @@ Item {
         readonly property bool hasSpecial: isWaveGen || isOsc || isLa || isMcu || isSerial || isSubPackage || isSubc
             || isMemory || isFunction || isImage || isSdCard || isTunnel || isProbe || isTestUnit || isDcMotor || isLinker
 
-        function detachSubMenu(sub) {
-            for (var i = 0; i < count; i++) {
-                if (menuAt(i) === sub) {
-                    takeMenu(i)
-                    return
-                }
-            }
-        }
         function syncSubMenuRow(sub, shown) {
             for (var i = 0; i < count; i++) {
                 var it = itemAt(i)
@@ -326,12 +318,7 @@ Item {
         onAboutToShow: {
             // Hide the parent row; never bind Menu.visible (that opens the popup).
             syncSubMenuRow(monitorMenu, itemMenu.hasMonitors && itemMenu.showMcuActions && monitorRepeater.count > 0)
-            detachSubMenu(footprintsMenu)
-            if (itemMenu.isSubPackage)
-                itemMenu.insertMenu(packageFileItem.index !== undefined ? packageFileItem.index : 1, footprintsMenu)
-        }
-        onClosed: {
-            detachSubMenu(footprintsMenu)
+            syncSubMenuRow(footprintsMenu, itemMenu.isSubPackage)
         }
 
         Connections {
@@ -657,6 +644,44 @@ Item {
             onTriggered: if (itemMenu.itemUid) CircuitCanvas.startLinking(itemMenu.itemUid)
         }
 
+        AppContextMenu {
+            id: footprintsMenu
+            title: root.tr("Footprints")
+            iconLigature: "developer_board"
+            ContextMenuItem {
+                text: "DIP-8"
+                onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-8", 8, 4)
+            }
+            ContextMenuItem {
+                text: "DIP-14"
+                onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-14", 14, 4)
+            }
+            ContextMenuItem {
+                text: "DIP-16"
+                onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-16", 16, 4)
+            }
+            ContextMenuItem {
+                text: "DIP-20"
+                onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-20", 20, 4)
+            }
+            ContextMenuItem {
+                text: "DIP-24"
+                onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-24", 24, 6)
+            }
+            ContextMenuItem {
+                text: "DIP-28"
+                onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-28", 28, 6)
+            }
+            ContextMenuItem {
+                text: "DIP-40"
+                onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-40", 40, 6)
+            }
+            ContextMenuItem {
+                text: root.tr("Logic Symbol (4 In, 2 Out)")
+                onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintLs(itemMenu.itemUid, "LS", "A,B,C,D", "Y1,Y2", "VCC", "GND")
+            }
+        }
+
         ContextMenuSeparator { visible: itemMenu.hasSpecial && CircuitCanvas.hasItemSelection }
 
         // C++ Component::contextMenu: Copy, Cut, Remove, Properties, then rotate/flip
@@ -725,44 +750,6 @@ Item {
             iconLigature: "swap_vert"
             visible: CircuitCanvas.hasItemSelection
             onTriggered: AppMenuBar.triggerAction("edit.flipV")
-        }
-    }
-
-    AppContextMenu {
-        id: footprintsMenu
-        title: root.tr("Footprints")
-        iconLigature: "developer_board"
-        ContextMenuItem {
-            text: "DIP-8"
-            onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-8", 8, 4)
-        }
-        ContextMenuItem {
-            text: "DIP-14"
-            onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-14", 14, 4)
-        }
-        ContextMenuItem {
-            text: "DIP-16"
-            onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-16", 16, 4)
-        }
-        ContextMenuItem {
-            text: "DIP-20"
-            onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-20", 20, 4)
-        }
-        ContextMenuItem {
-            text: "DIP-24"
-            onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-24", 24, 6)
-        }
-        ContextMenuItem {
-            text: "DIP-28"
-            onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-28", 28, 6)
-        }
-        ContextMenuItem {
-            text: "DIP-40"
-            onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-40", 40, 6)
-        }
-        ContextMenuItem {
-            text: root.tr("Logic Symbol (4 In, 2 Out)")
-            onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintLs(itemMenu.itemUid, "LS", "A,B,C,D", "Y1,Y2", "VCC", "GND")
         }
     }
 

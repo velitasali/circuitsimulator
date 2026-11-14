@@ -130,4 +130,19 @@ T.MenuItem {
             opacity: control.enabled ? 1.0 : 0.4
         }
     }
+
+    MouseArea {
+        anchors.fill: parent
+        visible: control.subMenu !== null
+        enabled: control.subMenu !== null
+        acceptedButtons: Qt.LeftButton
+        onPressed: (mouse) => {
+            if (control.subMenu && !control.subMenu.opened)
+                control.subMenu.open()
+            mouse.accepted = true
+        }
+        onReleased: (mouse) => {
+            mouse.accepted = true
+        }
+    }
 }

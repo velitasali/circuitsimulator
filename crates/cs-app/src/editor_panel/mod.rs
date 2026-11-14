@@ -8,15 +8,16 @@ pub mod search;
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 use crate::path_util::strip_file_url;
 use compiler::PendingCompile;
 use cs_engine::backup;
 use cs_engine::editor::{
     self, BoardEntry, CompilerSpec, FileWatcher, LspClient, LspEvent, WatchEvent,
-    board_names_for_ui, calculate_newline, compiler_names, device_for_board_or_fqbn, find_all,
-    find_next, identifier_prefix, language_id_for_path, list_arduino_boards, load_cfg,
-    load_compilers, replace_all,
+    board_names_for_ui, calculate_newline, compiler_names, default_boards,
+    device_for_board_or_fqbn, find_all, find_next, identifier_prefix, language_id_for_path,
+    load_cfg, load_compilers, replace_all,
 };
 use cs_engine::highlighter;
 use cs_engine::settings::AppSettings;
@@ -98,7 +99,9 @@ pub struct EditorPanel {
     error_color: String,
     warn_color: String,
     arduino_boards: Vec<BoardEntry>,
-    arduino_list_path: String,
+    arduino_list_path: Option<String>,
+    board_rx: Option<Receiver<(String, Vec<BoardEntry>)>>,
+    board_loading_path: Option<String>,
     compiling: bool,
     compile_job: Option<PendingCompile>,
     last_debug_line: i32,
@@ -112,12 +115,7 @@ impl Default for EditorPanel {
         let s = cs_engine::settings::get();
         let specs = load_compilers(&s);
         let compiler_list = compiler_names(&specs);
-        let arduino_tool_path = s
-            .compiler_tool_paths
-            .get("Arduino")
-            .cloned()
-            .unwrap_or_default();
-        let arduino_boards = list_arduino_boards(&arduino_tool_path);
+        let arduino_boards = default_boards();
         let mut panel = Self {
             docs: Vec::new(),
             current: -1,
@@ -190,7 +188,9 @@ impl Default for EditorPanel {
             error_color: String::new(),
             warn_color: String::new(),
             arduino_boards,
-            arduino_list_path: arduino_tool_path,
+            arduino_list_path: None,
+            board_rx: None,
+            board_loading_path: None,
             compiling: false,
             compile_job: None,
             last_debug_line: 0,
@@ -719,6 +719,11 @@ impl EditorPanel {
     );
     qproperty!("compiling", Read = compiling, Notify = compiling_changed);
     qproperty!(
+        "boardLoading",
+        Read = board_loading,
+        Notify = compiling_changed
+    );
+    qproperty!(
         "signatureHtml",
         Read = signature_html,
         Notify = signature_changed
@@ -986,6 +991,9 @@ impl EditorPanel {
     }
     pub fn compiling(&self) -> bool {
         self.compiling
+    }
+    pub fn board_loading(&self) -> bool {
+        self.board_rx.is_some()
     }
     pub fn signature_html(&self) -> String {
         self.signature_html.clone()
@@ -1522,6 +1530,10 @@ impl EditorPanel {
             if d.board == v {
                 return;
             }
+            d.raw_board = v.clone();
+            if !v.eq_ignore_ascii_case("custom") {
+                d.raw_custom_board.clear();
+            }
             d.board = v;
             if d.compiler.eq_ignore_ascii_case("arduino") {
                 let dev = device_for_board_or_fqbn(&d.board, &d.custom_board);
@@ -1546,6 +1558,7 @@ impl EditorPanel {
             if d.custom_board == v {
                 return;
             }
+            d.raw_custom_board = v.clone();
             d.custom_board = v;
             if d.compiler.eq_ignore_ascii_case("arduino") {
                 let dev = device_for_board_or_fqbn(&d.board, &d.custom_board);
@@ -2805,6 +2818,26 @@ impl EditorPanel {
 
     #[qslot]
     fn poll_lsp(&mut self) {
+        if let Some(rx) = &self.board_rx {
+            match rx.try_recv() {
+                Ok((tp, boards)) => {
+                    self.arduino_list_path = Some(tp);
+                    self.arduino_boards = boards;
+                    self.board_loading_path = None;
+                    self.board_rx = None;
+                    self.compiling_changed();
+                    self.reapply_arduino_board();
+                    self.file_settings_changed();
+                    self.sync_lsp_open();
+                }
+                Err(TryRecvError::Disconnected) => {
+                    self.board_loading_path = None;
+                    self.board_rx = None;
+                    self.compiling_changed();
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+        }
         self.drain_compile_job();
         let cur_dl = self.debug_line();
         if cur_dl != self.last_debug_line {

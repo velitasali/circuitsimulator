@@ -12,11 +12,11 @@ Item {
     readonly property var ctx: EditorPanel
 
     // pollLsp also drains the background compiler. Keep polling while a
-    // compile is running even if the editor overlay is hidden, otherwise the
-    // job would finish silently until the next time CodeEditor is shown.
+    // compile or board discovery is running even if the editor overlay is hidden,
+    // otherwise the job would finish silently until the next time CodeEditor is shown.
     Timer {
         interval: 50
-        running: root.ctx && root.ctx.compiling
+        running: root.ctx && (root.ctx.compiling || root.ctx.boardLoading)
         repeat: true
         onTriggered: EditorPanel.pollLsp()
     }

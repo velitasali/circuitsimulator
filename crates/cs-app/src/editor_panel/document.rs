@@ -45,6 +45,8 @@ pub struct Document {
     pub compiler: String,
     pub board: String,
     pub custom_board: String,
+    pub raw_board: String,
+    pub raw_custom_board: String,
     pub device: String,
     pub family: String,
     pub extra_args: String,
@@ -75,6 +77,8 @@ impl Document {
             compiler: "None".into(),
             board: "Uno".into(),
             custom_board: String::new(),
+            raw_board: String::new(),
+            raw_custom_board: String::new(),
             device: String::new(),
             family: String::new(),
             extra_args: String::new(),
@@ -233,6 +237,9 @@ impl Document {
         } else {
             header_device
         };
+
+        self.raw_board = query_board.clone();
+        self.raw_custom_board = query_custom.clone();
 
         let is_arduino = self.compiler.eq_ignore_ascii_case("arduino");
         if is_arduino || !query_board.is_empty() || !query_custom.is_empty() {

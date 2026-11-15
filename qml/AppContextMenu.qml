@@ -41,7 +41,7 @@ T.Menu {
     palette.midlight: appTheme.midlight
 
     delegate: ContextMenuItem {
-        iconLigature: subMenu && subMenu.iconLigature ? subMenu.iconLigature : ""
+        iconLigature: (subMenu as AppContextMenu)?.iconLigature ?? ""
     }
 
     background: Rectangle {

@@ -1,22 +1,38 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
+    readonly property SystemPalette appTheme: appTheme
     readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
     color: appTheme.window
     anchors.fill: parent
 
     readonly property var emptyRow: ({})
 
-    function tabSource() {
+    function tabSource(): string {
         if ( McuMonitor.tabs && tabs.currentIndex >= 0 && tabs.currentIndex < McuMonitor.tabs.length )
             return McuMonitor.tabs[tabs.currentIndex].source
         return "watch"
+    }
+
+    function filterRegOrVarList(list: var, q: string): var {
+        if (!q || !list) return list
+        var out = []
+        for (var i = 0; i < list.length; i++) {
+            var item = list[i]
+            if ((item.name && item.name.toLowerCase().indexOf(q) >= 0) ||
+                (item.address && item.address.toLowerCase().indexOf(q) >= 0)) {
+                out.push(item)
+            }
+        }
+        return out
     }
 
     Timer {
@@ -31,7 +47,7 @@ Rectangle {
 
     Connections {
         target: App
-        function onMcuVisibleChanged() {
+        function onMcuVisibleChanged(): void {
             if ( App.mcuVisible ) {
                 CircuitCanvas.syncMcu()
                 McuMonitor.refresh()
@@ -61,7 +77,7 @@ Rectangle {
 
             Rectangle {
                 Layout.fillWidth: true
-                height: frame.headerHeight
+                Layout.preferredHeight: frame.headerHeight
                 color: appTheme.window
                 Item {
                     id: headerData
@@ -101,9 +117,9 @@ Rectangle {
 
         width: ListView.view ? ListView.view.width : 100
         height: 20
-        color: index % 2 ? appTheme.alternateBase : "transparent"
+        color: hexRow.index % 2 ? root.appTheme.alternateBase : "transparent"
 
-        readonly property int hexWidth: columns * cellW + Math.max( 0, columns - 1 ) * spacingW
+        readonly property int hexWidth: hexRow.columns * hexRow.cellW + Math.max( 0, hexRow.columns - 1 ) * hexRow.spacingW
 
         Row {
             anchors.fill: parent
@@ -118,7 +134,7 @@ Rectangle {
                 font.family: "Menlo"
                 font.pixelSize: App.fontMicro
                 font.bold: true
-                color: appTheme.mid
+                color: root.appTheme.mid
                 verticalAlignment: Text.AlignVCenter
             }
 
@@ -129,8 +145,9 @@ Rectangle {
                 Repeater {
                     model: hexRow.columns
                     Rectangle {
+                        id: hexCell
                         required property int index
-                        x: index * ( hexRow.cellW + hexRow.spacingW )
+                        x: hexCell.index * ( hexRow.cellW + hexRow.spacingW )
                         width: hexRow.cellW
                         height: parent.height - 2
                         y: 1
@@ -139,22 +156,22 @@ Rectangle {
                             if ( !hexRow.rowData )
                                 return hexRow.wordMode ? "----" : "--"
                             if ( hexRow.wordMode )
-                                return ( hexRow.rowData.words && index < hexRow.rowData.words.length ) ? hexRow.rowData.words[index] : "----"
-                            return ( hexRow.rowData.bytes && index < hexRow.rowData.bytes.length ) ? hexRow.rowData.bytes[index] : "--"
+                                return ( hexRow.rowData.words && hexCell.index < hexRow.rowData.words.length ) ? hexRow.rowData.words[hexCell.index] : "----"
+                            return ( hexRow.rowData.bytes && hexCell.index < hexRow.rowData.bytes.length ) ? hexRow.rowData.bytes[hexCell.index] : "--"
                         }
-                        readonly property bool isPc: index === hexRow.pcCol
-                        readonly property bool isHover: index === hexRow.hoverCol
-                        color: isPc ? appTheme.highlight : ( isHover ? appTheme.midlight : "transparent" )
+                        readonly property bool isPc: hexCell.index === hexRow.pcCol
+                        readonly property bool isHover: hexCell.index === hexRow.hoverCol
+                        color: hexCell.isPc ? root.appTheme.highlight : ( hexCell.isHover ? root.appTheme.midlight : "transparent" )
 
                         AppText {
                             anchors.centerIn: parent
-                            text: parent.hexVal
+                            text: hexCell.hexVal
                             font.family: "Menlo"
                             font.pixelSize: App.fontMicro
-                            font.bold: parent.isPc || ( parent.hexVal !== "00" && parent.hexVal !== "0000" && parent.hexVal !== "--" && parent.hexVal !== "----" && parent.hexVal !== "FFFF" && parent.hexVal !== "FF" )
-                            color: parent.isPc ? appTheme.highlightedText
-                                  : ( parent.isHover ? appTheme.highlight
-                                    : ( ( parent.hexVal === "00" || parent.hexVal === "FF" || parent.hexVal === "0000" || parent.hexVal === "FFFF" ) ? appTheme.mid : appTheme.windowText ) )
+                            font.bold: hexCell.isPc || ( hexCell.hexVal !== "00" && hexCell.hexVal !== "0000" && hexCell.hexVal !== "--" && hexCell.hexVal !== "----" && hexCell.hexVal !== "FFFF" && hexCell.hexVal !== "FF" )
+                            color: hexCell.isPc ? root.appTheme.highlightedText
+                                  : ( hexCell.isHover ? root.appTheme.highlight
+                                    : ( ( hexCell.hexVal === "00" || hexCell.hexVal === "FF" || hexCell.hexVal === "0000" || hexCell.hexVal === "FFFF" ) ? root.appTheme.mid : root.appTheme.windowText ) )
                         }
                     }
                 }
@@ -189,14 +206,14 @@ Rectangle {
                         if ( hexRow.wordMode ) {
                             var hexStr = "0x" + val.toString( 16 ).toUpperCase().padStart( 4, "0" )
                             var isPc = ( McuMonitor.pcValue === addr )
-                            return root.tr( "Flash Addr: 0x%1 (%2)%3\nWord: %4 (Dec: %5)\n(Click to edit)" )
+                            return I18n.tr( "Flash Addr: 0x%1 (%2)%3\nWord: %4 (Dec: %5)\n(Click to edit)" )
                                 .arg( addr.toString( 16 ).toUpperCase().padStart( 4, "0" ) )
                                 .arg( addr )
                                 .arg( isPc ? " [PC]" : "" )
                                 .arg( hexStr )
                                 .arg( val )
                         }
-                        return root.tr( "Address: 0x%1 (%2)\nDec: %3\nHex: 0x%4\nBin: 0b%5\n(Click to edit)" )
+                        return I18n.tr( "Address: 0x%1 (%2)\nDec: %3\nHex: 0x%4\nBin: 0b%5\n(Click to edit)" )
                             .arg( addr.toString( 16 ).toUpperCase().padStart( 4, "0" ) )
                             .arg( addr )
                             .arg( val.toString( 10 ) )
@@ -228,7 +245,7 @@ Rectangle {
 
         Label {
             visible: McuMonitor.mcuId.length === 0
-            text: root.tr( "No MCU in this circuit. Open or create a circuit with an MCU component." )
+            text: I18n.tr( "No MCU in this circuit. Open or create a circuit with an MCU component." )
             font: root.uiFont
             color: appTheme.windowText
             wrapMode: Text.WordWrap
@@ -255,7 +272,7 @@ Rectangle {
                     spacing: 4
 
                     Label {
-                        text: root.tr( "STATUS" )
+                        text: I18n.tr( "STATUS" )
                         font.bold: true
                         font.pixelSize: App.fontMicro
                         color: appTheme.windowText
@@ -268,21 +285,22 @@ Rectangle {
                         Repeater {
                             model: 8
                             delegate: Rectangle {
+                                id: statusBitDelegate
                                 required property int index
                                 width: 24; height: 22
                                 radius: 3
-                                readonly property bool bitSet: ( McuMonitor.statusValue >> ( 7 - index ) ) & 1
-                                readonly property string bitName: ( index < McuMonitor.statusBits.length && McuMonitor.statusBits[index].length > 0 ) ? McuMonitor.statusBits[index] : ( "b" + ( 7 - index ) )
-                                color: bitSet ? ( CircuitCanvas.pinInputHighColor || appTheme.highlight ) : appTheme.alternateBase
+                                readonly property bool bitSet: ( McuMonitor.statusValue >> ( 7 - statusBitDelegate.index ) ) & 1
+                                readonly property string bitName: ( statusBitDelegate.index < McuMonitor.statusBits.length && McuMonitor.statusBits[statusBitDelegate.index].length > 0 ) ? McuMonitor.statusBits[statusBitDelegate.index] : ( "b" + ( 7 - statusBitDelegate.index ) )
+                                color: statusBitDelegate.bitSet ? ( CircuitCanvas.pinInputHighColor || appTheme.highlight ) : appTheme.alternateBase
                                 border.color: mouseArea.containsMouse ? appTheme.highlight : appTheme.mid
                                 border.width: 1
 
                                 AppText {
                                     anchors.centerIn: parent
-                                    text: bitName
+                                    text: statusBitDelegate.bitName
                                     font.pixelSize: App.fontMicro
                                     font.bold: true
-                                    color: bitSet ? appTheme.highlightedText : appTheme.text
+                                    color: statusBitDelegate.bitSet ? appTheme.highlightedText : appTheme.text
                                 }
 
                                 MouseArea {
@@ -290,11 +308,11 @@ Rectangle {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: McuMonitor.toggleStatusBit( 7 - index )
+                                    onClicked: McuMonitor.toggleStatusBit( 7 - statusBitDelegate.index )
 
-                                    ToolTip.visible: containsMouse
+                                    ToolTip.visible: mouseArea.containsMouse
                                     ToolTip.delay: 400
-                                    ToolTip.text: root.tr( "Bit %1 (%2): %3\nClick to toggle" ).arg( 7 - index ).arg( bitName ).arg( bitSet ? "1" : "0" )
+                                    ToolTip.text: I18n.tr( "Bit %1 (%2): %3\nClick to toggle" ).arg( 7 - statusBitDelegate.index ).arg( statusBitDelegate.bitName ).arg( statusBitDelegate.bitSet ? "1" : "0" )
                                 }
                             }
                         }
@@ -317,7 +335,7 @@ Rectangle {
                     spacing: 6
 
                     Label {
-                        text: root.tr( "PC" )
+                        text: I18n.tr( "PC" )
                         font.bold: true
                         font.pixelSize: App.fontMicro
                         color: appTheme.windowText
@@ -342,27 +360,27 @@ Rectangle {
             Item { Layout.fillWidth: true }
 
             AppCheckBox {
-                text: root.tr( "Byte Mode" )
+                text: I18n.tr( "Byte Mode" )
                 font: root.uiFont
                 checked: McuMonitor.byteMode
                 onToggled: McuMonitor.byteMode = checked
                 ToolTip.visible: hovered
                 ToolTip.delay: 400
-                ToolTip.text: root.tr( "Show Program Counter & addresses in byte units" )
+                ToolTip.text: I18n.tr( "Show Program Counter & addresses in byte units" )
             }
 
             AppCheckBox {
-                text: root.tr( "Jump to active address" )
+                text: I18n.tr( "Jump to active address" )
                 font: root.uiFont
                 checked: McuMonitor.jumpToAddress
                 onToggled: McuMonitor.jumpToAddress = checked
                 ToolTip.visible: hovered
                 ToolTip.delay: 400
-                ToolTip.text: root.tr( "Automatically track and scroll to active Program Counter in memory views" )
+                ToolTip.text: I18n.tr( "Automatically track and scroll to active Program Counter in memory views" )
             }
 
             AppButton {
-                text: root.tr( "↻ Refresh" )
+                text: I18n.tr( "↻ Refresh" )
                 font: root.uiFont
                 onClicked: {
                     CircuitCanvas.syncMcu()
@@ -433,26 +451,26 @@ Rectangle {
                                 Layout.bottomMargin: 4
                                 spacing: 4
                                 Label {
-                                    text: root.tr( "Registers (%1)" ).arg( McuMonitor.registers ? McuMonitor.registers.length : 0 )
+                                    text: I18n.tr( "Registers (%1)" ).arg( McuMonitor.registers ? McuMonitor.registers.length : 0 )
                                     font.bold: true
                                     font.pixelSize: App.fontMicro
                                     color: appTheme.windowText
                                 }
                                 Item { Layout.fillWidth: true }
                                 AppButton {
-                                    text: root.tr( "+ All" )
+                                    text: I18n.tr( "+ All" )
                                     font.pixelSize: App.fontMicro
                                     Layout.preferredHeight: 20
                                     padding: 2
                                     onClicked: McuMonitor.addAllRegistersWatch()
                                     ToolTip.visible: hovered
-                                    ToolTip.text: root.tr( "Add all SFR registers to Watch list" )
+                                    ToolTip.text: I18n.tr( "Add all SFR registers to Watch list" )
                                 }
                             }
 
                             AppTextField {
                                 id: regFilter
-                                placeholderText: root.tr( "Filter registers..." )
+                                placeholderText: I18n.tr( "Filter registers..." )
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 4
                                 Layout.rightMargin: 4
@@ -463,7 +481,7 @@ Rectangle {
 
                             Rectangle {
                                 Layout.fillWidth: true
-                                height: 1
+                                Layout.preferredHeight: 1
                                 color: appTheme.mid
                             }
 
@@ -482,23 +500,16 @@ Rectangle {
                                     reuseItems: true
                                     readonly property int itemH: 22
 
-                                    model: {
-                                        var list = McuMonitor.registers || []
-                                        var q = regFilter.text.trim().toLowerCase()
-                                        if ( !q ) return list
-                                        return list.filter( function( r ) {
-                                            return ( r.name && r.name.toLowerCase().indexOf( q ) >= 0 ) ||
-                                                   ( r.address && r.address.toLowerCase().indexOf( q ) >= 0 )
-                                        } )
-                                    }
+                                    model: root.filterRegOrVarList( McuMonitor.registers || [], regFilter.text.trim().toLowerCase() )
 
                                     delegate: Rectangle {
+                                        id: regDelegate
                                         required property var modelData
                                         required property int index
                                         width: ListView.view.width
                                         height: regListView.itemH
                                         radius: 2
-                                        color: regMouse.containsMouse ? appTheme.midlight : ( index % 2 ? appTheme.alternateBase : "transparent" )
+                                        color: regMouse.containsMouse ? appTheme.midlight : ( regDelegate.index % 2 ? appTheme.alternateBase : "transparent" )
 
                                         RowLayout {
                                             anchors.fill: parent
@@ -507,7 +518,7 @@ Rectangle {
                                             spacing: 4
 
                                             AppText {
-                                                text: modelData.name || ""
+                                                text: regDelegate.modelData.name || ""
                                                 font.bold: true
                                                 font.pixelSize: App.fontMicro
                                                 color: appTheme.windowText
@@ -515,7 +526,7 @@ Rectangle {
                                                 elide: Text.ElideRight
                                             }
                                             AppText {
-                                                text: modelData.address || ""
+                                                text: regDelegate.modelData.address || ""
                                                 font.family: "Menlo"
                                                 font.pixelSize: App.fontTiny
                                                 color: appTheme.mid
@@ -533,10 +544,10 @@ Rectangle {
                                             anchors.fill: parent
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: McuMonitor.addWatch( modelData.name, modelData.name, "uint8" )
-                                            ToolTip.visible: containsMouse
+                                            onClicked: McuMonitor.addWatch( regDelegate.modelData.name, regDelegate.modelData.name, "uint8" )
+                                            ToolTip.visible: regMouse.containsMouse
                                             ToolTip.delay: 400
-                                            ToolTip.text: root.tr( "Click to watch %1 (%2)" ).arg( modelData.name ).arg( modelData.address )
+                                            ToolTip.text: I18n.tr( "Click to watch %1 (%2)" ).arg( regDelegate.modelData.name ).arg( regDelegate.modelData.address )
                                         }
                                     }
                                 }
@@ -565,7 +576,7 @@ Rectangle {
                                 Layout.bottomMargin: 4
                                 spacing: 4
                                 Label {
-                                    text: root.tr( "Variables (%1)" ).arg( McuMonitor.variables ? McuMonitor.variables.length : 0 )
+                                    text: I18n.tr( "Variables (%1)" ).arg( McuMonitor.variables ? McuMonitor.variables.length : 0 )
                                     font.bold: true
                                     font.pixelSize: App.fontMicro
                                     color: appTheme.windowText
@@ -575,7 +586,7 @@ Rectangle {
 
                             AppTextField {
                                 id: varFilter
-                                placeholderText: root.tr( "Filter variables..." )
+                                placeholderText: I18n.tr( "Filter variables..." )
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 4
                                 Layout.rightMargin: 4
@@ -586,7 +597,7 @@ Rectangle {
 
                             Rectangle {
                                 Layout.fillWidth: true
-                                height: 1
+                                Layout.preferredHeight: 1
                                 color: appTheme.mid
                             }
 
@@ -599,7 +610,7 @@ Rectangle {
                                     anchors.centerIn: parent
                                     width: parent.width - 16
                                     visible: !McuMonitor.variables || McuMonitor.variables.length === 0
-                                    text: root.tr( "No debug variables loaded.\nCompile the sketch (an ELF next to the .hex) to list program variables." )
+                                    text: I18n.tr( "No debug variables loaded.\nCompile the sketch (an ELF next to the .hex) to list program variables." )
                                     horizontalAlignment: Text.AlignHCenter
                                     font.pixelSize: App.fontMicro
                                     color: appTheme.mid
@@ -617,23 +628,16 @@ Rectangle {
                                     reuseItems: true
                                     readonly property int itemH: 22
 
-                                    model: {
-                                        var list = McuMonitor.variables || []
-                                        var q = varFilter.text.trim().toLowerCase()
-                                        if ( !q ) return list
-                                        return list.filter( function( v ) {
-                                            return ( v.name && v.name.toLowerCase().indexOf( q ) >= 0 ) ||
-                                                   ( v.address && v.address.toLowerCase().indexOf( q ) >= 0 )
-                                        } )
-                                    }
+                                    model: root.filterRegOrVarList( McuMonitor.variables || [], varFilter.text.trim().toLowerCase() )
 
                                     delegate: Rectangle {
+                                        id: varDelegate
                                         required property var modelData
                                         required property int index
                                         width: ListView.view.width
                                         height: varListView.itemH
                                         radius: 2
-                                        color: varMouse.containsMouse ? appTheme.midlight : ( index % 2 ? appTheme.alternateBase : "transparent" )
+                                        color: varMouse.containsMouse ? appTheme.midlight : ( varDelegate.index % 2 ? appTheme.alternateBase : "transparent" )
 
                                         RowLayout {
                                             anchors.fill: parent
@@ -642,7 +646,7 @@ Rectangle {
                                             spacing: 4
 
                                             AppText {
-                                                text: modelData.name || ""
+                                                text: varDelegate.modelData.name || ""
                                                 font.bold: true
                                                 font.pixelSize: App.fontMicro
                                                 color: appTheme.windowText
@@ -650,12 +654,12 @@ Rectangle {
                                                 elide: Text.ElideRight
                                             }
                                             AppText {
-                                                text: modelData.type || "uint8"
+                                                text: varDelegate.modelData.type || "uint8"
                                                 font.pixelSize: App.fontTiny
                                                 color: appTheme.mid
                                             }
                                             AppText {
-                                                text: modelData.address || ""
+                                                text: varDelegate.modelData.address || ""
                                                 font.family: "Menlo"
                                                 font.pixelSize: App.fontTiny
                                                 color: appTheme.mid
@@ -673,10 +677,10 @@ Rectangle {
                                             anchors.fill: parent
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: McuMonitor.addWatch( modelData.name, modelData.name, modelData.type || "uint8" )
-                                            ToolTip.visible: containsMouse
+                                            onClicked: McuMonitor.addWatch( varDelegate.modelData.name, varDelegate.modelData.name, varDelegate.modelData.type || "uint8" )
+                                            ToolTip.visible: varMouse.containsMouse
                                             ToolTip.delay: 400
-                                            ToolTip.text: root.tr( "Click to watch %1 (%2, %3)" ).arg( modelData.name ).arg( modelData.type || "uint8" ).arg( modelData.address )
+                                            ToolTip.text: I18n.tr( "Click to watch %1 (%2, %3)" ).arg( varDelegate.modelData.name ).arg( varDelegate.modelData.type || "uint8" ).arg( varDelegate.modelData.address )
                                         }
                                     }
                                 }
@@ -708,7 +712,7 @@ Rectangle {
 
                             AppTextField {
                                 id: watchExpr
-                                placeholderText: root.tr( "Variable, SFR name, or address (e.g. PORTB, counter, 0x20)..." )
+                                placeholderText: I18n.tr( "Variable, SFR name, or address (e.g. PORTB, counter, 0x20)..." )
                                 Layout.fillWidth: true
                                 font.family: "Menlo"
                                 font.pixelSize: App.fontSmall
@@ -726,7 +730,7 @@ Rectangle {
 
                             AppButton {
                                 id: addWatchBtn
-                                text: root.tr( "+ Add Watch" )
+                                text: I18n.tr( "+ Add Watch" )
                                 font: root.uiFont
                                 Layout.preferredHeight: 26
                                 onClicked: {
@@ -738,7 +742,7 @@ Rectangle {
                             }
 
                             AppButton {
-                                text: root.tr( "Clear All" )
+                                text: I18n.tr( "Clear All" )
                                 font: root.uiFont
                                 Layout.preferredHeight: 26
                                 enabled: McuMonitor.watchCount > 0
@@ -748,13 +752,13 @@ Rectangle {
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: 1
+                            Layout.preferredHeight: 1
                             color: appTheme.mid
                         }
 
                         Rectangle {
                             Layout.fillWidth: true
-                            height: 22
+                            Layout.preferredHeight: 22
                             color: appTheme.window
 
                             RowLayout {
@@ -763,10 +767,10 @@ Rectangle {
                                 anchors.rightMargin: 14
                                 spacing: 6
 
-                                AppText { text: root.tr( "Name" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 120 }
-                                AppText { text: root.tr( "Address" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 75 }
-                                AppText { text: root.tr( "Value (Dec  0xHex  Bin)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.fillWidth: true }
-                                AppText { text: root.tr( "Type" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
+                                AppText { text: I18n.tr( "Name" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 120 }
+                                AppText { text: I18n.tr( "Address" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 75 }
+                                AppText { text: I18n.tr( "Value (Dec  0xHex  Bin)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.fillWidth: true }
+                                AppText { text: I18n.tr( "Type" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
                                 Item { Layout.preferredWidth: 26 }
                             }
 
@@ -790,13 +794,13 @@ Rectangle {
                                 visible: McuMonitor.watchCount === 0
 
                                 AppText {
-                                    text: root.tr( "No Watched Variables" )
+                                    text: I18n.tr( "No Watched Variables" )
                                     font.bold: true
                                     color: appTheme.windowText
                                     Layout.alignment: Qt.AlignHCenter
                                 }
                                 AppText {
-                                    text: root.tr( "Click any register or variable on the left to watch it, or enter a name / address above." )
+                                    text: I18n.tr( "Click any register or variable on the left to watch it, or enter a name / address above." )
                                     font.pixelSize: App.fontMicro
                                     color: appTheme.mid
                                     Layout.alignment: Qt.AlignHCenter
@@ -816,11 +820,12 @@ Rectangle {
                                 model: McuMonitor.watchCount
 
                                 delegate: Rectangle {
+                                    id: watchDelegate
                                     required property int index
-                                    readonly property var rowData: watchListView.visible ? McuMonitor.watchRowData( index, McuMonitor.watchRevision ) : root.emptyRow
+                                    readonly property var rowData: watchListView.visible ? McuMonitor.watchRowData( watchDelegate.index, McuMonitor.watchRevision ) : root.emptyRow
                                     width: ListView.view.width
                                     height: watchListView.itemH
-                                    color: watchRowMouse.containsMouse ? appTheme.midlight : ( index % 2 ? appTheme.alternateBase : "transparent" )
+                                    color: watchRowMouse.containsMouse ? appTheme.midlight : ( watchDelegate.index % 2 ? appTheme.alternateBase : "transparent" )
                                     radius: 2
 
                                     MouseArea {
@@ -830,16 +835,16 @@ Rectangle {
                                         acceptedButtons: Qt.LeftButton
                                         z: 0
                                         onDoubleClicked: {
-                                            if ( rowData && rowData.addr >= 0 ) {
-                                                var curVal = ( rowData.dec !== undefined && rowData.dec !== "---" ) ? parseInt( rowData.dec ) : 0
-                                                editPopup.openForAddr( rowData.addr, curVal, 0 )
+                                            if ( watchDelegate.rowData && watchDelegate.rowData.addr >= 0 ) {
+                                                var curVal = ( watchDelegate.rowData.dec !== undefined && watchDelegate.rowData.dec !== "---" ) ? parseInt( watchDelegate.rowData.dec ) : 0
+                                                editPopup.openForAddr( watchDelegate.rowData.addr, curVal, 0 )
                                             }
                                         }
-                                        ToolTip.visible: containsMouse && rowData && rowData.addr >= 0
+                                        ToolTip.visible: watchRowMouse.containsMouse && watchDelegate.rowData && watchDelegate.rowData.addr >= 0
                                         ToolTip.delay: 500
-                                        ToolTip.text: root.tr( "%1 (Addr: 0x%2)\nDouble-click to edit value" )
-                                            .arg( ( rowData && rowData.name ) ? rowData.name : "" )
-                                            .arg( ( rowData && rowData.addr >= 0 ) ? rowData.addr.toString( 16 ).toUpperCase().padStart( 4, "0" ) : "----" )
+                                        ToolTip.text: I18n.tr( "%1 (Addr: 0x%2)\nDouble-click to edit value" )
+                                            .arg( ( watchDelegate.rowData && watchDelegate.rowData.name ) ? watchDelegate.rowData.name : "" )
+                                            .arg( ( watchDelegate.rowData && watchDelegate.rowData.addr >= 0 ) ? watchDelegate.rowData.addr.toString( 16 ).toUpperCase().padStart( 4, "0" ) : "----" )
                                     }
 
                                     RowLayout {
@@ -850,7 +855,7 @@ Rectangle {
                                         z: 1
 
                                         AppText {
-                                            text: ( rowData && rowData.name ) ? rowData.name : ""
+                                            text: ( watchDelegate.rowData && watchDelegate.rowData.name ) ? watchDelegate.rowData.name : ""
                                             font.bold: true
                                             font.pixelSize: App.fontMicro
                                             color: appTheme.windowText
@@ -858,14 +863,14 @@ Rectangle {
                                             elide: Text.ElideRight
                                         }
                                         AppText {
-                                            text: ( rowData && rowData.address ) ? rowData.address : "---"
+                                            text: ( watchDelegate.rowData && watchDelegate.rowData.address ) ? watchDelegate.rowData.address : "---"
                                             font.family: "Menlo"
                                             font.pixelSize: App.fontMicro
                                             color: appTheme.mid
                                             Layout.preferredWidth: 75
                                         }
                                         AppText {
-                                            text: ( rowData && rowData.value ) ? rowData.value : "---"
+                                            text: ( watchDelegate.rowData && watchDelegate.rowData.value ) ? watchDelegate.rowData.value : "---"
                                             font.family: "Menlo"
                                             font.pixelSize: App.fontMicro
                                             font.bold: true
@@ -882,20 +887,21 @@ Rectangle {
                                             border.width: 1
                                             AppText {
                                                 anchors.centerIn: parent
-                                                text: ( rowData && rowData.type ) ? rowData.type : "uint8"
+                                                text: ( watchDelegate.rowData && watchDelegate.rowData.type ) ? watchDelegate.rowData.type : "uint8"
                                                 font.pixelSize: App.fontMicro
                                                 color: appTheme.windowText
                                             }
                                         }
                                         AppButton {
+                                            id: rmWatchBtn
                                             text: "×"
                                             font.bold: true
                                             Layout.preferredWidth: 24
                                             Layout.preferredHeight: 20
                                             padding: 0
-                                            onClicked: if ( rowData && rowData.name ) McuMonitor.removeWatch( rowData.name )
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: root.tr( "Remove %1 from Watch" ).arg( ( rowData && rowData.name ) ? rowData.name : "" )
+                                            onClicked: if ( watchDelegate.rowData && watchDelegate.rowData.name ) McuMonitor.removeWatch( watchDelegate.rowData.name )
+                                            ToolTip.visible: rmWatchBtn.hovered
+                                            ToolTip.text: I18n.tr( "Remove %1 from Watch" ).arg( ( watchDelegate.rowData && watchDelegate.rowData.name ) ? watchDelegate.rowData.name : "" )
                                         }
                                     }
                                 }
@@ -916,14 +922,14 @@ Rectangle {
                     spacing: 6
 
                     Label {
-                        text: root.tr( "Total RAM: %1 bytes (%2 rows)" )
+                        text: I18n.tr( "Total RAM: %1 bytes (%2 rows)" )
                             .arg( McuMonitor.ramTotalRows )
                             .arg( McuMonitor.ramRowCount )
                         font.bold: true
                         color: appTheme.windowText
                     }
                     Item { Layout.fillWidth: true }
-                    Label { text: root.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
+                    Label { text: I18n.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
                     AppTextField {
                         id: ramJumpField
                         placeholderText: "0x0000"
@@ -940,7 +946,7 @@ Rectangle {
                         }
                     }
                     AppButton {
-                        text: root.tr( "Go" )
+                        text: I18n.tr( "Go" )
                         font: root.uiFont
                         onClicked: ramJumpField.accepted()
                     }
@@ -950,7 +956,7 @@ Rectangle {
                     header: RowLayout {
                         anchors.fill: parent
                         spacing: 2
-                        AppText { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
+                        AppText { text: I18n.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
                         Repeater {
                             model: 16
                             delegate: AppText {
@@ -961,7 +967,7 @@ Rectangle {
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
-                        AppText { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
+                        AppText { text: I18n.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
                     }
 
                     ListView {
@@ -998,9 +1004,9 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 6
 
-                    AppText { text: root.tr( "Total RAM: %1 bytes" ).arg( McuMonitor.ramTotalRows ); font.bold: true; color: appTheme.windowText }
+                    AppText { text: I18n.tr( "Total RAM: %1 bytes" ).arg( McuMonitor.ramTotalRows ); font.bold: true; color: appTheme.windowText }
                     Item { Layout.fillWidth: true }
-                    Label { text: root.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
+                    Label { text: I18n.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
                     AppTextField {
                         id: ramListJumpField
                         placeholderText: "0x0000"
@@ -1016,7 +1022,7 @@ Rectangle {
                         }
                     }
                     AppButton {
-                        text: root.tr( "Go" )
+                        text: I18n.tr( "Go" )
                         font: root.uiFont
                         onClicked: ramListJumpField.accepted()
                     }
@@ -1026,10 +1032,10 @@ Rectangle {
                     header: RowLayout {
                         anchors.fill: parent
                         spacing: 6
-                        AppText { text: root.tr( "Address" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
-                        AppText { text: root.tr( "Name (SFR / Variable)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 150 }
-                        AppText { text: root.tr( "Value (Dec  0xHex  Bin)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.fillWidth: true }
-                        AppText { text: root.tr( "Type" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
+                        AppText { text: I18n.tr( "Address" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
+                        AppText { text: I18n.tr( "Name (SFR / Variable)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 150 }
+                        AppText { text: I18n.tr( "Value (Dec  0xHex  Bin)" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.fillWidth: true }
+                        AppText { text: I18n.tr( "Type" ); font.bold: true; font.pixelSize: App.fontMicro; color: appTheme.windowText; Layout.preferredWidth: 65 }
                         Item { Layout.preferredWidth: 26 }
                     }
 
@@ -1046,11 +1052,12 @@ Rectangle {
                         model: McuMonitor.ramTotalRows
 
                         delegate: Rectangle {
+                            id: ramListDelegate
                             required property int index
-                            readonly property var rowData: ramListView.visible ? McuMonitor.ramListRowData( index, McuMonitor.ramRevision ) : root.emptyRow
+                            readonly property var rowData: ramListView.visible ? McuMonitor.ramListRowData( ramListDelegate.index, McuMonitor.ramRevision ) : root.emptyRow
                             width: ListView.view.width
                             height: ramListView.itemH
-                            color: ramListMouse.containsMouse ? appTheme.midlight : ( index % 2 ? appTheme.alternateBase : "transparent" )
+                            color: ramListMouse.containsMouse ? appTheme.midlight : ( ramListDelegate.index % 2 ? appTheme.alternateBase : "transparent" )
                             radius: 2
 
                             RowLayout {
@@ -1060,22 +1067,22 @@ Rectangle {
                                 spacing: 6
 
                                 AppText {
-                                    text: ( rowData && rowData.address ) ? ( "0x" + rowData.address ) : "0x0000"
+                                    text: ( ramListDelegate.rowData && ramListDelegate.rowData.address ) ? ( "0x" + ramListDelegate.rowData.address ) : "0x0000"
                                     font.family: "Menlo"
                                     font.pixelSize: App.fontMicro
                                     color: appTheme.mid
                                     Layout.preferredWidth: 65
                                 }
                                 AppText {
-                                    text: ( rowData && rowData.name ) ? rowData.name : ""
-                                    font.bold: !!( rowData && rowData.name && rowData.name.length > 0 )
+                                    text: ( ramListDelegate.rowData && ramListDelegate.rowData.name ) ? ramListDelegate.rowData.name : ""
+                                    font.bold: !!( ramListDelegate.rowData && ramListDelegate.rowData.name && ramListDelegate.rowData.name.length > 0 )
                                     font.pixelSize: App.fontMicro
                                     color: appTheme.windowText
                                     Layout.preferredWidth: 150
                                     elide: Text.ElideRight
                                 }
                                 AppText {
-                                    text: ( rowData && rowData.value ) ? rowData.value : ""
+                                    text: ( ramListDelegate.rowData && ramListDelegate.rowData.value ) ? ramListDelegate.rowData.value : ""
                                     font.family: "Menlo"
                                     font.pixelSize: App.fontMicro
                                     font.bold: true
@@ -1084,23 +1091,24 @@ Rectangle {
                                     elide: Text.ElideRight
                                 }
                                 AppText {
-                                    text: ( rowData && rowData.type ) ? rowData.type : "uint8"
+                                    text: ( ramListDelegate.rowData && ramListDelegate.rowData.type ) ? ramListDelegate.rowData.type : "uint8"
                                     font.pixelSize: App.fontMicro
                                     color: appTheme.mid
                                     Layout.preferredWidth: 65
                                 }
                                 AppButton {
+                                    id: ramWatchBtn
                                     text: "+"
                                     font.bold: true
                                     Layout.preferredWidth: 24
                                     Layout.preferredHeight: 18
                                     padding: 0
                                     onClicked: {
-                                        var watchName = ( rowData && rowData.name && rowData.name.length > 0 ) ? rowData.name : ( "0x" + rowData.address )
+                                        var watchName = ( ramListDelegate.rowData && ramListDelegate.rowData.name && ramListDelegate.rowData.name.length > 0 ) ? ramListDelegate.rowData.name : ( "0x" + ramListDelegate.rowData.address )
                                         McuMonitor.addWatch( watchName, watchName, "uint8" )
                                     }
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: root.tr( "Add to Watch" )
+                                    ToolTip.visible: ramWatchBtn.hovered
+                                    ToolTip.text: I18n.tr( "Add to Watch" )
                                 }
                             }
 
@@ -1110,17 +1118,17 @@ Rectangle {
                                 hoverEnabled: true
                                 acceptedButtons: Qt.LeftButton
                                 onDoubleClicked: {
-                                    if ( rowData && rowData.addr >= 0 ) {
-                                        editPopup.openForAddr( rowData.addr, rowData.val, 0 )
+                                    if ( ramListDelegate.rowData && ramListDelegate.rowData.addr >= 0 ) {
+                                        editPopup.openForAddr( ramListDelegate.rowData.addr, ramListDelegate.rowData.val, 0 )
                                     }
                                 }
-                                ToolTip.visible: containsMouse
+                                ToolTip.visible: ramListMouse.containsMouse
                                 ToolTip.delay: 450
-                                ToolTip.text: root.tr( "Address: 0x%1 (%2)\nName: %3\nValue: %4\n(Double-click to edit)" )
-                                    .arg( rowData ? rowData.address : "" )
-                                    .arg( rowData ? rowData.addr : "" )
-                                    .arg( ( rowData && rowData.name ) ? rowData.name : "---" )
-                                    .arg( rowData ? rowData.value : "" )
+                                ToolTip.text: I18n.tr( "Address: 0x%1 (%2)\nName: %3\nValue: %4\n(Double-click to edit)" )
+                                    .arg( ramListDelegate.rowData ? ramListDelegate.rowData.address : "" )
+                                    .arg( ramListDelegate.rowData ? ramListDelegate.rowData.addr : "" )
+                                    .arg( ( ramListDelegate.rowData && ramListDelegate.rowData.name ) ? ramListDelegate.rowData.name : "---" )
+                                    .arg( ramListDelegate.rowData ? ramListDelegate.rowData.value : "" )
                             }
                         }
                     }
@@ -1138,14 +1146,14 @@ Rectangle {
                     spacing: 6
 
                     Label {
-                        text: root.tr( "Total Flash: %1 words (%2 KB)" )
+                        text: I18n.tr( "Total Flash: %1 words (%2 KB)" )
                             .arg( McuMonitor.flashTotalWords )
                             .arg( ( McuMonitor.flashTotalWords * 2 / 1024 ).toFixed( 1 ) )
                         font.bold: true
                         color: appTheme.windowText
                     }
                     Item { Layout.fillWidth: true }
-                    Label { text: root.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
+                    Label { text: I18n.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
                     AppTextField {
                         id: flashJumpField
                         placeholderText: "0x0000"
@@ -1163,12 +1171,12 @@ Rectangle {
                         }
                     }
                     AppButton {
-                        text: root.tr( "Go" )
+                        text: I18n.tr( "Go" )
                         font: root.uiFont
                         onClicked: flashJumpField.accepted()
                     }
                     AppButton {
-                        text: root.tr( "Jump to PC" )
+                        text: I18n.tr( "Jump to PC" )
                         font: root.uiFont
                         onClicked: flashTableListView.jumpToActivePc( true )
                     }
@@ -1178,7 +1186,7 @@ Rectangle {
                     header: RowLayout {
                         anchors.fill: parent
                         spacing: 4
-                        AppText { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
+                        AppText { text: I18n.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
                         Repeater {
                             model: 8
                             delegate: AppText {
@@ -1189,7 +1197,7 @@ Rectangle {
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
-                        AppText { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
+                        AppText { text: I18n.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
                     }
 
                     ListView {
@@ -1204,7 +1212,7 @@ Rectangle {
                         readonly property int itemH: 20
                         model: McuMonitor.flashRowCount
 
-                        function jumpToActivePc( force ) {
+                        function jumpToActivePc( force: bool ): void {
                             if ( !( force || McuMonitor.jumpToAddress ) )
                                 return
                             if ( !flashTableListView.visible || McuMonitor.flashRowCount <= 0 )
@@ -1221,16 +1229,17 @@ Rectangle {
                             flashTableListView.positionViewAtIndex( row, ListView.Center )
                         }
 
-                        onVisibleChanged: if ( visible ) jumpToActivePc( false )
+                        onVisibleChanged: if ( flashTableListView.visible ) flashTableListView.jumpToActivePc( false )
 
                         Connections {
                             target: McuMonitor
-                            function onPcChanged() { flashTableListView.jumpToActivePc( false ) }
-                            function onJumpToAddressChanged() { flashTableListView.jumpToActivePc( false ) }
+                            function onPcChanged(): void { flashTableListView.jumpToActivePc( false ) }
+                            function onJumpToAddressChanged(): void { flashTableListView.jumpToActivePc( false ) }
                         }
 
                         delegate: HexRow {
-                            rowData: flashTableListView.visible ? McuMonitor.flashRowData( index, McuMonitor.flashRevision ) : root.emptyRow
+                            id: flashHexRow
+                            rowData: flashTableListView.visible ? McuMonitor.flashRowData( flashHexRow.index, McuMonitor.flashRevision ) : root.emptyRow
                             columns: 8
                             cellW: 40
                             spacingW: 4
@@ -1262,14 +1271,14 @@ Rectangle {
                     spacing: 6
 
                     Label {
-                        text: root.tr( "Total EEPROM: %1 bytes (%2 rows)" )
+                        text: I18n.tr( "Total EEPROM: %1 bytes (%2 rows)" )
                             .arg( McuMonitor.eepromTotalBytes )
                             .arg( McuMonitor.eepromRowCount )
                         font.bold: true
                         color: appTheme.windowText
                     }
                     Item { Layout.fillWidth: true }
-                    Label { text: root.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
+                    Label { text: I18n.tr( "Jump to Addr: " ); font: root.uiFont; color: appTheme.windowText }
                     AppTextField {
                         id: eepromJumpField
                         placeholderText: "0x0000"
@@ -1286,7 +1295,7 @@ Rectangle {
                         }
                     }
                     AppButton {
-                        text: root.tr( "Go" )
+                        text: I18n.tr( "Go" )
                         font: root.uiFont
                         onClicked: eepromJumpField.accepted()
                     }
@@ -1296,7 +1305,7 @@ Rectangle {
                     header: RowLayout {
                         anchors.fill: parent
                         spacing: 2
-                        AppText { text: root.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
+                        AppText { text: I18n.tr( "Addr" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.preferredWidth: 46 }
                         Repeater {
                             model: 16
                             delegate: AppText {
@@ -1307,7 +1316,7 @@ Rectangle {
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
-                        AppText { text: root.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
+                        AppText { text: I18n.tr( "ASCII" ); font.bold: true; font.family: "Menlo"; font.pixelSize: App.fontMicro; color: appTheme.mid; Layout.fillWidth: true; Layout.leftMargin: 8 }
                     }
 
                     ListView {
@@ -1348,11 +1357,11 @@ Rectangle {
         property int targetAddr: -1
         property int memType: 0
 
-        function openForAddr( addr, currentVal, type ) {
-            targetAddr = addr
-            memType = type || 0
+        function openForAddr( addr: int, currentVal: int, type: int ): void {
+            editPopup.targetAddr = addr
+            editPopup.memType = type || 0
             editInput.text = ( currentVal >= 0 ? currentVal.toString( 16 ).toUpperCase() : "00" )
-            open()
+            editPopup.open()
             editInput.selectAll()
             editInput.forceActiveFocus()
         }
@@ -1370,7 +1379,7 @@ Rectangle {
             spacing: 6
 
             Label {
-                text: root.tr( "%1 Addr: 0x%2" )
+                text: I18n.tr( "%1 Addr: 0x%2" )
                     .arg( editPopup.memType === 0 ? "RAM" : ( editPopup.memType === 1 ? "Flash" : "EEPROM" ) )
                     .arg( editPopup.targetAddr.toString( 16 ).toUpperCase().padStart( 4, "0" ) )
                 font.bold: true
@@ -1385,12 +1394,12 @@ Rectangle {
                     Layout.fillWidth: true
                     font.family: "Menlo"
                     font.pixelSize: App.fontSmall
-                    placeholderText: root.tr( "Hex value..." )
+                    placeholderText: I18n.tr( "Hex value..." )
                     onAccepted: saveByteBtn.clicked()
                 }
                 AppButton {
                     id: saveByteBtn
-                    text: root.tr( "Set" )
+                    text: I18n.tr( "Set" )
                     onClicked: {
                         var clean = editInput.text.trim().replace( /^0x/i, "" )
                         var val = parseInt( clean, 16 )
@@ -1403,7 +1412,7 @@ Rectangle {
                     }
                 }
                 AppButton {
-                    text: root.tr( "Cancel" )
+                    text: I18n.tr( "Cancel" )
                     onClicked: editPopup.close()
                 }
             }

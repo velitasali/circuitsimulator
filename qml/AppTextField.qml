@@ -36,7 +36,7 @@ T.TextField {
     palette.mid: appTheme.mid
     palette.midlight: appTheme.midlight
 
-    ContextMenu.menu: AppTextContextMenu { editor: control }
+    ContextMenu.menu: AppTextContextMenu { textInput: control }
 
     implicitWidth: implicitBackgroundWidth + leftInset + rightInset
                    || Math.max(contentWidth, placeholder.implicitWidth) + leftPadding + rightPadding

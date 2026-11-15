@@ -1,8 +1,11 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import cs_app
+import cs_ui
 
 /* Compiler Settings — C++ Compiler::compilerProps() / PropDialog, including
  * the Tool Path combo that offers PATH-discovered folders and rejects a
@@ -10,7 +13,6 @@ import cs_app
 Rectangle {
     id: root
     SystemPalette { id: appTheme }
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
     implicitWidth: Math.max(420, mainCol.implicitWidth + 24)
     implicitHeight: mainCol.implicitHeight + 24
@@ -20,13 +22,13 @@ Rectangle {
 
     FolderDialog {
         id: toolPathDialog
-        title: root.tr("Tool Path")
+        title: I18n.tr("Tool Path")
         currentFolder: App.suggestFolderUrl(EditorPanel.toolPath)
         onAccepted: EditorPanel.commitToolPath("" + selectedFolder)
     }
     FolderDialog {
         id: inclPathDialog
-        title: EditorPanel.isArduino ? root.tr("Custom Library Path") : root.tr("Include Path")
+        title: EditorPanel.isArduino ? I18n.tr("Custom Library Path") : I18n.tr("Include Path")
         currentFolder: App.suggestFolderUrl(EditorPanel.inclPath)
         onAccepted: EditorPanel.inclPath = "" + selectedFolder
     }
@@ -39,21 +41,21 @@ Rectangle {
     }
 
     component SectionLabel: ColumnLayout {
+        id: sectionRoot
         property string caption: ""
         property bool isFirst: false
         Layout.fillWidth: true
         spacing: 0
         Rectangle {
-            visible: !isFirst
+            visible: !sectionRoot.isFirst
             Layout.fillWidth: true
             Layout.topMargin: 8
             Layout.bottomMargin: 6
             Layout.preferredHeight: 1
-            height: 1
             color: appTheme.mid
         }
         AppText {
-            text: caption
+            text: sectionRoot.caption
             font.bold: true
             color: appTheme.windowText
         }
@@ -66,7 +68,7 @@ Rectangle {
         spacing: 10
 
         AppText {
-            text: root.tr("Type: Compiler")
+            text: I18n.tr("Type: Compiler")
             font.pixelSize: App.fontTitle
             font.bold: true
             color: appTheme.windowText
@@ -91,7 +93,7 @@ Rectangle {
                 spacing: 10
 
                 SectionLabel {
-                    caption: root.tr("For this compiler type:")
+                    caption: I18n.tr("For this compiler type:")
                     isFirst: true
                 }
 
@@ -103,7 +105,7 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: 6
 
-                        FieldLabel { text: root.tr("Tool Path") }
+                        FieldLabel { text: I18n.tr("Tool Path") }
                         AppComboBox {
                             id: pathBox
                             editable: true
@@ -130,7 +132,7 @@ Rectangle {
                         AppToolButton {
                             implicitWidth: 26
                             implicitHeight: 26
-                            ToolTip.text: root.tr("Browse")
+                            ToolTip.text: I18n.tr("Browse")
                             ToolTip.visible: hovered
                             contentItem: AppIcon { icon: "folder_open"; color: appTheme.windowText }
                             onClicked: toolPathDialog.open()
@@ -168,7 +170,7 @@ Rectangle {
                     spacing: 6
 
                     FieldLabel {
-                        text: EditorPanel.isArduino ? root.tr("Custom Library Path") : root.tr("Include Path")
+                        text: EditorPanel.isArduino ? I18n.tr("Custom Library Path") : I18n.tr("Include Path")
                     }
                     AppTextField {
                         font: root.uiFont
@@ -180,7 +182,7 @@ Rectangle {
                     AppToolButton {
                         implicitWidth: 26
                         implicitHeight: 26
-                        ToolTip.text: root.tr("Browse")
+                        ToolTip.text: I18n.tr("Browse")
                         ToolTip.visible: hovered
                         contentItem: AppIcon { icon: "folder_open"; color: appTheme.windowText }
                         onClicked: inclPathDialog.open()
@@ -189,7 +191,7 @@ Rectangle {
 
                 SectionLabel {
                     visible: root.fileSection
-                    caption: root.tr("For this file:")
+                    caption: I18n.tr("For this file:")
                     isFirst: false
                 }
 
@@ -198,7 +200,7 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    FieldLabel { text: root.tr("Board") }
+                    FieldLabel { text: I18n.tr("Board") }
                     AppComboBox {
                         id: boardBox
                         font: root.uiFont
@@ -227,13 +229,13 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    FieldLabel { text: root.tr("Custom Board") }
+                    FieldLabel { text: I18n.tr("Custom Board") }
                     AppTextField {
                         font: root.uiFont
                         Layout.fillWidth: true
                         Layout.preferredWidth: 200
                         text: EditorPanel.customBoard
-                        placeholderText: root.tr("e.g. esp32:esp32:esp32da")
+                        placeholderText: I18n.tr("e.g. esp32:esp32:esp32da")
                         onEditingFinished: EditorPanel.customBoard = text
                     }
                 }
@@ -243,7 +245,7 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    FieldLabel { text: root.tr("Device") }
+                    FieldLabel { text: I18n.tr("Device") }
                     AppTextField {
                         font: root.uiFont
                         Layout.fillWidth: true
@@ -257,7 +259,7 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    FieldLabel { text: root.tr("Family") }
+                    FieldLabel { text: I18n.tr("Family") }
                     AppTextField {
                         font: root.uiFont
                         Layout.fillWidth: true
@@ -271,7 +273,7 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 8
 
-                    FieldLabel { text: root.tr("Extra build arguments") }
+                    FieldLabel { text: I18n.tr("Extra build arguments") }
                     AppTextField {
                         font: root.uiFont
                         Layout.fillWidth: true

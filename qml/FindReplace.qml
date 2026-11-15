@@ -1,11 +1,10 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
     readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
     implicitWidth: Math.max(460, content.implicitWidth + 24)
@@ -19,7 +18,7 @@ Rectangle {
         spacing: 8
 
         AppText {
-            text: root.tr("Find")
+            text: I18n.tr("Find")
             font.bold: true
             color: appTheme.windowText
         }
@@ -34,13 +33,13 @@ Rectangle {
                 onTextEdited: EditorPanel.findText = text
                 onAccepted: EditorPanel.findNext()
             }
-            AppButton { text: root.tr("Previous"); font: root.uiFont; onClicked: EditorPanel.findPrev() }
-            AppButton { text: root.tr("Next"); font: root.uiFont; onClicked: EditorPanel.findNext() }
-            AppButton { text: root.tr("All"); font: root.uiFont; onClicked: EditorPanel.findAll() }
+            AppButton { text: I18n.tr("Previous"); font: root.uiFont; onClicked: EditorPanel.findPrev() }
+            AppButton { text: I18n.tr("Next"); font: root.uiFont; onClicked: EditorPanel.findNext() }
+            AppButton { text: I18n.tr("All"); font: root.uiFont; onClicked: EditorPanel.findAll() }
         }
 
         AppText {
-            text: root.tr("Replace")
+            text: I18n.tr("Replace")
             font.bold: true
             color: appTheme.windowText
             Layout.topMargin: 4
@@ -54,9 +53,9 @@ Rectangle {
                 Layout.fillWidth: true
                 onTextEdited: EditorPanel.replaceText = text
             }
-            AppButton { text: root.tr("Replace"); font: root.uiFont; onClicked: EditorPanel.replace() }
-            AppButton { text: root.tr("Repl/Find"); font: root.uiFont; onClicked: EditorPanel.replaceAndFind() }
-            AppButton { text: root.tr("Repl All"); font: root.uiFont; onClicked: EditorPanel.replaceAll() }
+            AppButton { text: I18n.tr("Replace"); font: root.uiFont; onClicked: EditorPanel.replace() }
+            AppButton { text: I18n.tr("Repl/Find"); font: root.uiFont; onClicked: EditorPanel.replaceAndFind() }
+            AppButton { text: I18n.tr("Repl All"); font: root.uiFont; onClicked: EditorPanel.replaceAll() }
         }
 
         RowLayout {
@@ -64,25 +63,25 @@ Rectangle {
             Layout.topMargin: 4
             spacing: 12
             AppCheckBox {
-                text: root.tr("Case Sensitive")
+                text: I18n.tr("Case Sensitive")
                 font: root.uiFont
                 checked: EditorPanel.findCaseSensitive
                 onToggled: EditorPanel.findCaseSensitive = checked
             }
             AppCheckBox {
-                text: root.tr("Whole Words")
+                text: I18n.tr("Whole Words")
                 font: root.uiFont
                 checked: EditorPanel.findWholeWords
                 onToggled: EditorPanel.findWholeWords = checked
             }
             AppCheckBox {
-                text: root.tr("Regexp")
+                text: I18n.tr("Regexp")
                 font: root.uiFont
                 checked: EditorPanel.findRegexp
                 onToggled: EditorPanel.findRegexp = checked
             }
             Item { Layout.fillWidth: true }
-            AppButton { text: root.tr("Close"); font: root.uiFont; onClicked: EditorPanel.closeFind() }
+            AppButton { text: I18n.tr("Close"); font: root.uiFont; onClicked: EditorPanel.closeFind() }
         }
     }
 }

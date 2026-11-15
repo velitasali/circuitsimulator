@@ -30,11 +30,11 @@ T.SpinBox {
     palette.mid: appTheme.mid
     palette.midlight: appTheme.midlight
 
-    textFromValue: function(value, locale) {
+    textFromValue: function(value: int, locale: Locale): string {
         return Number(value).toString()
     }
 
-    valueFromText: function(text, locale) {
+    valueFromText: function(text: string, locale: Locale): int {
         var clean = ("" + text).replace(/[^\d\-+]/g, "")
         var val = parseInt(clean, 10)
         return isNaN(val) ? control.from : val
@@ -61,7 +61,7 @@ T.SpinBox {
         inputMethodHints: control.inputMethodHints
         selectByMouse: true
         clip: true
-        ContextMenu.menu: AppTextContextMenu { editor: parent }
+        ContextMenu.menu: AppTextContextMenu { textInput: textInput }
     }
 
     up.indicator: Item {

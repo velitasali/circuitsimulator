@@ -1,13 +1,14 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 /* Flattened component tree. C++ used QAbstractItemModel + TreeView; qt-bridge
  * has QListModel only, so rows come from ComponentList.rows JSON. */
 Item {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
     anchors.fill: parent
 
@@ -15,7 +16,7 @@ Item {
     readonly property int typeCategMain: 2
     readonly property int typeCategChild: 3
 
-    function syncRows() {
+    function syncRows(): void {
         var arr = ComponentList.rows
         if ( !arr )
             return
@@ -79,8 +80,8 @@ Item {
 
     Connections {
         target: ComponentList
-        function onRowsChanged() { root.syncRows() }
-        function onSearchApplied( filter ) {
+        function onRowsChanged(): void { root.syncRows() }
+        function onSearchApplied(filter: string): void {
             root.syncRows()
             list.positionViewAtBeginning()
         }
@@ -97,12 +98,12 @@ Item {
     AppContextMenu {
         id: contextMenu
         ContextMenuItem {
-            text: root.tr( "Clear Recently Used" )
+            text: I18n.tr( "Clear Recently Used" )
             iconLigature: "delete"
             onTriggered: ComponentList.clearRecentlyUsed()
         }
         ContextMenuItem {
-            text: root.tr( "Reload Components" )
+            text: I18n.tr( "Reload Components" )
             iconLigature: "refresh"
             onTriggered: ComponentList.reloadComponents()
         }
@@ -129,8 +130,8 @@ Item {
             required property int index
             width: list.width
             height: {
-                if ( model.itemType === root.typeCategMain ) return 30
-                if ( model.itemType === root.typeCategChild ) return 20
+                if ( row.model.itemType === root.typeCategMain ) return 30
+                if ( row.model.itemType === root.typeCategChild ) return 20
                 return 22
             }
 
@@ -147,8 +148,8 @@ Item {
             Drag.hotSpot.x: 16
             Drag.hotSpot.y: 16
             Drag.mimeData: {
-                var cap = model.caption || model.display
-                return { "text/plain": (cap === model.compType) ? model.compType : (cap + "," + model.compType) }
+                var cap = row.model.caption || row.model.display
+                return { "text/plain": (cap === row.model.compType) ? row.model.compType : (cap + "," + row.model.compType) }
             }
             Drag.dragType: Drag.Automatic
 
@@ -163,7 +164,7 @@ Item {
 
             Row {
                 anchors.fill: parent
-                anchors.leftMargin: 6 + model.depth * 14
+                anchors.leftMargin: 6 + row.model.depth * 14
                 anchors.rightMargin: 6
                 spacing: 6
 
@@ -171,7 +172,7 @@ Item {
                     visible: row.isCategory
                     width: 14
                     anchors.verticalCenter: parent.verticalCenter
-                    icon: model.expanded ? "expand_more" : "chevron_right"
+                    icon: row.model.expanded ? "expand_more" : "chevron_right"
                     size: 16
                     color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                 }
@@ -183,11 +184,11 @@ Item {
                     width: parent.width
                     padding: 0
                     spacing: 6
-                    icon.source: model.iconUri || ""
+                    icon.source: row.model.iconUri || ""
                     icon.width: 16
                     icon.height: 16
                     icon.color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
-                    text: model.display
+                    text: row.model.display
                     font.family: App.fontFamily
                     font.pixelSize: App.fontNormal
                     palette.buttonText: hover.hovered ? appTheme.highlightedText : appTheme.windowText
@@ -200,7 +201,7 @@ Item {
                 AppText {
                     visible: row.isCategory
                     anchors.verticalCenter: parent.verticalCenter
-                    text: model.display
+                    text: row.model.display
                     font.bold: true
                     color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                     elide: Text.ElideRight
@@ -214,14 +215,14 @@ Item {
                 acceptedButtons: Qt.LeftButton
                 onTapped: {
                     if ( row.isCategory )
-                        ComponentList.toggleExpanded( model.id )
+                        ComponentList.toggleExpanded( row.model.id )
                 }
                 onDoubleTapped: {
                     if ( row.isCategory )
                         return
-                    var t = model.compType
-                    var cap = model.caption || model.display
-                    var spec = (cap === model.compType) ? model.compType : (cap + "," + model.compType)
+                    var t = row.model.compType
+                    var cap = row.model.caption || row.model.display
+                    var spec = (cap === row.model.compType) ? row.model.compType : (cap + "," + row.model.compType)
                     ComponentList.addRecent( spec )
                     if ( t === "Oscope" || t === "Oscilloscope" ) {
                         CircuitCanvas.addComponent( t )

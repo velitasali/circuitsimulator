@@ -1,13 +1,15 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // Body of SerialMonitor. The two read-only panes bind to flushed strings
 // (C++ SerialLog), so a fast UART doesn't repaint per byte.
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
     color: appTheme.window
     readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
@@ -34,7 +36,7 @@ Rectangle {
 
     Connections {
         target: SerialMonitor
-        function onMonitorUpdated(id, inText, outText) {
+        function onMonitorUpdated(id: string, inText: string, outText: string): void {
             if (id === root.monitorId) {
                 root.currentInText = inText
                 root.currentOutText = outText
@@ -67,35 +69,35 @@ Rectangle {
         onTriggered: SerialMonitor.sync()
     }
 
-    function doSetPrintMode(idx) {
+    function doSetPrintMode(idx: int): void {
         root.currentPrintMode = idx
         if (monitorId) SerialMonitor.setPrintModeFor(monitorId, idx)
         else SerialMonitor.printMode = idx
     }
 
-    function doSetPaused(p) {
+    function doSetPaused(p: bool): void {
         root.currentPaused = p
         if (monitorId) SerialMonitor.setPausedFor(monitorId, p)
         else SerialMonitor.paused = p
     }
 
-    function doSetAddCR(a) {
+    function doSetAddCR(a: bool): void {
         root.currentAddCR = a
         if (monitorId) SerialMonitor.setAddCrFor(monitorId, a)
         else SerialMonitor.addCR = a
     }
 
-    function doClearLogs() {
+    function doClearLogs(): void {
         if (monitorId) SerialMonitor.clearLogsFor(monitorId)
         else SerialMonitor.clearLogs()
     }
 
-    function doSendText(txt) {
+    function doSendText(txt: string): void {
         if (monitorId) SerialMonitor.sendTextFor(monitorId, txt)
         else SerialMonitor.sendText(txt)
     }
 
-    function doSendValue(val) {
+    function doSendValue(val: string): void {
         if (monitorId) SerialMonitor.sendValueFor(monitorId, val)
         else SerialMonitor.sendValue(val)
     }
@@ -161,7 +163,7 @@ Rectangle {
             spacing: 6
 
             AppText {
-                text: root.tr( "Format:" )
+                text: I18n.tr( "Format:" )
                 color: appTheme.windowText
             }
             AppComboBox {
@@ -177,25 +179,25 @@ Rectangle {
                 id: pauseBtn
                 checkable: true
                 checked: root.currentPaused
-                text: root.currentPaused ? root.tr( "Resume" ) : root.tr( "Pause" )
+                text: root.currentPaused ? I18n.tr( "Resume" ) : I18n.tr( "Pause" )
                 font: root.uiFont
                 onToggled: root.doSetPaused(checked)
             }
             AppButton {
-                text: root.tr( "Clear" )
+                text: I18n.tr( "Clear" )
                 font: root.uiFont
                 onClicked: root.doClearLogs()
             }
         }
 
         LogPane {
-            title: root.tr( "Input" )
+            title: I18n.tr( "Input" )
             text: root.currentInText
             Layout.fillWidth: true
             Layout.fillHeight: true
         }
         LogPane {
-            title: root.tr( "Output" )
+            title: I18n.tr( "Output" )
             text: root.currentOutText
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -207,7 +209,7 @@ Rectangle {
             spacing: 6
 
             AppText {
-                text: root.tr( "Text:" )
+                text: I18n.tr( "Text:" )
                 color: appTheme.windowText
             }
             AppTextField {
@@ -220,12 +222,12 @@ Rectangle {
                 checkable: true
                 checked: root.currentAddCR
                 contentItem: AppIcon { icon: "keyboard_return"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "Append carriage return" )
+                ToolTip.text: I18n.tr( "Append carriage return" )
                 ToolTip.visible: hovered
                 onToggled: root.doSetAddCR(checked)
             }
             AppText {
-                text: root.tr( "Value:" )
+                text: I18n.tr( "Value:" )
                 color: appTheme.windowText
             }
             AppTextField {

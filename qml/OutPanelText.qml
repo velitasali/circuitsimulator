@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import cs_app
+import cs_ui
 
 // Log pane. The C++ side owns the document: it appends through a QTextCursor and
 // OutHighlighter colours it, so this file only renders and reports hit positions.
@@ -8,7 +9,6 @@ Item {
     id: root
     anchors.fill: parent
     SystemPalette { id: appTheme }
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     /* There are two of these -- the simulator log and the compiler log -- so the
      * backend cannot come in as a context property: one engine can only hold one
@@ -27,8 +27,7 @@ Item {
         return Qt.font({
             family: family,
             pixelSize: size,
-            fixedPitch: true,
-            styleHint: Font.Monospace
+            fixedPitch: true
         })
     }
 
@@ -74,24 +73,25 @@ Item {
             textFormat: TextEdit.RichText
 
             font: root.editorFont
-            color: (ctx && ctx.textColor && ctx.textColor.length > 0) ? ctx.textColor : appTheme.text
+            color: (root.ctx && root.ctx.textColor && root.ctx.textColor.length > 0) ? root.ctx.textColor : appTheme.text
             placeholderTextColor: appTheme.placeholderText
-            placeholderText: ctx ? root.tr(ctx.placeholder) : ""
-            text: ctx ? ctx.text : ""
+            placeholderText: root.ctx ? I18n.tr(root.ctx.placeholder) : ""
+            text: root.ctx ? root.ctx.text : ""
             background: null
 
             // A compiler error line ("file.c:42:") turns the cursor into a hand and
             // jumps to the source on double click - was mouseMoveEvent/mouseDoubleClickEvent.
             HoverHandler {
                 id: hover
-                cursorShape: ( ctx && ctx.isLocationAt( area.positionAt( point.position.x, point.position.y ) ) )
+                cursorShape: ( root.ctx && root.ctx.isLocationAt( area.positionAt( point.position.x, point.position.y ) ) )
                              ? Qt.PointingHandCursor : Qt.IBeamCursor
             }
 
             TapHandler {
                 acceptedButtons: Qt.LeftButton
-                onDoubleTapped: ( point ) =>
-                    ctx.activateLocationAt( area.positionAt( point.position.x, point.position.y ) )
+                onDoubleTapped: ( point ) => {
+                    if (root.ctx) root.ctx.activateLocationAt( area.positionAt( point.position.x, point.position.y ) )
+                }
             }
             TapHandler {
                 acceptedButtons: Qt.RightButton
@@ -103,37 +103,36 @@ Item {
     AppContextMenu {
         id: contextMenu
         ContextMenuItem {
-            text: root.tr("Copy")
+            text: I18n.tr("Copy")
             iconLigature: "content_copy"
             shortcutText: "Ctrl+C"
             enabled: area.selectedText.length > 0
             onTriggered: area.copy()
         }
         ContextMenuItem {
-            text: root.tr("Select All")
+            text: I18n.tr("Select All")
             iconLigature: "select_all"
             shortcutText: "Ctrl+A"
             onTriggered: area.selectAll()
         }
         ContextMenuSeparator {}
         ContextMenuItem {
-            text: root.tr("Clear Log")
+            text: I18n.tr("Clear Log")
             iconLigature: "delete"
-            onTriggered: if (ctx) ctx.clear()
+            onTriggered: if (root.ctx) root.ctx.clear()
         }
     }
 
-    function scrollToTail() {
+    function _applyTailScroll(): void {
         if (flick.contentHeight > flick.height) {
             flick.contentY = flick.contentHeight - flick.height
         }
         flick.contentX = 0
-        Qt.callLater(function() {
-            if (flick.contentHeight > flick.height) {
-                flick.contentY = flick.contentHeight - flick.height
-            }
-            flick.contentX = 0
-        })
+    }
+
+    function scrollToTail(): void {
+        _applyTailScroll()
+        Qt.callLater(_applyTailScroll)
     }
 
     Connections {

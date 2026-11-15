@@ -1,9 +1,12 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
 import QtQuick.Window
 import QtQuick.Dialogs
 import cs_app
+import cs_ui
 
 /* Spike of src/gui/main.qml. CircuitPanel owns the canvas and overlays.
  * Extra windows (About, plots, MCU monitor, serial) are QML Window, not C++ QmlWindow.
@@ -17,33 +20,47 @@ ApplicationWindow {
     objectName: "mainWindow"
     SystemPalette { id: appTheme }
 
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     readonly property bool darkChrome: appTheme.window.hslLightness < 0.5
     property bool saveAllPending: false
     property bool circSaveThenReplace: false
     property bool fileSaveThenClose: false
     property bool isQuitting: false
-    property var ownedWindows: []
+    property list<AppWindow> ownedWindows: []
 
-    function registerOwnedWindow(w) {
+    component OwnedWindow: AppWindow {
+        id: ownedWin
+        ownerWindow: win
+        Component.onCompleted: win.registerOwnedWindow(ownedWin)
+        Component.onDestruction: win.unregisterOwnedWindow(ownedWin)
+    }
+
+    function registerOwnedWindow(w: AppWindow): void {
         if (!w)
             return
-        if (ownedWindows.indexOf(w) < 0)
-            ownedWindows.push(w)
+        for (let i = 0; i < ownedWindows.length; i++) {
+            if (ownedWindows[i] === w)
+                return
+        }
+        ownedWindows.push(w)
     }
 
-    function unregisterOwnedWindow(w) {
-        var i = ownedWindows.indexOf(w)
-        if (i >= 0)
-            ownedWindows.splice(i, 1)
+    function unregisterOwnedWindow(w: AppWindow): void {
+        const next = []
+        for (let i = 0; i < ownedWindows.length; i++) {
+            if (ownedWindows[i] !== w)
+                next.push(ownedWindows[i])
+        }
+        ownedWindows = next
     }
 
-    function closeOwnedWindows() {
-        var list = ownedWindows.slice()
-        for (var i = 0; i < list.length; i++) {
-            var w = list[i]
-            if (w && w.closeWithOwner !== false && w.dismiss)
+    function closeOwnedWindows(): void {
+        const list = []
+        for (let i = 0; i < ownedWindows.length; i++)
+            list.push(ownedWindows[i])
+        for (let i = 0; i < list.length; i++) {
+            const w = list[i] as AppWindow
+            if (w && w.closeWithOwner !== false)
                 w.dismiss()
         }
     }
@@ -156,7 +173,7 @@ ApplicationWindow {
         Loader {
             id: circuitPanelLoader
             anchors.fill: parent
-            source: "CircuitPanel.qml"
+            source: "CircuitPanelView.qml"
             focus: true
         }
 
@@ -185,7 +202,7 @@ ApplicationWindow {
         visible: win.linuxShadowMargin > 0
     }
 
-    AppWindow {
+    OwnedWindow {
         id: aboutWin
         title: App.translate("About Circuit Simulator")
         sizeToContent: true
@@ -208,7 +225,7 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: examplesWin
         title: App.translate("Example circuits")
         sizeToContent: true
@@ -233,16 +250,16 @@ ApplicationWindow {
         Connections {
             target: examplesWin.panel
             ignoreUnknownSignals: true
-            function onExampleChosen(id) {
+            function onExampleChosen(id: string): void {
                 CircuitCanvas.loadExample(id)
                 examplesWin.visible = false
             }
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: bodeWin
-        title: win.tr("AC Sweep")
+        title: I18n.tr("AC Sweep")
         width: 820
         height: 560
         source: visible ? "BodeView.qml" : ""
@@ -264,9 +281,9 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: curveTracerWin
-        title: win.tr("DC Parameter Sweep / Curve Tracer")
+        title: I18n.tr("DC Parameter Sweep / Curve Tracer")
         width: 920
         height: 620
         source: visible ? "CurveTracerView.qml" : ""
@@ -288,9 +305,9 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: oscWin
-        title: win.tr("Oscilloscope")
+        title: I18n.tr("Oscilloscope")
         width: 900
         height: 520
         source: visible ? "OscView.qml" : ""
@@ -311,9 +328,9 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: laWin
-        title: win.tr("Logic Analyzer")
+        title: I18n.tr("Logic Analyzer")
         width: 900
         height: 520
         source: visible ? "LaView.qml" : ""
@@ -334,9 +351,9 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: mcuWin
-        title: win.tr("MCU Monitor")
+        title: I18n.tr("MCU Monitor")
         width: 720
         height: 520
         source: visible ? "McuView.qml" : ""
@@ -359,10 +376,20 @@ ApplicationWindow {
 
     property var serialMonWindows: ({})
 
-    function showSerialMonitor(monId, title) {
+    function omitKey(map: var, key: string): var {
+        var copy = {}
+        if (!map) return copy
+        for (var k in map) {
+            if (k !== key && map[k] !== undefined)
+                copy[k] = map[k]
+        }
+        return copy
+    }
+
+    function showSerialMonitor(monId: string, title: string): void {
         if (!monId)
             return
-        var existing = serialMonWindows[monId]
+        var existing = serialMonWindows[monId] as AppWindow
         if (existing) {
             if (title && title.length > 0)
                 existing.title = title
@@ -379,62 +406,61 @@ ApplicationWindow {
             title: winTitle,
             x: posX,
             y: posY
-        })
+        }) as AppWindow
         if (w) {
             serialMonWindows[monId] = w
         }
     }
 
-    function dismissSerialMonitor(monId) {
+    function dismissSerialMonitor(monId: string): void {
         if (!monId)
             return
-        var w = serialMonWindows[monId]
+        var w = serialMonWindows[monId] as AppWindow
         if (w) {
-            delete serialMonWindows[monId]
+            serialMonWindows = win.omitKey(serialMonWindows, monId)
             w.destroy()
         }
     }
 
     Connections {
         target: SerialMonitor
-        function onRequestShowMonitor(id, title) {
+        function onRequestShowMonitor(id: string, title: string): void {
             win.showSerialMonitor(id, title)
         }
-        function onMonitorClosed(id) {
+        function onMonitorClosed(id: string): void {
             win.dismissSerialMonitor(id)
         }
     }
 
     Component {
         id: serialMonComp
-        AppWindow {
+        OwnedWindow {
             id: monWin
             property string monId: ""
             width: 560
             height: 420
             visible: true
-            ownerWindow: win
 
             Component.onCompleted: {
-                loadSource("qrc:/qt/qml/cs_app/serialmon.qml", { monitorId: monId })
+                monWin.loadSource("qrc:/qt/qml/cs_app/serialmon.qml", { monitorId: monWin.monId })
             }
 
             onClosing: (close) => {
                 close.accepted = true
-                if (win.serialMonWindows && win.serialMonWindows[monId]) {
-                    delete win.serialMonWindows[monId]
+                if (win.serialMonWindows && win.serialMonWindows[monWin.monId]) {
+                    win.serialMonWindows = win.omitKey(win.serialMonWindows, monWin.monId)
                 }
                 if (!win.isQuitting) {
-                    SerialMonitor.closeMonitor(monId)
+                    SerialMonitor.closeMonitor(monWin.monId)
                 }
                 monWin.destroy()
             }
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: terminalWin
-        title: win.tr("Serial Terminal")
+        title: I18n.tr("Serial Terminal")
         width: 560
         height: 420
         source: visible ? "terminal.qml" : ""
@@ -456,9 +482,9 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: memTableWin
-        title: MemoryTable.title || win.tr("Memory Table")
+        title: MemoryTable.title || I18n.tr("Memory Table")
         width: 720
         height: 480
         minimumWidth: 520
@@ -481,9 +507,9 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: settingsWin
-        title: win.tr("Settings")
+        title: I18n.tr("Settings")
         sizeToContent: true
         minimumWidth: 420
         minimumHeight: 380
@@ -505,12 +531,12 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: circSettingsWin
-        title: win.tr("Circuit Settings")
+        title: I18n.tr("Circuit Settings")
         width: Math.max(420, minimumWidth)
         height: 560
-        minimumWidth: panel ? Math.max(360, Math.ceil(panel.implicitWidth)) : 360
+        minimumWidth: panelItem ? Math.max(360, Math.ceil(panelItem.implicitWidth)) : 360
         minimumHeight: 380
         source: visible ? "circuitdialog.qml" : ""
         visible: App.circuitSettingsVisible
@@ -530,9 +556,9 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: installerWin
-        title: win.tr("Library Manager")
+        title: I18n.tr("Library Manager")
         width: 600
         height: 520
         minimumWidth: 480
@@ -599,17 +625,17 @@ ApplicationWindow {
 
     Connections {
         target: Installer
-        function onPackageInstalled(name) { ComponentList.reloadComponents() }
-        function onPackageUninstalled(name) { ComponentList.reloadComponents() }
+        function onPackageInstalled(name: string): void { ComponentList.reloadComponents() }
+        function onPackageUninstalled(name: string): void { ComponentList.reloadComponents() }
     }
 
     Connections {
         target: AppMenuBar
-        function onAction(id) {
+        function onAction(id: string): void {
             if (id === "file.quit") {
                 CircuitCanvas.powerOff()
                 if (App.requestClose()) {
-                    closeOwnedWindows()
+                    win.closeOwnedWindows()
                     Qt.quit()
                 }
             } else if (id === "file.new") {
@@ -627,26 +653,26 @@ ApplicationWindow {
                 else if (CircuitCanvas.filePath)
                     CircuitCanvas.save()
                 else
-                    openSaveCircAs()
+                    win.openSaveCircAs()
             } else if (id === "file.saveCirc") {
                 if (CircuitCanvas.filePath)
                     CircuitCanvas.save()
                 else
-                    openSaveCircAs()
+                    win.openSaveCircAs()
             } else if (id === "file.saveAs") {
                 if (EditorPanel.focused)
-                    openSaveFileAs()
+                    win.openSaveFileAs()
                 else
-                    openSaveCircAs()
+                    win.openSaveCircAs()
             } else if (id === "file.saveCircAs") {
-                openSaveCircAs()
+                win.openSaveCircAs()
             } else if (id === "file.newFile") {
                 EditorPanel.newFile()
                 EditorPanel.focusEditor()
             } else if (id === "file.saveFile") {
                 EditorPanel.save()
             } else if (id === "file.saveFileAs") {
-                openSaveFileAs()
+                win.openSaveFileAs()
             } else if (id === "file.close") {
                 if (EditorPanel.focused)
                     EditorPanel.closeCurrent()
@@ -657,7 +683,7 @@ ApplicationWindow {
             } else if (id === "file.closeCirc") {
                 CircuitCanvas.closeCircuit()
             } else if (id === "file.saveAll") {
-                runSaveAll()
+                win.runSaveAll()
             } else if (id === "file.newWindow") {
                 App.newWindow()
             } else if (id === "file.openFolder") {
@@ -748,12 +774,12 @@ ApplicationWindow {
                 App.showInstaller()
 
             } else if (id === "view.cmdPalette") {
-                openCommandPalette()
+                win.openCommandPalette()
             } else if (id === "view.jumpRef") {
                 CommandCenter.setCircuitItems(CircuitCanvas.items)
                 CommandCenter.openJumpToReference()
             } else if (id === "view.tabSwitch") {
-                if (!TabSwitcher.visible) populateTabSwitcher()
+                if (!TabSwitcher.visible) win.populateTabSwitcher()
                 TabSwitcher.openSwitcher(true)
             } else if (id === "debug.toggleRepaintOverlay" || id === "debug_toggle_repaint_overlay") {
                 AppDialog.repaintOverlayEnabled = !AppDialog.repaintOverlayEnabled
@@ -861,14 +887,14 @@ ApplicationWindow {
         }
     }
 
-    function isCircuitPath(path) {
+    function isCircuitPath(path: string): bool {
         var p = ("" + path).toLowerCase()
         return p.endsWith(".circ1") || p.endsWith(".sim1") || p.endsWith(".sim2")
     }
 
-    function openSelectedPath(url) {
+    function openSelectedPath(url: var): void {
         var path = "" + url
-        if (isCircuitPath(path)) {
+        if (win.isCircuitPath(path)) {
             CircuitCanvas.loadPath(path)
             return
         }
@@ -885,7 +911,7 @@ ApplicationWindow {
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(FileBrowser.rootPath || CircuitCanvas.filePath || EditorPanel.currentPath)
         nameFilters: [ App.translate("Circuits (*.circ1 *.sim2 *.sim1)"), App.translate("All files (*)") ]
-        onAccepted: openSelectedPath(selectedFile)
+        onAccepted: win.openSelectedPath(openDialog.selectedFile)
     }
     FileDialog {
         id: saveCircDialog
@@ -896,10 +922,10 @@ ApplicationWindow {
         nameFilters: [ App.translate("Circuits (*.circ1 *.sim2 *.sim1)"), App.translate("All files (*)") ]
         currentFile: CircuitCanvas.filePath ? App.suggestFileUrl(CircuitCanvas.filePath) : ""
         onAccepted: {
-            CircuitCanvas.savePath("" + selectedFile)
+            CircuitCanvas.savePath("" + saveCircDialog.selectedFile)
             win.circSaveThenReplace = false
             if (win.saveAllPending)
-                continueSaveAllFiles()
+                win.continueSaveAllFiles()
         }
         onRejected: {
             if (win.circSaveThenReplace) {
@@ -918,15 +944,15 @@ ApplicationWindow {
         nameFilters: [ App.translate("All files (*)") ]
         currentFile: EditorPanel.currentPath ? App.suggestFileUrl(EditorPanel.currentPath) : ""
         onAccepted: {
-            EditorPanel.savePath("" + selectedFile)
-            AppDialog.addRecentFile("" + selectedFile)
+            EditorPanel.savePath("" + saveFileDialog.selectedFile)
+            AppDialog.addRecentFile("" + saveFileDialog.selectedFile)
             AppMenuBar.rebuild()
             if (win.fileSaveThenClose) {
                 win.fileSaveThenClose = false
                 EditorPanel.finishPendingClose()
             }
             if (win.saveAllPending)
-                continueSaveAllFiles()
+                win.continueSaveAllFiles()
         }
         onRejected: {
             if (win.fileSaveThenClose) {
@@ -980,7 +1006,7 @@ ApplicationWindow {
 
     Component {
         id: propWindowComponent
-        AppWindow {
+        OwnedWindow {
             id: propWin
             property string itemUid: ""
             property string itemTitle: ""
@@ -993,7 +1019,6 @@ ApplicationWindow {
             minimumWidth: 320
             minimumHeight: 160
             visible: true
-            ownerWindow: win
 
             Component.onCompleted: {
                 loadSource("PropDialog.qml", { "itemUid": itemUid })
@@ -1004,8 +1029,8 @@ ApplicationWindow {
             onClosing: (close) => {
                 if (!win.isQuitting) {
                     close.accepted = false
-                    visible = false
-                    propWindowManager.closeDialog(itemUid)
+                    propWin.visible = false
+                    propWindowManager.closeDialog(propWin.itemUid)
                 }
             }
         }
@@ -1015,7 +1040,7 @@ ApplicationWindow {
         id: propWindowManager
         property var windows: ({})
 
-        function syncOpenDialogs() {
+        function syncOpenDialogs(): void {
             var list = CircuitCanvas.openPropDialogs || []
             var activeUids = {}
             for (var i = 0; i < list.length; i++) {
@@ -1049,23 +1074,23 @@ ApplicationWindow {
             for (var j = 0; j < toDelete.length; j++) {
                 var delId = toDelete[j]
                 var targetWin = windows[delId]
-                delete windows[delId]
+                windows = win.omitKey(windows, delId)
                 if (targetWin) {
                     targetWin.destroy()
                 }
             }
         }
 
-        function closeDialog(uid) {
+        function closeDialog(uid: string): void {
             var targetWin = windows[uid]
             if (targetWin) {
-                delete windows[uid]
+                windows = win.omitKey(windows, uid)
                 targetWin.destroy()
             }
             CircuitCanvas.closePropertyDialog(uid)
         }
 
-        function bringToFront(uid) {
+        function bringToFront(uid: string): void {
             if (windows[uid]) {
                 windows[uid].bringToFront()
             }
@@ -1074,20 +1099,20 @@ ApplicationWindow {
 
     Connections {
         target: CircuitCanvas
-        function onOpenPropDialogsChanged() {
+        function onOpenPropDialogsChanged(): void {
             propWindowManager.syncOpenDialogs()
         }
-        function onRequestBringPropToFront(uid) {
+        function onRequestBringPropToFront(uid: string): void {
             propWindowManager.bringToFront(uid)
         }
     }
 
     Connections {
         target: CircuitPanel
-        function onToolbarChanged() {
+        function onToolbarChanged(): void {
             AppMenuBar.setSimState(CircuitCanvas.simRunning, CircuitCanvas.simPaused)
         }
-        function onAction(id) {
+        function onAction(id: string): void {
             if (id === "settCircuit") App.showCircuitSettings()
         }
     }
@@ -1152,7 +1177,7 @@ ApplicationWindow {
         function onRequestShowFind() { findWin.bringToFront() }
         function onRequestShowFileSettings() { fileSettingsWin.bringToFront() }
         function onRequestShowCompilerSettings() { compilerSettingsWin.bringToFront() }
-        function onRequestSaveAs() { openSaveFileAs() }
+        function onRequestSaveAs(): void { win.openSaveFileAs() }
         function onLogChanged() {
             var line
             while ((line = EditorPanel.takeLogLine()) !== "") {
@@ -1215,9 +1240,9 @@ ApplicationWindow {
         }
     }
 
-    AppWindow {
+    OwnedWindow {
         id: findWin
-        title: win.tr("Find/Replace")
+        title: I18n.tr("Find/Replace")
         sizeToContent: true
         minimumWidth: 460
         source: visible ? "FindReplace.qml" : ""
@@ -1237,9 +1262,9 @@ ApplicationWindow {
             }
         }
     }
-    AppWindow {
+    OwnedWindow {
         id: fileSettingsWin
-        title: win.tr("File Settings")
+        title: I18n.tr("File Settings")
         sizeToContent: true
         minimumWidth: 420
         source: visible ? "FileSettings.qml" : ""
@@ -1259,11 +1284,11 @@ ApplicationWindow {
             }
         }
     }
-    AppWindow {
+    OwnedWindow {
         id: compilerSettingsWin
         title: EditorPanel.hasCompiler
-               ? win.tr("%1 Settings").arg(EditorPanel.compilerName)
-               : win.tr("Compiler Settings")
+               ? I18n.tr("%1 Settings").arg(EditorPanel.compilerName)
+               : I18n.tr("Compiler Settings")
         sizeToContent: true
         minimumWidth: 420
         source: visible ? "CompilerSettings.qml" : ""
@@ -1326,7 +1351,7 @@ ApplicationWindow {
         CompilerLog.setDark(isDark)
         InfoWidget.updateThemeColors(isDark)
         App.installNativeChrome()
-        Qt.callLater(function() { titleBar.refreshChrome() })
+        Qt.callLater(titleBar.refreshChrome)
         CircuitPanel.installNativeChrome()
         win.show()
         win.raise()
@@ -1380,28 +1405,28 @@ ApplicationWindow {
             win.saveAllPending = true
     }
 
-    function joinFolderFile(folderUrl, fileName) {
+    function joinFolderFile(folderUrl: var, fileName: string): string {
         var folder = ("" + folderUrl).replace(/\/$/, "")
         return folder + "/" + fileName
     }
 
-    function openSaveCircAs() {
+    function openSaveCircAs(): void {
         var folder = App.suggestFolderUrl(CircuitCanvas.filePath)
         var url = CircuitCanvas.filePath
             ? App.suggestFileUrl(CircuitCanvas.filePath)
-            : joinFolderFile(folder, "untitled.circ1")
+            : win.joinFolderFile(folder, "untitled.circ1")
         saveCircDialog.currentFolder = folder
         saveCircDialog.selectedFile = url
         saveCircDialog.currentFile = url
         saveCircDialog.open()
     }
 
-    function openSaveFileAs() {
+    function openSaveFileAs(): void {
         var path = EditorPanel.currentPath
         var folder = App.suggestFolderUrl(path)
         var url = path
             ? App.suggestFileUrl(path)
-            : joinFolderFile(folder, EditorPanel.currentTitle || "untitled")
+            : win.joinFolderFile(folder, EditorPanel.currentTitle || "untitled")
         saveFileDialog.currentFolder = folder
         saveFileDialog.selectedFile = url
         saveFileDialog.currentFile = url
@@ -1417,7 +1442,7 @@ ApplicationWindow {
     }
     Shortcut {
         sequences: ["Ctrl+Shift+P", "Meta+Shift+P"]
-        onActivated: openCommandPalette()
+        onActivated: win.openCommandPalette()
     }
 
     // Every menu row that carries a shortcut gets a real Qt Shortcut here, from
@@ -1429,19 +1454,20 @@ ApplicationWindow {
         id: menuShortcutInstantiator
         model: App.nativeMenus ? [] : AppMenuBar.shortcuts
         delegate: Shortcut {
+            id: menuShortcutItem
             // Reassigned keys are stored in Qt notation already ("Ctrl+Shift+S").
             required property var modelData
-            property string actionId: modelData.id || ""
+            property string actionId: menuShortcutItem.modelData.id || ""
             sequences: {
-                var s = modelData.shortcut || ""
+                var s = menuShortcutItem.modelData.shortcut || ""
                 if (s === "Ctrl++" || s === "Ctrl+=")
                     return ["Ctrl++", "Ctrl+="]
                 return s ? [s] : []
             }
-            enabled: !!modelData.enabled
+            enabled: !!menuShortcutItem.modelData.enabled
             onActivated: {
-                if (actionId !== "")
-                    AppMenuBar.triggerAction(actionId)
+                if (menuShortcutItem.actionId !== "")
+                    AppMenuBar.triggerAction(menuShortcutItem.actionId)
             }
         }
     }
@@ -1452,10 +1478,10 @@ ApplicationWindow {
 
     Connections {
         target: CommandCenter
-        function onShortcutsUpdated() {
+        function onShortcutsUpdated(): void {
             AppMenuBar.rebuild()
         }
-        function onExecuteItem(typ, data, compType) {
+        function onExecuteItem(typ: string, data: string, compType: string): void {
             if (typ === "action") {
                 AppMenuBar.triggerAction(data)
             } else if (typ === "component") {
@@ -1483,7 +1509,7 @@ ApplicationWindow {
                     CircuitCanvas.loadPath(data)
                 } else {
                     CircuitPanel.showEditor()
-                    EditorPanel.openPath(data)
+                    EditorPanel.loadFile(data)
                     EditorPanel.focusEditor()
                 }
             }
@@ -1538,14 +1564,14 @@ ApplicationWindow {
     Shortcut {
         sequences: ["Ctrl+Tab", "Meta+Tab"]
         onActivated: {
-            if (!TabSwitcher.visible) populateTabSwitcher()
+            if (!TabSwitcher.visible) win.populateTabSwitcher()
             TabSwitcher.openSwitcher(true)
         }
     }
     Shortcut {
         sequences: ["Ctrl+Shift+Tab", "Meta+Shift+Tab"]
         onActivated: {
-            if (!TabSwitcher.visible) populateTabSwitcher()
+            if (!TabSwitcher.visible) win.populateTabSwitcher()
             TabSwitcher.openSwitcher(false)
         }
     }
@@ -1556,7 +1582,7 @@ ApplicationWindow {
 
     Connections {
         target: TabSwitcher
-        function onExecuteItem(kind, id, index) {
+        function onExecuteItem(kind: string, id: string, index: int): void {
             if (kind === "circuit") {
                 if (id && id.length > 0 && id !== CircuitCanvas.filePath) {
                     CircuitCanvas.loadPath(id)
@@ -1566,7 +1592,7 @@ ApplicationWindow {
                 if (index >= 0) {
                     EditorPanel.currentDocument = index
                 } else if (id && id.length > 0) {
-                    EditorPanel.openPath(id)
+                    EditorPanel.loadFile(id)
                 }
                 EditorPanel.focusEditor()
             }
@@ -1599,19 +1625,19 @@ ApplicationWindow {
 
     Connections {
         target: CircuitCanvas
-        function onRequestSaveBeforeReplace() { circuitReplaceDialog.open() }
-        function onRequestSaveAsThenReplace() {
+        function onRequestSaveBeforeReplace(): void { circuitReplaceDialog.open() }
+        function onRequestSaveAsThenReplace(): void {
             win.circSaveThenReplace = true
-            openSaveCircAs()
+            win.openSaveCircAs()
         }
     }
 
     Connections {
         target: EditorPanel
-        function onRequestSaveBeforeClose() { fileCloseDialog.open() }
-        function onRequestSaveAsThenClose() {
+        function onRequestSaveBeforeClose(): void { fileCloseDialog.open() }
+        function onRequestSaveAsThenClose(): void {
             win.fileSaveThenClose = true
-            openSaveFileAs()
+            win.openSaveFileAs()
         }
     }
 

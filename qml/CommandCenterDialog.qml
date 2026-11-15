@@ -1,11 +1,13 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Dialog {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     visible: CommandCenter.visible
     modal: true
     dim: true
@@ -64,7 +66,7 @@ Dialog {
             Layout.fillWidth: true
             focus: !shortcutDialog.visible
             enabled: !shortcutDialog.visible
-            placeholderText: root.tr( "Type > for commands, or type to jump to component..." )
+            placeholderText: I18n.tr( "Type > for commands, or type to jump to component..." )
             text: CommandCenter.searchText
 
             Component.onCompleted: if (!shortcutDialog.visible) searchField.forceActiveFocus()
@@ -184,7 +186,7 @@ Dialog {
     AppContextMenu {
         id: actionContextMenu
         ContextMenuItem {
-            text: root.tr("Edit Shortcut...")
+            text: I18n.tr("Edit Shortcut...")
             iconLigature: "keyboard"
             onTriggered: shortcutDialog.open()
         }

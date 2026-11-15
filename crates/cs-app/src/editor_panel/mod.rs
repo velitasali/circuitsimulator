@@ -2451,6 +2451,10 @@ impl EditorPanel {
     fn paste(&mut self) {
         self.fire_edit("paste");
     }
+    #[qslot]
+    fn select_all(&mut self) {
+        self.fire_edit("selectAll");
+    }
 
     #[qslot]
     fn take_log_line(&mut self) -> String {

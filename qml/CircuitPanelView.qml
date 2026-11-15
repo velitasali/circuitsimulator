@@ -1,7 +1,11 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import cs_app
+import cs_ui
 
 /* The circuit area: the canvas, and the overlays floating over it.
  *
@@ -18,12 +22,10 @@ Item {
     id: root
     objectName: "circuitPanelRoot"
     SystemPalette { id: appTheme }
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
-    readonly property var ctx: CircuitPanel
-    readonly property var rects: ctx ? ctx.overlayRects : ({})
+    readonly property var rects: CircuitPanel.overlayRects
 
     // Overlay rects are JSON {x,y,w,h}, not QRectF.
-    function r( key ) {
+    function r( key: string ): rect {
         var v = rects[key]
         if ( v === undefined || v === null )
             return Qt.rect( 0, 0, 0, 0 )
@@ -31,12 +33,12 @@ Item {
         var h = ( v.h !== undefined ) ? v.h : v.height
         return Qt.rect( v.x, v.y, w, h )
     }
-    function overlayZ( key ) { return rects[key + "Z"] !== undefined ? rects[key + "Z"] : 1 }
+    function overlayZ( key: string ): real { return rects[key + "Z"] !== undefined ? rects[key + "Z"] : 1 }
 
     // Drop a popup under a toolbar button, 4px below the toolbar — the same
     // gap as the sim-info card. x/y stay in this panel's coordinates, which
     // is the popup's parent. Pass width when a closed Menu still reports 0.
-    function placeBelow( popup, anchor, alignRight, width ) {
+    function placeBelow( popup: T.Popup, anchor: Item, alignRight: bool, width: real ): void {
         var w = width > 0 ? width : popup.width
         var localX = alignRight ? anchor.width - w : 0
         var pt = anchor.mapToItem( root, localX, 0 )
@@ -52,24 +54,22 @@ Item {
                                                 appTheme.window.b, 0.85 )
 
     property int topInset: 0
-    onTopInsetChanged: if ( ctx ) ctx.setTopInset( topInset )
+    onTopInsetChanged: CircuitPanel.setTopInset( topInset )
 
     // CircuitWidget lays every overlay out against the canvas area's size, which
     // it used to take from resizeEvent(). Nothing reported it after the port, so
     // m_viewSize stayed (-1,-1) and every panel came out with a negative height,
     // which is why the side and editor panels never appeared.
-    function publishViewSize() { if ( ctx ) ctx.setViewSize( width, height ) }
-    onWidthChanged: publishViewSize()
-    onHeightChanged: publishViewSize()
+    function publishViewSize(): void { CircuitPanel.setViewSize( root.width, root.height ) }
+    onWidthChanged: root.publishViewSize()
+    onHeightChanged: root.publishViewSize()
     Component.onCompleted: {
-        if ( ctx ) ctx.setTopInset( topInset )
-        publishViewSize()
-        if ( ctx ) {
-            ctx.setZoomPercent( CircuitCanvas.zoom )
-            ctx.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
-            ctx.updateDevices( CircuitCanvas.programmableDevices )
-            ctx.setCanvasOverflow( CircuitCanvas.canvasOverflow ? App.translate("Canvas Overflow") : "" )
-        }
+        CircuitPanel.setTopInset( root.topInset )
+        root.publishViewSize()
+        CircuitPanel.setZoomPercent( CircuitCanvas.zoom )
+        CircuitPanel.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
+        CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )
+        CircuitPanel.setCanvasOverflow( CircuitCanvas.canvasOverflow ? App.translate("Canvas Overflow") : "" )
     }
 
 
@@ -87,9 +87,9 @@ Item {
         // MainWindow walks the QML active-focus chain for these names to work
         // out which panel the keyboard is in; see MainWindow::qmlFocusInside.
         objectName: "sidePanel"
-        visible: rects.sidePanelVisible === true
-        x: r("sidePanel").x; y: r("sidePanel").y
-        width: r("sidePanel").width; height: r("sidePanel").height
+        visible: root.rects.sidePanelVisible === true
+        x: root.r("sidePanel").x; y: root.r("sidePanel").y
+        width: root.r("sidePanel").width; height: root.r("sidePanel").height
         color: appTheme.window
         radius: 6
         border.color: appTheme.mid
@@ -102,7 +102,7 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             acceptedButtons: Qt.AllButtons
-            onPressed: (m) => { if ( ctx ) ctx.overlayClicked( "sidePanel" ) }
+            onPressed: (m) => { CircuitPanel.overlayClicked( "sidePanel" ) }
             onWheel: (wheel) => { wheel.accepted = true }
         }
 
@@ -144,12 +144,12 @@ Item {
                     delegate: AppTabButton {
                         id: sideTab
                         required property var modelData
-                        text: root.tr(modelData.label)
+                        text: I18n.tr(sideTab.modelData.label)
                         leftPadding: 12
                         rightPadding: 12
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.tr(modelData.label)
-                        onClicked: if ( ctx ) ctx.overlayClicked( "sidePanel" )
+                        ToolTip.visible: sideTab.hovered
+                        ToolTip.text: I18n.tr(sideTab.modelData.label)
+                        onClicked: CircuitPanel.overlayClicked( "sidePanel" )
                         contentItem: AppIcon {
                             icon: sideTab.modelData.glyph
                             size: 18
@@ -164,8 +164,8 @@ Item {
                 // `currentIndex: app.sidePanelTab` would not survive the first
                 // click, which breaks the binding; RestoreNone re-asserts it.
                 onCurrentIndexChanged: {
-                    if ( ctx ) ctx.overlayClicked( "sidePanel" )
-                    App.sidePanelTab = currentIndex
+                    CircuitPanel.overlayClicked( "sidePanel" )
+                    App.sidePanelTab = sideTabs.currentIndex
                 }
             }
             Binding {
@@ -189,15 +189,15 @@ Item {
                         objectName: "componentSearch"
                         Layout.fillWidth: true
                         placeholderText: App.searchPlaceholder
-                        onPressed: if ( ctx ) ctx.overlayClicked( "sidePanel" )
+                        onPressed: CircuitPanel.overlayClicked( "sidePanel" )
                         onTextChanged: {
-                            App.setSearchFilter( text )
-                            ComponentList.search( text )
+                            App.setSearchFilter( componentSearch.text )
+                            ComponentList.search( componentSearch.text )
                         }
 
                         Connections {
                             target: App
-                            function onFocusSearchRequested() {
+                            function onFocusSearchRequested(): void {
                                 componentSearch.forceActiveFocus()
                                 componentSearch.selectAll()
                             }
@@ -243,9 +243,10 @@ Item {
                         clip: true
 
                         Loader {
+                            id: simLogLoader
                             anchors.fill: parent
                             source: "OutPanelText.qml"
-                            onLoaded: item.ctx = SimulatorLog
+                            onLoaded: (simLogLoader.item as OutPanelText).ctx = SimulatorLog
                         }
                     }
                 }
@@ -259,9 +260,10 @@ Item {
                         clip: true
 
                         Loader {
+                            id: compLogLoader
                             anchors.fill: parent
                             source: "OutPanelText.qml"
-                            onLoaded: item.ctx = CompilerLog
+                            onLoaded: (compLogLoader.item as OutPanelText).ctx = CompilerLog
                         }
                     }
                 }
@@ -277,9 +279,9 @@ Item {
         // as undefined. The objectName is what the focus tests match on.
         id: editorPanelOverlay
         objectName: "editorPanel"
-        visible: rects.editorPanelVisible === true
-        x: r("editorPanel").x; y: r("editorPanel").y
-        width: r("editorPanel").width; height: r("editorPanel").height
+        visible: root.rects.editorPanelVisible === true
+        x: root.r("editorPanel").x; y: root.r("editorPanel").y
+        width: root.r("editorPanel").width; height: root.r("editorPanel").height
         color: root.overlayBg
         radius: 6
         border.color: appTheme.mid
@@ -292,7 +294,7 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             acceptedButtons: Qt.AllButtons
-            onPressed: (m) => { if ( ctx ) ctx.overlayClicked( "editorPanel" ) }
+            onPressed: (m) => { CircuitPanel.overlayClicked( "editorPanel" ) }
             onWheel: (wheel) => { wheel.accepted = true }
         }
 
@@ -310,7 +312,7 @@ Item {
             onDropped: (drop) => { drop.accept() }
         }
 
-        Loader { anchors.fill: parent; anchors.margins: 1; source: "EditorPanel.qml" }
+        Loader { anchors.fill: parent; anchors.margins: 1; source: "EditorPanelView.qml" }
     }
 
     // ---- Resize / drag handles -------------------------------------------
@@ -336,29 +338,30 @@ Item {
             { key: "epResizeBR", cursor: Qt.SizeFDiagCursor, id: "editorPanelBR", panel: "editorPanel" }
         ]
         delegate: MouseArea {
+            id: resizeHandle
             required property var modelData
             // A hidden panel keeps publishing its rects, so without the second
             // half these strips stayed live over bare canvas.
-            visible: root.r( modelData.key ).width > 0
-                     && root.rects[ modelData.panel + "Visible" ] === true
-            x: root.r( modelData.key ).x;     y: root.r( modelData.key ).y
-            width: root.r( modelData.key ).width
-            height: root.r( modelData.key ).height
-            cursorShape: modelData.cursor
+            visible: root.r( resizeHandle.modelData.key ).width > 0
+                     && root.rects[ resizeHandle.modelData.panel + "Visible" ] === true
+            x: root.r( resizeHandle.modelData.key ).x;     y: root.r( resizeHandle.modelData.key ).y
+            width: root.r( resizeHandle.modelData.key ).width
+            height: root.r( resizeHandle.modelData.key ).height
+            cursorShape: resizeHandle.modelData.cursor
             // Just above the panel they belong to, so they keep their place in
             // the overlay stack. At z 0 the panel covered them: a corner sits
             // 7px inside it, leaving only a 3px sliver of it grabbable -- and
             // over a panel's own controls, nothing of it at all.
-            z: root.overlayZ( modelData.panel ) + 0.5
+            z: root.overlayZ( resizeHandle.modelData.panel ) + 0.5
             onPressed: (m) => {
-                if ( ctx ) ctx.overlayClicked( modelData.panel )
-                var p = mapToItem( root, m.x, m.y )
-                ctx.gestureBegin( modelData.id, p.x, p.y )
+                CircuitPanel.overlayClicked( resizeHandle.modelData.panel )
+                var p = resizeHandle.mapToItem( root, m.x, m.y )
+                CircuitPanel.gestureBegin( resizeHandle.modelData.id, p.x, p.y )
             }
-            onPositionChanged: (m) => { var p = mapToItem( root, m.x, m.y ); ctx.gestureMove( p.x, p.y ) }
-            onReleased: ctx.gestureEnd()
+            onPositionChanged: (m) => { var p = resizeHandle.mapToItem( root, m.x, m.y ); CircuitPanel.gestureMove( p.x, p.y ) }
+            onReleased: CircuitPanel.gestureEnd()
             // Back to the default size, as double-clicking a splitter did.
-            onDoubleClicked: ctx.resetOverlaySize( modelData.id.startsWith( "sidePanel" )
+            onDoubleClicked: CircuitPanel.resetOverlaySize( resizeHandle.modelData.id.startsWith( "sidePanel" )
                                                    ? "sidePanel" : "editorPanel" )
         }
     }
@@ -379,19 +382,19 @@ Item {
         delegate: Rectangle {
             id: handle
             required property var modelData
-            readonly property rect box: root.r( modelData.key )
-            readonly property bool panelVisible: root.rects[ modelData.id + "Visible" ] === true
+            readonly property rect box: root.r( handle.modelData.key )
+            readonly property bool panelVisible: root.rects[ handle.modelData.id + "Visible" ] === true
             // A toggle stays put when its panel is hidden -- it is what brings it
             // back; a grip has nothing to drag then.
-            visible: box.width > 0 && ( modelData.toggle || panelVisible )
-            x: box.x; y: box.y
-            width: box.width; height: box.height
-            radius: height / 2
+            visible: handle.box.width > 0 && ( handle.modelData.toggle || handle.panelVisible )
+            x: handle.box.x; y: handle.box.y
+            width: handle.box.width; height: handle.box.height
+            radius: handle.height / 2
             color: pointer.containsMouse ? appTheme.midlight
-                                         : ( modelData.id === "sidePanel" ? appTheme.window : root.overlayBg )
+                                         : ( handle.modelData.id === "sidePanel" ? appTheme.window : root.overlayBg )
             border.color: appTheme.mid
             border.width: 1
-            z: root.overlayZ( modelData.id ) + 0.5
+            z: root.overlayZ( handle.modelData.id ) + 0.5
 
             AppIcon {
                 anchors.centerIn: parent
@@ -414,24 +417,24 @@ Item {
                 hoverEnabled: true
                 cursorShape: handle.modelData.toggle ? Qt.PointingHandCursor : Qt.SizeAllCursor
                 onClicked: if ( handle.modelData.toggle ) {
-                    if ( ctx ) ctx.overlayClicked( handle.modelData.id )
-                    ctx.togglePanel( handle.modelData.id )
+                    CircuitPanel.overlayClicked( handle.modelData.id )
+                    CircuitPanel.togglePanel( handle.modelData.id )
                 }
-                onDoubleClicked: if ( !handle.modelData.toggle ) ctx.resetOverlayPos( handle.modelData.id )
+                onDoubleClicked: if ( !handle.modelData.toggle ) CircuitPanel.resetOverlayPos( handle.modelData.id )
                 onPressed: (m) => {
-                    if ( ctx ) ctx.overlayClicked( handle.modelData.id )
+                    CircuitPanel.overlayClicked( handle.modelData.id )
                     if ( !handle.modelData.toggle ) {
-                        var p = mapToItem( root, m.x, m.y )
-                        ctx.gestureBegin( handle.modelData.id, p.x, p.y )
+                        var p = pointer.mapToItem( root, m.x, m.y )
+                        CircuitPanel.gestureBegin( handle.modelData.id, p.x, p.y )
                     }
                 }
                 onPositionChanged: (m) => {
-                    if ( !handle.modelData.toggle && pressed ) {
-                        var p = mapToItem( root, m.x, m.y )
-                        ctx.gestureMove( p.x, p.y )
+                    if ( !handle.modelData.toggle && pointer.pressed ) {
+                        var p = pointer.mapToItem( root, m.x, m.y )
+                        CircuitPanel.gestureMove( p.x, p.y )
                     }
                 }
-                onReleased: if ( !handle.modelData.toggle ) ctx.gestureEnd()
+                onReleased: if ( !handle.modelData.toggle ) CircuitPanel.gestureEnd()
             }
         }
     }
@@ -442,13 +445,13 @@ Item {
     // Control respects custom padding and background customization cleanly.
     Control {
         id: toolbar
-        x: r("toolbar").x; y: r("toolbar").y
+        x: root.r("toolbar").x; y: root.r("toolbar").y
         padding: 4
         // Its x/y come back from updateOverlayLayout(), which needs the size it
         // just measured; this is the adjustSize() the QToolBar used to do.
-        onImplicitWidthChanged: if ( ctx ) ctx.setToolbarSize( implicitWidth, implicitHeight )
-        onImplicitHeightChanged: if ( ctx ) ctx.setToolbarSize( implicitWidth, implicitHeight )
-        Component.onCompleted: if ( ctx ) ctx.setToolbarSize( implicitWidth, implicitHeight )
+        onImplicitWidthChanged: CircuitPanel.setToolbarSize( toolbar.implicitWidth, toolbar.implicitHeight )
+        onImplicitHeightChanged: CircuitPanel.setToolbarSize( toolbar.implicitWidth, toolbar.implicitHeight )
+        Component.onCompleted: CircuitPanel.setToolbarSize( toolbar.implicitWidth, toolbar.implicitHeight )
         z: root.overlayZ( "toolbar" )
 
         // Click-to-front lives inside the background, not as a sibling of the
@@ -466,7 +469,7 @@ Item {
             // Click-to-front: bring toolbar to front when clicking background/margins
             MouseArea {
                 anchors.fill: parent
-                onPressed: (m) => { if ( ctx ) ctx.overlayClicked( "toolbar" ) }
+                onPressed: (m) => { CircuitPanel.overlayClicked( "toolbar" ) }
             }
         }
 
@@ -504,14 +507,14 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.SizeAllCursor
-                    onDoubleClicked: ctx.resetOverlayPos( "toolbar" )
+                    onDoubleClicked: CircuitPanel.resetOverlayPos( "toolbar" )
                     onPressed: (m) => {
-                        if ( ctx ) ctx.overlayClicked( "toolbar" )
-                        var p = mapToItem( root, m.x, m.y )
-                        ctx.gestureBegin( "toolbar", p.x, p.y )
+                        CircuitPanel.overlayClicked( "toolbar" )
+                        var p = gripMouse.mapToItem( root, m.x, m.y )
+                        CircuitPanel.gestureBegin( "toolbar", p.x, p.y )
                     }
-                    onPositionChanged: (m) => { var p = mapToItem( root, m.x, m.y ); ctx.gestureMove( p.x, p.y ) }
-                    onReleased: ctx.gestureEnd()
+                    onPositionChanged: (m) => { var p = gripMouse.mapToItem( root, m.x, m.y ); CircuitPanel.gestureMove( p.x, p.y ) }
+                    onReleased: CircuitPanel.gestureEnd()
                 }
 
                 ToolTip.visible: gripMouse.containsMouse
@@ -539,7 +542,7 @@ Item {
                 visible: !App.nativeMenus
                 anchors.verticalCenter: toolbarRow.verticalCenter
                 checked: appMenu.opened
-                ToolTip.visible: hovered && !appMenu.opened
+                ToolTip.visible: appMenuBtn.hovered && !appMenu.opened
                 ToolTip.text: App.translate( "Menu" )
                 onClicked: {
                     if ( appMenu.opened )
@@ -566,9 +569,9 @@ Item {
                     focus: true
                     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
                     property bool menuDirty: true
-                    onOpenedChanged: AppMenuBar.setAltMenuOpen(opened)
+                    onOpenedChanged: AppMenuBar.setAltMenuOpen(appMenu.opened)
                     onAboutToShow: {
-                        if ( menuDirty || count === 0 )
+                        if ( appMenu.menuDirty || appMenu.count === 0 )
                             root.rebuildAppMenu()
                     }
                 }
@@ -590,17 +593,18 @@ Item {
             }
 
             Repeater {
-                model: ctx ? ctx.toolbarItems : []
+                model: CircuitPanel.toolbarItems
                 delegate: Loader {
+                    id: tbLoader
                     required property var modelData
                     required property int index
-                    visible: modelData.visible
+                    visible: tbLoader.modelData.visible
                     // A Row top-aligns children of different heights, so without
                     // this the buttons sat above the taller items beside them.
                     anchors.verticalCenter: toolbarRow.verticalCenter
-                    sourceComponent: modelData.kind === "separator" ? separatorItem
-                                   : modelData.kind === "widget"    ? widgetItem
-                                                                    : actionItem
+                    sourceComponent: tbLoader.modelData.kind === "separator" ? separatorItem
+                                   : tbLoader.modelData.kind === "widget"    ? widgetItem
+                                                                            : actionItem
 
                     Component {
                         id: separatorItem
@@ -626,30 +630,30 @@ Item {
                         id: actionItem
                         AppToolButton {
                             id: actionBtn
-                            enabled: modelData.enabled
-                            checkable: modelData.checkable
-                            checked: modelData.checked
-                            tint: (modelData.tint !== undefined && modelData.tint !== "") ? modelData.tint : appTheme.windowText
-                            ToolTip.visible: hovered && modelData.tooltip !== ""
-                            ToolTip.text: modelData.tooltip
+                            enabled: tbLoader.modelData.enabled
+                            checkable: tbLoader.modelData.checkable
+                            checked: tbLoader.modelData.checked
+                            tint: (tbLoader.modelData.tint !== undefined && tbLoader.modelData.tint !== "") ? tbLoader.modelData.tint : appTheme.windowText
+                            ToolTip.visible: actionBtn.hovered && tbLoader.modelData.tooltip !== ""
+                            ToolTip.text: tbLoader.modelData.tooltip
                             onClicked: {
-                                if ( ctx ) ctx.overlayClicked( "toolbar" )
-                                ctx.toolbarTriggered( index )
+                                CircuitPanel.overlayClicked( "toolbar" )
+                                CircuitPanel.toolbarTriggered( tbLoader.index )
                             }
                             contentItem: Item {
                                 implicitWidth: 18
                                 implicitHeight: 18
                                 AppIcon {
                                     anchors.centerIn: parent
-                                    visible: modelData.iconLigature !== undefined && modelData.iconLigature !== ""
-                                    icon: modelData.iconLigature || ""
+                                    visible: tbLoader.modelData.iconLigature !== undefined && tbLoader.modelData.iconLigature !== ""
+                                    icon: tbLoader.modelData.iconLigature || ""
                                     size: 16
                                     color: actionBtn.isCheckedActive ? appTheme.highlight : actionBtn.textColor
                                 }
                                 Image {
                                     anchors.fill: parent
-                                    visible: !modelData.iconLigature || modelData.iconLigature === ""
-                                    source: modelData.icon || ""
+                                    visible: !tbLoader.modelData.iconLigature || tbLoader.modelData.iconLigature === ""
+                                    source: tbLoader.modelData.icon || ""
                                     fillMode: Image.PreserveAspectFit
                                     mipmap: true
                                 }
@@ -659,14 +663,14 @@ Item {
                     Component {
                         id: widgetItem
                         Loader {
-                            sourceComponent: modelData.widget === "msg"            ? textItem
-                                           : modelData.widget === "coords"         ? coordsItem
-                                           : modelData.widget === "zoom"           ? zoomItem
-                                           : modelData.widget === "warnings"       ? warnItem
-                                           : modelData.widget === "canvasOverflow" ? canvasOverflowItem
-                                           : modelData.widget === "subcNav"        ? subcNavItem
-                                           : modelData.widget === "deviceSel"      ? deviceSelItem
-                                                                                   : embeddedItem
+                            sourceComponent: tbLoader.modelData.widget === "msg"            ? textItem
+                                           : tbLoader.modelData.widget === "coords"         ? coordsItem
+                                           : tbLoader.modelData.widget === "zoom"           ? zoomItem
+                                           : tbLoader.modelData.widget === "warnings"       ? warnItem
+                                           : tbLoader.modelData.widget === "canvasOverflow" ? canvasOverflowItem
+                                           : tbLoader.modelData.widget === "subcNav"        ? subcNavItem
+                                           : tbLoader.modelData.widget === "deviceSel"      ? deviceSelItem
+                                                                                            : embeddedItem
                         }
                     }
                 }
@@ -679,16 +683,17 @@ Item {
     Component {
         id: textItem
         Rectangle {
+            id: msgPill
             implicitWidth: msgText.implicitWidth + 14
             implicitHeight: msgText.implicitHeight + 6
-            radius: height / 2
-            color: ctx ? ctx.messageBg : "transparent"
+            radius: msgPill.height / 2
+            color: CircuitPanel.messageBg
             visible: msgText.text !== ""
             AppText {
                 id: msgText
                 anchors.centerIn: parent
-                text: ctx ? ctx.messageText : ""
-                color: ctx ? ctx.messageColor : appTheme.windowText
+                text: CircuitPanel.messageText
+                color: CircuitPanel.messageColor
             }
         }
     }
@@ -733,7 +738,7 @@ Item {
                     // genuinely needs more than six characters.
                     width: Math.max( valueMetrics.width, implicitWidth )
                     horizontalAlignment: Text.AlignRight
-                    text: ctx ? ctx.coordsX : 0
+                    text: CircuitPanel.coordsX
                     color: appTheme.windowText
                 }
                 AppText {
@@ -747,7 +752,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.max( valueMetrics.width, implicitWidth )
                     horizontalAlignment: Text.AlignRight
-                    text: ctx ? ctx.coordsY : 0
+                    text: CircuitPanel.coordsY
                     color: appTheme.windowText
                 }
             }
@@ -765,11 +770,11 @@ Item {
             id: zoomBtn
             leftPadding: 6
             rightPadding: 6
-            checked: ctx && ctx.zoomMenuOpen
-            ToolTip.visible: hovered
+            checked: CircuitPanel.zoomMenuOpen
+            ToolTip.visible: zoomBtn.hovered
             ToolTip.text: App.translate( "Zoom Options" )
             onClicked: {
-                if ( ctx ) ctx.overlayClicked( "toolbar" )
+                CircuitPanel.overlayClicked( "toolbar" )
                 if ( zoomMenu.visible ) {
                     zoomMenu.close()
                 } else {
@@ -777,8 +782,8 @@ Item {
                     zoomMenu.updateGeometry()
                     var menuW = Math.max( zoomMenu.implicitWidth,
                                           zoomMenu.contentImplicitWidth + zoomMenu.padding * 2 )
-                    placeBelow( zoomMenu, zoomBtn, false, menuW )
-                    ctx.showZoomMenu( 0, 0 )
+                    root.placeBelow( zoomMenu, zoomBtn, false, menuW )
+                    CircuitPanel.showZoomMenu( 0, 0 )
                     zoomMenu.open()
                 }
             }
@@ -787,7 +792,7 @@ Item {
                 spacing: 1
                 AppText {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: ctx ? ctx.zoomText : ""
+                    text: CircuitPanel.zoomText
                     font: zoomBtn.font
                     color: appTheme.windowText
                 }
@@ -806,12 +811,12 @@ Item {
             id: warnBtn
             leftPadding: 6
             rightPadding: 6
-            visible: ctx && ctx.warningsText !== ""
+            visible: CircuitPanel.warningsText !== ""
             checked: overloadPopup.visible
             onClicked: {
-                if ( ctx ) ctx.overlayClicked( "toolbar" )
+                CircuitPanel.overlayClicked( "toolbar" )
                 if ( !overloadPopup.visible )
-                    placeBelow( overloadPopup, warnBtn, true )
+                    root.placeBelow( overloadPopup, warnBtn, true, 0 )
                 overloadPopup.toggle()
             }
             contentItem: Row {
@@ -820,11 +825,11 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     icon: "warning"
                     size: 16
-                    color: ctx && ctx.warningsCrashed ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
+                    color: CircuitPanel.warningsCrashed ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
                 }
                 AppText {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: ctx ? ctx.warningsText : ""
+                    text: CircuitPanel.warningsText
                     font: warnBtn.font
                     color: appTheme.windowText
                 }
@@ -837,12 +842,12 @@ Item {
             id: overflowBtn
             leftPadding: 6
             rightPadding: 6
-            visible: ctx && ctx.canvasOverflowText !== ""
+            visible: CircuitPanel.canvasOverflowText !== ""
             checked: canvasOverflowPopup.visible
             onClicked: {
-                if ( ctx ) ctx.overlayClicked( "toolbar" )
+                CircuitPanel.overlayClicked( "toolbar" )
                 if ( !canvasOverflowPopup.visible )
-                    placeBelow( canvasOverflowPopup, overflowBtn, true )
+                    root.placeBelow( canvasOverflowPopup, overflowBtn, true, 0 )
                 canvasOverflowPopup.toggle()
             }
             contentItem: Row {
@@ -855,7 +860,7 @@ Item {
                 }
                 AppText {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: ctx ? ctx.canvasOverflowText : ""
+                    text: CircuitPanel.canvasOverflowText
                     font: overflowBtn.font
                     color: appTheme.windowText
                 }
@@ -868,16 +873,16 @@ Item {
             id: subcBtn
             leftPadding: 6
             rightPadding: 6
-            visible: ctx && ctx.subcNav ? ctx.subcNav.visible : false
+            visible: CircuitPanel.subcNav ? CircuitPanel.subcNav.visible : false
             checked: subcPopup.visible
-            ToolTip.visible: hovered && ctx && ctx.subcNav && ctx.subcNav.buttonTooltip !== ""
-            ToolTip.text: ctx && ctx.subcNav ? ctx.subcNav.buttonTooltip : ""
+            ToolTip.visible: subcBtn.hovered && CircuitPanel.subcNav && CircuitPanel.subcNav.buttonTooltip !== ""
+            ToolTip.text: CircuitPanel.subcNav ? CircuitPanel.subcNav.buttonTooltip : ""
             onClicked: {
-                if ( ctx ) ctx.overlayClicked( "toolbar" )
+                CircuitPanel.overlayClicked( "toolbar" )
                 if ( subcPopup.visible ) {
                     subcPopup.close()
                 } else {
-                    placeBelow( subcPopup, subcBtn, false )
+                    root.placeBelow( subcPopup, subcBtn, false, 0 )
                     subcPopup.open()
                 }
             }
@@ -886,13 +891,13 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    icon: (ctx && ctx.subcNav && ctx.subcNav.iconLigature) ? ctx.subcNav.iconLigature : "account_tree"
+                    icon: (CircuitPanel.subcNav && CircuitPanel.subcNav.iconLigature) ? CircuitPanel.subcNav.iconLigature : "account_tree"
                     size: 18
                     color: appTheme.windowText
                 }
                 AppText {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: ctx && ctx.subcNav ? ctx.subcNav.buttonText : ""
+                    text: CircuitPanel.subcNav ? CircuitPanel.subcNav.buttonText : ""
                     font: subcBtn.font
                     color: appTheme.windowText
                     elide: Text.ElideMiddle
@@ -913,16 +918,16 @@ Item {
             id: deviceBtn
             leftPadding: 6
             rightPadding: 6
-            visible: ctx && ctx.deviceSel ? ctx.deviceSel.visible : false
+            visible: CircuitPanel.deviceSel ? CircuitPanel.deviceSel.visible : false
             checked: devicePopup.visible
-            ToolTip.visible: hovered && ctx && ctx.deviceSel && ctx.deviceSel.buttonTooltip !== ""
-            ToolTip.text: ctx && ctx.deviceSel ? ctx.deviceSel.buttonTooltip : ""
+            ToolTip.visible: deviceBtn.hovered && CircuitPanel.deviceSel && CircuitPanel.deviceSel.buttonTooltip !== ""
+            ToolTip.text: CircuitPanel.deviceSel ? CircuitPanel.deviceSel.buttonTooltip : ""
             onClicked: {
-                if ( ctx ) ctx.overlayClicked( "toolbar" )
+                CircuitPanel.overlayClicked( "toolbar" )
                 if ( devicePopup.visible ) {
                     devicePopup.close()
                 } else {
-                    placeBelow( devicePopup, deviceBtn, false )
+                    root.placeBelow( devicePopup, deviceBtn, false, 0 )
                     devicePopup.open()
                 }
             }
@@ -931,13 +936,13 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
-                    icon: (ctx && ctx.deviceSel && ctx.deviceSel.iconLigature) ? ctx.deviceSel.iconLigature : "memory"
+                    icon: (CircuitPanel.deviceSel && CircuitPanel.deviceSel.iconLigature) ? CircuitPanel.deviceSel.iconLigature : "memory"
                     size: 18
                     color: appTheme.windowText
                 }
                 AppText {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: ctx && ctx.deviceSel ? ctx.deviceSel.buttonText : ""
+                    text: CircuitPanel.deviceSel ? CircuitPanel.deviceSel.buttonText : ""
                     font: deviceBtn.font
                     color: appTheme.windowText
                     elide: Text.ElideMiddle
@@ -957,14 +962,14 @@ Item {
     // ---- Sim info card ----------------------------------------------------
     Item {
         id: infoCard
-        x: r("infoCard").x; y: r("infoCard").y
-        width: r("infoCard").width; height: r("infoCard").height
-        visible: ctx ? ctx.infoVisible : false
+        x: root.r("infoCard").x; y: root.r("infoCard").y
+        width: root.r("infoCard").width; height: root.r("infoCard").height
+        visible: CircuitPanel.infoVisible
         z: root.overlayZ( "infoCard" )
 
         MouseArea {
             anchors.fill: parent
-            onPressed: (m) => { if ( ctx ) ctx.overlayClicked( "infoCard" ) }
+            onPressed: (m) => { CircuitPanel.overlayClicked( "infoCard" ) }
         }
 
         // infowidget.qml sizes itself to its content; the card's rect comes back
@@ -978,23 +983,24 @@ Item {
         // `as Item` only so the implicit sizes below resolve statically; Loader.item
         // is typed QObject.
         readonly property Item infoItem: infoLoader.item as Item
-        function publishInfoSize() {
-            if ( ctx && infoItem ) ctx.setInfoCardSize( infoItem.implicitWidth, infoItem.implicitHeight )
+        function publishInfoSize(): void {
+            if ( infoCard.infoItem ) CircuitPanel.setInfoCardSize( infoCard.infoItem.implicitWidth, infoCard.infoItem.implicitHeight )
         }
         Connections {
             target: infoCard.infoItem
-            function onImplicitWidthChanged() { infoCard.publishInfoSize() }
-            function onImplicitHeightChanged() { infoCard.publishInfoSize() }
+            function onImplicitWidthChanged(): void { infoCard.publishInfoSize() }
+            function onImplicitHeightChanged(): void { infoCard.publishInfoSize() }
         }
 
         // Close button
         AppToolButton {
+            id: infoCloseBtn
             width: 24; height: 24
             x: parent.width - 28; y: 4
             padding: 0
-            ToolTip.visible: hovered
+            ToolTip.visible: infoCloseBtn.hovered
             ToolTip.text: App.translate( "Hide" )
-            onClicked: ctx.hideInfo()
+            onClicked: CircuitPanel.hideInfo()
             contentItem: AppIcon {
                 icon: "close"
                 size: 16
@@ -1008,7 +1014,7 @@ Item {
         // No submenus, so the window popup is unnecessary. Item fits inside
         // the window the same way the MCU list does; Window fits the screen.
         popupType: Popup.Item
-        onClosed: ctx.zoomMenuClosed()
+        onClosed: CircuitPanel.zoomMenuClosed()
         ContextMenuItem { text: App.translate( "Zoom to Fit" ); onTriggered: CircuitCanvas.zoomToFit() }
         ContextMenuItem { text: App.translate( "Zoom to Selection" ); onTriggered: CircuitCanvas.zoomSelected() }
         ContextMenuSeparator {}
@@ -1017,21 +1023,21 @@ Item {
 
     AppListPopup {
         id: subcPopup
-        rows: ctx && ctx.subcNav ? ctx.subcNav.rows : []
-        onAboutToShow: if (ctx) ctx.setSubcPopupOpen(true)
-        onClosed: if (ctx) ctx.setSubcPopupOpen(false)
-        onActivated: function(index) {
-            if (ctx) ctx.activateSubcNav(index)
+        rows: CircuitPanel.subcNav ? CircuitPanel.subcNav.rows : []
+        onAboutToShow: CircuitPanel.setSubcPopupOpen(true)
+        onClosed: CircuitPanel.setSubcPopupOpen(false)
+        onActivated: function(index: int): void {
+            CircuitPanel.activateSubcNav(index)
         }
     }
 
     AppListPopup {
         id: devicePopup
-        rows: ctx && ctx.deviceSel ? ctx.deviceSel.rows : []
-        onAboutToShow: if (ctx) ctx.setDevicePopupOpen(true)
-        onClosed: if (ctx) ctx.setDevicePopupOpen(false)
-        onActivated: function(index) {
-            if (ctx) ctx.activateDevice(index)
+        rows: CircuitPanel.deviceSel ? CircuitPanel.deviceSel.rows : []
+        onAboutToShow: CircuitPanel.setDevicePopupOpen(true)
+        onClosed: CircuitPanel.setDevicePopupOpen(false)
+        onActivated: function(index: int): void {
+            CircuitPanel.activateDevice(index)
         }
     }
 
@@ -1046,11 +1052,12 @@ Item {
     Component {
         id: menuItemComp
         ContextMenuItem {
+            id: menuLeafItem
             // Path into the AppMenuBar JSON; "" for separators/parents.
             property string itemPath: ""
             onTriggered: {
-                if ( itemPath !== "" )
-                    AppMenuBar.trigger( itemPath )
+                if ( menuLeafItem.itemPath !== "" )
+                    AppMenuBar.trigger( menuLeafItem.itemPath )
             }
         }
     }
@@ -1063,13 +1070,13 @@ Item {
         }
     }
 
-    function clearMenu( menu ) {
+    function clearMenu( menu: AppContextMenu ): void {
         for ( var i = menu.count - 1; i >= 0; --i ) {
-            var sub = menu.menuAt( i )
+            var sub = menu.menuAt( i ) as AppContextMenu
             if ( sub ) {
                 // Leaves are QObject-parented to the panel, so destroying the
                 // submenu does not delete them.
-                clearMenu( sub )
+                root.clearMenu( sub )
                 var taken = menu.takeMenu( i )
                 if ( taken )
                     taken.destroy()
@@ -1081,7 +1088,7 @@ Item {
         }
     }
 
-    function makeLeaf( parentMenu, entry ) {
+    function makeLeaf( parentMenu: AppContextMenu, entry: var ): ContextMenuItem {
         var isSep = !!entry.separator
         // Parent rows can never fire: submenu entries carry no action id
         // and AppMenuBar.trigger ignores them, so itemPath stays "" there.
@@ -1096,12 +1103,12 @@ Item {
             checked: !!entry.checked,
             shortcutText: entry.shortcut ? String( entry.shortcut ) : "",
             itemPath: ( !isSep && !entry.submenu && entry.path ) ? String( entry.path ) : ""
-        } )
+        } ) as ContextMenuItem
     }
 
-    function populateMenu( menu, items ) {
+    function populateMenu( menu: AppContextMenu, items: var ): void {
         menu.populating = true
-        clearMenu( menu )
+        root.clearMenu( menu )
         if ( !items ) {
             menu.populating = false
             menu.updateGeometry()
@@ -1116,13 +1123,13 @@ Item {
                     continue
                 var sub = subMenuComp.createObject( menu, {
                     title: String( entry.text )
-                } )
+                } ) as AppContextMenu
                 if ( !sub )
                     continue
-                populateMenu( sub, entry.submenu )
+                root.populateMenu( sub, entry.submenu )
                 menu.addMenu( sub )
             } else {
-                var leaf = makeLeaf( menu, entry )
+                var leaf = root.makeLeaf( menu, entry )
                 if ( leaf )
                     menu.addItem( leaf )
             }
@@ -1131,9 +1138,9 @@ Item {
         menu.updateGeometry()
     }
 
-    function rebuildAppMenu() {
+    function rebuildAppMenu(): void {
         appMenu.populating = true
-        clearMenu( appMenu )
+        root.clearMenu( appMenu )
         var menus = AppMenuBar.menus || []
         for ( var i = 0; i < menus.length; ++i ) {
             var m = menus[i]
@@ -1141,10 +1148,10 @@ Item {
                 continue
             var sub = subMenuComp.createObject( appMenu, {
                 title: String( m.title || "" )
-            } )
+            } ) as AppContextMenu
             if ( !sub )
                 continue
-            populateMenu( sub, m.items || [] )
+            root.populateMenu( sub, m.items || [] )
             appMenu.addMenu( sub )
         }
         appMenu.populating = false
@@ -1152,7 +1159,7 @@ Item {
         appMenu.updateGeometry()
     }
 
-    function modalPopupOpen() {
+    function modalPopupOpen(): bool {
         var overlay = Overlay.overlay
         if ( !overlay )
             return false
@@ -1165,20 +1172,20 @@ Item {
         return false
     }
 
-    function altMenuBlocked() {
+    function altMenuBlocked(): bool {
         return App.nativeMenus || CommandCenter.visible || TabSwitcher.visible || root.modalPopupOpen()
     }
 
-    function openAppMenu() {
+    function openAppMenu(): void {
         if ( root.altMenuBlocked() )
             return
-        if ( ctx ) ctx.overlayClicked( "toolbar" )
+        CircuitPanel.overlayClicked( "toolbar" )
         if ( appMenu.menuDirty || appMenu.count === 0 )
             root.rebuildAppMenu()
         appMenu.open()
     }
 
-    function closeAppMenu() {
+    function closeAppMenu(): void {
         for ( var i = 0; i < appMenu.count; ++i ) {
             var sub = appMenu.menuAt( i )
             if ( sub && sub.opened )
@@ -1189,75 +1196,73 @@ Item {
 
     Connections {
         target: CircuitCanvas
-        function onZoomChanged() { ctx.setZoomPercent( CircuitCanvas.zoom ) }
-        function onCoordsChanged() { ctx.setCoords( CircuitCanvas.cursorX, CircuitCanvas.cursorY ) }
-        function onRootCircuitLoaded() {
-            ctx.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
-            ctx.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
-            ctx.updateDevices( CircuitCanvas.programmableDevices )
+        function onZoomChanged(): void { CircuitPanel.setZoomPercent( CircuitCanvas.zoom ) }
+        function onCoordsChanged(): void { CircuitPanel.setCoords( CircuitCanvas.cursorX, CircuitCanvas.cursorY ) }
+        function onRootCircuitLoaded(): void {
+            CircuitPanel.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
+            CircuitPanel.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
+            CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )
         }
-        function onFilePathChanged() {
-            ctx.updateDevices( CircuitCanvas.programmableDevices )
+        function onFilePathChanged(): void {
+            CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )
         }
-        function onOpenSubcircuitRequested( path, label ) {
-            ctx.navigateIntoSubcircuit( path, label )
+        function onOpenSubcircuitRequested( path: string, label: string ): void {
+            CircuitPanel.navigateIntoSubcircuit( path, label )
             CircuitCanvas.loadSubcircuit( path )
         }
-        function onDevicesChanged() {
-            ctx.updateDevices( CircuitCanvas.programmableDevices )
+        function onDevicesChanged(): void {
+            CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )
         }
-        function onWarningsChanged() {
-            if (ctx) ctx.setWarnings(CircuitCanvas.warningsText, CircuitCanvas.warningsCrashed)
+        function onWarningsChanged(): void {
+            CircuitPanel.setWarnings(CircuitCanvas.warningsText, CircuitCanvas.warningsCrashed)
         }
-        function onCanvasOverflowChanged() {
-            if (ctx) {
-                var text = CircuitCanvas.canvasOverflow ? App.translate("Canvas Overflow") : ""
-                ctx.setCanvasOverflow(text)
-            }
+        function onCanvasOverflowChanged(): void {
+            var text = CircuitCanvas.canvasOverflow ? App.translate("Canvas Overflow") : ""
+            CircuitPanel.setCanvasOverflow(text)
         }
-        function onSimChanged() {
+        function onSimChanged(): void {
             var starting = !CircuitPanel.simRunning && CircuitCanvas.simRunning
-            ctx.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
+            CircuitPanel.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
             if ( starting ) {
                 CircuitPanel.showSidePanel()
                 App.sidePanelTab = 2
             }
             if ( CircuitCanvas.simError )
-                ctx.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
+                CircuitPanel.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
             else if ( CircuitCanvas.simWarning )
-                ctx.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
+                CircuitPanel.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
             else if ( CircuitCanvas.simRunning ) {
                 if ( CircuitCanvas.simPaused )
-                    ctx.setMessage( App.translate( "Paused" ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
+                    CircuitPanel.setMessage( App.translate( "Paused" ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
                 else
-                    ctx.setMessage( App.translate( "Running" ), CircuitCanvas.msgOkBg, CircuitCanvas.msgOkText )
+                    CircuitPanel.setMessage( App.translate( "Running" ), CircuitCanvas.msgOkBg, CircuitCanvas.msgOkText )
             }
         }
     }
 
     Connections {
         target: App
-        function onI18nTickChanged() {
-            if ( ctx ) ctx.reloadI18n()
+        function onI18nTickChanged(): void {
+            CircuitPanel.reloadI18n()
             if ( CircuitCanvas.simError )
-                ctx.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
+                CircuitPanel.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
             else if ( CircuitCanvas.simWarning )
-                ctx.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
+                CircuitPanel.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
         }
-        function onThemeChanged() {
-            if ( ctx ) ctx.reloadI18n()
+        function onThemeChanged(): void {
+            CircuitPanel.reloadI18n()
         }
     }
 
     Connections {
         target: CircuitPanel
-        function onLoadCircuitRequested( path ) {
+        function onLoadCircuitRequested( path: string ): void {
             CircuitCanvas.loadSubcircuit( path )
         }
-        function onActiveDeviceChanged( id ) {
+        function onActiveDeviceChanged( id: string ): void {
             CircuitCanvas.activeDeviceId = id
         }
-        function onAction( id ) {
+        function onAction( id: string ): void {
             if ( id === "zoomIn" ) CircuitCanvas.zoomIn()
             else if ( id === "zoomOut" ) CircuitCanvas.zoomOut()
             else if ( id === "powerCirc" || id === "powerOn" ) CircuitCanvas.powerCirc()
@@ -1271,28 +1276,28 @@ Item {
 
     Connections {
         target: EditorPanel
-        function onRequestShow() { CircuitPanel.showEditor() }
-        function onRequestHide() { CircuitPanel.hideEditor() }
-        function onFocusedChanged() { if ( EditorPanel.focused && ctx ) ctx.overlayClicked( "editorPanel" ) }
+        function onRequestShow(): void { CircuitPanel.showEditor() }
+        function onRequestHide(): void { CircuitPanel.hideEditor() }
+        function onFocusedChanged(): void { if ( EditorPanel.focused ) CircuitPanel.overlayClicked( "editorPanel" ) }
     }
 
     Connections {
         target: FileBrowser
-        function onOpenFile( path ) {
+        function onOpenFile( path: string ): void {
             EditorPanel.loadFile( path )
             EditorPanel.focusEditor()
             AppDialog.addRecentFile( path )
             AppMenuBar.rebuild()
         }
-        function onOpenCircuit( path ) { CircuitCanvas.loadPath( path ) }
+        function onOpenCircuit( path: string ): void { CircuitCanvas.loadPath( path ) }
     }
 
     Connections {
         target: AppMenuBar
-        function onMenusChanged() {
+        function onMenusChanged(): void {
             appMenu.menuDirty = true
         }
-        function onTogglePopupRequested() {
+        function onTogglePopupRequested(): void {
             var wasOpen = appMenu.opened
             if ( root.altMenuBlocked() ) {
                 AppMenuBar.noteAltToggled( false )

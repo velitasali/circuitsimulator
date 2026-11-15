@@ -1,14 +1,16 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 /* File Settings — C++ CodeEditor::fileProps() / PropDialog.
  * Compiler-specific fields live in CompilerSettings.qml. */
 Rectangle {
     id: root
     SystemPalette { id: appTheme }
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
     implicitWidth: Math.max(420, mainCol.implicitWidth + 24)
     implicitHeight: mainCol.implicitHeight + 24
@@ -28,7 +30,7 @@ Rectangle {
         spacing: 10
 
         AppText {
-            text: root.tr("Type: CodeEditor")
+            text: I18n.tr("Type: CodeEditor")
             font.pixelSize: App.fontTitle
             font.bold: true
             color: appTheme.windowText
@@ -56,7 +58,7 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 6
 
-                    FieldLabel { text: root.tr("Compiler") }
+                    FieldLabel { text: I18n.tr("Compiler") }
                     AppComboBox {
                         id: compilerBox
                         font: root.uiFont
@@ -64,7 +66,7 @@ Rectangle {
                         Layout.preferredWidth: 200
                         model: EditorPanel.compilerNames
                         onActivated: EditorPanel.compilerName = currentText
-                        function syncIndex() {
+                        function syncIndex(): void {
                             var names = EditorPanel.compilerNames
                             var want = EditorPanel.compilerName
                             for (var i = 0; i < names.length; i++) {
@@ -83,8 +85,8 @@ Rectangle {
                         implicitWidth: 26
                         implicitHeight: 26
                         ToolTip.text: enabled
-                                      ? root.tr("%1 Settings").arg(compilerBox.currentText)
-                                      : root.tr("Compiler Settings")
+                                      ? I18n.tr("%1 Settings").arg(compilerBox.currentText)
+                                      : I18n.tr("Compiler Settings")
                         ToolTip.visible: hovered
                         contentItem: AppIcon {
                             icon: "settings"
@@ -103,30 +105,29 @@ Rectangle {
                         Layout.topMargin: 8
                         Layout.bottomMargin: 6
                         Layout.preferredHeight: 1
-                        height: 1
                         color: appTheme.mid
                     }
                     AppText {
-                        text: root.tr("Actions after opening this file:")
+                        text: I18n.tr("Actions after opening this file:")
                         font.bold: true
                         color: appTheme.windowText
                     }
                 }
 
                 AppCheckBox {
-                    text: root.tr("Load Compiler")
+                    text: I18n.tr("Load Compiler")
                     font: root.uiFont
                     checked: EditorPanel.loadCompiler
                     onToggled: EditorPanel.loadCompiler = checked
                 }
                 AppCheckBox {
-                    text: root.tr("Load Breakpoints")
+                    text: I18n.tr("Load Breakpoints")
                     font: root.uiFont
                     checked: EditorPanel.loadBreakp
                     onToggled: EditorPanel.loadBreakp = checked
                 }
                 AppCheckBox {
-                    text: root.tr("Restore files")
+                    text: I18n.tr("Restore files")
                     font: root.uiFont
                     checked: EditorPanel.openFiles
                     onToggled: EditorPanel.openFiles = checked

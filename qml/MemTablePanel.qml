@@ -1,13 +1,15 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // Hex view of a memory block matching C++ MemTablePanel.qml.
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     anchors.fill: parent
     SystemPalette { id: appTheme }
     color: appTheme.window
@@ -38,7 +40,7 @@ Rectangle {
 
     Connections {
         target: MemoryTable
-        function onScrollTo(row) {
+        function onScrollTo(row: int): void {
             listView.positionViewAtIndex(row, ListView.Contain)
         }
     }
@@ -51,7 +53,7 @@ Rectangle {
         // Top horizontal header
         Rectangle {
             Layout.fillWidth: true
-            height: root.rowH
+            Layout.preferredHeight: root.rowH
             color: appTheme.window
             z: 2
 
@@ -66,7 +68,7 @@ Rectangle {
                     color: appTheme.window
                     AppText {
                         anchors.centerIn: parent
-                        text: root.tr("Addr")
+                        text: I18n.tr("Addr")
                         font.family: "Ubuntu Mono"
                         font.pixelSize: App.fontMicro
                         font.bold: true
@@ -79,13 +81,14 @@ Rectangle {
                 Repeater {
                     model: 16
                     Rectangle {
+                        id: hexHeader
                         required property int index
                         width: root.cellW
                         height: root.rowH
                         color: appTheme.window
                         AppText {
                             anchors.centerIn: parent
-                            text: index.toString(16).toUpperCase()
+                            text: hexHeader.index.toString(16).toUpperCase()
                             font.family: "Ubuntu Mono"
                             font.pixelSize: App.fontMicro
                             font.bold: true
@@ -106,13 +109,14 @@ Rectangle {
                 Repeater {
                     model: 16
                     Rectangle {
+                        id: asciiHeader
                         required property int index
                         width: root.asciiW
                         height: root.rowH
                         color: appTheme.window
                         AppText {
                             anchors.centerIn: parent
-                            text: index.toString(16).toUpperCase()
+                            text: asciiHeader.index.toString(16).toUpperCase()
                             font.family: "Ubuntu Mono"
                             font.pixelSize: App.fontMicro
                             font.bold: true
@@ -213,12 +217,12 @@ Rectangle {
                                                               : (hexCell.isDimmed ? appTheme.mid : appTheme.windowText)
 
                                     onActiveFocusChanged: {
-                                        if (activeFocus)
+                                        if (hexInput.activeFocus)
                                             MemoryTable.cellClicked(rowDelegate.index, hexCell.index)
                                     }
 
                                     onEditingFinished: {
-                                        var val = MemoryTable.cellEdited(rowDelegate.index, hexCell.index, text)
+                                        var val = MemoryTable.cellEdited(rowDelegate.index, hexCell.index, hexInput.text)
                                         if (val >= 0 && MemoryTable.activeUid)
                                             CircuitCanvas.setMemoryByte(MemoryTable.activeUid, hexCell.cellAddr, val)
                                     }
@@ -236,7 +240,7 @@ Rectangle {
 
                                     ToolTip {
                                         id: hexTip
-                                        visible: text.length > 0 && hexMouse.containsMouse
+                                        visible: hexTip.text.length > 0 && hexMouse.containsMouse
                                         delay: 350
                                     }
                                 }
@@ -279,12 +283,12 @@ Rectangle {
                                     color: asciiCell.isSelected ? appTheme.highlightedText : appTheme.windowText
 
                                     onActiveFocusChanged: {
-                                        if (activeFocus)
+                                        if (asciiInput.activeFocus)
                                             MemoryTable.cellClicked(rowDelegate.index, asciiCell.index + 17)
                                     }
 
                                     onEditingFinished: {
-                                        var val = MemoryTable.cellEdited(rowDelegate.index, asciiCell.index + 17, text)
+                                        var val = MemoryTable.cellEdited(rowDelegate.index, asciiCell.index + 17, asciiInput.text)
                                         if (val >= 0 && MemoryTable.activeUid)
                                             CircuitCanvas.setMemoryByte(MemoryTable.activeUid, asciiCell.cellAddr, val)
                                     }
@@ -302,7 +306,7 @@ Rectangle {
 
                                     ToolTip {
                                         id: asciiTip
-                                        visible: text.length > 0 && asciiMouse.containsMouse
+                                        visible: asciiTip.text.length > 0 && asciiMouse.containsMouse
                                         delay: 350
                                     }
                                 }
@@ -318,50 +322,50 @@ Rectangle {
         id: contextMenu
         ContextMenuItem {
             iconLigature: "save"
-            text: root.tr("Save Memory Table")
+            text: I18n.tr("Save Memory Table")
             onTriggered: saveMemDialog.open()
         }
         ContextMenuItem {
             iconLigature: "folder_open"
-            text: root.tr("Load Memory Table")
+            text: I18n.tr("Load Memory Table")
             onTriggered: loadMemDialog.open()
         }
     }
 
     FileDialog {
         id: saveMemDialog
-        title: root.tr("Save Memory Table")
+        title: I18n.tr("Save Memory Table")
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         nameFilters: [
-            root.tr("Data files (*.data)"),
-            root.tr("Binary files (*.bin)"),
-            root.tr("All files (*)")
+            I18n.tr("Data files (*.data)"),
+            I18n.tr("Binary files (*.bin)"),
+            I18n.tr("All files (*)")
         ]
         onAccepted: {
-            if (selectedFile) {
-                MemoryTable.saveToFile("" + selectedFile)
+            if (saveMemDialog.selectedFile) {
+                MemoryTable.saveToFile("" + saveMemDialog.selectedFile)
             }
         }
     }
 
     FileDialog {
         id: loadMemDialog
-        title: root.tr("Load Memory Table")
+        title: I18n.tr("Load Memory Table")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         nameFilters: [
-            root.tr("All files (*.*)"),
-            root.tr("Data files (*.data)"),
-            root.tr("Hex files (*.hex *.ihx)"),
-            root.tr("Binary files (*.bin)")
+            I18n.tr("All files (*.*)"),
+            I18n.tr("Data files (*.data)"),
+            I18n.tr("Hex files (*.hex *.ihx)"),
+            I18n.tr("Binary files (*.bin)")
         ]
         onAccepted: {
-            if (selectedFile) {
-                if (MemoryTable.loadFromFile("" + selectedFile) && MemoryTable.activeUid) {
+            if (loadMemDialog.selectedFile) {
+                if (MemoryTable.loadFromFile("" + loadMemDialog.selectedFile) && MemoryTable.activeUid) {
                     var bytes = CircuitCanvas.getMemoryBytes(MemoryTable.activeUid)
                     // If file loaded, write new bytes to canvas/sim
-                    CircuitCanvas.loadItemData(MemoryTable.activeUid, "" + selectedFile)
+                    CircuitCanvas.loadItemData(MemoryTable.activeUid, "" + loadMemDialog.selectedFile)
                 }
             }
         }

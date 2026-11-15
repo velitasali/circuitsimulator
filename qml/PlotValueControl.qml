@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
 
@@ -12,7 +11,7 @@ RowLayout {
     property real value: 1.0
     property string unit: ""
     property bool isStepList: false
-    property var stepList: []
+    property list<real> stepList: []
     property real stepDelta: 0.1
     property real minVal: -1e9
     property real maxVal: 1e9
@@ -158,7 +157,7 @@ RowLayout {
         }
     }
 
-    function step( dir ) {
+    function step( dir: int ): void {
         if ( isStepList && stepList.length > 0 ) {
             var cur = pvc.value
             var idx = 0
@@ -190,19 +189,19 @@ RowLayout {
         }
     }
 
-    function applyNewValue( nv ) {
+    function applyNewValue( nv: real ): void {
         nv = Math.max( pvc.minVal, Math.min( pvc.maxVal, nv ) )
         pvc.valueModified( nv )
     }
 
-    function formatVal( v, u ) {
+    function formatVal( v: real, u: string ): string {
         if ( typeof App !== "undefined" && typeof App.formatSiValue === "function" ) {
             return App.formatSiValue( v, u )
         }
         return "" + v
     }
 
-    function parseVal( s, u ) {
+    function parseVal( s: string, u: string ): real {
         if ( typeof App !== "undefined" && typeof App.parseSi === "function" ) {
             return App.parseSi( s, u )
         }
@@ -210,7 +209,7 @@ RowLayout {
         return isNaN( f ) ? NaN : f
     }
 
-    function syncText() {
+    function syncText(): void {
         var t = formatVal( pvc.value, pvc.unit )
         if ( valInput.text !== t ) {
             valInput.text = t

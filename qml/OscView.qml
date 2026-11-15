@@ -1,39 +1,20 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Window
 import cs_app
+import cs_ui
 
 // The expanded oscilloscope: screen on the left, control panel on the right.
 // Parity with src/gui/dataplotwidget/oscwidget.qml.
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
     color: appTheme.window
 
-    function isLightColor( c ) {
-        var col = Qt.color( c )
-        var lum = 0.299 * col.r + 0.587 * col.g + 0.114 * col.b
-        return lum > 0.55
-    }
-
-    readonly property var timeDivSteps: [
-        1e-9, 1.2e-9, 1.5e-9, 2e-9, 2.5e-9, 3e-9, 4e-9, 5e-9, 6e-9, 7e-9, 8e-9, 9e-9,
-        1e-8, 1.2e-8, 1.5e-8, 2e-8, 2.5e-8, 3e-8, 4e-8, 5e-8, 6e-8, 7e-8, 8e-8, 9e-8,
-        1e-7, 1.2e-7, 1.5e-7, 2e-7, 2.5e-7, 3e-7, 4e-7, 5e-7, 6e-7, 7e-7, 8e-7, 9e-7,
-        1e-6, 1.2e-6, 1.5e-6, 2e-6, 2.5e-6, 3e-6, 4e-6, 5e-6, 6e-6, 7e-6, 8e-6, 9e-6,
-        1e-5, 1.2e-5, 1.5e-5, 2e-5, 2.5e-5, 3e-5, 4e-5, 5e-5, 6e-5, 7e-5, 8e-5, 9e-5,
-        1e-4, 1.2e-4, 1.5e-4, 2e-4, 2.5e-4, 3e-4, 4e-4, 5e-4, 6e-4, 7e-4, 8e-4, 9e-4,
-        1e-3, 1.2e-3, 1.5e-3, 2e-3, 2.5e-3, 3e-3, 4e-3, 5e-3, 6e-3, 7e-3, 8e-3, 9e-3,
-        1e-2, 1.2e-2, 1.5e-2, 2e-2, 2.5e-2, 3e-2, 4e-2, 5e-2, 6e-2, 7e-2, 8e-2, 9e-2,
-        0.1, 0.12, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-        1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
-        10.0, 12.0, 15.0, 20.0, 25.0, 30.0, 40.0, 50.0
-    ]
-
-    readonly property var voltDivSteps: [
+    readonly property list<real> voltDivSteps: [
         1e-4, 1.2e-4, 1.5e-4, 2e-4, 2.5e-4, 3e-4, 4e-4, 5e-4, 6e-4, 7e-4, 8e-4, 9e-4,
         1e-3, 1.2e-3, 1.5e-3, 2e-3, 2.5e-3, 3e-3, 4e-3, 5e-3, 6e-3, 7e-3, 8e-3, 9e-3,
         1e-2, 1.2e-2, 1.5e-2, 2e-2, 2.5e-2, 3e-2, 4e-2, 5e-2, 6e-2, 7e-2, 8e-2, 9e-2,
@@ -108,33 +89,13 @@ Rectangle {
         }
     }
 
-    function stepTimeDiv( dir ) {
-        var cur = Oscilloscope.timeDiv
-        var idx = 18 // 1ms default index
-        var minDiff = 1e12
-        for ( var i = 0; i < timeDivSteps.length; ++i ) {
-            var diff = Math.abs( Math.log( Math.max( 1e-18, timeDivSteps[i] ) ) - Math.log( Math.max( 1e-18, cur ) ) )
-            if ( diff < minDiff ) {
-                minDiff = diff
-                idx = i
-            }
-        }
-        if ( dir > 0 ) {
-            if ( timeDivSteps[idx] <= cur * 1.0001 && idx + 1 < timeDivSteps.length ) {
-                idx = idx + 1
-            }
-        } else if ( dir < 0 ) {
-            if ( timeDivSteps[idx] >= cur * 0.9999 && idx - 1 >= 0 ) {
-                idx = idx - 1
-            }
-        }
-        var nextIdx = Math.max( 0, Math.min( timeDivSteps.length - 1, idx ) )
-        var nextVal = timeDivSteps[nextIdx]
+    function stepTimeDiv( dir: int ): void {
+        var nextVal = UiUtils.stepLogList( UiUtils.timeDivSteps, Oscilloscope.timeDiv, dir )
         Oscilloscope.setTimeDiv( nextVal )
         CircuitCanvas.setScopeTimeDiv( nextVal )
     }
 
-    function autoScale( ch ) {
+    function autoScale( ch: int ): void {
         var res = CircuitCanvas.autoScaleScope( ch )
         if ( !res || !res.valid ) return
 
@@ -163,7 +124,7 @@ Rectangle {
         root.refreshCursor()
     }
 
-    function autoScaleAll() {
+    function autoScaleAll(): void {
         var res = CircuitCanvas.autoScaleScopeAll()
         if ( !res || !res.channels ) return
 
@@ -206,38 +167,28 @@ Rectangle {
     property real markerFraction: 0.5
     property var markerHits: []
     property var markerRows: []
-    function scopeChannelColor( ch ) {
+    function scopeChannelColor( ch: int ): color {
         var list = Oscilloscope.channels
         if ( !list || ch < 0 || ch >= list.length )
             return Oscilloscope.cursorText
         return list[ch].color
     }
 
-    function formatEngTime( val ) {
-        var sign = val < 0 ? "-" : "+"
-        var abs = Math.abs( val )
-        if ( abs < 1e-9 ) return "0.00 s"
-        if ( abs < 1e-6 ) return sign + ( abs * 1e9 ).toFixed( 1 ) + " ns"
-        if ( abs < 1e-3 ) return sign + ( abs * 1e6 ).toFixed( 1 ) + " µs"
-        if ( abs < 1.0 ) return sign + ( abs * 1e3 ).toFixed( 2 ) + " ms"
-        return sign + abs.toFixed( 2 ) + " s"
-    }
-
-    function scopeTimeSpan() {
+    function scopeTimeSpan(): real {
         var w = scopeScreen ? scopeScreen.width : 0
         return ( Oscilloscope.timeDiv || 1e-3 ) * CircuitCanvas.scopeHDivs( w )
     }
 
-    function cursorDeltaTime() {
+    function cursorDeltaTime(): real {
         return ( root.markerFraction - 0.5 ) * root.scopeTimeSpan()
     }
 
-    function clearMarker() {
+    function clearMarker(): void {
         root.markerHits = []
         root.markerRows = []
     }
 
-    function rowsFromHits( hits ) {
+    function rowsFromHits( hits: var ): var {
         var rows = []
         for ( var i = 0; i < hits.length; ++i ) {
             var h = hits[i]
@@ -256,14 +207,14 @@ Rectangle {
         return rows
     }
 
-    function formatVolts( values ) {
-        var nums = values.slice().sort( function( a, b ) { return a - b } )
+    function formatVolts( values: var ): string {
+        var nums = values.slice().sort( function( a: real, b: real ): real { return a - b } )
         var lo = Number( nums[0] ).toFixed( 2 )
         var hi = Number( nums[nums.length - 1] ).toFixed( 2 )
         return nums.length >= 2 && lo !== hi ? lo + "–" + hi + "V" : lo + "V"
     }
 
-    function refreshCursor() {
+    function refreshCursor(): void {
         if ( !scopeScreen || root.cursorX < 0 || scopeScreen.width < 2 || scopeScreen.height < 2 ) {
             root.clearMarker()
             return
@@ -292,34 +243,23 @@ Rectangle {
         }
     }
 
-    function repaintScope() {
+    function repaintScope(): void {
         if ( !scopeScreen || scopeScreen.width < 2 || scopeScreen.height < 2 )
             return
         CircuitCanvas.paintScopeScreen( scopeScreen.width, scopeScreen.height, Screen.devicePixelRatio || 1 )
         root.refreshCursor()
     }
 
-    function scheduleScopePaint() {
+    function _runQueuedScopePaint(): void {
+        root.scopePaintQueued = false
+        root.repaintScope()
+    }
+
+    function scheduleScopePaint(): void {
         if ( root.scopePaintQueued )
             return
         root.scopePaintQueued = true
-        Qt.callLater( function() {
-            root.scopePaintQueued = false
-            root.repaintScope()
-        } )
-    }
-
-    function formatEng( val, unit ) {
-        if ( val === 0 ) return "0 " + unit
-        var abs = Math.abs( val )
-        if ( abs < 1e-9 ) return ( val * 1e12 ).toFixed( 1 ) + " p" + unit
-        if ( abs < 1e-6 ) return ( val * 1e9 ).toFixed( 1 ) + " n" + unit
-        if ( abs < 1e-3 ) return ( val * 1e6 ).toFixed( 1 ) + " µ" + unit
-        if ( abs < 1.0 ) return ( val * 1e3 ).toFixed( 1 ) + " m" + unit
-        if ( abs >= 1e9 ) return ( val / 1e9 ).toFixed( 2 ) + " G" + unit
-        if ( abs >= 1e6 ) return ( val / 1e6 ).toFixed( 2 ) + " M" + unit
-        if ( abs >= 1e3 ) return ( val / 1e3 ).toFixed( 2 ) + " k" + unit
-        return val.toFixed( 2 ) + " " + unit
+        Qt.callLater( root._runQueuedScopePaint )
     }
 
     // Clean grouped card container for control sections
@@ -349,7 +289,7 @@ Rectangle {
         property bool exclusive: false
         property int activeIndex: -1
         property var checkedList: []
-        required property var onPicked
+        signal picked(int index, bool on)
 
         spacing: 3
 
@@ -364,36 +304,37 @@ Rectangle {
         Repeater {
             model: Oscilloscope.channels
             delegate: AppButton {
+                id: chBtn
                 required property int index
                 required property var modelData
 
                 Layout.preferredWidth: 28
                 Layout.preferredHeight: 22
-                text: index + 1
+                text: chBtn.index + 1
                 font.pixelSize: App.fontSmall
-                font.bold: on
+                font.bold: chBtn.on
 
-                readonly property bool on: chRow.exclusive ? chRow.activeIndex === index
-                                                           : ( chRow.checkedList && chRow.checkedList[index] === true )
+                readonly property bool on: chRow.exclusive ? chRow.activeIndex === chBtn.index
+                                                           : ( chRow.checkedList && chRow.checkedList[chBtn.index] === true )
 
                 background: Rectangle {
                     radius: 3
-                    color: parent.on ? modelData.color
-                                     : ( parent.hovered ? Qt.rgba( appTheme.midlight.r, appTheme.midlight.g, appTheme.midlight.b, 0.35 )
-                                                        : Qt.rgba( appTheme.base.r, appTheme.base.g, appTheme.base.b, 0.45 ) )
-                    border.width: parent.on ? 1.5 : 1
-                    border.color: parent.on ? Qt.darker( modelData.color, 1.25 )
-                                            : ( root.isLightColor( modelData.color ) && !App.darkTheme ? Qt.darker( modelData.color, 1.35 ) : modelData.color )
+                    color: chBtn.on ? chBtn.modelData.color
+                                    : ( chBtn.hovered ? Qt.rgba( appTheme.midlight.r, appTheme.midlight.g, appTheme.midlight.b, 0.35 )
+                                                      : Qt.rgba( appTheme.base.r, appTheme.base.g, appTheme.base.b, 0.45 ) )
+                    border.width: chBtn.on ? 1.5 : 1
+                    border.color: chBtn.on ? Qt.darker( chBtn.modelData.color, 1.25 )
+                                           : ( UiUtils.isLightColor( chBtn.modelData.color ) && !App.darkTheme ? Qt.darker( chBtn.modelData.color, 1.35 ) : chBtn.modelData.color )
                 }
                 contentItem: AppText {
-                    text: parent.text
+                    text: chBtn.text
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
-                    font: parent.font
-                    color: parent.on ? ( root.isLightColor( modelData.color ) ? "#000000" : "#ffffff" ) : appTheme.text
+                    font: chBtn.font
+                    color: chBtn.on ? ( UiUtils.isLightColor( chBtn.modelData.color ) ? "#000000" : "#ffffff" ) : appTheme.text
                 }
 
-                onClicked: chRow.onPicked( index, !on )
+                onClicked: chRow.picked( chBtn.index, !chBtn.on )
             }
         }
     }
@@ -472,14 +413,15 @@ Rectangle {
                 Repeater {
                     model: root.markerHits
                     delegate: Rectangle {
+                        id: hitDot
                         required property var modelData
                         width: 7
                         height: 7
                         radius: 3.5
                         x: Math.round( root.markerX ) - 3
-                        y: Math.round( modelData.y ) - 3
-                        visible: modelData.y >= -1 && modelData.y <= cursorOverlay.height + 1
-                        color: root.scopeChannelColor( modelData.channel )
+                        y: Math.round( hitDot.modelData.y ) - 3
+                        visible: hitDot.modelData.y >= -1 && hitDot.modelData.y <= cursorOverlay.height + 1
+                        color: root.scopeChannelColor( hitDot.modelData.channel )
                         border.width: 1
                         border.color: Oscilloscope.cursorColor
                     }
@@ -502,7 +444,7 @@ Rectangle {
                         spacing: 1
 
                         AppText {
-                            text: "Δt: " + root.formatEngTime( root.cursorDeltaTime() )
+                            text: "Δt: " + UiUtils.formatEngTime( root.cursorDeltaTime() )
                             color: Oscilloscope.cursorText
                             font.bold: true
                             font.pixelSize: App.fontMicro
@@ -517,9 +459,10 @@ Rectangle {
                         Repeater {
                             model: root.markerRows
                             delegate: AppText {
+                                id: rowLabel
                                 required property var modelData
-                                text: "Ch " + ( modelData.channel + 1 ) + ": " + root.formatVolts( modelData.values )
-                                color: root.scopeChannelColor( modelData.channel )
+                                text: "Ch " + ( rowLabel.modelData.channel + 1 ) + ": " + root.formatVolts( rowLabel.modelData.values )
+                                color: root.scopeChannelColor( rowLabel.modelData.channel )
                                 font.bold: true
                                 font.pixelSize: App.fontMicro
                             }
@@ -643,7 +586,7 @@ Rectangle {
                     spacing: 3
                     AppText {
                         Layout.preferredWidth: 48
-                        text: root.tr( "Tracks" )
+                        text: I18n.tr( "Tracks" )
                         color: appTheme.text
                         font.pixelSize: App.fontSmall
                         font.bold: true
@@ -651,29 +594,30 @@ Rectangle {
                     Repeater {
                         model: [ 1, 2, 4 ]
                         delegate: AppButton {
-                            required property var modelData
+                            id: trackBtn
+                            required property int modelData
                             Layout.preferredWidth: 28
                             Layout.preferredHeight: 22
-                            text: modelData
+                            text: trackBtn.modelData
                             font.pixelSize: App.fontSmall
-                            font.bold: Oscilloscope.tracks === modelData
-                            checked: Oscilloscope.tracks === modelData
+                            font.bold: Oscilloscope.tracks === trackBtn.modelData
+                            checked: Oscilloscope.tracks === trackBtn.modelData
                             background: Rectangle {
                                 radius: 3
-                                color: parent.checked ? appTheme.highlight : ( parent.hovered ? appTheme.midlight : "transparent" )
+                                color: trackBtn.checked ? appTheme.highlight : ( trackBtn.hovered ? appTheme.midlight : "transparent" )
                                 border.width: 1
-                                border.color: parent.checked ? appTheme.highlight : appTheme.mid
+                                border.color: trackBtn.checked ? appTheme.highlight : appTheme.mid
                             }
                             contentItem: AppText {
-                                text: parent.text
+                                text: trackBtn.text
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
-                                font: parent.font
-                                color: parent.checked ? appTheme.highlightedText : appTheme.text
+                                font: trackBtn.font
+                                color: trackBtn.checked ? appTheme.highlightedText : appTheme.text
                             }
                             onClicked: {
-                                Oscilloscope.tracksClicked( modelData )
-                                CircuitCanvas.setScopeTracks( modelData )
+                                Oscilloscope.tracksClicked( trackBtn.modelData )
+                                CircuitCanvas.setScopeTracks( trackBtn.modelData )
                                 root.refreshCursor()
                             }
                         }
@@ -681,11 +625,11 @@ Rectangle {
                 }
 
                 PlotValueControl {
-                    label: root.tr( "Time / Div" )
+                    label: I18n.tr( "Time / Div" )
                     value: Oscilloscope.timeDiv
                     unit: "s"
                     isStepList: true
-                    stepList: root.timeDivSteps
+                    stepList: UiUtils.timeDivSteps
                     minVal: 1e-12
                     maxVal: 1000.0
                     defaultValue: 1e-3
@@ -696,7 +640,7 @@ Rectangle {
                 }
 
                 PlotValueControl {
-                    label: root.tr( "Filter" )
+                    label: I18n.tr( "Filter" )
                     value: Oscilloscope.filter
                     unit: "V"
                     stepDelta: 0.05
@@ -712,22 +656,22 @@ Rectangle {
 
             ControlCard { // Per-channel toggles: Auto, Trigger, Hide
                 ChannelRow {
-                    label: root.tr( "Auto" )
-                    onPicked: function( index ) { root.autoScale( index ) }
+                    label: I18n.tr( "Auto" )
+                    onPicked: (index) => { root.autoScale( index ) }
                 }
                 ChannelRow {
-                    label: root.tr( "Trigger" )
+                    label: I18n.tr( "Trigger" )
                     exclusive: true
                     activeIndex: Oscilloscope.trigger
-                    onPicked: function( index ) {
+                    onPicked: (index) => {
                         Oscilloscope.triggerClicked( index )
                         CircuitCanvas.setScopeTrigger( Oscilloscope.trigger )
                     }
                 }
                 ChannelRow {
-                    label: root.tr( "Hide" )
+                    label: I18n.tr( "Hide" )
                     checkedList: Oscilloscope.hidden
-                    onPicked: function( index, on ) {
+                    onPicked: (index, on) => {
                         Oscilloscope.hideClicked( index, on )
                         CircuitCanvas.setScopeHidden( index, on )
                         root.refreshCursor()
@@ -737,14 +681,14 @@ Rectangle {
 
             ControlCard { // Channel-specific controls
                 ChannelRow {
-                    label: root.tr( "Channel" )
+                    label: I18n.tr( "Channel" )
                     exclusive: true
                     activeIndex: Oscilloscope.currentChannel
-                    onPicked: function( index ) { Oscilloscope.currentChannel = index }
+                    onPicked: (index) => { Oscilloscope.currentChannel = index }
                 }
 
                 PlotValueControl {
-                    label: root.tr( "Volt / Div" )
+                    label: I18n.tr( "Volt / Div" )
                     value: root.chVoltDiv[Oscilloscope.currentChannel] || 1.0
                     unit: "V"
                     isStepList: true
@@ -764,7 +708,7 @@ Rectangle {
                 }
 
                 PlotValueControl {
-                    label: root.tr( "Volt Pos" )
+                    label: I18n.tr( "Volt Pos" )
                     value: root.chVoltPos[Oscilloscope.currentChannel] || 0.0
                     unit: "V"
                     stepDelta: ( root.chVoltDiv[Oscilloscope.currentChannel] || 1.0 ) / 10.0
@@ -783,7 +727,7 @@ Rectangle {
                 }
 
                 PlotValueControl {
-                    label: root.tr( "Time Pos" )
+                    label: I18n.tr( "Time Pos" )
                     value: root.chTimePos[Oscilloscope.currentChannel] || 0.0
                     unit: "s"
                     stepDelta: ( Oscilloscope.timeDiv / 10.0 )
@@ -801,7 +745,7 @@ Rectangle {
                 }
 
                 PlotValueControl {
-                    label: root.tr( "Trig Level" )
+                    label: I18n.tr( "Trig Level" )
                     value: root.chTrigLevel[Oscilloscope.currentChannel] || 0.0
                     unit: "V"
                     stepDelta: ( root.chVoltDiv[Oscilloscope.currentChannel] || 1.0 ) / 10.0
@@ -822,47 +766,48 @@ Rectangle {
                     spacing: 6
                     AppText {
                         Layout.preferredWidth: 48
-                        text: root.tr( "Edge" )
+                        text: I18n.tr( "Edge" )
                         color: appTheme.text
                         font.pixelSize: App.fontSmall
                         font.bold: true
                     }
                     AppButton {
+                        id: edgeBtn
                         checkable: true
                         checked: root.chTrigRising[Oscilloscope.currentChannel] !== false
                         Layout.preferredHeight: 22
                         Layout.preferredWidth: 80
-                        text: checked ? root.tr( "Rising ↑" ) : root.tr( "Falling ↓" )
+                        text: edgeBtn.checked ? I18n.tr( "Rising ↑" ) : I18n.tr( "Falling ↓" )
                         font.pixelSize: App.fontSmall
                         font.bold: true
 
                         background: Rectangle {
                             radius: 3
-                            color: parent.checked ? Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.25 )
-                                                  : "transparent"
+                            color: edgeBtn.checked ? Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.25 )
+                                                   : "transparent"
                             border.width: 1
-                            border.color: parent.checked ? appTheme.highlight : appTheme.mid
+                            border.color: edgeBtn.checked ? appTheme.highlight : appTheme.mid
                         }
                         contentItem: AppText {
-                            text: parent.text
+                            text: edgeBtn.text
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                            font: parent.font
-                            color: parent.checked ? appTheme.highlight : appTheme.text
+                            font: edgeBtn.font
+                            color: edgeBtn.checked ? appTheme.highlight : appTheme.text
                         }
 
                         onToggled: {
                             var ch = Oscilloscope.currentChannel
                             var copy = root.chTrigRising.slice()
-                            copy[ch] = checked
+                            copy[ch] = edgeBtn.checked
                             root.chTrigRising = copy
-                            Oscilloscope.setChTrigRising( ch, checked )
+                            Oscilloscope.setChTrigRising( ch, edgeBtn.checked )
                         }
                     }
                 }
 
                 AppButton {
-                    text: root.tr( "Spectrum" )
+                    text: I18n.tr( "Spectrum" )
                     Layout.fillWidth: true
                     onClicked: {
                         var res = CircuitCanvas.scopeSpectrum( Oscilloscope.currentChannel, root.scopeTimeSpan() )
@@ -878,7 +823,7 @@ Rectangle {
                     wrapMode: Text.WordWrap
                 }
                 AppText {
-                    text: root.tr( "Right-click the trace to place cursor X2." )
+                    text: I18n.tr( "Right-click the trace to place cursor X2." )
                     color: appTheme.text
                     font.pixelSize: App.fontMicro
                     Layout.fillWidth: true

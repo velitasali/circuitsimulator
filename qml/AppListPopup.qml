@@ -1,6 +1,7 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
-import cs_app
 
 // Body of list popup matching C++ QmlListPopup. Rows are flat; "depth" drives indentation.
 Popup {
@@ -65,15 +66,15 @@ Popup {
                 width: list.width
                 height: 24
                 radius: 4
-                color: modelData.current
+                color: rowRect.modelData.current
                        ? appTheme.alternateBase
                        : (hover.hovered ? appTheme.highlight : "transparent")
 
                 AppText {
                     anchors.fill: parent
-                    anchors.leftMargin: 6 + (modelData.depth || 0) * 14
+                    anchors.leftMargin: 6 + (rowRect.modelData.depth || 0) * 14
                     anchors.rightMargin: 6
-                    text: modelData.text || ""
+                    text: rowRect.modelData.text || ""
                     font.bold: Boolean(rowRect.modelData.current)
                     color: hover.hovered && !rowRect.modelData.current
                            ? appTheme.highlightedText

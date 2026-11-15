@@ -1,12 +1,14 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // Component Library Manager / Installer dialog.
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     color: appTheme.window
 
     SystemPalette { id: appTheme; colorGroup: SystemPalette.Active }
@@ -22,7 +24,7 @@ Rectangle {
             spacing: 10
 
             AppButton {
-                text: root.tr("Check for Updates")
+                text: I18n.tr("Check for Updates")
                 font: root.uiFont
                 enabled: !Installer.busy
                 onClicked: Installer.checkForUpdatesClicked()
@@ -114,7 +116,7 @@ Rectangle {
                             visible: !rowItem.modelData.isGroupHeader
                             implicitWidth: 28; implicitHeight: 28
                             contentItem: AppIcon { icon: "help"; color: appTheme.windowText }
-                            ToolTip.text: root.tr("Information")
+                            ToolTip.text: I18n.tr("Information")
                             ToolTip.visible: infoBtn.hovered
                             onClicked: Installer.showInfo(rowItem.modelData.name)
                         }
@@ -125,7 +127,7 @@ Rectangle {
                             enabled: !Installer.busy
                             implicitWidth: 28; implicitHeight: 28
                             contentItem: AppIcon { icon: "restart_alt"; color: appTheme.windowText }
-                            ToolTip.text: root.tr("Update")
+                            ToolTip.text: I18n.tr("Update")
                             ToolTip.visible: updtBtn.hovered
                             onClicked: Installer.toggleInstall(rowItem.modelData.name)
                         }
@@ -139,7 +141,7 @@ Rectangle {
                                 icon: rowItem.modelData.installed ? "delete" : "file_download"
                                 color: appTheme.windowText
                             }
-                            ToolTip.text: rowItem.modelData.installed ? root.tr("Uninstall") : root.tr("Install")
+                            ToolTip.text: rowItem.modelData.installed ? I18n.tr("Uninstall") : I18n.tr("Install")
                             ToolTip.visible: instBtn.hovered
                             onClicked: Installer.toggleInstall(rowItem.modelData.name)
                         }
@@ -178,7 +180,7 @@ Rectangle {
 
             AppText {
                 visible: (Installer.info.author || "").length > 0
-                text: "**" + root.tr("Author:") + "** " + (Installer.info.author || "")
+                text: "**" + I18n.tr("Author:") + "** " + (Installer.info.author || "")
                 textFormat: Text.MarkdownText
                 color: appTheme.windowText
             }
@@ -192,7 +194,7 @@ Rectangle {
             }
 
             AppText {
-                text: "**" + root.tr("Included Components:") + "**"
+                text: "**" + I18n.tr("Included Components:") + "**"
                 textFormat: Text.MarkdownText
                 color: appTheme.windowText
             }
@@ -206,7 +208,7 @@ Rectangle {
                     readOnly: true
                     text: (Installer.info.items && Installer.info.items.length > 0)
                           ? Installer.info.items.join("\n")
-                          : root.tr("No installed components found in package.")
+                          : I18n.tr("No installed components found in package.")
                     font: root.uiFont
                     color: appTheme.windowText
                 }
@@ -216,7 +218,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 AppButton {
-                    text: root.tr("Close")
+                    text: I18n.tr("Close")
                     font: root.uiFont
                     onClicked: infoPopup.close()
                 }

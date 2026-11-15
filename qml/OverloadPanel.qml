@@ -1,12 +1,14 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // Warnings popup dialog matching C++ OverloadPanel (overloadpanel.qml)
 Popup {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     property double lastDismissTime: 0
 
@@ -23,14 +25,14 @@ Popup {
 
     onClosed: {
         lastDismissTime = Date.now()
-        if (ctx) ctx.setOverloadPanelVisible(false)
+        CircuitPanel.setOverloadPanelVisible(false)
     }
 
     onAboutToShow: {
-        if (ctx) ctx.setOverloadPanelVisible(true)
+        CircuitPanel.setOverloadPanelVisible(true)
     }
 
-    function toggle() {
+    function toggle(): void {
         if (visible) {
             close()
             return
@@ -60,7 +62,7 @@ Popup {
 
             AppText {
                 visible: CircuitCanvas.overloadLog ? CircuitCanvas.overloadLog.length === 0 : true
-                text: root.tr("No warnings")
+                text: I18n.tr("No warnings")
                 color: appTheme.windowText
                 opacity: 0.65
                 Layout.fillWidth: true
@@ -100,11 +102,11 @@ Popup {
                         AppIcon {
                             icon: "warning"
                             size: 16
-                            color: modelData.crashed ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
+                            color: rowRect.modelData.crashed ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
                         }
 
                         AppText {
-                            text: modelData.text || ""
+                            text: rowRect.modelData.text || ""
                             color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                             elide: Text.ElideRight
                             verticalAlignment: Text.AlignVCenter
@@ -126,7 +128,7 @@ Popup {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
                 AppButton {
-                    text: root.tr("Clear")
+                    text: I18n.tr("Clear")
                     onClicked: CircuitCanvas.clearOverloadLog()
                 }
             }

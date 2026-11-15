@@ -1,7 +1,10 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // Per-circuit settings. Each setting is a control plus an optional "Use app
 // default" button, which shows only while the value differs from the app default
@@ -11,7 +14,6 @@ Rectangle {
     id: root
     SystemPalette { id: appTheme }
     readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize || 13 })
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     implicitWidth: Math.max(360, contentCol.implicitWidth + 68)
     implicitHeight: mainCol.implicitHeight + 24
     color: appTheme.window
@@ -62,7 +64,7 @@ Rectangle {
         visible: info !== undefined && !info.isDefault
         flat: true
         font: root.uiFont
-        text: "↩  " + root.tr( "Use app default" ) + ( info !== undefined ? " (" + info.text + ")" : "" )
+        text: "↩  " + I18n.tr( "Use app default" ) + ( info !== undefined ? " (" + info.text + ")" : "" )
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignLeft
         horizontalPadding: 0
@@ -73,7 +75,7 @@ Rectangle {
             verticalAlignment: Text.AlignVCenter
         }
         background: Item {}
-        onClicked: CircuitCanvas.restoreDefault( settingKey )
+        onClicked: CircuitCanvas.restoreDefault( resetBtn.settingKey )
     }
 
     component Spin: AppSpinBox {
@@ -98,7 +100,7 @@ Rectangle {
             spacing: 8
 
             AppText {
-                text: root.tr( "These settings are saved inside the circuit file." )
+                text: I18n.tr( "These settings are saved inside the circuit file." )
                 color: Qt.rgba( appTheme.windowText.r, appTheme.windowText.g,
                                 appTheme.windowText.b, 0.6 )
                 wrapMode: Text.WordWrap
@@ -122,10 +124,10 @@ Rectangle {
                     anchors.margins: 14
                     spacing: 8
 
-                    Header { text: root.tr( "Canvas" ); first: true }
+                    Header { text: I18n.tr( "Canvas" ); first: true }
 
                     Row_ {
-                        label: root.tr( "Width in pixels" )
+                        label: I18n.tr( "Width in pixels" )
                         Spin { from: 1; to: 10000; value: CircuitCanvas.sceneWidth
                                onValueModified: CircuitCanvas.sceneWidth = value
                                Binding on value { value: CircuitCanvas.sceneWidth } }
@@ -133,17 +135,17 @@ Rectangle {
                     ResetButton { settingKey: "width" }
 
                     Row_ {
-                        label: root.tr( "Height in pixels" )
+                        label: I18n.tr( "Height in pixels" )
                         Spin { from: 1; to: 10000; value: CircuitCanvas.sceneHeight
                                onValueModified: CircuitCanvas.sceneHeight = value
                                Binding on value { value: CircuitCanvas.sceneHeight } }
                     }
                     ResetButton { settingKey: "height" }
 
-                    Header { text: root.tr( "Animations" ) }
+                    Header { text: I18n.tr( "Animations" ) }
 
                     AppCheckBox {
-                        text: root.tr( "Animate Logic" )
+                        text: I18n.tr( "Animate Logic" )
                         font: root.uiFont
                         checked: CircuitCanvas.animateLogic
                         onToggled: CircuitCanvas.animateLogic = checked
@@ -152,7 +154,7 @@ Rectangle {
                     ResetButton { settingKey: "animLogic" }
 
                     AppCheckBox {
-                        text: root.tr( "Animate Current Flow" )
+                        text: I18n.tr( "Animate Current Flow" )
                         font: root.uiFont
                         checked: CircuitCanvas.animateCurr
                         onToggled: CircuitCanvas.animateCurr = checked
@@ -160,10 +162,10 @@ Rectangle {
                     }
                     ResetButton { settingKey: "animCurr" }
 
-                    Header { text: root.tr( "Components" ) }
+                    Header { text: I18n.tr( "Components" ) }
 
                     AppCheckBox {
-                        text: root.tr( "ANSI Symbols" )
+                        text: I18n.tr( "ANSI Symbols" )
                         font: root.uiFont
                         checked: CircuitCanvas.ansiSymbols
                         onToggled: CircuitCanvas.ansiSymbols = checked
@@ -171,7 +173,7 @@ Rectangle {
                     }
                     ResetButton { settingKey: "ansi" }
 
-                    Header { text: root.tr( "Speed" ) }
+                    Header { text: I18n.tr( "Speed" ) }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -198,7 +200,7 @@ Rectangle {
                         }
                     }
                     Row_ {
-                        label: root.tr( "Steps per Second" )
+                        label: I18n.tr( "Steps per Second" )
                         Spin { from: 1; to: 999999999; value: CircuitCanvas.step
                                onValueModified: CircuitCanvas.step = value
                                Binding on value { value: CircuitCanvas.step } }
@@ -213,10 +215,10 @@ Rectangle {
                     }
                     ResetButton { settingKey: "speed" }
 
-                    Header { text: root.tr( "Reactive" ) }
+                    Header { text: I18n.tr( "Reactive" ) }
 
                     Row_ {
-                        label: root.tr( "Target Step" )
+                        label: I18n.tr( "Target Step" )
                         Spin { from: 1; to: 999999999; value: CircuitCanvas.reactStep
                                onValueModified: CircuitCanvas.reactStep = value
                                Binding on value { value: CircuitCanvas.reactStep } }
@@ -230,7 +232,7 @@ Rectangle {
                         }
                     }
                     Row_ {
-                        label: root.tr( "Real Step" )
+                        label: I18n.tr( "Real Step" )
                         Spin { from: 1; to: 999999999; value: CircuitCanvas.realStep; enabled: false
                                Binding on value { value: CircuitCanvas.realStep } }
                         AppComboBox {
@@ -244,10 +246,10 @@ Rectangle {
                     }
                     ResetButton { settingKey: "reactStep" }
 
-                    Header { text: root.tr( "NonLinear" ) }
+                    Header { text: I18n.tr( "NonLinear" ) }
 
                     Row_ {
-                        label: root.tr( "Max. Iterations" )
+                        label: I18n.tr( "Max. Iterations" )
                         Spin { from: 0; to: 100000; value: CircuitCanvas.nlSteps
                                onValueModified: CircuitCanvas.nlSteps = value
                                Binding on value { value: CircuitCanvas.nlSteps } }

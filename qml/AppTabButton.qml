@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Templates as T
 import cs_app
 
@@ -40,18 +39,29 @@ T.ToolButton {
         elide: Text.ElideRight
     }
 
-    function requestEnsureVisible() {
-        if ( checked && parent && parent.ensureVisible ) {
-            parent.ensureVisible( control )
+    // Flickable parents the Row to contentItem, so the bar sits above that.
+    readonly property AppTabBar tabBar: {
+        let item = parent
+        while (item) {
+            const bar = item as AppTabBar
+            if (bar)
+                return bar
+            item = item.parent
+        }
+        return null
+    }
+
+    function requestEnsureVisible(): void {
+        if ( checked && tabBar ) {
+            tabBar.ensureVisible( control )
         }
     }
 
-    // Reports its own position back to the enclosing AppTabBar's currentIndex;
-    // see AppTabBar.tabButtons() for how that position is derived.
+    // Reports its own position back to the enclosing AppTabBar's currentIndex.
     onCheckedChanged: {
-        if ( !checked || !parent || !parent.tabButtons ) return
-        const index = parent.tabButtons().indexOf( control )
-        if ( index >= 0 && parent.currentIndex !== index ) parent.currentIndex = index
+        if ( !checked || !tabBar ) return
+        const index = tabBar.indexOfButton( control )
+        if ( index >= 0 && tabBar.currentIndex !== index ) tabBar.currentIndex = index
         requestEnsureVisible()
     }
 

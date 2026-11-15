@@ -1,30 +1,24 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import cs_app
+import cs_ui
 
 /* TextArea + QML gutter + HTML overlay. LineNumberArea / QSyntaxHighlighter
  * are not available through qt-bridge. */
 Item {
     id: root
     SystemPalette { id: appTheme }
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
-    function shortcutFor(actionId) {
-        var scs = AppMenuBar.shortcuts
-        if (!scs) return ""
-        for (var i = 0; i < scs.length; ++i) {
-            if (scs[i] && scs[i].id === actionId)
-                return scs[i].shortcut || ""
+    function _doFocusEditor(): void {
+        if (root.visible && EditorPanel.currentDocument >= 0 && area) {
+            area.forceActiveFocus()
         }
-        return ""
     }
 
-    function focusEditor() {
-        Qt.callLater(function() {
-            if (root.visible && EditorPanel.currentDocument >= 0 && area) {
-                area.forceActiveFocus()
-            }
-        })
+    function focusEditor(): void {
+        Qt.callLater(root._doFocusEditor)
     }
 
     // C++ registered these with QFontDatabase::addApplicationFont before any
@@ -40,8 +34,7 @@ Item {
         return Qt.font({
             family: EditorPanel.fontFamily || ubuntuMonoR.name || "Ubuntu Mono",
             pixelSize: EditorPanel.fontSize || 14,
-            fixedPitch: true,
-            styleHint: Font.Monospace
+            fixedPitch: true
         })
     }
 
@@ -71,13 +64,13 @@ Item {
         ? hoverTargetHeight
         : (area.cursorRectangle.height > 0 ? area.cursorRectangle.height : root.lineHeight)
 
-    function containsLine(list, line) {
+    function containsLine(list: var, line: int): bool {
         if (!list) return false
         for (var i = 0; i < list.length; i++) if (Number(list[i]) === line) return true
         return false
     }
 
-    function hideHover() {
+    function hideHover(): void {
         gutterHoverTimer.stop()
         gutterHoverTimer.targetLine = -1
         hoverTimer.stop()
@@ -87,7 +80,7 @@ Item {
         EditorPanel.hideHover()
     }
 
-    function applyCompletion(edit) {
+    function applyCompletion(edit: var): void {
         if (!edit || !edit.valid) return
         if (edit.replaceStart < edit.replaceEnd) {
             area.remove(edit.replaceStart, edit.replaceEnd)
@@ -149,46 +142,47 @@ Item {
             Repeater {
                 model: Math.max( 1, area.lineCount )
                 delegate: Item {
+                    id: gutterLine
                     required property int index
-                    y: area.topPadding + index * root.lineHeight
+                    y: area.topPadding + gutterLine.index * root.lineHeight
                     width: gutter.width
                     height: root.lineHeight
-                    readonly property int line: index + 1
-                    readonly property bool isBp: root.containsLine(root.breakpoints, line)
-                    readonly property bool isErr: root.containsLine(root.errors, line)
-                    readonly property bool isWarn: root.containsLine(root.warnings, line)
-                    readonly property bool isDbg: EditorPanel.debugLine === line
+                    readonly property int line: gutterLine.index + 1
+                    readonly property bool isBp: root.containsLine(root.breakpoints, gutterLine.line)
+                    readonly property bool isErr: root.containsLine(root.errors, gutterLine.line)
+                    readonly property bool isWarn: root.containsLine(root.warnings, gutterLine.line)
+                    readonly property bool isDbg: EditorPanel.debugLine === gutterLine.line
 
                     Rectangle {
                         id: bpDot
-                        visible: isBp && !isErr && !isWarn
+                        visible: gutterLine.isBp && !gutterLine.isErr && !gutterLine.isWarn
                         z: 1
                         width: Math.max(8, root.lineHeight - 6)
-                        height: width
-                        radius: width / 2
+                        height: bpDot.width
+                        radius: bpDot.width / 2
                         anchors.verticalCenter: parent.verticalCenter
                         x: 3
                         color: EditorPanel.errorColor
                     }
                     Rectangle {
                         id: errWarnDot
-                        visible: isErr || isWarn
+                        visible: gutterLine.isErr || gutterLine.isWarn
                         z: 2
                         width: Math.max(8, root.lineHeight - 6)
-                        height: width
-                        radius: width / 2
+                        height: errWarnDot.width
+                        radius: errWarnDot.width / 2
                         anchors.verticalCenter: parent.verticalCenter
                         x: 3
-                        color: isErr ? EditorPanel.errorColor : EditorPanel.warnColor
-                        border.width: isBp ? 1.5 : 0
-                        border.color: isBp ? (isErr ? "#ffffff" : EditorPanel.errorColor) : "transparent"
+                        color: gutterLine.isErr ? EditorPanel.errorColor : EditorPanel.warnColor
+                        border.width: gutterLine.isBp ? 1.5 : 0
+                        border.color: gutterLine.isBp ? (gutterLine.isErr ? "#ffffff" : EditorPanel.errorColor) : "transparent"
 
                         AppText {
                             anchors.centerIn: parent
                             text: "!"
                             color: "#ffffff"
                             font.bold: true
-                            font.pixelSize: Math.max(7, Math.round(parent.height * 0.75))
+                            font.pixelSize: Math.max(7, Math.round(errWarnDot.height * 0.75))
                             font.family: area.font.family
                             verticalAlignment: Text.AlignVCenter
                             horizontalAlignment: Text.AlignHCenter
@@ -196,24 +190,24 @@ Item {
                     }
                     Rectangle {
                         id: dbgDot
-                        visible: isDbg
+                        visible: gutterLine.isDbg
                         z: 3
-                        width: isBp ? parent.height * 0.28 : parent.height * 0.45
-                        height: width * 1.4
+                        width: gutterLine.isBp ? gutterLine.height * 0.28 : gutterLine.height * 0.45
+                        height: dbgDot.width * 1.4
                         anchors.verticalCenter: parent.verticalCenter
-                        x: isBp ? 6 : 4
-                        color: isBp ? appTheme.highlightedText : (CircuitCanvas.msgWarnBg || appTheme.highlight)
+                        x: gutterLine.isBp ? 6 : 4
+                        color: gutterLine.isBp ? appTheme.highlightedText : (CircuitCanvas.msgWarnBg || appTheme.highlight)
                     }
                     AppText {
                         anchors.fill: parent
                         anchors.rightMargin: 8
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter
-                        text: line
+                        text: gutterLine.line
                         font.family: area.font.family
                         font.pixelSize: area.font.pixelSize
-                        color: index === root.cursorLine ? EditorPanel.gutterActiveNumColor : EditorPanel.gutterNumColor
-                        font.bold: index === root.cursorLine
+                        color: gutterLine.index === root.cursorLine ? EditorPanel.gutterActiveNumColor : EditorPanel.gutterNumColor
+                        font.bold: gutterLine.index === root.cursorLine
                     }
                 }
             }
@@ -292,13 +286,14 @@ Item {
             Repeater {
                 model: EditorPanel.scrollMarks
                 delegate: Rectangle {
+                    id: markDelegate
                     required property var modelData
                     parent: vBar
                     x: 0
                     width: vBar.width
-                    height: modelData.weight || 2
-                    y: (modelData.pos || 0) * (vBar.height - height)
-                    color: modelData.color || "transparent"
+                    height: markDelegate.modelData.weight || 2
+                    y: (markDelegate.modelData.pos || 0) * (vBar.height - markDelegate.height)
+                    color: markDelegate.modelData.color || "transparent"
                 }
             }
         }
@@ -360,13 +355,14 @@ Item {
             Repeater {
                 model: EditorPanel.foundRanges
                 delegate: Rectangle {
+                    id: foundDelegate
                     required property var modelData
                     z: -2
-                    property var r: area.positionToRectangle(modelData.start)
-                    x: r.x
-                    y: r.y
-                    width: Math.max(4, area.positionToRectangle(modelData.end).x - r.x)
-                    height: r.height
+                    property rect r: area.positionToRectangle(foundDelegate.modelData.start)
+                    x: foundDelegate.r.x
+                    y: foundDelegate.r.y
+                    width: Math.max(4, area.positionToRectangle(foundDelegate.modelData.end).x - foundDelegate.r.x)
+                    height: foundDelegate.r.height
                     color: EditorPanel.foundColor
                 }
             }
@@ -391,25 +387,25 @@ Item {
                     required property var modelData
                     z: 0
 
-                    property var r1: {
+                    property rect r1: {
                         var _ = area.length
                         var __ = root.editorFont
-                        return area.positionToRectangle(modelData.start)
+                        return area.positionToRectangle(diagItem.modelData.start)
                     }
-                    property var r2: {
+                    property rect r2: {
                         var _ = area.length
                         var __ = root.editorFont
-                        return area.positionToRectangle(modelData.end)
+                        return area.positionToRectangle(diagItem.modelData.end)
                     }
 
-                    x: r1.x
-                    y: r1.y + r1.height - 2
-                    width: Math.max(4, r2.x - r1.x)
+                    x: diagItem.r1.x
+                    y: diagItem.r1.y + diagItem.r1.height - 2
+                    width: Math.max(4, diagItem.r2.x - diagItem.r1.x)
                     height: 2
 
                     Rectangle {
                         anchors.fill: parent
-                        color: modelData.color
+                        color: diagItem.modelData.color
                         radius: 1
                     }
                 }
@@ -454,11 +450,11 @@ Item {
                 property int lastMouseX: -1
                 property int lastMouseY: -1
 
-                function hideHoverState() {
+                function hideHoverState(): void {
                     root.hideHover()
                 }
 
-                function updateHoverLink(modifiers) {
+                function updateHoverLink(modifiers: int): void {
                     if (lastMouseX >= 0 && lastMouseY >= 0) {
                         var pos = area.positionAt(lastMouseX, lastMouseY)
                         hoverLink = EditorPanel.textHovered(pos, modifiers)
@@ -537,6 +533,15 @@ Item {
                 }
             }
 
+            function insertPair(event: var, open: string, close: string, flag: bool): bool {
+                if (!flag || event.text !== open) return false
+                area.insert(area.cursorPosition, open + close)
+                area.cursorPosition = area.cursorPosition - 1
+                event.accepted = true
+                if (open === "(") EditorPanel.requestSignature(area.cursorPosition)
+                return true
+            }
+
             Keys.onPressed: (event) => {
                 if (event.key === Qt.Key_Control || event.key === Qt.Key_Meta) {
                     editorMouseArea.updateHoverLink(event.modifiers)
@@ -545,7 +550,7 @@ Item {
                 }
                 if (EditorPanel.completionVisible) {
                     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Tab) {
-                        applyCompletion(EditorPanel.acceptCompletion(EditorPanel.completionIndex, area.cursorPosition))
+                        root.applyCompletion(EditorPanel.acceptCompletion(EditorPanel.completionIndex, area.cursorPosition))
                         event.accepted = true
                         return
                     }
@@ -580,7 +585,7 @@ Item {
                     }
                 }
                 if (event.key === Qt.Key_Escape) {
-                    EditorPanel.hideSignature()
+                    EditorPanel.dismissSignature()
                 }
                 if (event.key === Qt.Key_Tab && EditorPanel.spaceTabs) {
                     var n = EditorPanel.tabSize
@@ -589,22 +594,14 @@ Item {
                     event.accepted = true
                     return
                 }
-                function pair(open, close, flag) {
-                    if (!flag || event.text !== open) return false
-                    area.insert(area.cursorPosition, open + close)
-                    area.cursorPosition = area.cursorPosition - 1
-                    event.accepted = true
-                    if (open === "(") EditorPanel.requestSignature(area.cursorPosition)
-                    return true
-                }
-                if (pair("(", ")", EditorPanel.closeParen)) return
-                if (pair("{", "}", EditorPanel.closeBraces)) return
-                if (pair("[", "]", EditorPanel.closeBrackets)) return
-                if (pair("\"", "\"", EditorPanel.closeQuotes)) return
-                if (pair("'", "'", EditorPanel.closeSquotes)) return
+                if (area.insertPair(event, "(", ")", EditorPanel.closeParen)) return
+                if (area.insertPair(event, "{", "}", EditorPanel.closeBraces)) return
+                if (area.insertPair(event, "[", "]", EditorPanel.closeBrackets)) return
+                if (area.insertPair(event, "\"", "\"", EditorPanel.closeQuotes)) return
+                if (area.insertPair(event, "'", "'", EditorPanel.closeSquotes)) return
 
                 if (event.text === ")") {
-                    EditorPanel.hideSignature()
+                    EditorPanel.dismissSignature()
                 }
             }
 
@@ -628,22 +625,22 @@ Item {
             visible: EditorPanel.lspReady
             height: visible ? implicitHeight : 0
             iconLigature: "search"
-            text: root.tr("Go to Definition")
-            shortcutText: root.shortcutFor("edit.gotoDefinition") || (editorMenu._mod + "F12")
+            text: I18n.tr("Go to Definition")
+            shortcutText: UiUtils.shortcutFor("edit.gotoDefinition") || (editorMenu._mod + "F12")
             onTriggered: AppMenuBar.triggerAction("edit.gotoDefinition")
         }
         ContextMenuSeparator { visible: EditorPanel.lspReady }
 
         ContextMenuItem {
             iconLigature: "undo"
-            text: root.tr("Undo")
+            text: I18n.tr("Undo")
             shortcutText: editorMenu._mod + "Z"
             enabled: area.canUndo
             onTriggered: area.undo()
         }
         ContextMenuItem {
             iconLigature: "redo"
-            text: root.tr("Redo")
+            text: I18n.tr("Redo")
             shortcutText: editorMenu._mac ? "⇧⌘Z" : "Ctrl+Y"
             enabled: area.canRedo
             onTriggered: area.redo()
@@ -653,28 +650,28 @@ Item {
 
         ContextMenuItem {
             iconLigature: "content_cut"
-            text: root.tr("Cut")
+            text: I18n.tr("Cut")
             shortcutText: editorMenu._mod + "X"
             enabled: editorMenu._hasSelection
             onTriggered: area.cut()
         }
         ContextMenuItem {
             iconLigature: "content_copy"
-            text: root.tr("Copy")
+            text: I18n.tr("Copy")
             shortcutText: editorMenu._mod + "C"
             enabled: editorMenu._hasSelection
             onTriggered: area.copy()
         }
         ContextMenuItem {
             iconLigature: "content_paste"
-            text: root.tr("Paste")
+            text: I18n.tr("Paste")
             shortcutText: editorMenu._mod + "V"
             enabled: area.canPaste
             onTriggered: area.paste()
         }
         ContextMenuItem {
             iconLigature: "delete"
-            text: root.tr("Remove")
+            text: I18n.tr("Remove")
             enabled: editorMenu._hasSelection
             onTriggered: area.remove(area.selectionStart, area.selectionEnd)
         }
@@ -683,8 +680,8 @@ Item {
 
         ContextMenuItem {
             iconLigature: "format_align_left"
-            text: root.tr("Format Document")
-            shortcutText: root.shortcutFor("edit.format") || (editorMenu._mac ? "⇧⌘I" : "Ctrl+Shift+I")
+            text: I18n.tr("Format Document")
+            shortcutText: UiUtils.shortcutFor("edit.format") || (editorMenu._mac ? "⇧⌘I" : "Ctrl+Shift+I")
             onTriggered: EditorPanel.formatDocument()
         }
 
@@ -694,15 +691,15 @@ Item {
             height: visible ? implicitHeight : 0
             iconLigature: "settings"
             text: EditorPanel.compilerName.length > 0
-                  ? root.tr("%1 Settings").arg(EditorPanel.compilerName)
-                  : root.tr("Compiler Settings")
+                  ? I18n.tr("%1 Settings").arg(EditorPanel.compilerName)
+                  : I18n.tr("Compiler Settings")
             onTriggered: EditorPanel.compilerProps()
         }
         ContextMenuItem {
             visible: EditorPanel.hasCompiler
             height: visible ? implicitHeight : 0
             iconLigature: "settings_applications"
-            text: root.tr("File Settings")
+            text: I18n.tr("File Settings")
             onTriggered: EditorPanel.fileProps()
         }
 
@@ -710,7 +707,7 @@ Item {
 
         ContextMenuItem {
             iconLigature: "refresh"
-            text: root.tr("Reload Document")
+            text: I18n.tr("Reload Document")
             enabled: EditorPanel.currentPath.length > 0
             onTriggered: EditorPanel.reloadDocument()
         }
@@ -875,33 +872,34 @@ Item {
             clip: true
             model: EditorPanel.completions
             currentIndex: EditorPanel.completionIndex
-            onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+            onCurrentIndexChanged: completionList.positionViewAtIndex(completionList.currentIndex, ListView.Contain)
             delegate: Rectangle {
+                id: completionDelegate
                 required property var modelData
                 required property int index
                 width: completionList.width
                 height: 22
-                color: index === completionList.currentIndex ? appTheme.highlight : "transparent"
+                color: completionDelegate.index === completionList.currentIndex ? appTheme.highlight : "transparent"
                 Row {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.leftMargin: 6
                     spacing: 6
                     AppText {
-                        text: modelData.text !== undefined ? modelData.text : modelData
+                        text: completionDelegate.modelData.text !== undefined ? completionDelegate.modelData.text : completionDelegate.modelData
                         font: area.font
-                        color: index === completionList.currentIndex ? appTheme.highlightedText : appTheme.windowText
+                        color: completionDelegate.index === completionList.currentIndex ? appTheme.highlightedText : appTheme.windowText
                     }
                     AppText {
-                        text: modelData.detail !== undefined ? modelData.detail : ""
+                        text: completionDelegate.modelData.detail !== undefined ? completionDelegate.modelData.detail : ""
                         font: area.font
                         opacity: 0.6
-                        color: index === completionList.currentIndex ? appTheme.highlightedText : appTheme.windowText
+                        color: completionDelegate.index === completionList.currentIndex ? appTheme.highlightedText : appTheme.windowText
                     }
                 }
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: applyCompletion(EditorPanel.acceptCompletion(index, area.cursorPosition))
+                    onClicked: root.applyCompletion(EditorPanel.acceptCompletion(completionDelegate.index, area.cursorPosition))
                 }
             }
         }
@@ -909,10 +907,10 @@ Item {
 
     Connections {
         target: EditorPanel
-        function onRequestFocus() {
+        function onRequestFocus(): void {
             root.focusEditor()
         }
-        function onCurrentDocumentChanged() {
+        function onCurrentDocumentChanged(): void {
             if (EditorPanel.currentDocument >= 0) {
                 root.focusEditor()
             }
@@ -943,6 +941,7 @@ Item {
             else if (a === "cut") area.cut()
             else if (a === "copy") area.copy()
             else if (a === "paste") area.paste()
+            else if (a === "selectAll") area.selectAll()
         }
         function onCursorChanged() {
             if (Math.abs(area.cursorPosition - EditorPanel.cursorPos) > 0

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Templates
 
 // A lightweight, scrollable tab bar component.
 //
@@ -44,12 +45,8 @@ Flickable {
            ? Math.round( (control.width - width) / 2 )
            : 0
 
-        function tabButtons() {
-            return control.tabButtons()
-        }
-
-        function ensureVisible( item ) {
-            control.ensureVisible( item )
+        function ensureVisible(item: Item): void {
+            control.ensureVisible(item)
         }
 
         property alias currentIndex: control.currentIndex
@@ -57,27 +54,49 @@ Flickable {
         onChildrenChanged: Qt.callLater( control.syncTabs )
     }
 
-    // Duck-typed rather than an instanceof check: children also contains any
-    // Repeater used to generate buttons, which has no `checkable` property.
-    function tabButtons() {
-        const result = []
+    function buttonCount(): int {
+        let count = 0
         for ( let i = 0; i < row.children.length; i++ ) {
-            if ( row.children[i].checkable !== undefined ) result.push( row.children[i] )
+            const btn = row.children[i] as AbstractButton
+            if ( btn && btn.checkable ) count++
         }
-        return result
+        return count
     }
 
-    function ensureVisibleCurrent() {
-        const buttons = tabButtons()
-        if ( currentIndex >= 0 && currentIndex < buttons.length ) {
-            ensureVisible( buttons[currentIndex] )
+    function buttonAt( idx: int ): AbstractButton {
+        let pos = 0
+        for ( let i = 0; i < row.children.length; i++ ) {
+            const btn = row.children[i] as AbstractButton
+            if ( btn && btn.checkable ) {
+                if ( pos === idx ) return btn
+                pos++
+            }
+        }
+        return null
+    }
+
+    function indexOfButton( target: AbstractButton ): int {
+        let pos = 0
+        for ( let i = 0; i < row.children.length; i++ ) {
+            const btn = row.children[i] as AbstractButton
+            if ( btn && btn.checkable ) {
+                if ( btn === target ) return pos
+                pos++
+            }
+        }
+        return -1
+    }
+
+    function ensureVisibleCurrent(): void {
+        const btn = buttonAt( currentIndex )
+        if ( btn ) {
+            ensureVisible( btn )
         }
     }
 
-    function ensureVisible( item ) {
+    function ensureVisible( item: Item ): void {
         if ( !item ) return
-        const buttons = tabButtons()
-        const idx = buttons.indexOf( item )
+        const idx = indexOfButton( item as AbstractButton )
         if ( idx > 0 && item.x === 0 ) {
             // Item has not been positioned by Row layout yet; defer until layout pass
             Qt.callLater( ensureVisibleCurrent )
@@ -104,39 +123,44 @@ Flickable {
     // are added, removed, or refreshed (e.g. dynamic Repeater in editorpanel.qml).
     // Using callLater prevents premature index resets while delegates are
     // incrementally created.
-    function syncTabs() {
-        const buttons = tabButtons()
-        if ( buttons.length === 0 ) {
+    function syncTabs(): void {
+        const count = buttonCount()
+        if ( count === 0 ) {
             if ( currentIndex !== -1 ) currentIndex = -1
             return
         }
 
         let targetIndex = currentIndex
-        if ( targetIndex < 0 || targetIndex >= buttons.length ) {
-            targetIndex = Math.max( 0, Math.min( targetIndex, buttons.length - 1 ) )
+        if ( targetIndex < 0 || targetIndex >= count ) {
+            targetIndex = Math.max( 0, Math.min( targetIndex, count - 1 ) )
         }
 
         if ( currentIndex !== targetIndex ) {
             currentIndex = targetIndex
         }
 
-        for ( let i = 0; i < buttons.length; i++ ) {
-            buttons[i].checked = ( i === targetIndex )
+        for ( let i = 0; i < count; i++ ) {
+            const btn = buttonAt( i )
+            if ( btn ) btn.checked = ( i === targetIndex )
         }
-        ensureVisible( buttons[targetIndex] )
+        const activeBtn = buttonAt( targetIndex )
+        if ( activeBtn ) ensureVisible( activeBtn )
         Qt.callLater( ensureVisibleCurrent )
     }
 
     onCurrentIndexChanged: {
-        if (Window.window && Window.window.activeFocusItem) {
-            Window.window.activeFocusItem.focus = false
+        const focusItem = Window.window ? Window.window.activeFocusItem : null
+        if (focusItem) {
+            focusItem.focus = false
         }
-        const buttons = tabButtons()
-        for ( let i = 0; i < buttons.length; i++ ) {
-            buttons[i].checked = ( i === currentIndex )
+        const count = buttonCount()
+        for ( let i = 0; i < count; i++ ) {
+            const btn = buttonAt( i )
+            if ( btn ) btn.checked = ( i === currentIndex )
         }
-        if ( currentIndex >= 0 && currentIndex < buttons.length ) {
-            ensureVisible( buttons[currentIndex] )
+        const activeBtn = buttonAt( currentIndex )
+        if ( activeBtn ) {
+            ensureVisible( activeBtn )
         }
         Qt.callLater( ensureVisibleCurrent )
     }

@@ -40,13 +40,16 @@ T.ComboBox {
     palette.mid: appTheme.mid
     palette.midlight: appTheme.midlight
 
+    readonly property int _windowHeight: Window.window ? Window.window.height : 600
+
     displayText: {
         if (control.textRole && control.currentValue && typeof control.currentValue === "object" && control.textRole in control.currentValue) {
             return "" + control.currentValue[control.textRole]
         }
         if (control.currentText && control.currentText.length > 0) return control.currentText
-        if (control.model && Array.isArray(control.model) && control.currentIndex >= 0 && control.currentIndex < control.model.length) {
-            var val = control.model[control.currentIndex]
+        const m = control.model
+        if (m && Array.isArray(m) && control.currentIndex >= 0 && control.currentIndex < m.length) {
+            var val = m[control.currentIndex]
             if (typeof val === "string" || typeof val === "number") return "" + val
             if (control.textRole && typeof val === "object" && val !== null && control.textRole in val) {
                 return "" + val[control.textRole]
@@ -64,7 +67,7 @@ T.ComboBox {
 
         width: ListView.view ? ListView.view.width : control.width
         implicitHeight: 24
-        function itemText() {
+        function itemText(): string {
             if (control.textRole && typeof model === "object" && model !== null && control.textRole in model) {
                 return "" + model[control.textRole]
             }
@@ -74,13 +77,12 @@ T.ComboBox {
             if (typeof model === "string" || typeof model === "number") {
                 return "" + model
             }
-            if (control.model) {
-                if (Array.isArray(control.model) && index >= 0 && index < control.model.length) {
-                    var el = control.model[index]
-                    if (typeof el === "string" || typeof el === "number") return "" + el
-                    if (control.textRole && typeof el === "object" && el !== null && control.textRole in el) {
-                        return "" + el[control.textRole]
-                    }
+            const m = control.model
+            if (m && Array.isArray(m) && index >= 0 && index < m.length) {
+                var el = m[index]
+                if (typeof el === "string" || typeof el === "number") return "" + el
+                if (control.textRole && typeof el === "object" && el !== null && control.textRole in el) {
+                    return "" + el[control.textRole]
                 }
             }
             var t = control.textAt(index)
@@ -116,6 +118,7 @@ T.ComboBox {
     }
 
     contentItem: T.TextField {
+        id: editField
         implicitWidth: contentWidth
         implicitHeight: contentHeight
         topPadding: 0
@@ -143,7 +146,7 @@ T.ComboBox {
 
         background: Item {}
         ContextMenu.menu: control.editable ? editMenu : null
-        AppTextContextMenu { id: editMenu; editor: parent }
+        AppTextContextMenu { id: editMenu; textInput: editField }
 
         onEditingFinished: {
             if (control.editable) {
@@ -170,7 +173,7 @@ T.ComboBox {
     popup: T.Popup {
         y: control.height + 2
         width: control.width
-        height: Math.min(contentItem.implicitHeight + 8, control.Window.height - topMargin - bottomMargin)
+        height: Math.min(contentItem.implicitHeight + 8, control._windowHeight - topMargin - bottomMargin)
         topMargin: 6
         bottomMargin: 6
         padding: 4

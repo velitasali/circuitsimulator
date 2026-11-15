@@ -2,11 +2,11 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // Body of Terminal: received bytes on top, send controls below.
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
     color: appTheme.window
     readonly property font uiFont: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
@@ -21,7 +21,7 @@ Rectangle {
             spacing: 6
 
             AppText {
-                text: root.tr( "Format:" )
+                text: I18n.tr( "Format:" )
                 color: appTheme.windowText
             }
             AppComboBox {
@@ -34,12 +34,12 @@ Rectangle {
             Item { Layout.fillWidth: true }
             AppToolButton {
                 contentItem: AppIcon { icon: "save"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "Save Log" )
+                ToolTip.text: I18n.tr( "Save Log" )
                 ToolTip.visible: hovered
                 onClicked: SerialTerminal.requestSave()
             }
             AppButton {
-                text: root.tr( "Clear" )
+                text: I18n.tr( "Clear" )
                 font: root.uiFont
                 onClicked: SerialTerminal.clearReceive()
             }
@@ -85,7 +85,7 @@ Rectangle {
             spacing: 6
 
             AppText {
-                text: root.tr( "Format:" )
+                text: I18n.tr( "Format:" )
                 color: appTheme.windowText
             }
             AppComboBox {
@@ -98,12 +98,12 @@ Rectangle {
             Item { Layout.fillWidth: true }
             AppToolButton {
                 contentItem: AppIcon { icon: "file_open"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "Load File" )
+                ToolTip.text: I18n.tr( "Load File" )
                 ToolTip.visible: hovered
                 onClicked: SerialTerminal.requestLoad()
             }
             AppButton {
-                text: root.tr( "Clear" )
+                text: I18n.tr( "Clear" )
                 font: root.uiFont
                 onClicked: SerialTerminal.clearSend()
             }
@@ -130,7 +130,7 @@ Rectangle {
                 }
             }
             AppButton {
-                text: root.tr( "Send" )
+                text: I18n.tr( "Send" )
                 font: root.uiFont
                 onClicked: SerialTerminal.send()
             }

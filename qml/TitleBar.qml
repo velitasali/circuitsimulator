@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import cs_app
+import cs_ui
 
 /* Transparent main-window title strip over the live canvas.
  *
@@ -38,14 +39,13 @@ Item {
         function onVisibilityChanged() { Qt.callLater(bar.refreshChrome) }
     }
 
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     readonly property bool windowActive: window ? window.active : true
     readonly property bool maximized: window ? (window.visibility === Window.Maximized || window.visibility === Window.FullScreen) : false
     readonly property string projectName: FileBrowser.rootPath
         ? (FileBrowser.rootPath.split("/").filter(Boolean).pop() || "")
         : ""
-    readonly property string fileLabel: (CircuitCanvas.fileName ? CircuitCanvas.fileName : tr("Untitled"))
+    readonly property string fileLabel: (CircuitCanvas.fileName ? CircuitCanvas.fileName : I18n.tr("Untitled"))
         + (CircuitCanvas.modified ? "*" : "")
 
     implicitHeight: 34
@@ -92,7 +92,7 @@ Item {
                     id: simStateText
                     anchors.centerIn: parent
                     font.pixelSize: App.fontSmall
-                    text: CircuitCanvas.simPaused ? bar.tr("Paused") : bar.tr("Running")
+                    text: CircuitCanvas.simPaused ? I18n.tr("Paused") : I18n.tr("Running")
                     color: CircuitCanvas.simPaused ? CircuitCanvas.msgWarnText : CircuitCanvas.msgOkText
                 }
             }
@@ -169,7 +169,7 @@ Item {
                     property bool titleBarInteractive: true
                     ToolTip.visible: containsMouse
                     ToolTip.delay: 600
-                    ToolTip.text: bar.tr("Minimize")
+                    ToolTip.text: I18n.tr("Minimize")
                     onClicked: if (bar.window) bar.window.showMinimized()
                 }
             }
@@ -229,7 +229,7 @@ Item {
                     property bool titleBarInteractive: true
                     ToolTip.visible: containsMouse
                     ToolTip.delay: 600
-                    ToolTip.text: bar.maximized ? bar.tr("Restore") : bar.tr("Maximize")
+                    ToolTip.text: bar.maximized ? I18n.tr("Restore") : I18n.tr("Maximize")
                     onClicked: {
                         if (!bar.window)
                             return
@@ -269,7 +269,7 @@ Item {
                     property bool titleBarInteractive: true
                     ToolTip.visible: containsMouse
                     ToolTip.delay: 600
-                    ToolTip.text: bar.tr("Close")
+                    ToolTip.text: I18n.tr("Close")
                     onClicked: if (bar.window) bar.window.close()
                 }
             }

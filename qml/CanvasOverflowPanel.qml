@@ -2,11 +2,11 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // Canvas Overflow popup dialog matching app design
 Popup {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     property double lastDismissTime: 0
 
@@ -23,14 +23,14 @@ Popup {
 
     onClosed: {
         lastDismissTime = Date.now()
-        if (ctx) ctx.setCanvasOverflowPanelVisible(false)
+        CircuitPanel.setCanvasOverflowPanelVisible(false)
     }
 
     onAboutToShow: {
-        if (ctx) ctx.setCanvasOverflowPanelVisible(true)
+        CircuitPanel.setCanvasOverflowPanelVisible(true)
     }
 
-    function toggle() {
+    function toggle(): void {
         if (visible) {
             close()
             return
@@ -64,10 +64,10 @@ Popup {
                 spacing: 8
 
                 Rectangle {
-                    width: 28
-                    height: 28
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
                     radius: 14
-                    color: Qt.rgba(CircuitCanvas.msgWarnBg.r, CircuitCanvas.msgWarnBg.g, CircuitCanvas.msgWarnBg.b, 0.25)
+                    color: Qt.alpha(CircuitCanvas.msgWarnBg, 0.25)
 
                     AppIcon {
                         anchors.centerIn: parent
@@ -82,14 +82,14 @@ Popup {
                     spacing: 1
 
                     AppText {
-                        text: root.tr("Canvas Overflow")
+                        text: I18n.tr("Canvas Overflow")
                         font.pixelSize: App.fontTitle
                         font.bold: true
                         color: appTheme.windowText
                     }
 
                     AppText {
-                        text: root.tr("%1 item(s) outside canvas bounds").arg(CircuitCanvas.canvasOverflowCount)
+                        text: I18n.tr("%1 item(s) outside canvas bounds").arg(CircuitCanvas.canvasOverflowCount)
                         color: appTheme.windowText
                         opacity: 0.75
                     }
@@ -113,23 +113,23 @@ Popup {
                     columnSpacing: 10
 
                     AppText {
-                        text: root.tr("Current Canvas Size:")
+                        text: I18n.tr("Current Canvas Size:")
                         color: appTheme.windowText
                         opacity: 0.8
                     }
                     AppText {
-                        text: root.tr("%1 × %2 px").arg(CircuitCanvas.canvasCurrentWidth).arg(CircuitCanvas.canvasCurrentHeight)
+                        text: I18n.tr("%1 × %2 px").arg(CircuitCanvas.canvasCurrentWidth).arg(CircuitCanvas.canvasCurrentHeight)
                         font.bold: true
                         color: appTheme.windowText
                     }
 
                     AppText {
-                        text: root.tr("Recommended Size:")
+                        text: I18n.tr("Recommended Size:")
                         color: appTheme.windowText
                         opacity: 0.8
                     }
                     AppText {
-                        text: root.tr("%1 × %2 px").arg(CircuitCanvas.canvasRequiredWidth).arg(CircuitCanvas.canvasRequiredHeight)
+                        text: I18n.tr("%1 × %2 px").arg(CircuitCanvas.canvasRequiredWidth).arg(CircuitCanvas.canvasRequiredHeight)
                         font.bold: true
                         color: CircuitCanvas.msgWarnBg
                     }
@@ -149,7 +149,7 @@ Popup {
 
                     AppButton {
                         Layout.fillWidth: true
-                        text: root.tr("Auto-Fit Canvas")
+                        text: I18n.tr("Auto-Fit Canvas")
                         font.bold: true
                         highlighted: true
                         onClicked: {
@@ -160,7 +160,7 @@ Popup {
 
                     AppButton {
                         Layout.fillWidth: true
-                        text: root.tr("Center Circuit")
+                        text: I18n.tr("Center Circuit")
                         onClicked: {
                             CircuitCanvas.centerCircuit()
                             root.close()
@@ -174,7 +174,7 @@ Popup {
 
                     AppButton {
                         Layout.fillWidth: true
-                        text: root.tr("Select Offending")
+                        text: I18n.tr("Select Offending")
                         onClicked: {
                             CircuitCanvas.selectOverflowing()
                             root.close()
@@ -183,7 +183,7 @@ Popup {
 
                     AppButton {
                         Layout.fillWidth: true
-                        text: root.tr("Circuit Settings...")
+                        text: I18n.tr("Circuit Settings...")
                         onClicked: {
                             root.close()
                             App.showCircuitSettings()

@@ -1,5 +1,6 @@
 import QtQuick
 import cs_app
+import cs_ui
 
 /* Lightweight debug overlay canvas that floats over CircuitCanvas to visually
  * highlight and differentiate full canvas repaints vs small / dirty region repaints
@@ -7,11 +8,21 @@ import cs_app
  */
 Item {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     visible: AppDialog.repaintOverlayEnabled
     enabled: false
 
-    property var recentEvents: []
+    component RepaintEvent: QtObject {
+        property var rects: []
+        property var subDirtyRects: []
+        property bool isFull: false
+        property real timeMs: 0
+    }
+    Component {
+        id: repaintEventComp
+        RepaintEvent {}
+    }
+
+    property list<RepaintEvent> recentEvents: []
     property int totalRepaints: 0
     property int fullRepaints: 0
     property int partialRepaints: 0
@@ -23,25 +34,29 @@ Item {
     property int repaintsInWindow: 0
     property real lastEventTime: 0
     readonly property bool isTelemetryActive: recentEvents.length > 0 && ((Date.now() - lastEventTime) < 400)
-    readonly property string monoFamily: App.monoFontFamily || "Menlo"
+    readonly property string monoFamily: App.fontMonoFamily || "Menlo"
 
-    function recordRepaint(rects, isFull, subDirtyRects) {
+    function recordRepaint(rects: var, isFull: bool, subDirtyRects: var): void {
         if (!root.visible || root.width <= 0 || root.height <= 0)
             return
 
         var now = Date.now()
         lastEventTime = now
 
-        var ev = {
-            "rects": rects || [],
-            "subDirtyRects": subDirtyRects || [],
-            "isFull": !!isFull,
-            "timeMs": now
-        }
+        const ev = repaintEventComp.createObject(root, {
+            rects: rects || [],
+            subDirtyRects: subDirtyRects || [],
+            isFull: !!isFull,
+            timeMs: now
+        }) as RepaintEvent
+        if (!ev) return
 
         recentEvents.push(ev)
-        while (recentEvents.length > 20)
+        while (recentEvents.length > 20) {
+            const old = recentEvents[0]
             recentEvents.shift()
+            if (old) old.destroy()
+        }
 
         totalRepaints++
         if (isFull)
@@ -83,7 +98,12 @@ Item {
 
     onVisibleChanged: {
         if (!visible) {
+            const pending = []
+            for (let i = 0; i < recentEvents.length; ++i)
+                pending.push(recentEvents[i])
             recentEvents = []
+            for (let i = 0; i < pending.length; ++i)
+                if (pending[i]) pending[i].destroy()
             fadeTimer.stop()
             if (canvas) canvas.requestPaint()
         }
@@ -91,13 +111,10 @@ Item {
 
     Connections {
         target: CircuitCanvas
-        function onRepaintRecorded(rects, isFull, subRects) {
+        function onRepaintRecorded(rects: var, isFull: bool, subRects: var): void {
             // Window setup calls setViewSize while App is still borrowed.
             // Updating the HUD inline reads App.i18nTick and aborts.
-            var r = rects
-            var full = isFull
-            var sub = subRects
-            Qt.callLater(function() { root.recordRepaint(r, full, sub) })
+            Qt.callLater(root.recordRepaint, rects, isFull, subRects)
         }
     }
 
@@ -107,14 +124,23 @@ Item {
         repeat: true
         running: false
         onTriggered: {
-            var now = Date.now()
-            var filtered = []
-            for (var i = 0; i < root.recentEvents.length; ++i) {
-                var ev = root.recentEvents[i]
+            const now = Date.now()
+            const filtered = []
+            const expired = []
+            for (let i = 0; i < root.recentEvents.length; ++i) {
+                const ev = root.recentEvents[i]
+                if (!ev)
+                    continue
                 if (now - ev.timeMs <= 500)
                     filtered.push(ev)
+                else
+                    expired.push(ev)
             }
             root.recentEvents = filtered
+            // Events are created with createObject(root); free the expired ones
+            // so they don't pile up under root while the overlay is visible.
+            for (let i = 0; i < expired.length; ++i)
+                expired[i].destroy()
             if (root.recentEvents.length === 0)
                 fadeTimer.stop()
             canvas.requestPaint()
@@ -221,7 +247,7 @@ Item {
             height: 16
 
             AppText {
-                text: root.tr("REPAINT TELEMETRY")
+                text: I18n.tr("REPAINT TELEMETRY")
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 color: "#e1ebf8"
@@ -245,7 +271,7 @@ Item {
                 }
 
                 AppText {
-                    text: root.isTelemetryActive ? root.tr("ACTIVE") : root.tr("IDLE")
+                    text: root.isTelemetryActive ? I18n.tr("ACTIVE") : I18n.tr("IDLE")
                     color: root.isTelemetryActive ? "#28dc82" : "#788796"
                     font.family: root.monoFamily
                     font.pixelSize: App.fontMicro
@@ -293,7 +319,7 @@ Item {
 
                 AppText {
                     anchors.centerIn: parent
-                    text: middleRow.isFull ? root.tr("FULL FRAME") : root.tr("DIRTY REGIONS")
+                    text: middleRow.isFull ? I18n.tr("FULL FRAME") : I18n.tr("DIRTY REGIONS")
                     color: middleRow.isFull ? "#ff5f5f" : "#32eb91"
                     font.family: root.monoFamily
                     font.pixelSize: App.fontMicro
@@ -308,7 +334,7 @@ Item {
                 spacing: 4
 
                 AppText {
-                    text: root.tr("Rate:")
+                    text: I18n.tr("Rate:")
                     color: "#a0afc3"
                     font.family: root.monoFamily
                     font.pixelSize: App.fontMicro
@@ -333,7 +359,7 @@ Item {
             anchors.leftMargin: 12
             anchors.right: parent.right
             anchors.rightMargin: 12
-            text: root.tr("Area: %1%   Dirty: %2   Total: %3")
+            text: I18n.tr("Area: %1%   Dirty: %2   Total: %3")
                 .arg(root.lastAreaPercent.toFixed(1))
                 .arg(root.lastDirtyCount)
                 .arg(root.totalRepaints)
@@ -360,7 +386,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 AppText {
-                    text: root.tr("Full Frame")
+                    text: I18n.tr("Full Frame")
                     color: "#8c9baf"
                     font.family: root.monoFamily
                     font.pixelSize: App.fontMicro
@@ -375,7 +401,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 AppText {
-                    text: root.tr("Dirty Regions")
+                    text: I18n.tr("Dirty Regions")
                     color: "#8c9baf"
                     font.family: root.monoFamily
                     font.pixelSize: App.fontMicro
@@ -390,7 +416,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 AppText {
-                    text: root.tr("Source Rects")
+                    text: I18n.tr("Source Rects")
                     color: "#8c9baf"
                     font.family: root.monoFamily
                     font.pixelSize: App.fontMicro

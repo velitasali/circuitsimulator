@@ -287,6 +287,11 @@ impl AppDialog {
         Write = set_show_component_rects,
         Notify = debug_changed
     );
+    qproperty!(
+        "recentCircuits",
+        Read = recent_circuits,
+        Notify = recent_circuits_changed
+    );
 
     #[qsignal]
     fn app_changed(&mut self);
@@ -302,9 +307,14 @@ impl AppDialog {
     fn request_browse_user_path(&mut self);
     #[qsignal]
     fn request_reset(&mut self);
+    #[qsignal]
+    fn recent_circuits_changed(&mut self);
 
     fn languages(&self) -> Vec<String> {
         LANGUAGES.iter().map(|(_, n)| (*n).to_string()).collect()
+    }
+    fn recent_circuits(&self) -> Vec<String> {
+        settings::get().recent_circuits
     }
     fn language(&self) -> i32 {
         self.s.language_index()
@@ -641,6 +651,7 @@ impl AppDialog {
         }
         settings::edit(|s| s.push_recent_circuit(path));
         self.s = settings::get();
+        self.recent_circuits_changed();
     }
 
     #[qslot]
@@ -667,6 +678,7 @@ impl AppDialog {
     fn clear_recent_circuits(&mut self) {
         settings::edit(|s| s.recent_circuits.clear());
         self.s = settings::get();
+        self.recent_circuits_changed();
         self.app_changed();
     }
 

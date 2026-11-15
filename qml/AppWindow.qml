@@ -16,6 +16,7 @@ ApplicationWindow {
 
     property alias source: loader.source
     property alias panel: loader.item
+    readonly property Item panelItem: loader.item as Item
 
     // Mirrors QQuickWidget's SizeViewToRootObject plus QLayout::SetFixedSize:
     // the window takes the panel's own size and refuses to be resized. Without
@@ -25,7 +26,7 @@ ApplicationWindow {
 
     // The declaring ApplicationWindow tracks us and closes us with itself.
     property bool closeWithOwner: true
-    property Window ownerWindow: (typeof win !== "undefined" && win !== appWindow) ? win : null
+    property Window ownerWindow: null
     property bool isQuitting: false
 
     // Closes the window on Escape (standard dialog behavior).
@@ -58,10 +59,11 @@ ApplicationWindow {
         function onImplicitHeightChanged() { appWindow.adoptContentSize() }
     }
 
-    function adoptContentSize() {
-        if ( !loader.item ) return
-        var w = loader.item.implicitWidth > 0 ? loader.item.implicitWidth : loader.item.width
-        var h = loader.item.implicitHeight > 0 ? loader.item.implicitHeight : loader.item.height
+    function adoptContentSize(): void {
+        const item = loader.item as Item
+        if (!item) return
+        const w = item.implicitWidth > 0 ? item.implicitWidth : item.width
+        const h = item.implicitHeight > 0 ? item.implicitHeight : item.height
         if ( w <= 0 || h <= 0 ) return
         appWindow.maximumWidth = 16777215
         appWindow.maximumHeight = 16777215
@@ -75,7 +77,7 @@ ApplicationWindow {
         }
     }
 
-    function loadSource(src, initialProperties) {
+    function loadSource(src: string, initialProperties: var): void {
         if (initialProperties !== undefined) {
             loader.setSource(src, initialProperties)
         } else {
@@ -83,7 +85,7 @@ ApplicationWindow {
         }
     }
 
-    function bringToFront() {
+    function bringToFront(): void {
         if (!appWindow.visible) {
             appWindow.visible = true
         }
@@ -109,7 +111,7 @@ ApplicationWindow {
 
     // Instance onClosing handlers hide via source properties (App.oscVisible,
     // etc.) so the visible: binding stays intact. Do not assign visible here.
-    function dismiss() {
+    function dismiss(): void {
         if (activeFocusItem) {
             activeFocusItem.focus = false
         }
@@ -123,13 +125,4 @@ ApplicationWindow {
         onActivated: appWindow.dismiss()
     }
 
-    Component.onCompleted: {
-        if (ownerWindow && typeof ownerWindow.registerOwnedWindow === "function")
-            ownerWindow.registerOwnedWindow(appWindow)
-    }
-
-    Component.onDestruction: {
-        if (ownerWindow && typeof ownerWindow.unregisterOwnedWindow === "function")
-            ownerWindow.unregisterOwnedWindow(appWindow)
-    }
 }

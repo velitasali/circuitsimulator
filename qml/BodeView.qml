@@ -1,12 +1,11 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // Small-signal magnitude and phase. The sweep runs on a copy of the schematic.
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     color: pal.window
     SystemPalette { id: pal; colorGroup: SystemPalette.Active }
@@ -26,7 +25,7 @@ Rectangle {
     readonly property int plotBottom: 26
     readonly property int plotGap: 16
 
-    function reloadEnds() {
+    function reloadEnds(): void {
         var sources = CircuitCanvas.acSources()
         var probes = CircuitCanvas.acProbes()
         var keepS = sourceBox.currentText
@@ -42,12 +41,12 @@ Rectangle {
         if (root.swept) {
             root.swept = false
             root.points = []
-            root.statusText = root.tr("Circuit changed. Run the sweep again.")
+            root.statusText = I18n.tr("Circuit changed. Run the sweep again.")
             plot.requestPaint()
         }
     }
 
-    function indexOfText(model, text) {
+    function indexOfText(model: var, text: string): int {
         if (!model || !text)
             return -1
         for (var i = 0; i < model.length; i++) {
@@ -57,26 +56,21 @@ Rectangle {
         return -1
     }
 
-    function readNumber(field, fallback) {
-        var v = Number(field.text)
-        return isFinite(v) ? v : fallback
-    }
-
-    function runSweep() {
+    function runSweep(): void {
         var source = sourceBox.currentText
         var probe = probeBox.currentText
         if (!source || !probe) {
-            root.statusText = root.tr("Choose a voltage source and a probe pin.")
+            root.statusText = I18n.tr("Choose a voltage source and a probe pin.")
             return
         }
-        var f0 = root.readNumber(startField, 10)
-        var f1 = root.readNumber(stopField, 100000)
-        var ppd = Math.round(root.readNumber(ppdField, 20))
+        var f0 = UiUtils.readNumber(startField.text, 10)
+        var f1 = UiUtils.readNumber(stopField.text, 100000)
+        var ppd = Math.round(UiUtils.readNumber(ppdField.text, 20))
         var res = CircuitCanvas.acSweep(source, probe, f0, f1, ppd)
         if (!res || res.error) {
             root.points = []
             root.swept = false
-            root.statusText = res && res.error ? res.error : root.tr("AC sweep failed.")
+            root.statusText = res && res.error ? res.error : I18n.tr("AC sweep failed.")
             plot.requestPaint()
             return
         }
@@ -86,14 +80,14 @@ Rectangle {
             root.fLo = root.points[0].hz
             root.fHi = root.points[root.points.length - 1].hz
             root.fitDb()
-            root.statusText = root.tr("Move across the plot to read a point.")
+            root.statusText = I18n.tr("Move across the plot to read a point.")
         } else {
-            root.statusText = root.tr("The sweep returned no points.")
+            root.statusText = I18n.tr("The sweep returned no points.")
         }
         plot.requestPaint()
     }
 
-    function fitDb() {
+    function fitDb(): void {
         var lo = Infinity
         var hi = -Infinity
         for (var i = 0; i < root.points.length; i++) {
@@ -118,16 +112,16 @@ Rectangle {
         root.dbMax = hi + pad
     }
 
-    function innerW() {
+    function innerW(): real {
         return Math.max(1, plot.width - root.plotLeft - root.plotRight)
     }
 
-    function paneH() {
+    function paneH(): real {
         var h = plot.height - root.plotTop - root.plotBottom - root.plotGap
         return Math.max(1, h / 2)
     }
 
-    function xOf(hz) {
+    function xOf(hz: real): real {
         var log0 = Math.log10(root.fLo)
         var log1 = Math.log10(root.fHi)
         var span = log1 - log0
@@ -135,13 +129,13 @@ Rectangle {
         return root.plotLeft + t * root.innerW()
     }
 
-    function yOf(v, top, h, vmin, vmax) {
+    function yOf(v: real, top: real, h: real, vmin: real, vmax: real): real {
         var span = vmax - vmin
         var t = span !== 0 ? (v - vmin) / span : 0.5
         return top + h - t * h
     }
 
-    function fmtHz(hz) {
+    function fmtHz(hz: real): string {
         if (hz >= 1e6)
             return (hz / 1e6).toFixed(hz >= 1e7 ? 0 : 2) + " MHz"
         if (hz >= 1e3)
@@ -151,7 +145,7 @@ Rectangle {
         return hz.toFixed(2) + " Hz"
     }
 
-    function nearest(x) {
+    function nearest(x: real): int {
         if (!root.points || root.points.length === 0)
             return -1
         var best = 0
@@ -184,7 +178,7 @@ Rectangle {
             spacing: 8
 
             AppText {
-                text: root.tr("Source")
+                text: I18n.tr("Source")
                 color: pal.windowText
                 font.pixelSize: App.fontSmall
             }
@@ -194,7 +188,7 @@ Rectangle {
                 model: []
             }
             AppText {
-                text: root.tr("Probe")
+                text: I18n.tr("Probe")
                 color: pal.windowText
                 font.pixelSize: App.fontSmall
             }
@@ -205,7 +199,7 @@ Rectangle {
                 model: []
             }
             AppText {
-                text: root.tr("Start Hz")
+                text: I18n.tr("Start Hz")
                 color: pal.windowText
                 font.pixelSize: App.fontSmall
             }
@@ -215,7 +209,7 @@ Rectangle {
                 text: "10"
             }
             AppText {
-                text: root.tr("Stop Hz")
+                text: I18n.tr("Stop Hz")
                 color: pal.windowText
                 font.pixelSize: App.fontSmall
             }
@@ -225,7 +219,7 @@ Rectangle {
                 text: "100000"
             }
             AppText {
-                text: root.tr("Per decade")
+                text: I18n.tr("Per decade")
                 color: pal.windowText
                 font.pixelSize: App.fontSmall
             }
@@ -235,7 +229,7 @@ Rectangle {
                 text: "20"
             }
             AppButton {
-                text: root.tr("Run")
+                text: I18n.tr("Run")
                 onClicked: root.runSweep()
             }
         }
@@ -244,22 +238,22 @@ Rectangle {
             spacing: 12
 
             Rectangle {
-                width: 14
-                height: 3
+                Layout.preferredWidth: 14
+                Layout.preferredHeight: 3
                 color: pal.highlight
             }
             AppText {
-                text: root.tr("Magnitude")
+                text: I18n.tr("Magnitude")
                 color: pal.windowText
                 font.pixelSize: App.fontSmall
             }
             Rectangle {
-                width: 14
-                height: 3
+                Layout.preferredWidth: 14
+                Layout.preferredHeight: 3
                 color: pal.windowText
             }
             AppText {
-                text: root.tr("Phase")
+                text: I18n.tr("Phase")
                 color: pal.windowText
                 font.pixelSize: App.fontSmall
             }
@@ -315,14 +309,14 @@ Rectangle {
                 onExited: {
                     root.hoverFrac = -1
                     if (root.swept)
-                        root.statusText = root.tr("Move across the plot to read a point.")
+                        root.statusText = I18n.tr("Move across the plot to read a point.")
                     plot.requestPaint()
                 }
             }
         }
     }
 
-    function paintPane(ctx, top, h, vmin, vmax, key, color, unit) {
+    function paintPane(ctx: var, top: real, h: real, vmin: real, vmax: real, key: string, color: color, unit: string): void {
         ctx.strokeStyle = pal.mid
         ctx.lineWidth = 1
         ctx.strokeRect(root.plotLeft, top, root.innerW(), h)
@@ -384,7 +378,7 @@ Rectangle {
         ctx.lineWidth = 1
     }
 
-    function decadeList() {
+    function decadeList(): var {
         if (!(root.fHi > root.fLo) || root.fLo <= 0)
             return []
         var a = Math.ceil(Math.log10(root.fLo) - 1e-9)
@@ -395,7 +389,7 @@ Rectangle {
         return out
     }
 
-    function paintFreqLabels(ctx, axisY) {
+    function paintFreqLabels(ctx: var, axisY: real): void {
         ctx.fillStyle = pal.windowText
         ctx.font = App.fontSmall + "px \"" + App.fontFamily + "\""
         ctx.textAlign = "center"
@@ -407,7 +401,7 @@ Rectangle {
         }
     }
 
-    function paintHover(ctx, magTop, magH, phTop, phH) {
+    function paintHover(ctx: var, magTop: real, magH: real, phTop: real, phH: real): void {
         if (root.hoverFrac < 0 || !root.points || root.points.length === 0)
             return
         var i = root.nearest(root.hoverFrac)

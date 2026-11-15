@@ -1,22 +1,24 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Window
 import cs_app
+import cs_ui
 
 /* Pan/zoom/select canvas. The picture is the Vello frame in
  * CircuitCanvasItem, so overlays in this file paint above it. The grid
  * shader underneath shows until that frame arrives. Input goes to
- * CircuitCanvas. Hosted by CircuitPanel.qml. */
+ * CircuitCanvas. Hosted by CircuitPanelView.qml. */
 Item {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     focus: true
     clip: true
 
     readonly property bool dark: App.darkTheme
 
-    function rgba(hex) {
+    function rgba(hex: string): vector4d {
         var h = ("" + hex).replace("#", "")
         var r = 0, g = 0, b = 0, a = 1
         if (h.length === 6) {
@@ -32,17 +34,7 @@ Item {
         return Qt.vector4d(r, g, b, a)
     }
 
-    function shortcutFor(actionId) {
-        var scs = AppMenuBar.shortcuts
-        if (!scs) return ""
-        for (var i = 0; i < scs.length; ++i) {
-            if (scs[i] && scs[i].id === actionId)
-                return scs[i].shortcut || ""
-        }
-        return ""
-    }
-
-    function syncSize() {
+    function syncSize(): void {
         CircuitCanvas.setDpr(Screen.devicePixelRatio)
         CircuitCanvas.setViewSize(width, height)
     }
@@ -142,25 +134,25 @@ Item {
         function onRequestShowTerminal() {
             App.showTerminal()
         }
-        function onRequestOpenSerialMon(monId, title) {
+        function onRequestOpenSerialMon(monId: string, title: string): void {
             SerialMonitor.openMonitor(monId, title)
         }
-        function onRequestOpenFile(path) {
+        function onRequestOpenFile(path: string): void {
             EditorPanel.loadFile(path)
             EditorPanel.focusEditor()
             AppDialog.addRecentFile(path)
             AppMenuBar.rebuild()
             CircuitPanel.showEditor()
         }
-        function onRequestShowEditor() {
+        function onRequestShowEditor(): void {
             CircuitPanel.showEditor()
             EditorPanel.focusEditor()
         }
-        function onRequestPauseSim() {
+        function onRequestPauseSim(): void {
             if (CircuitCanvas.simRunning && !CircuitCanvas.simPaused)
                 CircuitCanvas.pauseCirc()
         }
-        function onRequestUploadRun(debug) {
+        function onRequestUploadRun(debug: bool): void {
             if (debug)
                 EditorPanel.debug()
             else
@@ -185,7 +177,7 @@ Item {
         }
 
         ContextMenuItem {
-            text: root.tr("Invert Pin")
+            text: I18n.tr("Invert Pin")
             iconLigature: "invert_colors"
             visible: !pinMenu.isPackage
             checkable: true
@@ -197,7 +189,7 @@ Item {
             }
         }
         ContextMenuItem {
-            text: root.tr("Edit Pin")
+            text: I18n.tr("Edit Pin")
             iconLigature: "edit"
             visible: pinMenu.isPackage
             onTriggered: {
@@ -206,7 +198,7 @@ Item {
             }
         }
         ContextMenuItem {
-            text: root.tr("Delete Pin")
+            text: I18n.tr("Delete Pin")
             iconLigature: "delete"
             visible: pinMenu.isPackage
             onTriggered: {
@@ -219,8 +211,8 @@ Item {
     AppContextMenu {
         id: wireMenu
         ContextMenuItem {
-            text: root.tr("Remove")
-            shortcutText: root.shortcutFor("edit.delete") || "Del"
+            text: I18n.tr("Remove")
+            shortcutText: UiUtils.shortcutFor("edit.delete") || "Del"
             iconLigature: "delete"
             onTriggered: CircuitCanvas.removeSelection()
         }
@@ -232,8 +224,8 @@ Item {
         readonly property bool isVal: CircuitCanvas.hitLabelIsVal
 
         ContextMenuItem {
-            text: root.tr("Rotate CW")
-            shortcutText: root.shortcutFor("edit.rotateCw") || "Ctrl+R"
+            text: I18n.tr("Rotate CW")
+            shortcutText: UiUtils.shortcutFor("edit.rotateCw") || "Ctrl+R"
             iconLigature: "rotate_right"
             onTriggered: {
                 if (labelMenu.isVal)
@@ -243,8 +235,8 @@ Item {
             }
         }
         ContextMenuItem {
-            text: root.tr("Rotate CCW")
-            shortcutText: root.shortcutFor("edit.rotateCcw") || "Ctrl+Shift+R"
+            text: I18n.tr("Rotate CCW")
+            shortcutText: UiUtils.shortcutFor("edit.rotateCcw") || "Ctrl+Shift+R"
             iconLigature: "rotate_left"
             onTriggered: {
                 if (labelMenu.isVal)
@@ -254,7 +246,7 @@ Item {
             }
         }
         ContextMenuItem {
-            text: root.tr("Rotate 180°")
+            text: I18n.tr("Rotate 180°")
             iconLigature: "sync_alt"
             onTriggered: {
                 if (labelMenu.isVal)
@@ -303,9 +295,9 @@ Item {
         readonly property bool hasSpecial: isWaveGen || isOsc || isLa || isMcu || isSerial || isSubPackage || isSubc
             || isMemory || isFunction || isImage || isSdCard || isTunnel || isProbe || isTestUnit || isDcMotor || isLinker
 
-        function syncSubMenuRow(sub, shown) {
+        function syncSubMenuRow(sub: AppContextMenu, shown: bool): void {
             for (var i = 0; i < count; i++) {
-                var it = itemAt(i)
+                const it = itemAt(i) as ContextMenuItem
                 if (it && it.subMenu === sub) {
                     it.visible = shown
                     it.enabled = shown
@@ -332,7 +324,7 @@ Item {
 
         // C++ Chip::addActivateAction — checkable, tick when active, disabled once active.
         ContextMenuItem {
-            text: root.tr("Activate")
+            text: I18n.tr("Activate")
             visible: itemMenu.showMcuActions
             checkable: true
             checked: itemMenu.isActive
@@ -345,13 +337,13 @@ Item {
 
         // C++ QemuDevice: Upload and Run / Upload and Debug
         ContextMenuItem {
-            text: root.tr("Upload and Run")
+            text: I18n.tr("Upload and Run")
             iconLigature: "play_arrow"
             visible: itemMenu.isQemu
             onTriggered: if (itemMenu.itemUid) CircuitCanvas.uploadAndRun(itemMenu.itemUid, false)
         }
         ContextMenuItem {
-            text: root.tr("Upload and Debug")
+            text: I18n.tr("Upload and Debug")
             iconLigature: "bug_report"
             visible: itemMenu.isQemu
             onTriggered: if (itemMenu.itemUid) CircuitCanvas.uploadAndRun(itemMenu.itemUid, true)
@@ -359,14 +351,14 @@ Item {
 
         ContextMenuItem {
             id: editFirmwareItem
-            text: root.tr("Edit firmware")
+            text: I18n.tr("Edit firmware")
             iconLigature: "edit"
             visible: itemMenu.showMcuActions
             onTriggered: CircuitCanvas.editFirmware(itemMenu.firmwareUid || "")
         }
 
         ContextMenuItem {
-            text: root.tr("Link to Component")
+            text: I18n.tr("Link to Component")
             iconLigature: "link"
             visible: itemMenu.isLinker
             onTriggered: if (itemMenu.itemUid) CircuitCanvas.startLinking(itemMenu.itemUid)
@@ -375,14 +367,14 @@ Item {
         ContextMenuSeparator { visible: itemMenu.isQemu }
 
         ContextMenuItem {
-            text: root.tr("Load firmware")
+            text: I18n.tr("Load firmware")
             iconLigature: "file_download"
             visible: itemMenu.showMcuActions && (itemMenu.hasFlash || itemMenu.isQemu)
             onTriggered: loadFirmwareDialog.open()
         }
         ContextMenuItem {
             id: reloadFirmwareItem
-            text: root.tr("Reload firmware")
+            text: I18n.tr("Reload firmware")
             iconLigature: "refresh"
             visible: itemMenu.showMcuActions && (itemMenu.hasFlash || itemMenu.isQemu)
             onTriggered: CircuitCanvas.reloadFirmware(itemMenu.firmwareUid)
@@ -391,13 +383,13 @@ Item {
         ContextMenuSeparator { visible: (itemMenu.isMcuChip || itemMenu.hasNestedMcu) && itemMenu.hasFlash }
 
         ContextMenuItem {
-            text: root.tr("Load EEPROM data from file")
+            text: I18n.tr("Load EEPROM data from file")
             iconLigature: "folder_open"
             visible: (itemMenu.isMcuChip || itemMenu.hasNestedMcu) && itemMenu.hasEeprom
             onTriggered: loadEepromDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Save EEPROM data to file")
+            text: I18n.tr("Save EEPROM data to file")
             iconLigature: "save"
             visible: (itemMenu.isMcuChip || itemMenu.hasNestedMcu) && itemMenu.hasEeprom
             onTriggered: saveEepromDialog.open()
@@ -407,7 +399,7 @@ Item {
 
         ContextMenuItem {
             id: openMcuMonitorItem
-            text: root.tr("Open Mcu Monitor.")
+            text: I18n.tr("Open Mcu Monitor.")
             iconLigature: "terminal"
             visible: itemMenu.isMcuChip || itemMenu.hasNestedMcu
             onTriggered: {
@@ -419,7 +411,7 @@ Item {
 
         ContextMenuItem {
             id: directSerialMonItem
-            text: itemMenu.isQemu ? root.tr("Open Serial Monitor.") : root.tr("Open Monitor.")
+            text: itemMenu.isQemu ? I18n.tr("Open Serial Monitor.") : I18n.tr("Open Monitor.")
             iconLigature: "terminal"
             visible: itemMenu.showMcuActions && itemMenu.hasMonitors
             onTriggered: {
@@ -434,7 +426,7 @@ Item {
 
         AppContextMenu {
             id: monitorMenu
-            title: root.tr("Other Monitors")
+            title: I18n.tr("Other Monitors")
             iconLigature: "terminal"
             Instantiator {
                 id: monitorRepeater
@@ -442,53 +434,56 @@ Item {
                        ? CircuitCanvas.selectedItemMonitors.slice(1)
                        : []
                 delegate: ContextMenuItem {
+                    id: monCtxItem
                     required property var modelData
                     text: "" + modelData
                     onTriggered: {
                         var uid = itemMenu.firmwareUid || itemMenu.itemUid
-                        var title = uid ? (uid + "-" + text) : text
-                        var monId = uid ? (uid + ":" + text) : text
+                        var title = uid ? (uid + "-" + monCtxItem.text) : monCtxItem.text
+                        var monId = uid ? (uid + ":" + monCtxItem.text) : monCtxItem.text
                         SerialMonitor.openMonitor(monId, title)
                     }
                 }
                 onObjectAdded: (index, object) => {
-                    monitorMenu.insertItem(index, object)
+                    const item = object as ContextMenuItem
+                    if (item) monitorMenu.insertItem(index, item)
                     itemMenu.syncSubMenuRow(monitorMenu, itemMenu.hasMonitors && itemMenu.showMcuActions && monitorRepeater.count > 0)
                 }
                 onObjectRemoved: (_, object) => {
-                    monitorMenu.removeItem(object)
+                    const item = object as ContextMenuItem
+                    if (item) monitorMenu.removeItem(item)
                     itemMenu.syncSubMenuRow(monitorMenu, itemMenu.hasMonitors && itemMenu.showMcuActions && monitorRepeater.count > 0)
                 }
             }
         }
 
         ContextMenuItem {
-            text: root.tr("Open Subcircuit")
+            text: I18n.tr("Open Subcircuit")
             iconLigature: "upload"
             visible: itemMenu.isSubc
             onTriggered: if (itemMenu.itemUid) CircuitCanvas.openSubcircuit(itemMenu.itemUid)
         }
 
         ContextMenuItem {
-            text: root.tr("Load Audio File")
+            text: I18n.tr("Load Audio File")
             iconLigature: "file_download"
             visible: itemMenu.isWaveGen
             onTriggered: loadWavDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Open Oscilloscope Window")
+            text: I18n.tr("Open Oscilloscope Window")
             iconLigature: "monitoring"
             visible: itemMenu.isOsc
             onTriggered: App.showOsc()
         }
         ContextMenuItem {
-            text: root.tr("Open Logic Analyzer Window")
+            text: I18n.tr("Open Logic Analyzer Window")
             iconLigature: "monitoring"
             visible: itemMenu.isLa
             onTriggered: App.showLa()
         }
         ContextMenuItem {
-            text: root.tr("Open Serial Monitor.")
+            text: I18n.tr("Open Serial Monitor.")
             iconLigature: "terminal"
             visible: itemMenu.isSerial
             onTriggered: {
@@ -500,19 +495,19 @@ Item {
         }
 
         ContextMenuItem {
-            text: root.tr("Load data")
+            text: I18n.tr("Load data")
             iconLigature: "file_download"
             visible: itemMenu.isMemory
             onTriggered: loadDataDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Save data")
+            text: I18n.tr("Save data")
             iconLigature: "save"
             visible: itemMenu.isMemory
             onTriggered: saveDataDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Show Memory Table")
+            text: I18n.tr("Show Memory Table")
             iconLigature: "table_chart"
             visible: itemMenu.isMemory
             onTriggered: {
@@ -524,58 +519,58 @@ Item {
         }
 
         ContextMenuItem {
-            text: root.tr("Save Functions")
+            text: I18n.tr("Save Functions")
             iconLigature: "save"
             visible: itemMenu.isFunction
             onTriggered: saveFunctionsDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Load Functions")
+            text: I18n.tr("Load Functions")
             iconLigature: "folder_open"
             visible: itemMenu.isFunction
             onTriggered: loadFunctionsDialog.open()
         }
 
         ContextMenuItem {
-            text: root.tr("Load Image")
+            text: I18n.tr("Load Image")
             iconLigature: "file_download"
             visible: itemMenu.isImage
             onTriggered: loadImageDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Save Image")
+            text: I18n.tr("Save Image")
             iconLigature: "save"
             visible: itemMenu.isImage && CircuitCanvas.selectedHasImageData
             onTriggered: saveImageItemDialog.open()
         }
 
         ContextMenuItem {
-            text: root.tr("Load .img File")
+            text: I18n.tr("Load .img File")
             iconLigature: "file_download"
             visible: itemMenu.isSdCard
             onTriggered: loadSdDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Eject SD card")
+            text: I18n.tr("Eject SD card")
             iconLigature: "link_off"
             visible: itemMenu.isSdCard && CircuitCanvas.selectedHasSdImage
             onTriggered: CircuitCanvas.ejectSdCard(itemMenu.itemUid)
         }
 
         ContextMenuItem {
-            text: root.tr("Hide group")
+            text: I18n.tr("Hide group")
             iconLigature: "visibility_off"
             visible: itemMenu.isTunnel && itemMenu.tunnelVisible
             onTriggered: CircuitCanvas.hideTunnelGroup(itemMenu.itemUid)
         }
         ContextMenuItem {
-            text: root.tr("Show group")
+            text: I18n.tr("Show group")
             iconLigature: "stop_circle"
             visible: itemMenu.isTunnel && !itemMenu.tunnelVisible
             onTriggered: CircuitCanvas.showTunnelGroup(itemMenu.itemUid)
         }
         ContextMenuItem {
-            text: root.tr("Rename group")
+            text: I18n.tr("Rename group")
             iconLigature: "edit"
             visible: itemMenu.isTunnel
             onTriggered: {
@@ -585,7 +580,7 @@ Item {
         }
 
         ContextMenuItem {
-            text: root.tr("Pause at state change")
+            text: I18n.tr("Pause at state change")
             iconLigature: itemMenu.probePause ? "play_circle" : "pause_circle"
             visible: itemMenu.isProbe
             checkable: true
@@ -594,7 +589,7 @@ Item {
         }
 
         ContextMenuItem {
-            text: root.tr("Show Table")
+            text: I18n.tr("Show Table")
             iconLigature: "list"
             visible: itemMenu.isTestUnit
             onTriggered: {
@@ -607,26 +602,26 @@ Item {
         }
 
         ContextMenuItem {
-            text: root.tr("Open Monitor")
+            text: I18n.tr("Open Monitor")
             iconLigature: "terminal"
             visible: itemMenu.isDcMotor
             onTriggered: motorMonitorPopup.open()
         }
 
         ContextMenuItem {
-            text: root.tr("Load Package")
+            text: I18n.tr("Load Package")
             iconLigature: "folder_open"
             visible: itemMenu.isSubPackage
             onTriggered: loadPackageDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Save Package")
+            text: I18n.tr("Save Package")
             iconLigature: "save"
             visible: itemMenu.isSubPackage
             onTriggered: savePackageDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Generate Pins...")
+            text: I18n.tr("Generate Pins...")
             iconLigature: "grid_on"
             visible: itemMenu.isSubPackage
             onTriggered: {
@@ -638,7 +633,7 @@ Item {
         }
         ContextMenuItem {
             id: packageFileItem
-            text: root.tr("Select Exposed Components")
+            text: I18n.tr("Select Exposed Components")
             iconLigature: "link"
             visible: itemMenu.isSubPackage
             onTriggered: if (itemMenu.itemUid) CircuitCanvas.startLinking(itemMenu.itemUid)
@@ -646,7 +641,7 @@ Item {
 
         AppContextMenu {
             id: footprintsMenu
-            title: root.tr("Footprints")
+            title: I18n.tr("Footprints")
             iconLigature: "developer_board"
             ContextMenuItem {
                 text: "DIP-8"
@@ -677,7 +672,7 @@ Item {
                 onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintDip(itemMenu.itemUid, "DIP-40", 40, 6)
             }
             ContextMenuItem {
-                text: root.tr("Logic Symbol (4 In, 2 Out)")
+                text: I18n.tr("Logic Symbol (4 In, 2 Out)")
                 onTriggered: if (itemMenu.itemUid) CircuitCanvas.setPackageFootprintLs(itemMenu.itemUid, "LS", "A,B,C,D", "Y1,Y2", "VCC", "GND")
             }
         }
@@ -686,31 +681,31 @@ Item {
 
         // C++ Component::contextMenu: Copy, Cut, Remove, Properties, then rotate/flip
         ContextMenuItem {
-            text: root.tr("Copy")
-            shortcutText: root.shortcutFor("edit.copy") || "Ctrl+C"
+            text: I18n.tr("Copy")
+            shortcutText: UiUtils.shortcutFor("edit.copy") || "Ctrl+C"
             iconLigature: "content_copy"
             visible: CircuitCanvas.hasItemSelection
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.copySelection()
         }
         ContextMenuItem {
-            text: root.tr("Cut")
-            shortcutText: root.shortcutFor("edit.cut") || "Ctrl+X"
+            text: I18n.tr("Cut")
+            shortcutText: UiUtils.shortcutFor("edit.cut") || "Ctrl+X"
             iconLigature: "content_cut"
             visible: CircuitCanvas.hasItemSelection
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.cutSelection()
         }
         ContextMenuItem {
-            text: root.tr("Remove")
-            shortcutText: root.shortcutFor("edit.delete") || "Del"
+            text: I18n.tr("Remove")
+            shortcutText: UiUtils.shortcutFor("edit.delete") || "Del"
             iconLigature: "delete"
             visible: CircuitCanvas.hasItemSelection
             enabled: CircuitCanvas.hasSelection
             onTriggered: CircuitCanvas.removeSelection()
         }
         ContextMenuItem {
-            text: root.tr("Properties")
+            text: I18n.tr("Properties")
             iconLigature: "settings"
             visible: CircuitCanvas.hasItemSelection
             onTriggered: CircuitCanvas.openSelectedProperties()
@@ -718,35 +713,35 @@ Item {
 
         ContextMenuSeparator { visible: CircuitCanvas.hasItemSelection }
         ContextMenuItem {
-            text: root.tr("Rotate CW")
-            shortcutText: root.shortcutFor("edit.rotateCw") || "Ctrl+R"
+            text: I18n.tr("Rotate CW")
+            shortcutText: UiUtils.shortcutFor("edit.rotateCw") || "Ctrl+R"
             iconLigature: "rotate_right"
             visible: CircuitCanvas.hasItemSelection
             onTriggered: AppMenuBar.triggerAction("edit.rotateCw")
         }
         ContextMenuItem {
-            text: root.tr("Rotate CCW")
-            shortcutText: root.shortcutFor("edit.rotateCcw") || "Ctrl+Shift+R"
+            text: I18n.tr("Rotate CCW")
+            shortcutText: UiUtils.shortcutFor("edit.rotateCcw") || "Ctrl+Shift+R"
             iconLigature: "rotate_left"
             visible: CircuitCanvas.hasItemSelection
             onTriggered: AppMenuBar.triggerAction("edit.rotateCcw")
         }
         ContextMenuItem {
-            text: root.tr("Rotate 180")
+            text: I18n.tr("Rotate 180")
             iconLigature: "sync_alt"
             visible: CircuitCanvas.hasItemSelection
             onTriggered: CircuitCanvas.rotate180()
         }
         ContextMenuItem {
-            text: root.tr("Horizontal Flip")
-            shortcutText: root.shortcutFor("edit.flipH") || "Ctrl+L"
+            text: I18n.tr("Horizontal Flip")
+            shortcutText: UiUtils.shortcutFor("edit.flipH") || "Ctrl+L"
             iconLigature: "flip"
             visible: CircuitCanvas.hasItemSelection
             onTriggered: AppMenuBar.triggerAction("edit.flipH")
         }
         ContextMenuItem {
-            text: root.tr("Vertical Flip")
-            shortcutText: root.shortcutFor("edit.flipV") || "Ctrl+Shift+L"
+            text: I18n.tr("Vertical Flip")
+            shortcutText: UiUtils.shortcutFor("edit.flipV") || "Ctrl+Shift+L"
             iconLigature: "swap_vert"
             visible: CircuitCanvas.hasItemSelection
             onTriggered: AppMenuBar.triggerAction("edit.flipV")
@@ -756,34 +751,34 @@ Item {
     AppContextMenu {
         id: canvasMenu
         ContextMenuItem {
-            text: root.tr("Paste")
-            shortcutText: root.shortcutFor("edit.paste") || "Ctrl+V"
+            text: I18n.tr("Paste")
+            shortcutText: UiUtils.shortcutFor("edit.paste") || "Ctrl+V"
             iconLigature: "content_paste"
             enabled: CircuitCanvas.canPaste
             onTriggered: CircuitCanvas.pasteAtCursor()
         }
         ContextMenuItem {
-            text: root.tr("Undo")
-            shortcutText: root.shortcutFor("edit.undo") || "Ctrl+Z"
+            text: I18n.tr("Undo")
+            shortcutText: UiUtils.shortcutFor("edit.undo") || "Ctrl+Z"
             iconLigature: "undo"
             enabled: CircuitCanvas.canUndo
             onTriggered: CircuitCanvas.undo()
         }
         ContextMenuItem {
-            text: root.tr("Redo")
-            shortcutText: root.shortcutFor("edit.redo") || "Ctrl+Y"
+            text: I18n.tr("Redo")
+            shortcutText: UiUtils.shortcutFor("edit.redo") || "Ctrl+Y"
             iconLigature: "redo"
             enabled: CircuitCanvas.canRedo
             onTriggered: CircuitCanvas.redo()
         }
         ContextMenuSeparator {}
         ContextMenuItem {
-            text: root.tr("Import Circuit")
+            text: I18n.tr("Import Circuit")
             iconLigature: "folder_open"
             onTriggered: importCircDialog.open()
         }
         ContextMenuItem {
-            text: root.tr("Save Circuit as Image")
+            text: I18n.tr("Save Circuit as Image")
             iconLigature: "image"
             onTriggered: saveImageDialog.open()
         }
@@ -791,10 +786,10 @@ Item {
 
     FileDialog {
         id: loadWavDialog
-        title: root.tr("Load Audio File")
+        title: I18n.tr("Load Audio File")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("WAV files (*.wav)"), root.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("WAV files (*.wav)"), I18n.tr("All files (*)") ]
         onAccepted: {
             if (itemMenu.itemUid) {
                 CircuitCanvas.loadWavFile(itemMenu.itemUid, "" + selectedFile)
@@ -804,91 +799,91 @@ Item {
 
     FileDialog {
         id: loadFirmwareDialog
-        title: root.tr("Load Firmware")
+        title: I18n.tr("Load Firmware")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("All files (*.*)"), root.tr("Hex Files (*.hex)") ]
+        nameFilters: [ I18n.tr("All files (*.*)"), I18n.tr("Hex Files (*.hex)") ]
         onAccepted: CircuitCanvas.loadFirmware(itemMenu.firmwareUid, "" + selectedFile)
     }
     FileDialog {
         id: loadEepromDialog
-        title: root.tr("Load EEPROM data from file")
+        title: I18n.tr("Load EEPROM data from file")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("All files (*.*)"), root.tr(".data (*.data)"), root.tr(".bin (*.bin)") ]
+        nameFilters: [ I18n.tr("All files (*.*)"), I18n.tr(".data (*.data)"), I18n.tr(".bin (*.bin)") ]
         onAccepted: CircuitCanvas.loadEeprom(itemMenu.firmwareUid, "" + selectedFile)
     }
     FileDialog {
         id: saveEepromDialog
-        title: root.tr("Save EEPROM data to file")
+        title: I18n.tr("Save EEPROM data to file")
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         defaultSuffix: "data"
-        nameFilters: [ root.tr("All files (*.*)"), root.tr(".data (*.data)"), root.tr(".bin (*.bin)") ]
+        nameFilters: [ I18n.tr("All files (*.*)"), I18n.tr(".data (*.data)"), I18n.tr(".bin (*.bin)") ]
         onAccepted: CircuitCanvas.saveEeprom(itemMenu.firmwareUid, "" + selectedFile)
     }
     FileDialog {
         id: loadDataDialog
-        title: root.tr("Load data")
+        title: I18n.tr("Load data")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("All files (*.*)"), root.tr(".data (*.data)"), root.tr(".bin (*.bin)") ]
+        nameFilters: [ I18n.tr("All files (*.*)"), I18n.tr(".data (*.data)"), I18n.tr(".bin (*.bin)") ]
         onAccepted: CircuitCanvas.loadItemData(itemMenu.itemUid, "" + selectedFile)
     }
     FileDialog {
         id: saveDataDialog
-        title: root.tr("Save data")
+        title: I18n.tr("Save data")
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         defaultSuffix: "data"
-        nameFilters: [ root.tr("All files (*.*)"), root.tr(".data (*.data)"), root.tr(".bin (*.bin)") ]
+        nameFilters: [ I18n.tr("All files (*.*)"), I18n.tr(".data (*.data)"), I18n.tr(".bin (*.bin)") ]
         onAccepted: CircuitCanvas.saveItemData(itemMenu.itemUid, "" + selectedFile)
     }
     FileDialog {
         id: loadFunctionsDialog
-        title: root.tr("Open Function")
+        title: I18n.tr("Open Function")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("Function (*.fnc)"), root.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("Function (*.fnc)"), I18n.tr("All files (*)") ]
         onAccepted: CircuitCanvas.loadFunctions(itemMenu.itemUid, "" + selectedFile)
     }
     FileDialog {
         id: saveFunctionsDialog
-        title: root.tr("Save Function")
+        title: I18n.tr("Save Function")
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         defaultSuffix: "fnc"
-        nameFilters: [ root.tr("Function (*.fnc)"), root.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("Function (*.fnc)"), I18n.tr("All files (*)") ]
         onAccepted: CircuitCanvas.saveFunctions(itemMenu.itemUid, "" + selectedFile)
     }
     FileDialog {
         id: loadImageDialog
-        title: root.tr("Load Image")
+        title: I18n.tr("Load Image")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("All files (*)") ]
         onAccepted: CircuitCanvas.loadImageFile(itemMenu.itemUid, "" + selectedFile)
     }
     FileDialog {
         id: saveImageItemDialog
-        title: root.tr("Save Image")
+        title: I18n.tr("Save Image")
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         onAccepted: CircuitCanvas.saveImageItem(itemMenu.itemUid, "" + selectedFile)
     }
     FileDialog {
         id: loadSdDialog
-        title: root.tr("Load .img File")
+        title: I18n.tr("Load .img File")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("Disk images (*.img)"), root.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("Disk images (*.img)"), I18n.tr("All files (*)") ]
         onAccepted: CircuitCanvas.loadSdImage(itemMenu.itemUid, "" + selectedFile)
     }
 
     ListModel { id: truthTableModel }
     Dialog {
         id: truthTablePopup
-        title: root.tr("Truth Table")
+        title: I18n.tr("Truth Table")
         modal: true
         anchors.centerIn: parent
         width: 320
@@ -899,15 +894,18 @@ Item {
             clip: true
             model: truthTableModel
             delegate: Row {
+                id: ttRow
+                required property int step
+                required property real value
                 spacing: 16
-                AppText { width: 60; text: "" + step; font.family: "Ubuntu Mono" }
-                AppText { width: 120; text: "0x" + Number(value).toString(16).toUpperCase(); font.family: "Ubuntu Mono" }
+                AppText { width: 60; text: "" + ttRow.step; font.family: "Ubuntu Mono" }
+                AppText { width: 120; text: "0x" + Number(ttRow.value).toString(16).toUpperCase(); font.family: "Ubuntu Mono" }
             }
         }
     }
     Dialog {
         id: motorMonitorPopup
-        title: root.tr("Open Monitor")
+        title: I18n.tr("Open Monitor")
         modal: false
         anchors.centerIn: parent
         width: 240
@@ -916,13 +914,13 @@ Item {
         Column {
             anchors.centerIn: parent
             spacing: 8
-            AppText { text: root.tr("Speed: ") + (itemMenu.itemUid ? "" : "") }
-            AppText { text: root.tr("Use the Properties panel for live motor values.") }
+            AppText { text: I18n.tr("Speed: ") + (itemMenu.itemUid ? "" : "") }
+            AppText { text: I18n.tr("Use the Properties panel for live motor values.") }
         }
     }
     Dialog {
         id: renameTunnelPopup
-        title: root.tr("Rename Tunnels")
+        title: I18n.tr("Rename Tunnels")
         modal: true
         anchors.centerIn: parent
         width: 320
@@ -935,7 +933,7 @@ Item {
             anchors.fill: parent
             anchors.margins: 12
             spacing: 8
-            AppText { text: root.tr("New name:") }
+            AppText { text: I18n.tr("New name:") }
             AppTextField {
                 id: renameTunnelField
                 width: parent.width
@@ -945,7 +943,7 @@ Item {
 
     Dialog {
         id: editPinPopup
-        title: root.tr("Edit Package Pin")
+        title: I18n.tr("Edit Package Pin")
         modal: true
         anchors.centerIn: parent
         padding: 0
@@ -959,7 +957,7 @@ Item {
 
     Dialog {
         id: generatePinsPopup
-        title: root.tr("Generate Pins")
+        title: I18n.tr("Generate Pins")
         modal: true
         anchors.centerIn: parent
         padding: 0
@@ -972,10 +970,10 @@ Item {
 
     FileDialog {
         id: loadPackageDialog
-        title: root.tr("Load Package File")
+        title: I18n.tr("Load Package File")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("Package files (*.package)"), root.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("Package files (*.package)"), I18n.tr("All files (*)") ]
         onAccepted: {
             if (CircuitCanvas.selectedUid) {
                 CircuitCanvas.loadPackageFile(CircuitCanvas.selectedUid, "" + selectedFile)
@@ -985,11 +983,11 @@ Item {
 
     FileDialog {
         id: savePackageDialog
-        title: root.tr("Export Package File")
+        title: I18n.tr("Export Package File")
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         defaultSuffix: "package"
-        nameFilters: [ root.tr("Package files (*.package)"), root.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("Package files (*.package)"), I18n.tr("All files (*)") ]
         onAccepted: {
             if (CircuitCanvas.selectedUid) {
                 CircuitCanvas.savePackageFile(CircuitCanvas.selectedUid, "" + selectedFile)
@@ -999,16 +997,16 @@ Item {
 
     FileDialog {
         id: saveImageDialog
-        title: root.tr("Save as Image")
+        title: I18n.tr("Save as Image")
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         defaultSuffix: "png"
         nameFilters: [
-            root.tr("PNG (*.png)"),
-            root.tr("JPEG (*.jpeg *.jpg)"),
-            root.tr("BMP (*.bmp)"),
-            root.tr("SVG (*.svg)"),
-            root.tr("All (*.*)")
+            I18n.tr("PNG (*.png)"),
+            I18n.tr("JPEG (*.jpeg *.jpg)"),
+            I18n.tr("BMP (*.bmp)"),
+            I18n.tr("SVG (*.svg)"),
+            I18n.tr("All (*.*)")
         ]
         currentFile: CircuitCanvas.suggestImageUrl || ""
         onAccepted: CircuitCanvas.saveImage("" + selectedFile)
@@ -1016,10 +1014,10 @@ Item {
 
     FileDialog {
         id: importCircDialog
-        title: root.tr("Import Circuit")
+        title: I18n.tr("Import Circuit")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ root.tr("Circuits (*.circ1 *.sim2 *.sim1)"), root.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("Circuits (*.circ1 *.sim2 *.sim1)"), I18n.tr("All files (*)") ]
         onAccepted: CircuitCanvas.importPath("" + selectedFile)
     }
 
@@ -1030,8 +1028,7 @@ Item {
         orientation: Qt.Horizontal | Qt.Vertical
         onWheel: (w) => CircuitCanvas.wheel(w.pixelDelta.x, w.pixelDelta.y,
                                             w.angleDelta.x, w.angleDelta.y,
-                                            (w.point && w.point.position ? w.point.position.x : (w.position ? w.position.x : (w.x !== undefined ? w.x : mouse.mouseX))),
-                                            (w.point && w.point.position ? w.point.position.y : (w.position ? w.position.y : (w.y !== undefined ? w.y : mouse.mouseY))),
+                                            w.x, w.y,
                                             w.modifiers)
     }
 

@@ -1,14 +1,13 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // The floating readout panel. Sized to its content (the QQuickWidget is in
 // SizeViewToRootObject mode) so CircuitWidget can position it by its own size,
 // and translucent so the canvas shows through behind it.
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     implicitWidth: Math.max( 280, content.implicitWidth + 30 )
     implicitHeight: content.implicitHeight + 30
@@ -58,7 +57,7 @@ Rectangle {
             spacing: 3
 
             AppText {
-                text: root.tr( "Simulation Time" )
+                text: I18n.tr( "Simulation Time" )
                 font.pixelSize: App.fontSmall
                 font.bold: true
                 color: InfoWidget.textColor
@@ -73,7 +72,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: InfoWidget.panelBorder
             opacity: 0.4
         }
@@ -82,23 +81,23 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 5
 
-            Readout { label: root.tr( "Target Speed:" ); value: InfoWidget.targetSpeed }
-            Readout { label: root.tr( "Real Speed:" ); value: InfoWidget.realSpeed }
-            Readout { label: root.tr( "Sim Load:" ); value: InfoWidget.simLoad }
-            Readout { label: root.tr( "GUI Load:" ); value: InfoWidget.guiLoad }
+            Readout { label: I18n.tr( "Target Speed:" ); value: InfoWidget.targetSpeed }
+            Readout { label: I18n.tr( "Real Speed:" ); value: InfoWidget.realSpeed }
+            Readout { label: I18n.tr( "Sim Load:" ); value: InfoWidget.simLoad }
+            Readout { label: I18n.tr( "GUI Load:" ); value: InfoWidget.guiLoad }
             Readout {
-                label: root.tr( "Over Load:" )
+                label: I18n.tr( "Over Load:" )
                 value: InfoWidget.overLoad
                 visible: InfoWidget.overLoaded
             }
-            Readout { label: root.tr( "FPS:" ); value: InfoWidget.fps }
+            Readout { label: I18n.tr( "FPS:" ); value: InfoWidget.fps }
             Readout {
-                label: root.tr( "MCU:" )
+                label: I18n.tr( "MCU:" )
                 value: InfoWidget.mcuDevice
                 visible: InfoWidget.hasMcu
             }
             Readout {
-                label: root.tr( "Name:" )
+                label: I18n.tr( "Name:" )
                 value: InfoWidget.mcuName
                 visible: InfoWidget.hasMcu
             }
@@ -106,7 +105,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: InfoWidget.panelBorder
             opacity: 0.4
         }
@@ -118,7 +117,7 @@ Rectangle {
             spacing: 4
 
             AppText {
-                text: root.tr( "Current Speed" )
+                text: I18n.tr( "Current Speed" )
                 font.pixelSize: App.fontSmall
                 font.bold: true
                 color: InfoWidget.textColor

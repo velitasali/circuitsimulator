@@ -1,11 +1,10 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     // Transparent where AppKit draws the window material behind the dialog,
     // the plain palette background everywhere else.
@@ -41,7 +40,7 @@ Rectangle {
                 spacing: 8
 
                 AppText {
-                    text: root.tr("Circuit Simulator")
+                    text: I18n.tr("Circuit Simulator")
                     color: pal.windowText
                     font.pixelSize: 22
                     font.bold: true
@@ -54,7 +53,7 @@ Rectangle {
                     Layout.fillWidth: true
 
                     AppText {
-                        text: root.tr("Version:")
+                        text: I18n.tr("Version:")
                         color: pal.windowText
                         font.bold: true
                     }
@@ -64,7 +63,7 @@ Rectangle {
                     }
 
                     AppText {
-                        text: root.tr("Website:")
+                        text: I18n.tr("Website:")
                         color: pal.windowText
                         font.bold: true
                     }
@@ -86,7 +85,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: pal.mid
         }
 
@@ -99,10 +98,10 @@ Rectangle {
             linkColor: pal.highlight
             textFormat: Text.RichText
             lineHeight: 1.25
-            text: "<p>" + root.tr("This program uses Qt version %1.").replace("%1", App.qtVersion) + "<br/>"
-                + root.tr("Qt is licensed under the GNU LGPL version 3.") + "<br/>"
-                + root.tr("Please see <a href=\"https://www.qt.io/licensing/\">qt.io/licensing</a> for an overview of Qt licensing.") + "</p>"
-                + "<p>" + root.tr("Copyright (C) 2026 The Qt Company Ltd and other contributors.") + "</p>"
+            text: "<p>" + I18n.tr("This program uses Qt version %1.").replace("%1", App.qtVersion) + "<br/>"
+                + I18n.tr("Qt is licensed under the GNU LGPL version 3.") + "<br/>"
+                + I18n.tr("Please see <a href=\"https://www.qt.io/licensing/\">qt.io/licensing</a> for an overview of Qt licensing.") + "</p>"
+                + "<p>" + I18n.tr("Copyright (C) 2026 The Qt Company Ltd and other contributors.") + "</p>"
             onLinkActivated: (link) => Qt.openUrlExternally(link)
             MouseArea {
                 anchors.fill: parent

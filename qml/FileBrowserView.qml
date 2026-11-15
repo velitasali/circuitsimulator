@@ -1,19 +1,21 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import cs_app
+import cs_ui
 
 Item {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     SystemPalette { id: appTheme }
     anchors.fill: parent
 
     property string selectedPath: ""
     property bool selectedIsDir: false
 
-    function syncEntries() {
+    function syncEntries(): void {
         var arr = FileBrowser.entries
         if ( !arr )
             return
@@ -72,19 +74,19 @@ Item {
 
     Connections {
         target: FileBrowser
-        function onEntriesChanged() { root.syncEntries() }
-        function onRootPathChanged() { root.syncEntries() }
+        function onEntriesChanged(): void { root.syncEntries() }
+        function onRootPathChanged(): void { root.syncEntries() }
     }
     Component.onCompleted: root.syncEntries()
 
     FolderDialog {
         id: folderDialog
-        title: root.tr( "Open Project" )
+        title: I18n.tr( "Open Project" )
         currentFolder: App.suggestFolderUrl( FileBrowser.rootPath )
-        onAccepted: FileBrowser.rootPath = "" + selectedFolder
+        onAccepted: FileBrowser.rootPath = "" + folderDialog.selectedFolder
     }
 
-    function fileIconForName( name, isDir, expanded ) {
+    function fileIconForName( name: string, isDir: bool, expanded: bool ): string {
         if ( isDir ) return expanded ? "folder_open" : "folder"
         const ext = ( name || "" ).split( "." ).pop().toLowerCase()
         if ( ext === "circ1" || ext === "circ" || ext === "sim" || ext === "sim2" || ext === "sim1" ) return "memory"
@@ -96,7 +98,7 @@ Item {
         return "description"
     }
 
-    function getTargetDirectory() {
+    function getTargetDirectory(): string {
         if ( !root.selectedPath || root.selectedPath.length === 0 ) {
             return FileBrowser.rootPath
         }
@@ -110,27 +112,27 @@ Item {
         return FileBrowser.rootPath
     }
 
-    function destinationDisplayPath() {
+    function destinationDisplayPath(): string {
         var target = getTargetDirectory()
         if ( !target || target.length === 0 || target === FileBrowser.rootPath ) {
-            return root.tr( "Project Root" )
+            return I18n.tr( "Project Root" )
         }
         if ( target.startsWith( FileBrowser.rootPath ) ) {
             var rel = target.substring( FileBrowser.rootPath.length )
             if ( rel.startsWith( "/" ) ) rel = rel.substring( 1 )
-            return rel.length > 0 ? rel : root.tr( "Project Root" )
+            return rel.length > 0 ? rel : I18n.tr( "Project Root" )
         }
         var idx = target.lastIndexOf( "/" )
         return idx >= 0 ? target.substring( idx + 1 ) : target
     }
 
-    function renameTargetName() {
+    function renameTargetName(): string {
         if ( !root.selectedPath || root.selectedPath.length === 0 ) return ""
         var parts = root.selectedPath.split( "/" )
         return parts[parts.length - 1]
     }
 
-    function pathExists( targetDir, name ) {
+    function pathExists( targetDir: string, name: string ): bool {
         if ( !name || name.trim().length === 0 ) return false
         var trimmed = name.trim()
         var fullPath = targetDir.endsWith( "/" ) ? ( targetDir + trimmed ) : ( targetDir + "/" + trimmed )
@@ -143,35 +145,35 @@ Item {
         return false
     }
 
-    function validateFileName( name, isFolder ) {
+    function validateFileName( name: string, isFolder: bool ): string {
         var trimmed = ( name || "" ).trim()
         if ( trimmed.length === 0 ) return ""
-        if ( trimmed === "." || trimmed === ".." ) return root.tr( "Name is reserved." )
-        if ( /[/\\:*?"<>|]/.test( trimmed ) ) return root.tr( "Name cannot contain / \\ : * ? \" < > |" )
+        if ( trimmed === "." || trimmed === ".." ) return I18n.tr( "Name is reserved." )
+        if ( /[/\\:*?"<>|]/.test( trimmed ) ) return I18n.tr( "Name cannot contain / \\ : * ? \" < > |" )
         var target = getTargetDirectory()
         if ( pathExists( target, trimmed ) ) {
-            return isFolder ? root.tr( "A folder with this name already exists." ) : root.tr( "A file with this name already exists." )
+            return isFolder ? I18n.tr( "A folder with this name already exists." ) : I18n.tr( "A file with this name already exists." )
         }
         return ""
     }
 
-    function validateRename( newName ) {
+    function validateRename( newName: string ): string {
         var trimmed = ( newName || "" ).trim()
         if ( trimmed.length === 0 ) return ""
-        if ( trimmed === "." || trimmed === ".." ) return root.tr( "Name is reserved." )
-        if ( /[/\\:*?"<>|]/.test( trimmed ) ) return root.tr( "Name cannot contain / \\ : * ? \" < > |" )
+        if ( trimmed === "." || trimmed === ".." ) return I18n.tr( "Name is reserved." )
+        if ( /[/\\:*?"<>|]/.test( trimmed ) ) return I18n.tr( "Name cannot contain / \\ : * ? \" < > |" )
         var parts = root.selectedPath.split( "/" )
         var currentName = parts[parts.length - 1]
-        if ( trimmed === currentName ) return root.tr( "Name is unchanged." )
+        if ( trimmed === currentName ) return I18n.tr( "Name is unchanged." )
         var parentDir = ""
         var idx = root.selectedPath.lastIndexOf( "/" )
         if ( idx > 0 ) parentDir = root.selectedPath.substring( 0, idx )
         else parentDir = FileBrowser.rootPath
-        if ( pathExists( parentDir, trimmed ) ) return root.tr( "An item with this name already exists." )
+        if ( pathExists( parentDir, trimmed ) ) return I18n.tr( "An item with this name already exists." )
         return ""
     }
 
-    function applyExtension( textField, ext ) {
+    function applyExtension( textField: AppTextField, ext: string ): void {
         var text = textField.text.trim()
         if ( text.length === 0 ) {
             textField.text = ext
@@ -189,23 +191,23 @@ Item {
         textField.forceActiveFocus()
     }
 
-    function fileIconPreview( name ) {
+    function fileIconPreview( name: string ): string {
         var trimmed = ( name || "" ).trim()
         if ( trimmed.length === 0 ) return "note_add"
         return root.fileIconForName( trimmed, false, false )
     }
 
-    function openCreateFileDialog() {
+    function openCreateFileDialog(): void {
         newFileInput.text = ""
         createFileDialog.open()
     }
 
-    function openCreateFolderDialog() {
+    function openCreateFolderDialog(): void {
         newDirInput.text = ""
         createFolderDialog.open()
     }
 
-    function openRenameDialog() {
+    function openRenameDialog(): void {
         var parts = root.selectedPath.split( "/" )
         renameInput.text = parts[parts.length - 1]
         renameDialog.open()
@@ -215,7 +217,7 @@ Item {
         id: contextMenu
 
         ContextMenuItem {
-            text: root.tr( "Open in editor" )
+            text: I18n.tr( "Open in editor" )
             iconLigature: "folder_open"
             visible: root.selectedPath.length > 0 && !root.selectedIsDir
             onTriggered: FileBrowser.openInEditor( root.selectedPath )
@@ -224,57 +226,57 @@ Item {
             visible: root.selectedPath.length > 0 && !root.selectedIsDir
         }
         ContextMenuItem {
-            text: root.tr( "New File" )
+            text: I18n.tr( "New File" )
             iconLigature: "note_add"
             onTriggered: root.openCreateFileDialog()
         }
         ContextMenuItem {
-            text: root.tr( "New Directory" )
+            text: I18n.tr( "New Directory" )
             iconLigature: "create_new_folder"
             onTriggered: root.openCreateFolderDialog()
         }
         ContextMenuSeparator {}
         ContextMenuItem {
-            text: root.tr( "Copy" )
+            text: I18n.tr( "Copy" )
             iconLigature: "content_copy"
             enabled: root.selectedPath.length > 0 && root.selectedPath !== FileBrowser.rootPath
             onTriggered: FileBrowser.copyToClipboard( root.selectedPath )
         }
         ContextMenuItem {
-            text: root.tr( "Paste" )
+            text: I18n.tr( "Paste" )
             iconLigature: "content_paste"
             enabled: FileBrowser.canPaste
             onTriggered: FileBrowser.pasteTo( root.selectedPath )
         }
         ContextMenuSeparator {}
         ContextMenuItem {
-            text: root.tr( "Rename" )
+            text: I18n.tr( "Rename" )
             iconLigature: "edit"
             enabled: root.selectedPath.length > 0 && root.selectedPath !== FileBrowser.rootPath
             onTriggered: root.openRenameDialog()
         }
         ContextMenuItem {
-            text: root.tr( "Move to Trash" )
+            text: I18n.tr( "Move to Trash" )
             iconLigature: "delete"
             enabled: root.selectedPath.length > 0 && root.selectedPath !== FileBrowser.rootPath
             onTriggered: FileBrowser.trash( root.selectedPath )
         }
         ContextMenuSeparator {}
         ContextMenuItem {
-            text: root.tr( "Open externally" )
+            text: I18n.tr( "Open externally" )
             iconLigature: "folder_open"
             enabled: root.selectedPath.length > 0
             onTriggered: FileBrowser.openExternally( root.selectedPath )
         }
         ContextMenuItem {
-            text: root.tr( "Open Parent Dir externally" )
+            text: I18n.tr( "Open Parent Dir externally" )
             iconLigature: "folder_open"
             enabled: root.selectedPath.length > 0
             onTriggered: FileBrowser.openParentExternally( root.selectedPath )
         }
         ContextMenuSeparator {}
         ContextMenuItem {
-            text: root.tr( "Show Hidden" )
+            text: I18n.tr( "Show Hidden" )
             checkable: true
             checked: FileBrowser.showHidden
             onTriggered: FileBrowser.showHidden = !FileBrowser.showHidden
@@ -344,7 +346,7 @@ Item {
                     }
 
                     AppText {
-                        text: root.tr( "Create File" )
+                        text: I18n.tr( "Create File" )
                         font.bold: true
                         color: appTheme.windowText
                         Layout.fillWidth: true
@@ -387,7 +389,7 @@ Item {
                         }
 
                         AppText {
-                            text: root.tr( "In: %1" ).arg( root.destinationDisplayPath() )
+                            text: I18n.tr( "In: %1" ).arg( root.destinationDisplayPath() )
                             font.pixelSize: App.fontSmall
                             color: appTheme.windowText
                             opacity: 0.8
@@ -402,7 +404,7 @@ Item {
                     spacing: 4
 
                     AppText {
-                        text: root.tr( "File Name" )
+                        text: I18n.tr( "File Name" )
                         font.bold: true
                         color: appTheme.windowText
                         opacity: 0.85
@@ -433,7 +435,7 @@ Item {
                                 id: newFileInput
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                placeholderText: root.tr( "circuit.circ1, main.c..." )
+                                placeholderText: I18n.tr( "circuit.circ1, main.c..." )
                                 selectByMouse: true
                                 background: null
                                 padding: 0
@@ -473,7 +475,7 @@ Item {
                     spacing: 4
 
                     AppText {
-                        text: root.tr( "Type:" )
+                        text: I18n.tr( "Type:" )
                         font.pixelSize: App.fontSmall
                         color: appTheme.windowText
                         opacity: 0.6
@@ -490,7 +492,7 @@ Item {
                             color: chipHover.hovered
                                    ? Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.25 )
                                    : Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.2 )
-                            border.color: newFileInput.text.endsWith( modelData )
+                            border.color: newFileInput.text.endsWith( extChip.modelData )
                                           ? appTheme.highlight
                                           : Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.4 )
                             border.width: 1
@@ -531,20 +533,21 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     AppButton {
-                        text: root.tr( "Cancel" )
+                        id: cancelFileBtn
+                        text: I18n.tr( "Cancel" )
                         implicitHeight: 26
                         leftPadding: 12
                         rightPadding: 12
 
                         background: Rectangle {
                             radius: 4
-                            color: parent.down ? appTheme.dark : ( parent.hovered ? appTheme.midlight : appTheme.button )
+                            color: cancelFileBtn.down ? appTheme.dark : ( cancelFileBtn.hovered ? appTheme.midlight : appTheme.button )
                             border.color: appTheme.mid
                             border.width: 1
                         }
                         contentItem: AppText {
-                            text: parent.text
-                            font: parent.font
+                            text: cancelFileBtn.text
+                            font: cancelFileBtn.font
                             color: appTheme.buttonText
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -554,7 +557,7 @@ Item {
 
                     AppButton {
                         id: createFileBtn
-                        text: root.tr( "Create" )
+                        text: I18n.tr( "Create" )
                         enabled: newFileInput.text.trim().length > 0 && fileValidationText.text.length === 0
                         font.bold: true
                         implicitHeight: 26
@@ -572,8 +575,8 @@ Item {
                             border.width: 1
                         }
                         contentItem: AppText {
-                            text: parent.text
-                            font: parent.font
+                            text: createFileBtn.text
+                            font: createFileBtn.font
                             color: createFileBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -655,7 +658,7 @@ Item {
                     }
 
                     AppText {
-                        text: root.tr( "Create Folder" )
+                        text: I18n.tr( "Create Folder" )
                         font.bold: true
                         color: appTheme.windowText
                         Layout.fillWidth: true
@@ -698,7 +701,7 @@ Item {
                         }
 
                         AppText {
-                            text: root.tr( "In: %1" ).arg( root.destinationDisplayPath() )
+                            text: I18n.tr( "In: %1" ).arg( root.destinationDisplayPath() )
                             font.pixelSize: App.fontSmall
                             color: appTheme.windowText
                             opacity: 0.8
@@ -713,7 +716,7 @@ Item {
                     spacing: 4
 
                     AppText {
-                        text: root.tr( "Folder Name" )
+                        text: I18n.tr( "Folder Name" )
                         font.bold: true
                         color: appTheme.windowText
                         opacity: 0.85
@@ -744,7 +747,7 @@ Item {
                                 id: newDirInput
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                placeholderText: root.tr( "components, subcircuits..." )
+                                placeholderText: I18n.tr( "components, subcircuits..." )
                                 selectByMouse: true
                                 background: null
                                 padding: 0
@@ -797,20 +800,21 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     AppButton {
-                        text: root.tr( "Cancel" )
+                        id: cancelFolderBtn
+                        text: I18n.tr( "Cancel" )
                         implicitHeight: 26
                         leftPadding: 12
                         rightPadding: 12
 
                         background: Rectangle {
                             radius: 4
-                            color: parent.down ? appTheme.dark : ( parent.hovered ? appTheme.midlight : appTheme.button )
+                            color: cancelFolderBtn.down ? appTheme.dark : ( cancelFolderBtn.hovered ? appTheme.midlight : appTheme.button )
                             border.color: appTheme.mid
                             border.width: 1
                         }
                         contentItem: AppText {
-                            text: parent.text
-                            font: parent.font
+                            text: cancelFolderBtn.text
+                            font: cancelFolderBtn.font
                             color: appTheme.buttonText
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -820,7 +824,7 @@ Item {
 
                     AppButton {
                         id: createFolderBtn
-                        text: root.tr( "Create" )
+                        text: I18n.tr( "Create" )
                         enabled: newDirInput.text.trim().length > 0 && dirValidationText.text.length === 0
                         font.bold: true
                         implicitHeight: 26
@@ -838,8 +842,8 @@ Item {
                             border.width: 1
                         }
                         contentItem: AppText {
-                            text: parent.text
-                            font: parent.font
+                            text: createFolderBtn.text
+                            font: createFolderBtn.font
                             color: createFolderBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -921,7 +925,7 @@ Item {
                     }
 
                     AppText {
-                        text: root.tr( "Rename" )
+                        text: I18n.tr( "Rename" )
                         font.bold: true
                         color: appTheme.windowText
                         Layout.fillWidth: true
@@ -964,7 +968,7 @@ Item {
                         }
 
                         AppText {
-                            text: root.tr( "Target: %1" ).arg( root.renameTargetName() )
+                            text: I18n.tr( "Target: %1" ).arg( root.renameTargetName() )
                             font.pixelSize: App.fontSmall
                             color: appTheme.windowText
                             opacity: 0.8
@@ -979,7 +983,7 @@ Item {
                     spacing: 4
 
                     AppText {
-                        text: root.tr( "New Name" )
+                        text: I18n.tr( "New Name" )
                         font.bold: true
                         color: appTheme.windowText
                         opacity: 0.85
@@ -1010,7 +1014,7 @@ Item {
                                 id: renameInput
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                placeholderText: root.tr( "New name..." )
+                                placeholderText: I18n.tr( "New name..." )
                                 selectByMouse: true
                                 background: null
                                 padding: 0
@@ -1063,20 +1067,21 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     AppButton {
-                        text: root.tr( "Cancel" )
+                        id: cancelRenameBtn
+                        text: I18n.tr( "Cancel" )
                         implicitHeight: 26
                         leftPadding: 12
                         rightPadding: 12
 
                         background: Rectangle {
                             radius: 4
-                            color: parent.down ? appTheme.dark : ( parent.hovered ? appTheme.midlight : appTheme.button )
+                            color: cancelRenameBtn.down ? appTheme.dark : ( cancelRenameBtn.hovered ? appTheme.midlight : appTheme.button )
                             border.color: appTheme.mid
                             border.width: 1
                         }
                         contentItem: AppText {
-                            text: parent.text
-                            font: parent.font
+                            text: cancelRenameBtn.text
+                            font: cancelRenameBtn.font
                             color: appTheme.buttonText
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -1086,7 +1091,7 @@ Item {
 
                     AppButton {
                         id: renameBtn
-                        text: root.tr( "Rename" )
+                        text: I18n.tr( "Rename" )
                         enabled: renameInput.text.trim().length > 0 && renameValidationText.text.length === 0
                         font.bold: true
                         implicitHeight: 26
@@ -1104,8 +1109,8 @@ Item {
                             border.width: 1
                         }
                         contentItem: AppText {
-                            text: parent.text
-                            font: parent.font
+                            text: renameBtn.text
+                            font: renameBtn.font
                             color: renameBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
@@ -1138,42 +1143,42 @@ Item {
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
                 contentItem: AppIcon { icon: "note_add"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "New File" )
+                ToolTip.text: I18n.tr( "New File" )
                 ToolTip.visible: hovered
                 onClicked: root.openCreateFileDialog()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
                 contentItem: AppIcon { icon: "create_new_folder"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "New Folder" )
+                ToolTip.text: I18n.tr( "New Folder" )
                 ToolTip.visible: hovered
                 onClicked: root.openCreateFolderDialog()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
                 contentItem: AppIcon { icon: "refresh"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "Refresh" )
+                ToolTip.text: I18n.tr( "Refresh" )
                 ToolTip.visible: hovered
                 onClicked: FileBrowser.reload()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
                 contentItem: AppIcon { icon: "expand_more"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "Expand All" )
+                ToolTip.text: I18n.tr( "Expand All" )
                 ToolTip.visible: hovered
                 onClicked: FileBrowser.expandAll()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
                 contentItem: AppIcon { icon: "expand_less"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "Collapse All" )
+                ToolTip.text: I18n.tr( "Collapse All" )
                 ToolTip.visible: hovered
                 onClicked: FileBrowser.collapseAll()
             }
             AppToolButton {
                 implicitWidth: 28; implicitHeight: 28
                 contentItem: AppIcon { icon: "folder_open"; color: appTheme.windowText }
-                ToolTip.text: root.tr( "Open Project Folder" )
+                ToolTip.text: I18n.tr( "Open Project Folder" )
                 ToolTip.visible: hovered
                 onClicked: folderDialog.open()
             }
@@ -1200,14 +1205,14 @@ Item {
                     spacing: 12
 
                     AppText {
-                        text: root.tr( "Open a project folder to load the file explorer." )
+                        text: I18n.tr( "Open a project folder to load the file explorer." )
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
                         color: appTheme.windowText
                         Layout.fillWidth: true
                     }
                     AppButton {
-                        text: root.tr( "Open Folder" )
+                        text: I18n.tr( "Open Folder" )
                         Layout.alignment: Qt.AlignHCenter
                         onClicked: folderDialog.open()
                     }
@@ -1250,7 +1255,7 @@ Item {
                         anchors.leftMargin: 4
                         anchors.rightMargin: 4
                         radius: 4
-                        visible: hoverHandler.hovered || model.path === root.selectedPath
+                        visible: hoverHandler.hovered || rowDelegate.model.path === root.selectedPath
                         color: hoverHandler.hovered
                                ? appTheme.highlight
                                : Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.22 )
@@ -1258,52 +1263,52 @@ Item {
 
                     Row {
                         anchors.fill: parent
-                        anchors.leftMargin: 6 + model.depth * 14
+                        anchors.leftMargin: 6 + rowDelegate.model.depth * 14
                         anchors.rightMargin: 6
                         spacing: 6
 
                         Item {
                             width: 14
-                            height: parent.height
+                            height: rowDelegate.height
                             anchors.verticalCenter: parent.verticalCenter
 
                             AppIcon {
                                 anchors.centerIn: parent
-                                visible: model.isDir
-                                icon: model.expanded ? "expand_more" : "chevron_right"
+                                visible: rowDelegate.model.isDir
+                                icon: rowDelegate.model.expanded ? "expand_more" : "chevron_right"
                                 size: 16
                                 color: hoverHandler.hovered
                                        ? appTheme.highlightedText
-                                       : ( model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
+                                       : ( rowDelegate.model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
                             }
 
                             TapHandler {
-                                enabled: model.isDir
+                                enabled: rowDelegate.model.isDir
                                 acceptedButtons: Qt.LeftButton
                                 onTapped: {
-                                    root.selectedPath = model.path
+                                    root.selectedPath = rowDelegate.model.path
                                     root.selectedIsDir = true
-                                    FileBrowser.toggleExpand( model.path )
+                                    FileBrowser.toggleExpand( rowDelegate.model.path )
                                 }
                             }
                         }
 
                         AppIcon {
                             anchors.verticalCenter: parent.verticalCenter
-                            icon: root.fileIconForName( model.name, model.isDir, model.expanded )
+                            icon: root.fileIconForName( rowDelegate.model.name, rowDelegate.model.isDir, rowDelegate.model.expanded )
                             color: hoverHandler.hovered
                                    ? appTheme.highlightedText
-                                   : ( model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
+                                   : ( rowDelegate.model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
                         }
 
                         AppText {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: model.name
+                            text: rowDelegate.model.name
                             color: hoverHandler.hovered
                                    ? appTheme.highlightedText
-                                   : ( model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
+                                   : ( rowDelegate.model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
                             elide: Text.ElideRight
-                            width: Math.max( 0, parent.width - 48 )
+                            width: Math.max( 0, rowDelegate.width - 48 )
                         }
                     }
 
@@ -1312,22 +1317,22 @@ Item {
                     TapHandler {
                         acceptedButtons: Qt.LeftButton
                         onTapped: {
-                            root.selectedPath = model.path
-                            root.selectedIsDir = model.isDir
+                            root.selectedPath = rowDelegate.model.path
+                            root.selectedIsDir = rowDelegate.model.isDir
                         }
                         onDoubleTapped: {
-                            root.selectedPath = model.path
-                            root.selectedIsDir = model.isDir
-                            if ( model.isDir ) FileBrowser.toggleExpand( model.path )
-                            else FileBrowser.openPath( model.path )
+                            root.selectedPath = rowDelegate.model.path
+                            root.selectedIsDir = rowDelegate.model.isDir
+                            if ( rowDelegate.model.isDir ) FileBrowser.toggleExpand( rowDelegate.model.path )
+                            else FileBrowser.openPath( rowDelegate.model.path )
                         }
                     }
 
                     TapHandler {
                         acceptedButtons: Qt.RightButton
                         onTapped: {
-                            root.selectedPath = model.path
-                            root.selectedIsDir = model.isDir
+                            root.selectedPath = rowDelegate.model.path
+                            root.selectedIsDir = rowDelegate.model.isDir
                             contextMenu.popup()
                         }
                     }

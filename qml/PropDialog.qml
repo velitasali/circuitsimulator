@@ -1,17 +1,20 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 /* Property inspector body. Rows come from CircuitCanvas.propGroups JSON. */
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     implicitWidth: mainCol.implicitWidth + 24
     implicitHeight: mainCol.implicitHeight + 24
     color: appTheme.window
 
     SystemPalette { id: appTheme }
+    readonly property SystemPalette appTheme: appTheme
 
     property string itemUid: ""
     property string currentTypeText: itemUid ? CircuitCanvas.propTypeTextFor(itemUid) : CircuitCanvas.propTypeText
@@ -35,7 +38,7 @@ Rectangle {
         return false
     }
 
-    function sameGroups(a, b) {
+    function sameGroups(a: var, b: var): bool {
         if (!a || !b || a.length !== b.length) return false
         for (var i = 0; i < a.length; i++) {
             if ((a[i].name || "") !== (b[i].name || "")) return false
@@ -43,7 +46,7 @@ Rectangle {
         return true
     }
 
-    function sameStructure(a, b) {
+    function sameStructure(a: var, b: var): bool {
         if (!a || !b || a.length !== b.length) return false
         if (rowRepeater.count !== b.length) return false
         for (var i = 0; i < a.length; i++) {
@@ -52,7 +55,7 @@ Rectangle {
         return true
     }
 
-    function syncProps() {
+    function syncProps(): void {
         var uid = root.itemUid.length > 0 ? root.itemUid : (CircuitCanvas.selectedUid || "")
         var groups = root.itemUid.length > 0 ? CircuitCanvas.propGroupsFor(root.itemUid) : (CircuitCanvas.propGroups || [])
 
@@ -91,8 +94,8 @@ Rectangle {
             activeRows = currentTabRows
         } else {
             for (var i = 0; i < currentTabRows.length; i++) {
-                var item = rowRepeater.itemAt(i)
-                if (item && typeof item.updateRow === "function") {
+                const item = rowRepeater.itemAt(i) as PropRow
+                if (item) {
                     item.updateRow(currentTabRows[i])
                 }
             }
@@ -107,13 +110,13 @@ Rectangle {
 
     Connections {
         target: CircuitCanvas
-        function onPropsChanged() {
+        function onPropsChanged(): void {
             root.syncProps()
         }
     }
 
     component FieldLabel: AppText {
-        color: appTheme.windowText
+        color: root.appTheme.windowText
         verticalAlignment: Text.AlignVCenter
         Layout.preferredWidth: 140
         elide: Text.ElideRight
@@ -121,24 +124,24 @@ Rectangle {
 
     component ShowValButton: AppToolButton {
         id: valBtn
-        property var row
-        onRowChanged: if (row) checked = (row.showOnCanvas === true)
-        visible: row && row.canShowOnCanvas === true
+        property var row: null
+        onRowChanged: if (valBtn.row) valBtn.checked = (valBtn.row.showOnCanvas === true)
+        visible: valBtn.row && valBtn.row.canShowOnCanvas === true
         checkable: true
-        checked: row ? (row.showOnCanvas === true) : false
+        checked: valBtn.row ? (valBtn.row.showOnCanvas === true) : false
         implicitWidth: 26; implicitHeight: 26
         contentItem: AppIcon {
             icon: "visibility"
-            color: valBtn.isCheckedActive ? appTheme.highlight : appTheme.windowText
+            color: valBtn.isCheckedActive ? root.appTheme.highlight : root.appTheme.windowText
         }
-        ToolTip.text: root.tr("Show property value on the canvas")
-        ToolTip.visible: hovered
+        ToolTip.text: I18n.tr("Show property value on the canvas")
+        ToolTip.visible: valBtn.hovered
         onToggled: {
-            if (row && checked !== (row.showOnCanvas === true)) {
+            if (valBtn.row && valBtn.checked !== (valBtn.row.showOnCanvas === true)) {
                 if (root.itemUid.length > 0) {
-                    CircuitCanvas.setShowPropFor(root.itemUid, row.name, checked)
+                    CircuitCanvas.setShowPropFor(root.itemUid, valBtn.row.name, valBtn.checked)
                 } else {
-                    CircuitCanvas.setShowProp(row.name, checked)
+                    CircuitCanvas.setShowProp(valBtn.row.name, valBtn.checked)
                 }
             }
         }
@@ -173,7 +176,7 @@ Rectangle {
                     icon: "info"
                     color: infoBtn.isCheckedActive ? appTheme.highlight : appTheme.windowText
                 }
-                ToolTip.text: root.tr("Show info for this component and its properties")
+                ToolTip.text: I18n.tr("Show info for this component and its properties")
                 ToolTip.visible: hovered
                 onToggled: root.infoVisible = checked
             }
@@ -210,7 +213,7 @@ Rectangle {
             Layout.alignment: Qt.AlignTop
             spacing: 8
 
-            FieldLabel { text: root.tr("Label") }
+            FieldLabel { text: I18n.tr("Label") }
             AppTextField {
                 id: labelField
                 text: root.currentLabel
@@ -241,7 +244,7 @@ Rectangle {
                     icon: "visibility"
                     color: showIdBtn.isCheckedActive ? appTheme.highlight : appTheme.windowText
                 }
-                ToolTip.text: root.tr("Show component label on the canvas")
+                ToolTip.text: I18n.tr("Show component label on the canvas")
                 ToolTip.visible: hovered
                 onToggled: {
                     if (checked !== root.currentShowId) {
@@ -271,8 +274,9 @@ Rectangle {
             Repeater {
                 model: root.activeGroups
                 AppTabButton {
+                    id: groupTabBtn
                     required property var modelData
-                    text: modelData.name || ""
+                    text: groupTabBtn.modelData.name || ""
                 }
             }
         }
@@ -295,71 +299,85 @@ Rectangle {
                 width: parent.width - 28
                 spacing: 10
 
+                component PropRow: ColumnLayout {
+                    id: rowItem
+                    required property var modelData
+                    required property int index
+                    property var row: modelData
+                    visible: rowItem.row && rowItem.row.rowVisible !== false
+                    Layout.fillWidth: true
+                    spacing: 0
+
+                    function applyRowToItem(obj: QtObject, newRow: var): void {
+                        if (!obj) return
+                        const kind = newRow ? newRow.kind : ""
+                        switch (kind) {
+                            case "bool": (obj as PropBoolRow).row = newRow; break
+                            case "enum": (obj as PropEnumRow).row = newRow; break
+                            case "num":
+                            case "number":
+                            case "double":
+                            case "int":
+                            case "uint": (obj as PropNumRow).row = newRow; break
+                            default: (obj as PropStrRow).row = newRow; break
+                        }
+                    }
+
+                    function updateRow(newRow: var): void {
+                        rowItem.row = newRow
+                        rowItem.applyRowToItem(rowLoader.item, newRow)
+                    }
+
+                    Loader {
+                        id: rowLoader
+                        Layout.fillWidth: true
+                        sourceComponent: {
+                            if (!rowItem.row) return null
+                            switch (rowItem.row.kind) {
+                                case "bool": return root.boolDelegate
+                                case "enum": return root.enumDelegate
+                                case "num":
+                                case "number":
+                                case "double":
+                                case "int":
+                                case "uint": return root.numberDelegate
+                                default: return root.stringDelegate
+                            }
+                        }
+                        onLoaded: rowItem.applyRowToItem(rowLoader.item, rowItem.row)
+                    }
+
+                    Item {
+                        visible: root.infoVisible && rowItem.row && rowItem.row.info && rowItem.row.info.length > 0
+                        Layout.fillWidth: true
+                        Layout.topMargin: 10
+                        implicitHeight: rowInfoText.implicitHeight
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: 1
+                            color: root.appTheme.mid
+                        }
+                        AppText {
+                            id: rowInfoText
+                            anchors.left: parent.left
+                            anchors.leftMargin: 9
+                            anchors.right: parent.right
+                            text: rowItem.row ? rowItem.row.info : ""
+                            font.pixelSize: App.fontSmall
+                            color: root.appTheme.windowText
+                            opacity: 0.65
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
                 Repeater {
                     id: rowRepeater
                     model: root.activeRows
-
-                    ColumnLayout {
-                        id: rowItem
-                        required property var modelData
-                        required property int index
-                        property var row: modelData
-                        visible: row && row.rowVisible !== false
-                        Layout.fillWidth: true
-                        spacing: 0
-
-                        function updateRow(newRow) {
-                            row = newRow
-                            if (rowLoader.item) {
-                                rowLoader.item.row = newRow
-                            }
-                        }
-
-                        Loader {
-                            id: rowLoader
-                            Layout.fillWidth: true
-                            sourceComponent: {
-                                if (!rowItem.row) return null
-                                switch (rowItem.row.kind) {
-                                    case "bool": return boolDelegate
-                                    case "enum": return enumDelegate
-                                    case "num":
-                                    case "number":
-                                    case "double":
-                                    case "int":
-                                    case "uint": return numberDelegate
-                                    default: return stringDelegate
-                                }
-                            }
-                            onLoaded: if (item) item.row = rowItem.row
-                        }
-
-                        Item {
-                            visible: root.infoVisible && rowItem.row && rowItem.row.info && rowItem.row.info.length > 0
-                            Layout.fillWidth: true
-                            Layout.topMargin: 10
-                            implicitHeight: rowInfoText.implicitHeight
-
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.top: parent.top
-                                anchors.bottom: parent.bottom
-                                width: 1
-                                color: appTheme.mid
-                            }
-                            AppText {
-                                id: rowInfoText
-                                anchors.left: parent.left
-                                anchors.leftMargin: 9
-                                anchors.right: parent.right
-                                text: rowItem.row ? rowItem.row.info : ""
-                                font.pixelSize: App.fontSmall
-                                color: appTheme.windowText
-                                opacity: 0.65
-                                wrapMode: Text.WordWrap
-                            }
-                        }
-                    }
+                    delegate: PropRow {}
                 }
             }
         }
@@ -370,160 +388,153 @@ Rectangle {
         }
     }
 
-    Component {
-        id: boolDelegate
-        AppCheckBox {
-            id: boolBox
-            property var row
-            onRowChanged: if (row && checked !== row.boolValue) checked = row.boolValue
-            text: row ? row.caption : ""
-            enabled: row ? row.enabled : true
-            checked: row ? row.boolValue : false
+    component PropBoolRow: AppCheckBox {
+        id: boolBox
+        property var row: null
+        onRowChanged: if (boolBox.row && boolBox.checked !== boolBox.row.boolValue) boolBox.checked = boolBox.row.boolValue
+        text: boolBox.row ? boolBox.row.caption : ""
+        enabled: boolBox.row ? boolBox.row.enabled : true
+        checked: boolBox.row ? boolBox.row.boolValue : false
+        Layout.fillWidth: true
+        onToggled: {
+            if (boolBox.row && boolBox.checked !== boolBox.row.boolValue) {
+                if (root.itemUid.length > 0) {
+                    CircuitCanvas.setPropBoolFor(root.itemUid, boolBox.row.name, boolBox.checked)
+                } else {
+                    CircuitCanvas.setPropBool(boolBox.row.name, boolBox.checked)
+                }
+            }
+        }
+    }
+
+    component PropEnumRow: RowLayout {
+        id: enumRow
+        property var row: null
+
+        function syncEnum(): void {
+            if (enumRow.row && enumRow.row.rawOptions && enumBox) {
+                for (var i = 0; i < enumRow.row.rawOptions.length; i++) {
+                    if (enumRow.row.rawOptions[i] === enumRow.row.text) {
+                        if (enumBox.currentIndex !== i) enumBox.currentIndex = i
+                        break
+                    }
+                }
+            }
+        }
+
+        onRowChanged: enumRow.syncEnum()
+        spacing: 8
+        enabled: enumRow.row ? enumRow.row.enabled : true
+        Layout.fillWidth: true
+        FieldLabel { text: enumRow.row ? enumRow.row.caption : "" }
+        AppComboBox {
+            id: enumBox
             Layout.fillWidth: true
-            onToggled: {
-                if (row && checked !== row.boolValue) {
+            Layout.preferredWidth: 200
+            model: (enumRow.row && enumRow.row.options) ? enumRow.row.options : []
+            currentIndex: {
+                if (!enumRow.row || !enumRow.row.rawOptions) return 0
+                for (var i = 0; i < enumRow.row.rawOptions.length; i++) {
+                    if (enumRow.row.rawOptions[i] === enumRow.row.text) return i
+                }
+                return 0
+            }
+            onModelChanged: enumRow.syncEnum()
+            Component.onCompleted: enumRow.syncEnum()
+            onActivated: function(index: int): void {
+                if (enumRow.row && enumRow.row.rawOptions && index >= 0 && index < enumRow.row.rawOptions.length) {
+                    if (enumRow.row.rawOptions[index] !== enumRow.row.text) {
+                        if (root.itemUid.length > 0) {
+                            CircuitCanvas.setPropTextFor(root.itemUid, enumRow.row.name, enumRow.row.rawOptions[index])
+                        } else {
+                            CircuitCanvas.setPropText(enumRow.row.name, enumRow.row.rawOptions[index])
+                        }
+                    }
+                }
+            }
+        }
+        ShowValButton {
+            row: enumRow.row
+        }
+    }
+
+    component PropStrRow: RowLayout {
+        id: strRow
+        property var row: null
+        onRowChanged: if (strRow.row && !strField.activeFocus) strField.text = strRow.row.text || ""
+        spacing: 8
+        enabled: strRow.row ? strRow.row.enabled : true
+        Layout.fillWidth: true
+        FieldLabel { text: strRow.row ? strRow.row.caption : "" }
+        AppTextField {
+            id: strField
+            text: strRow.row ? strRow.row.text : ""
+            Layout.fillWidth: true
+            Layout.preferredWidth: 200
+            onEditingFinished: {
+                if (strRow.row && strField.text !== strRow.row.text) {
                     if (root.itemUid.length > 0) {
-                        CircuitCanvas.setPropBoolFor(root.itemUid, row.name, checked)
+                        CircuitCanvas.setPropTextFor(root.itemUid, strRow.row.name, strField.text)
                     } else {
-                        CircuitCanvas.setPropBool(row.name, checked)
+                        CircuitCanvas.setPropText(strRow.row.name, strField.text)
                     }
                 }
             }
         }
+        ShowValButton {
+            row: strRow.row
+        }
     }
 
-    Component {
-        id: enumDelegate
-        RowLayout {
-            id: enumRow
-            property var row
+    component PropNumRow: RowLayout {
+        id: numRow
+        property var row: null
 
-            function syncEnum() {
-                if (row && row.rawOptions && enumBox) {
-                    for (var i = 0; i < row.rawOptions.length; i++) {
-                        if (row.rawOptions[i] === row.text) {
-                            if (enumBox.currentIndex !== i) enumBox.currentIndex = i
-                            break
-                        }
-                    }
-                }
+        function syncNumber(): void {
+            if (numRow.row && !numField.activeFocus) {
+                var t = numRow.row.text || ""
+                if (numField.text !== t) numField.text = t
             }
+        }
 
-            onRowChanged: syncEnum()
-            spacing: 8
-            enabled: row ? row.enabled : true
+        onRowChanged: numRow.syncNumber()
+        spacing: 8
+        enabled: numRow.row ? numRow.row.enabled : true
+        Layout.fillWidth: true
+        FieldLabel { text: numRow.row ? numRow.row.caption : "" }
+        AppTextField {
+            id: numField
+            text: numRow.row ? (numRow.row.text || "") : ""
             Layout.fillWidth: true
-            FieldLabel { text: row ? row.caption : "" }
-            AppComboBox {
-                id: enumBox
-                Layout.fillWidth: true
-                Layout.preferredWidth: 200
-                model: (row && row.options) ? row.options : []
-                currentIndex: {
-                    if (!row || !row.rawOptions) return 0
-                    for (var i = 0; i < row.rawOptions.length; i++) {
-                        if (row.rawOptions[i] === row.text) return i
-                    }
-                    return 0
-                }
-                onModelChanged: enumRow.syncEnum()
-                Component.onCompleted: enumRow.syncEnum()
-                onActivated: function(index) {
-                    if (row && row.rawOptions && index >= 0 && index < row.rawOptions.length) {
-                        if (row.rawOptions[index] !== row.text) {
-                            if (root.itemUid.length > 0) {
-                                CircuitCanvas.setPropTextFor(root.itemUid, row.name, row.rawOptions[index])
-                            } else {
-                                CircuitCanvas.setPropText(row.name, row.rawOptions[index])
-                            }
-                        }
+            Layout.preferredWidth: (numRow.row && numRow.row.unit && numRow.row.unit.length > 0) ? 160 : 200
+            onEditingFinished: {
+                if (numRow.row && numField.text !== numRow.row.text) {
+                    var val = numField.text.trim()
+                    if (root.itemUid.length > 0) {
+                        CircuitCanvas.setPropTextFor(root.itemUid, numRow.row.name, val)
+                    } else {
+                        CircuitCanvas.setPropText(numRow.row.name, val)
                     }
                 }
             }
-            ShowValButton {
-                row: parent.row
-            }
+        }
+        AppText {
+            id: unitLabel
+            visible: numRow.row ? (numRow.row.unit !== undefined && numRow.row.unit.length > 0) : false
+            text: (numRow.row && numRow.row.unit) ? numRow.row.unit : ""
+            color: root.appTheme.windowText
+            opacity: 0.85
+            Layout.preferredWidth: (unitLabel.visible && unitLabel.text.length > 0) ? 28 : 0
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        ShowValButton {
+            row: numRow.row
         }
     }
 
-    Component {
-        id: stringDelegate
-        RowLayout {
-            id: strRow
-            property var row
-            onRowChanged: if (row && !strField.activeFocus) strField.text = row.text || ""
-            spacing: 8
-            enabled: row ? row.enabled : true
-            Layout.fillWidth: true
-            FieldLabel { text: row ? row.caption : "" }
-            AppTextField {
-                id: strField
-                text: row ? row.text : ""
-                Layout.fillWidth: true
-                Layout.preferredWidth: 200
-                onEditingFinished: {
-                    if (row && text !== row.text) {
-                        if (root.itemUid.length > 0) {
-                            CircuitCanvas.setPropTextFor(root.itemUid, row.name, text)
-                        } else {
-                            CircuitCanvas.setPropText(row.name, text)
-                        }
-                    }
-                }
-            }
-            ShowValButton {
-                row: parent.row
-            }
-        }
-    }
-
-    Component {
-        id: numberDelegate
-        RowLayout {
-            id: numRow
-            property var row
-
-            function syncNumber() {
-                if (row && !numField.activeFocus) {
-                    var t = row.text || ""
-                    if (numField.text !== t) numField.text = t
-                }
-            }
-
-            onRowChanged: syncNumber()
-            spacing: 8
-            enabled: row ? row.enabled : true
-            Layout.fillWidth: true
-            FieldLabel { text: row ? row.caption : "" }
-            AppTextField {
-                id: numField
-                text: row ? (row.text || "") : ""
-                Layout.fillWidth: true
-                Layout.preferredWidth: (row && row.unit && row.unit.length > 0) ? 160 : 200
-                onEditingFinished: {
-                    if (row && text !== row.text) {
-                        var val = text.trim()
-                        if (root.itemUid.length > 0) {
-                            CircuitCanvas.setPropTextFor(root.itemUid, row.name, val)
-                        } else {
-                            CircuitCanvas.setPropText(row.name, val)
-                        }
-                    }
-                }
-            }
-            AppText {
-                id: unitLabel
-                visible: row ? (row.unit !== undefined && row.unit.length > 0) : false
-                text: (row && row.unit) ? row.unit : ""
-                color: appTheme.windowText
-                opacity: 0.85
-                Layout.preferredWidth: (visible && text.length > 0) ? 28 : 0
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-            }
-            ShowValButton {
-                row: parent.row
-            }
-        }
-    }
+    readonly property Component boolDelegate: Component { PropBoolRow {} }
+    readonly property Component enumDelegate: Component { PropEnumRow {} }
+    readonly property Component stringDelegate: Component { PropStrRow {} }
+    readonly property Component numberDelegate: Component { PropNumRow {} }
 }

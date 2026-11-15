@@ -2,10 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Dialog {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     modal: true
     dim: true
     anchors.centerIn: parent
@@ -16,9 +16,9 @@ Dialog {
 
     property alias dialogTitle: titleLabel.text
     property alias dialogText: messageLabel.text
-    property string acceptText: root.tr( "Save" )
-    property string discardText: root.tr( "Discard" )
-    property string cancelText: root.tr( "Cancel" )
+    property string acceptText: I18n.tr( "Save" )
+    property string discardText: I18n.tr( "Discard" )
+    property string cancelText: I18n.tr( "Cancel" )
     property bool showDiscard: true
     property bool showCancel: true
 

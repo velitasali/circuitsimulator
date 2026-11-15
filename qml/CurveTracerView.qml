@@ -1,14 +1,13 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 // DC Parameter Sweep and Transistor Curve Tracer.
 // Sweeps an independent voltage/current source and plots dependent node voltages or pin currents.
 Rectangle {
     id: root
 
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     color: pal.window
     SystemPalette { id: pal; colorGroup: SystemPalette.Active }
@@ -19,14 +18,14 @@ Rectangle {
     property real yMin: 0
     property real yMax: 0.02
     property var hoverInfo: null
-    property string statusText: root.tr("Configure sources and probe, then click Run Sweep.")
+    property string statusText: I18n.tr("Configure sources and probe, then click Run Sweep.")
 
     readonly property int plotLeft: 68
     readonly property int plotRight: 16
     readonly property int plotTop: 16
     readonly property int plotBottom: 32
 
-    function getTraceColor(idx) {
+    function getTraceColor(idx: int): color {
         var colors = [
             CircuitCanvas.scopeChannel1Color,
             CircuitCanvas.scopeChannel2Color,
@@ -42,28 +41,23 @@ Rectangle {
         return colors[idx % colors.length]
     }
 
-    function isYCurrent() {
+    function isYCurrent(): bool {
         return yAxisBox.currentIndex === 0
     }
 
-    function isXProbeVolt() {
+    function isXProbeVolt(): bool {
         return xAxisBox.currentIndex === 1
     }
 
-    function getXVal(pt) {
-        return root.isXProbeVolt() ? pt.v_probe : pt.primary_val
+    function getXVal(pt: var): real {
+        return root.isXProbeVolt() ? Number(pt.v_probe) : Number(pt.primary_val)
     }
 
-    function getYVal(pt) {
-        return root.isYCurrent() ? pt.i_probe : pt.v_probe
+    function getYVal(pt: var): real {
+        return root.isYCurrent() ? Number(pt.i_probe) : Number(pt.v_probe)
     }
 
-    function readNumber(field, fallback) {
-        var v = Number(field.text)
-        return isFinite(v) ? v : fallback
-    }
-
-    function reloadSourcesAndProbes() {
+    function reloadSourcesAndProbes(): void {
         var rawSources = CircuitCanvas.dcSources()
         var probes = CircuitCanvas.dcProbes()
         var sourceIds = []
@@ -99,21 +93,21 @@ Rectangle {
             probeBox.currentIndex = 0
     }
 
-    function runSweep() {
+    function runSweep(): void {
         var primSource = primSourceBox.currentText
         var probePin = probeBox.currentText
         if (!primSource || !probePin) {
-            root.statusText = root.tr("Select a primary source and a probe pin.")
+            root.statusText = I18n.tr("Select a primary source and a probe pin.")
             return
         }
-        var pStart = root.readNumber(primStartField, 0.0)
-        var pStop = root.readNumber(primStopField, 5.0)
-        var pStep = root.readNumber(primStepField, 0.1)
+        var pStart = UiUtils.readNumber(primStartField.text, 0.0)
+        var pStop = UiUtils.readNumber(primStopField.text, 5.0)
+        var pStep = UiUtils.readNumber(primStepField.text, 0.1)
 
         var secSource = secEnableCheck.checked ? secSourceBox.currentText : ""
-        var sStart = root.readNumber(secStartField, 0.0)
-        var sStop = root.readNumber(secStopField, 0.0)
-        var sStep = root.readNumber(secStepField, 1.0)
+        var sStart = UiUtils.readNumber(secStartField.text, 0.0)
+        var sStop = UiUtils.readNumber(secStopField.text, 0.0)
+        var sStep = UiUtils.readNumber(secStepField.text, 1.0)
 
         var res = CircuitCanvas.dcSweep(
             primSource, pStart, pStop, pStep,
@@ -122,17 +116,17 @@ Rectangle {
         )
         if (!res || res.error) {
             root.result = null
-            root.statusText = res && res.error ? res.error : root.tr("DC sweep failed.")
+            root.statusText = res && res.error ? res.error : I18n.tr("DC sweep failed.")
             plot.requestPaint()
             return
         }
         root.result = res
         root.fitBounds()
-        root.statusText = root.tr("Sweep completed. Move cursor over traces to inspect operating points.")
+        root.statusText = I18n.tr("Sweep completed. Move cursor over traces to inspect operating points.")
         plot.requestPaint()
     }
 
-    function fitBounds() {
+    function fitBounds(): void {
         if (!root.result || !root.result.curves || root.result.curves.length === 0) {
             root.xMin = 0
             root.xMax = 5
@@ -171,19 +165,19 @@ Rectangle {
         plot.requestPaint()
     }
 
-    function mapX(x) {
+    function mapX(x: real): real {
         var w = plot.width - root.plotLeft - root.plotRight
         var span = root.xMax - root.xMin
         return root.plotLeft + (span > 0 ? (x - root.xMin) / span : 0.5) * w
     }
 
-    function mapY(y) {
+    function mapY(y: real): real {
         var h = plot.height - root.plotTop - root.plotBottom
         var span = root.yMax - root.yMin
         return root.plotTop + h - (span > 0 ? (y - root.yMin) / span : 0.5) * h
     }
 
-    function fmtVal(v, isCurrent) {
+    function fmtVal(v: real, isCurrent: bool): string {
         if (Math.abs(v) < 1e-12) return "0"
         var av = Math.abs(v)
         if (isCurrent) {
@@ -200,7 +194,7 @@ Rectangle {
         }
     }
 
-    function findNearest(mx, my) {
+    function findNearest(mx: real, my: real): var {
         if (!root.result || !root.result.curves) return null
         var bestDist = 28 * 28
         var best = null
@@ -235,7 +229,7 @@ Rectangle {
             Layout.fillWidth: true
 
             AppText {
-                text: root.tr("Primary Source:")
+                text: I18n.tr("Primary Source:")
                 font.pixelSize: App.fontSmall
             }
             AppComboBox {
@@ -243,7 +237,7 @@ Rectangle {
                 Layout.preferredWidth: 130
             }
             AppText {
-                text: root.tr("Start:")
+                text: I18n.tr("Start:")
                 font.pixelSize: App.fontSmall
             }
             AppTextField {
@@ -252,7 +246,7 @@ Rectangle {
                 text: "0.0"
             }
             AppText {
-                text: root.tr("Stop:")
+                text: I18n.tr("Stop:")
                 font.pixelSize: App.fontSmall
             }
             AppTextField {
@@ -261,7 +255,7 @@ Rectangle {
                 text: "5.0"
             }
             AppText {
-                text: root.tr("Step:")
+                text: I18n.tr("Step:")
                 font.pixelSize: App.fontSmall
             }
             AppTextField {
@@ -271,7 +265,7 @@ Rectangle {
             }
             Item { Layout.fillWidth: true }
             AppButton {
-                text: root.tr("Run Sweep")
+                text: I18n.tr("Run Sweep")
                 onClicked: root.runSweep()
             }
         }
@@ -283,7 +277,7 @@ Rectangle {
 
             AppCheckBox {
                 id: secEnableCheck
-                text: root.tr("Secondary Source (Family):")
+                text: I18n.tr("Secondary Source (Family):")
                 checked: false
                 onCheckedChanged: if (!checked) root.hoverInfo = null
             }
@@ -293,7 +287,7 @@ Rectangle {
                 Layout.preferredWidth: 130
             }
             AppText {
-                text: root.tr("Start:")
+                text: I18n.tr("Start:")
                 font.pixelSize: App.fontSmall
                 opacity: secEnableCheck.checked ? 1.0 : 0.5
             }
@@ -304,7 +298,7 @@ Rectangle {
                 text: "10e-6"
             }
             AppText {
-                text: root.tr("Stop:")
+                text: I18n.tr("Stop:")
                 font.pixelSize: App.fontSmall
                 opacity: secEnableCheck.checked ? 1.0 : 0.5
             }
@@ -315,7 +309,7 @@ Rectangle {
                 text: "50e-6"
             }
             AppText {
-                text: root.tr("Step:")
+                text: I18n.tr("Step:")
                 font.pixelSize: App.fontSmall
                 opacity: secEnableCheck.checked ? 1.0 : 0.5
             }
@@ -334,7 +328,7 @@ Rectangle {
             Layout.fillWidth: true
 
             AppText {
-                text: root.tr("Probe Pin:")
+                text: I18n.tr("Probe Pin:")
                 font.pixelSize: App.fontSmall
             }
             AppComboBox {
@@ -342,23 +336,23 @@ Rectangle {
                 Layout.preferredWidth: 160
             }
             AppText {
-                text: root.tr("Y-Axis:")
+                text: I18n.tr("Y-Axis:")
                 font.pixelSize: App.fontSmall
             }
             AppComboBox {
                 id: yAxisBox
                 Layout.preferredWidth: 120
-                model: [root.tr("Current (I)"), root.tr("Voltage (V)")]
+                model: [I18n.tr("Current (I)"), I18n.tr("Voltage (V)")]
                 onCurrentIndexChanged: root.fitBounds()
             }
             AppText {
-                text: root.tr("X-Axis:")
+                text: I18n.tr("X-Axis:")
                 font.pixelSize: App.fontSmall
             }
             AppComboBox {
                 id: xAxisBox
                 Layout.preferredWidth: 140
-                model: [root.tr("Source Value"), root.tr("Probe Voltage (V)")]
+                model: [I18n.tr("Source Value"), I18n.tr("Probe Voltage (V)")]
                 onCurrentIndexChanged: root.fitBounds()
             }
             Item { Layout.fillWidth: true }
@@ -523,7 +517,7 @@ Rectangle {
                 onExited: {
                     root.hoverInfo = null
                     if (root.result && root.result.curves && root.result.curves.length > 0)
-                        root.statusText = root.tr("Move cursor over traces to inspect operating points.")
+                        root.statusText = I18n.tr("Move cursor over traces to inspect operating points.")
                     plot.requestPaint()
                 }
             }

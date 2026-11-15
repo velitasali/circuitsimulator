@@ -1,11 +1,10 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     implicitWidth: 380
     implicitHeight: mainCol.implicitHeight + 24
     color: appTheme.window
@@ -28,10 +27,10 @@ Rectangle {
     signal deleted()
     signal rejected()
 
-    function loadPin(itemUid, pId) {
+    function loadPin(itemUid: string, pId: string): void {
         root.uid = itemUid
         root.originalPinId = pId
-        var data = CircuitCanvas.getPackagePinData(itemUid, pId)
+        const data = CircuitCanvas.getPackagePinData(itemUid, pId)
         if (data && data.id !== undefined) {
             idField.text = data.id || ""
             labelField.text = data.label || ""
@@ -47,22 +46,22 @@ Rectangle {
         }
     }
 
-    readonly property var typeValues: ["", "inv", "nc", "bus", "nul", "rst"]
-    readonly property var typeNames: [
-        root.tr("Normal"),
-        root.tr("Inverted (inv)"),
-        root.tr("Unused (nc)"),
-        root.tr("Bus"),
-        root.tr("Null"),
-        root.tr("Reset")
+    readonly property list<string> typeValues: ["", "inv", "nc", "bus", "nul", "rst"]
+    readonly property list<string> typeNames: [
+        I18n.tr("Normal"),
+        I18n.tr("Inverted (inv)"),
+        I18n.tr("Unused (nc)"),
+        I18n.tr("Bus"),
+        I18n.tr("Null"),
+        I18n.tr("Reset")
     ]
 
-    readonly property var angleValues: [0, 90, 180, 270]
-    readonly property var angleNames: [
-        root.tr("Right (0°)"),
-        root.tr("Top (90°)"),
-        root.tr("Left (180°)"),
-        root.tr("Bottom (270°)")
+    readonly property list<int> angleValues: [0, 90, 180, 270]
+    readonly property list<string> angleNames: [
+        I18n.tr("Right (0°)"),
+        I18n.tr("Top (90°)"),
+        I18n.tr("Left (180°)"),
+        I18n.tr("Bottom (270°)")
     ]
 
     ColumnLayout {
@@ -72,7 +71,7 @@ Rectangle {
         spacing: 10
 
         AppText {
-            text: root.tr("Edit Package Pin")
+            text: I18n.tr("Edit Package Pin")
             font.pixelSize: App.fontTitle
             font.bold: true
             color: appTheme.windowText
@@ -81,7 +80,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: appTheme.mid
         }
 
@@ -90,7 +89,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Pin ID:")
+                text: I18n.tr("Pin ID:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -98,7 +97,7 @@ Rectangle {
                 id: idField
                 font: root.uiFont
                 Layout.fillWidth: true
-                placeholderText: root.tr("e.g. 1, VCC, A0")
+                placeholderText: I18n.tr("e.g. 1, VCC, A0")
             }
         }
 
@@ -107,7 +106,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Label:")
+                text: I18n.tr("Label:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -115,7 +114,7 @@ Rectangle {
                 id: labelField
                 font: root.uiFont
                 Layout.fillWidth: true
-                placeholderText: root.tr("Display label")
+                placeholderText: I18n.tr("Display label")
             }
         }
 
@@ -124,7 +123,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Type:")
+                text: I18n.tr("Type:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -144,7 +143,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Orientation:")
+                text: I18n.tr("Orientation:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -164,7 +163,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Style:")
+                text: I18n.tr("Style:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -172,7 +171,7 @@ Rectangle {
                 id: lengthCombo
                 font: root.uiFont
                 Layout.fillWidth: true
-                model: [root.tr("Standard (8 px)"), root.tr("Point (1 px)")]
+                model: [I18n.tr("Standard (8 px)"), I18n.tr("Point (1 px)")]
                 onActivated: function(index) {
                     root.pinLength = index === 1 ? 1 : 8
                 }
@@ -184,7 +183,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Space:")
+                text: I18n.tr("Space:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -203,7 +202,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Position (X, Y):")
+                text: I18n.tr("Position (X, Y):")
                 color: appTheme.windowText
                 Layout.preferredWidth: 100
             }
@@ -233,7 +232,7 @@ Rectangle {
             spacing: 8
 
             AppButton {
-                text: root.tr("Delete Pin")
+                text: I18n.tr("Delete Pin")
                 font: root.uiFont
                 palette.buttonText: CircuitCanvas.msgErrorBg || "#d9534f"
                 onClicked: {
@@ -247,13 +246,13 @@ Rectangle {
             Item { Layout.fillWidth: true }
 
             AppButton {
-                text: root.tr("Cancel")
+                text: I18n.tr("Cancel")
                 font: root.uiFont
                 onClicked: root.rejected()
             }
 
             AppButton {
-                text: root.tr("Save")
+                text: I18n.tr("Save")
                 font: root.uiFont
                 highlighted: true
                 onClicked: {

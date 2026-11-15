@@ -30,7 +30,7 @@ T.TextArea {
     palette.mid: appTheme.mid
     palette.midlight: appTheme.midlight
 
-    ContextMenu.menu: AppTextContextMenu { editor: control }
+    ContextMenu.menu: AppTextContextMenu { textEdit: control }
 
     implicitWidth: Math.max(contentWidth + leftPadding + rightPadding,
                             implicitBackgroundWidth + leftInset + rightInset,

@@ -2,9 +2,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod build_qmltypes;
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=build_qmltypes.rs");
     println!("cargo:rerun-if-changed=../../Cargo.toml");
+    build_qmltypes::generate(&PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()));
     let (rev, date) = compile_stamp();
     println!("cargo:rustc-env=CS_REVNO={rev}");
     println!("cargo:rustc-env=CS_BUILDDATE={date}");
@@ -533,13 +537,13 @@ fn compile_resources() {
         "AppSwitch.qml",
         "AppTextContextMenu.qml",
         "AppScrollBar.qml",
-        "CircuitPanel.qml",
+        "CircuitPanelView.qml",
         "CircuitView.qml",
         "AppContextMenu.qml",
         "ContextMenuItem.qml",
         "ContextMenuSeparator.qml",
         "ComponentListView.qml",
-        "EditorPanel.qml",
+        "EditorPanelView.qml",
         "CodeEditor.qml",
         "FindReplace.qml",
         "FileSettings.qml",
@@ -570,6 +574,17 @@ fn compile_resources() {
     ];
     for f in qml_files {
         let p = qml_dir.join(f);
+        println!("cargo:rerun-if-changed={}", p.display());
+        qrc.push_str(&format!("    <file alias=\"{f}\">{}</file>\n", p.display()));
+    }
+    qrc.push_str("  </qresource>\n");
+
+    // 1b. Shared pure-QML singletons (`import cs_ui`)
+    let cs_ui_dir = qml_dir.join("cs_ui");
+    println!("cargo:rerun-if-changed={}", cs_ui_dir.display());
+    qrc.push_str("  <qresource prefix=\"/qt/qml/cs_ui\">\n");
+    for f in ["qmldir", "I18n.qml", "UiUtils.qml"] {
+        let p = cs_ui_dir.join(f);
         println!("cargo:rerun-if-changed={}", p.display());
         qrc.push_str(&format!("    <file alias=\"{f}\">{}</file>\n", p.display()));
     }

@@ -1,11 +1,10 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     implicitWidth: 360
     implicitHeight: mainCol.implicitHeight + 24
     color: appTheme.window
@@ -25,7 +24,7 @@ Rectangle {
         spacing: 10
 
         AppText {
-            text: root.tr("Generate Package Pins")
+            text: I18n.tr("Generate Package Pins")
             font.pixelSize: App.fontTitle
             font.bold: true
             color: appTheme.windowText
@@ -34,7 +33,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            height: 1
+            Layout.preferredHeight: 1
             color: appTheme.mid
         }
 
@@ -43,7 +42,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Left Pins:")
+                text: I18n.tr("Left Pins:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -62,7 +61,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Right Pins:")
+                text: I18n.tr("Right Pins:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -81,7 +80,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Top Pins:")
+                text: I18n.tr("Top Pins:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -100,7 +99,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Bottom Pins:")
+                text: I18n.tr("Bottom Pins:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -119,7 +118,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Pin Prefix:")
+                text: I18n.tr("Pin Prefix:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -136,7 +135,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 8
             AppText {
-                text: root.tr("Start Index:")
+                text: I18n.tr("Start Index:")
                 color: appTheme.windowText
                 Layout.preferredWidth: 110
             }
@@ -153,7 +152,7 @@ Rectangle {
         // Clear existing pins
         AppCheckBox {
             id: clearCheck
-            text: root.tr("Clear existing pins")
+            text: I18n.tr("Clear existing pins")
             checked: true
             font: root.uiFont
             Layout.fillWidth: true
@@ -169,13 +168,13 @@ Rectangle {
             Item { Layout.fillWidth: true }
 
             AppButton {
-                text: root.tr("Cancel")
+                text: I18n.tr("Cancel")
                 font: root.uiFont
                 onClicked: root.rejected()
             }
 
             AppButton {
-                text: root.tr("Generate")
+                text: I18n.tr("Generate")
                 font: root.uiFont
                 highlighted: true
                 onClicked: {

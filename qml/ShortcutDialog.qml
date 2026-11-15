@@ -2,10 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Dialog {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
     modal: true
     dim: true
     parent: Overlay.overlay
@@ -45,7 +45,7 @@ Dialog {
         }
     }
 
-    function keyToString(key, text) {
+    function keyToString(key: int, text: string): string {
         if (key >= Qt.Key_F1 && key <= Qt.Key_F12) {
             return "F" + (key - Qt.Key_F1 + 1)
         }
@@ -70,15 +70,11 @@ Dialog {
             case Qt.Key_PageDown: return "PageDown"
             case Qt.Key_Space: return "Space"
             case Qt.Key_Comma: return ","
-            case Qt.Key_Period:
-            case Qt.Key_decimal: return "."
-            case Qt.Key_Minus:
-            case Qt.Key_subtract: return "-"
-            case Qt.Key_Plus:
-            case Qt.Key_add: return "+"
+            case Qt.Key_Period: return "."
+            case Qt.Key_Minus: return "-"
+            case Qt.Key_Plus: return "+"
             case Qt.Key_Equal: return "="
-            case Qt.Key_Slash:
-            case Qt.Key_divide: return "/"
+            case Qt.Key_Slash: return "/"
             case Qt.Key_Asterisk:
             case Qt.Key_multiply: return "*"
             case Qt.Key_Backslash: return "\\"
@@ -123,7 +119,7 @@ Dialog {
             spacing: 12
 
             AppText {
-                text: root.tr("Enter new shortcut for: ") + root.actionName
+                text: I18n.tr("Enter new shortcut for: ") + root.actionName
                 font.bold: true
                 color: appTheme.windowText
                 wrapMode: Text.WordWrap
@@ -156,7 +152,7 @@ Dialog {
                 AppText {
                     anchors.fill: parent
                     anchors.leftMargin: 10
-                    text: root.tr("Press a key combination...")
+                    text: I18n.tr("Press a key combination...")
                     color: appTheme.windowText
                     opacity: 0.5
                     verticalAlignment: Text.AlignVCenter
@@ -206,19 +202,19 @@ Dialog {
                 spacing: 8
 
                 AppButton {
-                    text: root.tr("Clear")
+                    text: I18n.tr("Clear")
                     onClicked: root.recordedShortcut = ""
                 }
 
                 Item { Layout.fillWidth: true }
 
                 AppButton {
-                    text: root.tr("Cancel")
+                    text: I18n.tr("Cancel")
                     onClicked: root.close()
                 }
 
                 AppButton {
-                    text: root.tr("OK")
+                    text: I18n.tr("OK")
                     font.bold: true
                     highlighted: true
                     onClicked: {

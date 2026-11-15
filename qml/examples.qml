@@ -1,11 +1,12 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import cs_app
+import cs_ui
 
 Rectangle {
     id: root
-    function tr(s) { return App.i18nTick >= 0 ? App.translate(s) : s }
 
     signal exampleChosen(string id)
 
@@ -25,14 +26,14 @@ Rectangle {
         spacing: 12
 
         AppText {
-            text: root.tr("Example circuits")
+            text: I18n.tr("Example circuits")
             color: pal.windowText
             font.pixelSize: App.fontTitle
             font.bold: true
         }
 
         AppText {
-            text: root.tr("Open a built-in circuit. It stays unsaved until you choose Save.")
+            text: I18n.tr("Open a built-in circuit. It stays unsaved until you choose Save.")
             color: pal.windowText
             Layout.fillWidth: true
             wrapMode: Text.WordWrap

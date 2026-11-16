@@ -1056,11 +1056,14 @@ impl Circuit {
                     let v_gnd = v_node(cache.la_pins[0]);
                     let v_trg = v_node(cache.la_pins[1]);
                     let v_rst = v_node(cache.la_pins[3]);
-                    let v_cv = v_node(cache.la_pins[4]);
+                    // An open control pin has no net. Reading that as 0 V collapses
+                    // both thresholds, so the latch never sets. `None` uses the
+                    // internal 2/3 and 1/3 divider.
+                    let v_cv = cache.la_pins[4].and_then(|idx| nodes.get(idx).map(|n| n.volt));
                     let v_thr = v_node(cache.la_pins[5]);
                     let v_vcc = v_node(cache.la_pins[7]);
                     let before = (lm.out_state, lm.discharge_on, lm.out_high_v, lm.out_low_v);
-                    lm.step(v_gnd, v_vcc, v_trg, v_thr, Some(v_cv), v_rst);
+                    lm.step(v_gnd, v_vcc, v_trg, v_thr, v_cv, v_rst);
                     let level_moved = (lm.out_high_v - before.2).abs() > 1e-12
                         || (lm.out_low_v - before.3).abs() > 1e-12;
                     if lm.out_state != before.0 || lm.discharge_on != before.1 || level_moved {

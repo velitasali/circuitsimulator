@@ -1169,6 +1169,14 @@ impl Canvas {
                         let on = (vl - vr) >= 1.4;
                         bitmask_str.push(if on { '1' } else { '0' });
                     }
+                    // The compare at the bottom of this function runs every third
+                    // tick. A mask that changed on another tick is already stored
+                    // by then, so the part would keep the old picture.
+                    if prev_readings.get(&it.id).map(|r| r.text.as_str())
+                        != Some(bitmask_str.as_str())
+                    {
+                        self.dirty.mark_item(&it.id);
+                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -1203,6 +1211,11 @@ impl Canvas {
                             };
                             bitmask_str.push(if on { '1' } else { '0' });
                         }
+                    }
+                    if prev_readings.get(&it.id).map(|r| r.text.as_str())
+                        != Some(bitmask_str.as_str())
+                    {
+                        self.dirty.mark_item(&it.id);
                     }
                     self.readings.insert(
                         it.id.clone(),
@@ -1247,6 +1260,11 @@ impl Canvas {
                     let mut bitmask_str = String::with_capacity(8);
                     for bit in 0..8 {
                         bitmask_str.push(if (digit & (1 << bit)) != 0 { '1' } else { '0' });
+                    }
+                    if prev_readings.get(&it.id).map(|r| r.text.as_str())
+                        != Some(bitmask_str.as_str())
+                    {
+                        self.dirty.mark_item(&it.id);
                     }
                     self.readings.insert(
                         it.id.clone(),

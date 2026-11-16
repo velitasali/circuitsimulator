@@ -11,6 +11,9 @@ Rectangle {
 
     implicitWidth: Math.max( 280, content.implicitWidth + 30 )
     implicitHeight: content.implicitHeight + 30
+    // The panel rect can be shorter than this implicit height. Clip the readout
+    // so it does not paint through the toolbar; the border stays on this item.
+    clip: true
 
     color: InfoWidget.panelBackground
     border.color: InfoWidget.panelBorder

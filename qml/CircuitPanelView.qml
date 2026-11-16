@@ -35,16 +35,73 @@ Item {
     }
     function overlayZ( key: string ): real { return rects[key + "Z"] !== undefined ? rects[key + "Z"] : 1 }
 
-    // Drop a popup under a toolbar button, 4px below the toolbar — the same
-    // gap as the sim-info card. x/y stay in this panel's coordinates, which
-    // is the popup's parent. Pass width when a closed Menu still reports 0.
-    function placeBelow( popup: T.Popup, anchor: Item, alignRight: bool, width: real ): void {
+    function toolbarOpensUpward(): bool {
+        return toolbar.y + toolbar.height / 2 > ( root.topInset + root.height ) / 2
+    }
+
+    // Free gap on the side the popup opens into, inside the 8px screen inset.
+    function toolbarPopupRoom(): real {
+        var inset = 8
+        var gap = 4
+        var minY = root.topInset + inset
+        var limitBottom = root.height - inset
+        if ( root.toolbarOpensUpward() )
+            return Math.max( 0, toolbar.y - gap - minY )
+        return Math.max( 0, limitBottom - ( toolbar.y + toolbar.height + gap ) )
+    }
+
+    // Top of a popup whose height is already the fitted one. The edge that
+    // faces the toolbar stays 4px clear; clamping this top used to slide a
+    // tall popup onto the bar.
+    function toolbarPopupY( shownHeight: real ): real {
+        var gap = 4
+        if ( root.toolbarOpensUpward() )
+            return toolbar.y - gap - shownHeight
+        return toolbar.y + toolbar.height + gap
+    }
+
+    // Shrink a menu only when it does not fit. A menu that fits keeps its
+    // implicit height; a previous shrink is cleared so the next open can grow.
+    function fitMenuHeight( menu: T.Popup, naturalHeight: real, shownHeight: real ): void {
+        if ( shownHeight < naturalHeight )
+            menu.height = shownHeight
+        else if ( menu.height + 0.5 < naturalHeight )
+            menu.height = Qt.binding( function() { return menu.implicitHeight } )
+    }
+
+    // Place a popup on the toolbar's near side. `naturalHeight` is the popup's
+    // own size (a closed Menu reports 0, so pass the measured one). Popups whose
+    // height stays bound to their content take `capToRoom` and a `heightCap`
+    // property; writing `height` would drop that binding.
+    function placeToolbarPopup( popup: T.Popup, anchor: Item, alignRight: bool,
+                                width: real, naturalHeight: real, capToRoom: bool ): void {
+        var room = root.toolbarPopupRoom()
+        var shownH = Math.max( 0, Math.min( naturalHeight, room ) )
+        if ( capToRoom )
+            popup.heightCap = shownH
+        else
+            root.fitMenuHeight( popup, naturalHeight, shownH )
         var w = width > 0 ? width : popup.width
         var localX = alignRight ? anchor.width - w : 0
         var pt = anchor.mapToItem( root, localX, 0 )
-        var below = toolbar.mapToItem( root, 0, toolbar.height + 4 )
         popup.x = Math.max( 8, Math.min( root.width - w - 8, pt.x ) )
-        popup.y = below.y
+        popup.y = root.toolbarPopupY( shownH )
+    }
+
+    function positionAppMenu(): void {
+        appMenu.updateGeometry()
+        var menuW = Math.max( appMenu.implicitWidth,
+                              appMenu.contentImplicitWidth + appMenu.leftPadding + appMenu.rightPadding )
+        var menuH = Math.max( appMenu.implicitHeight,
+                              appMenu.contentImplicitHeight + appMenu.topPadding + appMenu.bottomPadding )
+        var shownH = Math.max( 0, Math.min( menuH, root.toolbarPopupRoom() ) )
+        root.fitMenuHeight( appMenu, menuH, shownH )
+        var anchorPt = appMenuBtn.mapToItem( root, 0, 0 )
+        var targetX = Math.max( 8, Math.min( root.width - menuW - 8, anchorPt.x ) )
+        var targetY = root.toolbarPopupY( shownH )
+        var localPt = root.mapToItem( appMenuBtn, targetX, targetY )
+        appMenu.x = localPt.x
+        appMenu.y = localPt.y
     }
 
     // The overlays float over the canvas and are translucent: the QSS painted
@@ -575,8 +632,6 @@ Item {
                 AppContextMenu {
                     id: appMenu
                     popupType: Popup.Item
-                    x: 0
-                    y: appMenuBtn.height + toolbar.bottomPadding + 4
                     focus: true
                     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
                     property bool menuDirty: true
@@ -587,6 +642,7 @@ Item {
                     onAboutToShow: {
                         if ( appMenu.menuDirty || appMenu.count === 0 )
                             root.rebuildAppMenu()
+                        root.positionAppMenu()
                     }
                 }
             }
@@ -792,11 +848,13 @@ Item {
                 if ( zoomMenu.visible ) {
                     zoomMenu.close()
                 } else {
-                    // A closed Menu reports width 0 until its rows are measured.
+                    // A closed Menu reports width/height 0 until its rows are measured.
                     zoomMenu.updateGeometry()
                     var menuW = Math.max( zoomMenu.implicitWidth,
                                           zoomMenu.contentImplicitWidth + zoomMenu.padding * 2 )
-                    root.placeBelow( zoomMenu, zoomBtn, false, menuW )
+                    var menuH = Math.max( zoomMenu.implicitHeight,
+                                          zoomMenu.contentImplicitHeight + zoomMenu.padding * 2 )
+                    root.placeToolbarPopup( zoomMenu, zoomBtn, false, menuW, menuH, false )
                     CircuitPanel.showZoomMenu( 0, 0 )
                     zoomMenu.open()
                 }
@@ -830,7 +888,7 @@ Item {
             onClicked: {
                 CircuitPanel.overlayClicked( "toolbar" )
                 if ( !overloadPopup.visible )
-                    root.placeBelow( overloadPopup, warnBtn, true, 0 )
+                    root.placeToolbarPopup( overloadPopup, warnBtn, true, 0, overloadPopup.naturalHeight, true )
                 overloadPopup.toggle()
             }
             contentItem: Row {
@@ -861,7 +919,7 @@ Item {
             onClicked: {
                 CircuitPanel.overlayClicked( "toolbar" )
                 if ( !canvasOverflowPopup.visible )
-                    root.placeBelow( canvasOverflowPopup, overflowBtn, true, 0 )
+                    root.placeToolbarPopup( canvasOverflowPopup, overflowBtn, true, 0, canvasOverflowPopup.naturalHeight, true )
                 canvasOverflowPopup.toggle()
             }
             contentItem: Row {
@@ -896,7 +954,7 @@ Item {
                 if ( subcPopup.visible ) {
                     subcPopup.close()
                 } else {
-                    root.placeBelow( subcPopup, subcBtn, false, 0 )
+                    root.placeToolbarPopup( subcPopup, subcBtn, false, 0, subcPopup.naturalHeight, true )
                     subcPopup.open()
                 }
             }
@@ -941,7 +999,7 @@ Item {
                 if ( devicePopup.visible ) {
                     devicePopup.close()
                 } else {
-                    root.placeBelow( devicePopup, deviceBtn, false, 0 )
+                    root.placeToolbarPopup( devicePopup, deviceBtn, false, 0, devicePopup.naturalHeight, true )
                     devicePopup.open()
                 }
             }
@@ -1097,6 +1155,7 @@ Item {
         CircuitPanel.overlayClicked( "toolbar" )
         if ( appMenu.menuDirty || appMenu.count === 0 )
             root.rebuildAppMenu()
+        root.positionAppMenu()
         appMenu.open()
     }
 

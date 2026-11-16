@@ -689,6 +689,33 @@ fn fitted_panel(
     (y, h)
 }
 
+/// Place a block 4px off the toolbar edge that faces it.
+///
+/// A block taller than the free gap keeps that edge and shrinks. Moving the
+/// edge to stay on screen would cover the toolbar.
+fn toolbar_anchored(
+    opens_up: bool,
+    tb_y: i32,
+    tb_h: i32,
+    block_h: i32,
+    top_min: i32,
+    bottom_limit: i32,
+) -> (i32, i32) {
+    let gap = 4;
+    let block_h = block_h.max(0);
+    if opens_up {
+        let bottom = tb_y - gap;
+        let room = (bottom - top_min).max(0);
+        let h = block_h.min(room);
+        (bottom - h, h)
+    } else {
+        let top = tb_y + tb_h + gap;
+        let room = (bottom_limit - top).max(0);
+        let h = block_h.min(room);
+        (top, h)
+    }
+}
+
 fn layout(s: &Overlays) -> OverlaySnapshot {
     let margin = OVERLAY_MARGIN;
     let top_min = margin + s.top_inset;
@@ -744,15 +771,13 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
     };
 
     let ic_w = s.info_w;
-    let ic_h = s.info_h;
-    let mut ic_x = tb_x + tb_w - ic_w;
-    let mut ic_y = tb_y + tb_h + 4;
-    {
+    let opens_up = tb_y + tb_h / 2 > (s.top_inset + s.view_h) / 2;
+    let (ic_y, ic_h) = toolbar_anchored(opens_up, tb_y, tb_h, s.info_h, top_min, s.view_h - margin);
+    let ic_x = {
+        let raw = tb_x + tb_w - ic_w;
         let max_x = margin.max(s.view_w - margin - ic_w);
-        let max_y = top_min.max(s.view_h - margin - ic_h);
-        ic_x = clamp_i(ic_x, margin, max_x);
-        ic_y = clamp_i(ic_y, top_min, max_y);
-    }
+        clamp_i(raw, margin, max_x)
+    };
 
     let mut rects = OverlaySnapshot::default();
     let put = |r: &mut OverlaySnapshot, k: &str, x: i32, y: i32, w: i32, h: i32| {
@@ -1195,5 +1220,77 @@ mod tests {
         o.gesture_move(tb.x + 10, 0);
         o.gesture_end();
         assert_eq!(o.snapshot().rect("toolbar").y, top_min);
+    }
+
+    #[test]
+    fn info_card_flips_above_toolbar_in_lower_half() {
+        let mut o = sized();
+        o.set_info_card_size(220, 120);
+
+        let tb_top = o.snapshot().rect("toolbar");
+        let ic_top = o.snapshot().rect("infoCard");
+        assert_eq!(ic_top.y, tb_top.y + tb_top.h + 4);
+
+        // Drag toolbar past the vertical midpoint (view_h = 800 -> mid = 400).
+        o.gesture_begin("toolbar", tb_top.x + 10, tb_top.y + 10);
+        o.gesture_move(tb_top.x + 10, tb_top.y + 10 + 400);
+        o.gesture_end();
+        let tb_mid = o.snapshot().rect("toolbar");
+        let ic_mid = o.snapshot().rect("infoCard");
+        assert!(tb_mid.y + tb_mid.h / 2 > 400);
+        assert_eq!(ic_mid.y, tb_mid.y - ic_mid.h - 4);
+
+        // Drag toolbar all the way to the bottom edge.
+        o.gesture_begin("toolbar", tb_mid.x + 10, tb_mid.y + 10);
+        o.gesture_move(tb_mid.x + 10, 900);
+        o.gesture_end();
+        let tb_bot = o.snapshot().rect("toolbar");
+        let ic_bot = o.snapshot().rect("infoCard");
+        assert_eq!(ic_bot.y, tb_bot.y - ic_bot.h - 4);
+    }
+
+    #[test]
+    fn info_card_shrinks_to_keep_toolbar_clear() {
+        let mut o = sized();
+        let inset = 32;
+        let view_h = 550;
+        o.set_top_inset(inset);
+        o.set_view_size(1200, view_h);
+        let natural = 400;
+        o.set_info_card_size(220, natural);
+
+        let top_min = OVERLAY_MARGIN + inset;
+        let bottom_limit = view_h - OVERLAY_MARGIN;
+        let mid = (inset + view_h) / 2;
+
+        let place_toolbar = |o: &mut Overlays, y: i32| {
+            let tb = o.snapshot().rect("toolbar");
+            o.gesture_begin("toolbar", tb.x + 10, tb.y + 10);
+            o.gesture_move(tb.x + 10, tb.y + 10 + (y - tb.y));
+            o.gesture_end();
+        };
+
+        // Upper half, low enough that 400px does not fit under the bar.
+        place_toolbar(&mut o, 200);
+        let tb = o.snapshot().rect("toolbar");
+        let ic = o.snapshot().rect("infoCard");
+        assert_eq!(tb.y, 200);
+        assert!(tb.y + tb.h / 2 <= mid);
+        assert_eq!(ic.y, tb.y + tb.h + 4);
+        assert!(ic.h < natural);
+        assert_eq!(ic.y + ic.h, bottom_limit);
+        assert!(ic.y >= tb.y + tb.h);
+
+        // Just past the midpoint the gap above the bar is the tight one.
+        let flip_y = mid - tb.h / 2 + 1;
+        place_toolbar(&mut o, flip_y);
+        let tb = o.snapshot().rect("toolbar");
+        let ic = o.snapshot().rect("infoCard");
+        assert_eq!(tb.y, flip_y);
+        assert!(tb.y + tb.h / 2 > mid);
+        assert_eq!(ic.y + ic.h, tb.y - 4);
+        assert_eq!(ic.y, top_min);
+        assert!(ic.h < natural);
+        assert!(ic.h > 0);
     }
 }

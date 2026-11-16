@@ -19,7 +19,10 @@ Popup {
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     width: 380
-    height: 260
+    readonly property real naturalHeight: 260
+    // CircuitPanelView writes this. Assigning height would drop the fixed size.
+    property real heightCap: 1000000
+    height: Math.min(naturalHeight, heightCap)
 
     SystemPalette { id: appTheme }
 
@@ -55,6 +58,7 @@ Popup {
     contentItem: Item {
         anchors.fill: parent
         anchors.margins: 8
+        clip: true
 
         ColumnLayout {
             anchors.fill: parent

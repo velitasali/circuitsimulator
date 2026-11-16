@@ -35,7 +35,10 @@ Popup {
         return Math.max(preferredWidth, computedW)
     }
 
-    height: Math.min(360, Math.max(60, (rows ? rows.length : 0) * 26 + 16))
+    readonly property real naturalHeight: Math.min(360, Math.max(60, (rows ? rows.length : 0) * 26 + 16))
+    // CircuitPanelView writes this. Assigning height would drop the rows binding.
+    property real heightCap: 1000000
+    height: Math.min(naturalHeight, heightCap)
 
     background: Rectangle {
         color: appTheme.window

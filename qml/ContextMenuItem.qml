@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Templates as T
 import cs_app
+import cs_ui
 
 // ContextMenuItem delegate for AppContextMenu.
 // Renders icons via Material Symbols Rounded ligatures, right-aligned shortcuts,
@@ -16,22 +17,8 @@ T.MenuItem {
     property string shortcutText: ""
     // Instantiator delegates cannot switch type, so a separator row is this item.
     property bool isSeparator: false
-    // Menu strings use &F for Alt+F; native MenuItem hides the ampersand, Text does not.
-    readonly property string displayText: {
-        var s = String(text)
-        var out = ""
-        for (var i = 0; i < s.length; ++i) {
-            if (s.charAt(i) === "&") {
-                if (i + 1 < s.length && s.charAt(i + 1) === "&") {
-                    out += "&"
-                    i++
-                }
-            } else {
-                out += s.charAt(i)
-            }
-        }
-        return out
-    }
+    // Menu strings use &F for Alt+F; native MenuItem hides the ampersand, AppText does not.
+    readonly property string displayText: UiUtils.stripMnemonic(String(text))
 
     implicitHeight: visible ? (isSeparator ? 9 : 26) : 0
     implicitWidth: visible ? (isSeparator ? 160 : (contentItem.implicitWidth + 8)) : 0

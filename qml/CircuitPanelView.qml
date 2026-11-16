@@ -56,6 +56,17 @@ Item {
     property int topInset: 0
     onTopInsetChanged: CircuitPanel.setTopInset( topInset )
 
+    property bool inlineMenuBarVisible: false
+    onInlineMenuBarVisibleChanged: {
+        if ( !inlineMenuBarVisible )
+            return
+        if ( appMenu.opened )
+            root.closeAppMenu()
+        // opened clears after this is already true, so onOpenedChanged skips
+        // the flag and would leave the next bare Alt eaten.
+        AppMenuBar.setAltMenuOpen( false )
+    }
+
     // CircuitWidget lays every overlay out against the canvas area's size, which
     // it used to take from resizeEvent(). Nothing reported it after the port, so
     // m_viewSize stayed (-1,-1) and every panel came out with a negative height,
@@ -536,10 +547,10 @@ Item {
                 }
             }
 
-            // Compact menu button for non-macOS systems (macOS uses native NSMenu)
+            // Compact menu button for non-macOS systems when the inline menu bar is not shown
             AppToolButton {
                 id: appMenuBtn
-                visible: !App.nativeMenus
+                visible: !App.nativeMenus && !root.inlineMenuBarVisible
                 anchors.verticalCenter: toolbarRow.verticalCenter
                 checked: appMenu.opened
                 ToolTip.visible: appMenuBtn.hovered && !appMenu.opened
@@ -569,7 +580,10 @@ Item {
                     focus: true
                     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
                     property bool menuDirty: true
-                    onOpenedChanged: AppMenuBar.setAltMenuOpen(appMenu.opened)
+                    onOpenedChanged: {
+                        if ( !root.inlineMenuBarVisible )
+                            AppMenuBar.setAltMenuOpen( appMenu.opened )
+                    }
                     onAboutToShow: {
                         if ( appMenu.menuDirty || appMenu.count === 0 )
                             root.rebuildAppMenu()
@@ -579,7 +593,7 @@ Item {
 
             // Separator to the right of the menu button
             Item {
-                visible: !App.nativeMenus
+                visible: !App.nativeMenus && !root.inlineMenuBarVisible
                 implicitWidth: 7
                 implicitHeight: 18
                 anchors.verticalCenter: toolbarRow.verticalCenter
@@ -1049,109 +1063,22 @@ Item {
         id: canvasOverflowPopup
     }
 
-    Component {
-        id: menuItemComp
-        ContextMenuItem {
-            id: menuLeafItem
-            // Path into the AppMenuBar JSON; "" for separators/parents.
-            property string itemPath: ""
-            onTriggered: {
-                if ( menuLeafItem.itemPath !== "" )
-                    AppMenuBar.trigger( menuLeafItem.itemPath )
-            }
-        }
-    }
-
-    Component {
-        id: subMenuComp
-        AppContextMenu {
-            popupType: Popup.Item
-            focus: true
-        }
-    }
-
-    function clearMenu( menu: AppContextMenu ): void {
-        for ( var i = menu.count - 1; i >= 0; --i ) {
-            var sub = menu.menuAt( i ) as AppContextMenu
-            if ( sub ) {
-                // Leaves are QObject-parented to the panel, so destroying the
-                // submenu does not delete them.
-                root.clearMenu( sub )
-                var taken = menu.takeMenu( i )
-                if ( taken )
-                    taken.destroy()
-            } else {
-                var item = menu.takeItem( i )
-                if ( item )
-                    item.destroy()
-            }
-        }
-    }
-
-    function makeLeaf( parentMenu: AppContextMenu, entry: var ): ContextMenuItem {
-        var isSep = !!entry.separator
-        // Parent rows can never fire: submenu entries carry no action id
-        // and AppMenuBar.trigger ignores them, so itemPath stays "" there.
-        // Parent temporarily to `root` (in the scene), not to the Menu (a Popup),
-        // before addItem() reparents into the menu's visual hierarchy.
-        return menuItemComp.createObject( root, {
-            text: isSep ? "" : String( entry.text ),
-            enabled: !isSep && !!entry.enabled,
-            visible: entry.visible !== false,
-            isSeparator: isSep,
-            checkable: !isSep && !!entry.checkable && !entry.submenu,
-            checked: !!entry.checked,
-            shortcutText: entry.shortcut ? String( entry.shortcut ) : "",
-            itemPath: ( !isSep && !entry.submenu && entry.path ) ? String( entry.path ) : ""
-        } ) as ContextMenuItem
-    }
-
-    function populateMenu( menu: AppContextMenu, items: var ): void {
-        menu.populating = true
-        root.clearMenu( menu )
-        if ( !items ) {
-            menu.populating = false
-            menu.updateGeometry()
-            return
-        }
-        for ( var i = 0; i < items.length; ++i ) {
-            var entry = items[i]
-            if ( !entry )
-                continue
-            if ( entry.submenu ) {
-                if ( entry.visible === false )
-                    continue
-                var sub = subMenuComp.createObject( menu, {
-                    title: String( entry.text )
-                } ) as AppContextMenu
-                if ( !sub )
-                    continue
-                root.populateMenu( sub, entry.submenu )
-                menu.addMenu( sub )
-            } else {
-                var leaf = root.makeLeaf( menu, entry )
-                if ( leaf )
-                    menu.addItem( leaf )
-            }
-        }
-        menu.populating = false
-        menu.updateGeometry()
+    AppMenuBuilder {
+        id: menuBuilder
     }
 
     function rebuildAppMenu(): void {
         appMenu.populating = true
-        root.clearMenu( appMenu )
+        menuBuilder.clearMenu( appMenu )
         var menus = AppMenuBar.menus || []
         for ( var i = 0; i < menus.length; ++i ) {
             var m = menus[i]
             if ( !m )
                 continue
-            var sub = subMenuComp.createObject( appMenu, {
-                title: String( m.title || "" )
-            } ) as AppContextMenu
+            var sub = menuBuilder.createSubMenu( appMenu, String( m.title || "" ) )
             if ( !sub )
                 continue
-            root.populateMenu( sub, m.items || [] )
+            menuBuilder.populateMenu( sub, m.items || [] )
             appMenu.addMenu( sub )
         }
         appMenu.populating = false
@@ -1159,21 +1086,9 @@ Item {
         appMenu.updateGeometry()
     }
 
-    function modalPopupOpen(): bool {
-        var overlay = Overlay.overlay
-        if ( !overlay )
-            return false
-        var kids = overlay.children
-        for ( var i = 0; i < kids.length; ++i ) {
-            var child = kids[i]
-            if ( child && child !== appMenu && child.modal === true && child.visible )
-                return true
-        }
-        return false
-    }
-
     function altMenuBlocked(): bool {
-        return App.nativeMenus || CommandCenter.visible || TabSwitcher.visible || root.modalPopupOpen()
+        return App.nativeMenus || CommandCenter.visible || TabSwitcher.visible
+            || UiUtils.hasModalOverlay( Overlay.overlay, appMenu )
     }
 
     function openAppMenu(): void {
@@ -1298,6 +1213,8 @@ Item {
             appMenu.menuDirty = true
         }
         function onTogglePopupRequested(): void {
+            if ( root.inlineMenuBarVisible )
+                return
             var wasOpen = appMenu.opened
             if ( root.altMenuBlocked() ) {
                 AppMenuBar.noteAltToggled( false )

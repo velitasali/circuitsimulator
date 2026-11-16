@@ -12,8 +12,8 @@ import cs_ui
  * Extra windows (About, plots, MCU monitor, serial) are QML Window, not C++ QmlWindow.
  *
  * The menu bar is platform-split: macOS gets a real NSMenu (App.nativeMenus),
- * everyone else accesses the AppMenuBar tree from the compact menu button
- * inside CircuitPanel's floating toolbar overlay.
+ * while non-macOS systems show it inline in the TitleBar when there is enough
+ * space and fall back to the compact menu button inside CircuitPanel's toolbar.
  */
 ApplicationWindow {
     id: win
@@ -181,6 +181,12 @@ ApplicationWindow {
             target: circuitPanelLoader.item
             property: "topInset"
             value: titleBar.visible ? titleBar.height : 0
+        }
+
+        Binding {
+            target: circuitPanelLoader.item
+            property: "inlineMenuBarVisible"
+            value: titleBar.visible && titleBar.menuBarVisible
         }
     }
 

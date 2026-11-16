@@ -84,4 +84,52 @@ QtObject {
         }
         return ""
     }
+
+    // Menu strings use &F for Alt+F; native MenuItem hides the ampersand, AppText does not.
+    function stripMnemonic(text: string): string {
+        var parts = splitMnemonic(text)
+        return parts.lead + parts.mark + parts.tail
+    }
+
+    // lead / mark / tail for an underlined mnemonic. "&&" is a literal ampersand.
+    function splitMnemonic(text: string): var {
+        var s = String(text)
+        var lead = ""
+        var mark = ""
+        var tail = ""
+        var found = false
+        for (var i = 0; i < s.length; ++i) {
+            var c = s.charAt(i)
+            if (c === "&") {
+                if (i + 1 < s.length && s.charAt(i + 1) === "&") {
+                    if (found)
+                        tail += "&"
+                    else
+                        lead += "&"
+                    i++
+                } else if (!found && i + 1 < s.length) {
+                    mark = s.charAt(i + 1)
+                    found = true
+                    i++
+                }
+            } else if (found) {
+                tail += c
+            } else {
+                lead += c
+            }
+        }
+        return { lead: lead, mark: mark, tail: tail }
+    }
+
+    function hasModalOverlay(overlay: Item, excludePopup: var): bool {
+        if (!overlay)
+            return false
+        var kids = overlay.children
+        for (var i = 0; i < kids.length; ++i) {
+            var child = kids[i]
+            if (child && child !== excludePopup && child.modal === true && child.visible)
+                return true
+        }
+        return false
+    }
 }

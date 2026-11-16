@@ -540,6 +540,7 @@ fn compile_resources() {
         "CircuitPanelView.qml",
         "CircuitView.qml",
         "AppContextMenu.qml",
+        "AppMenuBuilder.qml",
         "ContextMenuItem.qml",
         "ContextMenuSeparator.qml",
         "ComponentListView.qml",

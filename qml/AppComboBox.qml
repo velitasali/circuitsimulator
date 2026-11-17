@@ -113,7 +113,7 @@ T.ComboBox {
         x: control.mirrored ? control.padding : control.width - width - 4
         y: control.topPadding + (control.availableHeight - height) / 2
         icon: "arrow_drop_down"
-        size: 18
+        size: 16
         color: appTheme.windowText
     }
 

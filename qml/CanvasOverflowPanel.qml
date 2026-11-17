@@ -76,7 +76,7 @@ Popup {
                     AppIcon {
                         anchors.centerIn: parent
                         icon: "warning"
-                        size: 18
+                        size: 16
                         color: CircuitCanvas.msgWarnBg
                     }
                 }

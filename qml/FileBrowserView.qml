@@ -341,7 +341,7 @@ Item {
                             anchors.centerIn: parent
                             icon: root.fileIconPreview( newFileInput.text )
                             color: appTheme.highlight
-                            size: 15
+                            size: 16
                         }
                     }
 
@@ -359,7 +359,7 @@ Item {
                         padding: 0
                         contentItem: AppIcon {
                             icon: "close"
-                            size: 14
+                            size: 16
                             color: appTheme.windowText
                             opacity: 0.6
                         }
@@ -383,7 +383,7 @@ Item {
 
                         AppIcon {
                             icon: "folder"
-                            size: 12
+                            size: 16
                             color: appTheme.windowText
                             opacity: 0.7
                         }
@@ -426,7 +426,7 @@ Item {
 
                             AppIcon {
                                 icon: root.fileIconPreview( newFileInput.text )
-                                size: 14
+                                size: 16
                                 color: newFileInput.text.length > 0 ? appTheme.highlight : appTheme.windowText
                                 opacity: newFileInput.text.length > 0 ? 1.0 : 0.45
                             }
@@ -457,7 +457,7 @@ Item {
                                 padding: 0
                                 contentItem: AppIcon {
                                     icon: "close"
-                                    size: 12
+                                    size: 16
                                     color: appTheme.windowText
                                     opacity: 0.6
                                 }
@@ -653,7 +653,7 @@ Item {
                             anchors.centerIn: parent
                             icon: "create_new_folder"
                             color: appTheme.highlight
-                            size: 15
+                            size: 16
                         }
                     }
 
@@ -671,7 +671,7 @@ Item {
                         padding: 0
                         contentItem: AppIcon {
                             icon: "close"
-                            size: 14
+                            size: 16
                             color: appTheme.windowText
                             opacity: 0.6
                         }
@@ -695,7 +695,7 @@ Item {
 
                         AppIcon {
                             icon: "folder"
-                            size: 12
+                            size: 16
                             color: appTheme.windowText
                             opacity: 0.7
                         }
@@ -738,7 +738,7 @@ Item {
 
                             AppIcon {
                                 icon: "folder"
-                                size: 14
+                                size: 16
                                 color: newDirInput.text.length > 0 ? appTheme.highlight : appTheme.windowText
                                 opacity: newDirInput.text.length > 0 ? 1.0 : 0.45
                             }
@@ -769,7 +769,7 @@ Item {
                                 padding: 0
                                 contentItem: AppIcon {
                                     icon: "close"
-                                    size: 12
+                                    size: 16
                                     color: appTheme.windowText
                                     opacity: 0.6
                                 }
@@ -920,7 +920,7 @@ Item {
                             anchors.centerIn: parent
                             icon: "edit"
                             color: appTheme.highlight
-                            size: 15
+                            size: 16
                         }
                     }
 
@@ -938,7 +938,7 @@ Item {
                         padding: 0
                         contentItem: AppIcon {
                             icon: "close"
-                            size: 14
+                            size: 16
                             color: appTheme.windowText
                             opacity: 0.6
                         }
@@ -962,7 +962,7 @@ Item {
 
                         AppIcon {
                             icon: root.selectedIsDir ? "folder" : root.fileIconPreview( renameInput.text )
-                            size: 12
+                            size: 16
                             color: appTheme.windowText
                             opacity: 0.7
                         }
@@ -1005,7 +1005,7 @@ Item {
 
                             AppIcon {
                                 icon: root.selectedIsDir ? "folder" : root.fileIconPreview( renameInput.text )
-                                size: 14
+                                size: 16
                                 color: renameInput.text.length > 0 ? appTheme.highlight : appTheme.windowText
                                 opacity: renameInput.text.length > 0 ? 1.0 : 0.45
                             }
@@ -1036,7 +1036,7 @@ Item {
                                 padding: 0
                                 contentItem: AppIcon {
                                     icon: "close"
-                                    size: 12
+                                    size: 16
                                     color: appTheme.windowText
                                     opacity: 0.6
                                 }

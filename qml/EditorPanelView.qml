@@ -65,7 +65,7 @@ Item {
                             ToolTip.delay: 500
                             contentItem: AppIcon {
                                 icon: EditorPanel.compiling ? "stop_circle" : "play_arrow"
-                                size: 13
+                                size: 16
                                 color: tabBtn.itemColor
                             }
                             onClicked: {
@@ -89,7 +89,7 @@ Item {
                             ToolTip.delay: 500
                             contentItem: AppIcon {
                                 icon: "settings"
-                                size: 13
+                                size: 16
                                 color: tabBtn.itemColor
                             }
                             onClicked: {
@@ -143,7 +143,7 @@ Item {
                 ToolTip.delay: 500
                 contentItem: AppIcon {
                     icon: "add"
-                    size: 14
+                    size: 16
                     color: newFileBtn.textColor
                 }
                 onClicked: {

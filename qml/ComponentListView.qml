@@ -132,7 +132,7 @@ Item {
             height: {
                 if ( row.model.itemType === root.typeCategMain ) return 30
                 if ( row.model.itemType === root.typeCategChild ) return 20
-                return 22
+                return 24
             }
 
             readonly property bool isCategory: model.itemType !== root.typeComponent
@@ -145,8 +145,8 @@ Item {
             Drag.imageSource: ( (hover.hovered || dragHandler.active) && !row.isCategory && model.iconUri )
                 ? ComponentList.tintedIconUrl( model.iconUri, appTheme.windowText.toString() )
                 : ""
-            Drag.hotSpot.x: 16
-            Drag.hotSpot.y: 16
+            Drag.hotSpot.x: 10
+            Drag.hotSpot.y: 10
             Drag.mimeData: {
                 var cap = row.model.caption || row.model.display
                 return { "text/plain": (cap === row.model.compType) ? row.model.compType : (cap + "," + row.model.compType) }
@@ -185,8 +185,8 @@ Item {
                     padding: 0
                     spacing: 6
                     icon.source: row.model.iconUri || ""
-                    icon.width: 16
-                    icon.height: 16
+                    icon.width: 20
+                    icon.height: 20
                     icon.color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                     text: row.model.display
                     font.family: App.fontFamily

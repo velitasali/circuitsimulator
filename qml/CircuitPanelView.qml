@@ -220,7 +220,7 @@ Item {
                         onClicked: CircuitPanel.overlayClicked( "sidePanel" )
                         contentItem: AppIcon {
                             icon: sideTab.modelData.glyph
-                            size: 18
+                            size: 16
                             color: sideTab.checked ? appTheme.highlightedText : appTheme.windowText
                         }
                     }
@@ -964,7 +964,7 @@ Item {
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
                     icon: (CircuitPanel.subcNav && CircuitPanel.subcNav.iconLigature) ? CircuitPanel.subcNav.iconLigature : "account_tree"
-                    size: 18
+                    size: 16
                     color: appTheme.windowText
                 }
                 AppText {
@@ -1009,7 +1009,7 @@ Item {
                 AppIcon {
                     anchors.verticalCenter: parent.verticalCenter
                     icon: (CircuitPanel.deviceSel && CircuitPanel.deviceSel.iconLigature) ? CircuitPanel.deviceSel.iconLigature : "memory"
-                    size: 18
+                    size: 16
                     color: appTheme.windowText
                 }
                 AppText {

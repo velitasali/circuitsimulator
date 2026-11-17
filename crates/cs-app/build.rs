@@ -537,6 +537,7 @@ fn compile_resources() {
         "AppSwitch.qml",
         "AppTextContextMenu.qml",
         "AppScrollBar.qml",
+        "ScrollableTextEdit.qml",
         "CircuitPanelView.qml",
         "CircuitView.qml",
         "AppContextMenu.qml",

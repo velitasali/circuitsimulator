@@ -13604,5 +13604,17 @@ yanlış: Sabit değerli Kaynak veya bağlayıcı tarafından kontrol edilen.</t
         <source>could not solve matrix</source>
         <translation>Matris çözülemedi</translation>
     </message>
+    <message>
+        <source>Wrap Text</source>
+        <translation>Metni Kaydır</translation>
+    </message>
+    <message>
+        <source>Message Panels</source>
+        <translation>Mesaj Panelleri</translation>
+    </message>
+    <message>
+        <source>Wrap text in compiler and simulator messages</source>
+        <translation>Derleyici ve simülatör mesajlarında metni kaydır</translation>
+    </message>
 </context>
 </TS>

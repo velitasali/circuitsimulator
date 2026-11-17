@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import cs_app
 import cs_ui
 
@@ -31,72 +30,38 @@ Item {
         })
     }
 
-    // A bare Flickable + TextArea.flickable, not ScrollView { TextArea {} } --
-    // that combination reserved real scrollbar-width padding it never drew
-    // text into. codeeditor.qml already uses this pattern; matching it here
-    // fixed that half.
-    Flickable {
-        id: flick
+    ScrollableTextEdit {
+        id: area
         anchors.fill: parent
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        contentWidth: area.implicitWidth
-        contentHeight: area.implicitHeight
+        readOnly: true
+        selectByMouse: true
+        wordWrap: AppDialog.logWordWrap
+        contentPadding: 9 // was document()->setDocumentMargin( 9 )
+        textFormat: TextEdit.RichText
 
-        /* TextEdit's large-document support only re-renders the glyphs it
-         * thinks are visible, and it recomputes that range off contentX/
-         * contentY, not off the Flickable's own width/height -- so widening
-         * the panel updates flick.width immediately (verified: flick/root
-         * track the live resize correctly) but the newly exposed strip stays
-         * blank, already-rendered pixels, until something nudges contentX/Y
-         * and forces a recompute. That's exactly what scrolling did by
-         * accident. Do the same nudge deliberately on every resize: a
-         * same-tick round trip changes contentX twice without an intervening
-         * frame, so nothing actually moves on screen.
-         */
-        onWidthChanged: { contentX += 1; contentX -= 1 }
-        onHeightChanged: { contentY += 1; contentY -= 1 }
+        font: root.editorFont
+        color: (root.ctx && root.ctx.textColor && root.ctx.textColor.length > 0) ? root.ctx.textColor : appTheme.text
+        placeholderTextColor: appTheme.placeholderText
+        placeholderText: root.ctx ? I18n.tr(root.ctx.placeholder) : ""
+        text: root.ctx ? root.ctx.text : ""
 
-        ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-        ScrollBar.horizontal: AppScrollBar { policy: ScrollBar.AsNeeded }
+        // A compiler error line ("file.c:42:") turns the cursor into a hand and
+        // jumps to the source on double click - was mouseMoveEvent/mouseDoubleClickEvent.
+        HoverHandler {
+            id: hover
+            cursorShape: ( root.ctx && root.ctx.isLocationAt( area.positionAt( point.position.x, point.position.y ) ) )
+                         ? Qt.PointingHandCursor : Qt.IBeamCursor
+        }
 
-        TextArea.flickable: TextArea {
-            id: area
-            // Not an AppTextArea: the panel raises its own menu from
-            // OutPanelText::showContextMenu(), so Qt's built-in one is dropped
-            // outright rather than restyled -- two menus would answer one click.
-            ContextMenu.menu: null
-            readOnly: true
-            selectByMouse: true
-            wrapMode: TextEdit.NoWrap
-            padding: 9 // was document()->setDocumentMargin( 9 )
-            textFormat: TextEdit.RichText
-
-            font: root.editorFont
-            color: (root.ctx && root.ctx.textColor && root.ctx.textColor.length > 0) ? root.ctx.textColor : appTheme.text
-            placeholderTextColor: appTheme.placeholderText
-            placeholderText: root.ctx ? I18n.tr(root.ctx.placeholder) : ""
-            text: root.ctx ? root.ctx.text : ""
-            background: null
-
-            // A compiler error line ("file.c:42:") turns the cursor into a hand and
-            // jumps to the source on double click - was mouseMoveEvent/mouseDoubleClickEvent.
-            HoverHandler {
-                id: hover
-                cursorShape: ( root.ctx && root.ctx.isLocationAt( area.positionAt( point.position.x, point.position.y ) ) )
-                             ? Qt.PointingHandCursor : Qt.IBeamCursor
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            onDoubleTapped: ( point ) => {
+                if (root.ctx) root.ctx.activateLocationAt( area.positionAt( point.position.x, point.position.y ) )
             }
-
-            TapHandler {
-                acceptedButtons: Qt.LeftButton
-                onDoubleTapped: ( point ) => {
-                    if (root.ctx) root.ctx.activateLocationAt( area.positionAt( point.position.x, point.position.y ) )
-                }
-            }
-            TapHandler {
-                acceptedButtons: Qt.RightButton
-                onTapped: contextMenu.popup()
-            }
+        }
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            onTapped: contextMenu.popup()
         }
     }
 
@@ -117,27 +82,26 @@ Item {
         }
         ContextMenuSeparator {}
         ContextMenuItem {
+            text: I18n.tr("Wrap Text")
+            checkable: true
+            checked: AppDialog.logWordWrap
+            onTriggered: AppDialog.logWordWrap = checked
+            Binding on checked { value: AppDialog.logWordWrap }
+        }
+        ContextMenuSeparator {}
+        ContextMenuItem {
             text: I18n.tr("Clear Log")
             iconLigature: "delete"
             onTriggered: if (root.ctx) root.ctx.clear()
         }
     }
 
-    function _applyTailScroll(): void {
-        if (flick.contentHeight > flick.height) {
-            flick.contentY = flick.contentHeight - flick.height
-        }
-        flick.contentX = 0
-    }
-
     function scrollToTail(): void {
-        _applyTailScroll()
-        Qt.callLater(_applyTailScroll)
+        area.scrollToTail()
     }
 
     Connections {
         target: root.ctx
-        // Follow the tail vertically without altering horizontal scroll.
         function onTextChanged() { root.scrollToTail(); }
         function onAppended() { root.scrollToTail(); }
         function onCopyRequested() { area.copy(); }

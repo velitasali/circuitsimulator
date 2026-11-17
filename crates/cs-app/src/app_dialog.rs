@@ -49,6 +49,7 @@ impl AppDialog {
             s.editor_close_brackets = dialog_s.editor_close_brackets;
             s.editor_close_quotes = dialog_s.editor_close_quotes;
             s.editor_close_squotes = dialog_s.editor_close_squotes;
+            s.log_word_wrap = dialog_s.log_word_wrap;
             s.repaint_overlay = dialog_s.repaint_overlay;
             s.show_component_rects = dialog_s.show_component_rects;
             s.recent_circuits = dialog_s.recent_circuits;
@@ -288,6 +289,12 @@ impl AppDialog {
         Notify = debug_changed
     );
     qproperty!(
+        "logWordWrap",
+        Read = log_word_wrap,
+        Write = set_log_word_wrap,
+        Notify = log_word_wrap_changed
+    );
+    qproperty!(
         "recentCircuits",
         Read = recent_circuits,
         Notify = recent_circuits_changed
@@ -303,6 +310,8 @@ impl AppDialog {
     fn editor_changed(&mut self);
     #[qsignal]
     fn debug_changed(&mut self);
+    #[qsignal]
+    fn log_word_wrap_changed(&mut self);
     #[qsignal]
     fn request_browse_user_path(&mut self);
     #[qsignal]
@@ -619,6 +628,17 @@ impl AppDialog {
         self.persist();
         self.debug_changed();
     }
+    fn log_word_wrap(&self) -> bool {
+        self.s.log_word_wrap
+    }
+    fn set_log_word_wrap(&mut self, v: bool) {
+        if self.s.log_word_wrap == v {
+            return;
+        }
+        self.s.log_word_wrap = v;
+        self.persist();
+        self.log_word_wrap_changed();
+    }
 
     #[qslot]
     fn browse_user_path(&mut self) {
@@ -641,6 +661,7 @@ impl AppDialog {
         self.sim_changed();
         self.editor_changed();
         self.debug_changed();
+        self.log_word_wrap_changed();
     }
 
     #[qslot]

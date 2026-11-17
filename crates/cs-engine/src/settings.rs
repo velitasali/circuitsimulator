@@ -65,6 +65,7 @@ pub struct AppSettings {
     pub editor_close_brackets: bool,
     pub editor_close_quotes: bool,
     pub editor_close_squotes: bool,
+    pub log_word_wrap: bool,
     pub repaint_overlay: bool,
     pub show_component_rects: bool,
     pub recent_circuits: Vec<String>,
@@ -123,6 +124,7 @@ impl Default for AppSettings {
             editor_close_brackets: false,
             editor_close_quotes: false,
             editor_close_squotes: false,
+            log_word_wrap: false,
             repaint_overlay: false,
             show_component_rects: false,
             recent_circuits: Vec::new(),
@@ -487,6 +489,7 @@ mod tests {
         let mut s = AppSettings::default();
         s.language = "tr".into();
         s.canvas_width = 2000;
+        s.log_word_wrap = true;
         s.push_recent_circuit("/tmp/a.sim1".into());
         s.push_recent_circuit("/tmp/b.sim1".into());
         s.push_recent_circuit("/tmp/a.sim1".into());
@@ -495,6 +498,7 @@ mod tests {
         let loaded = AppSettings::load_from(&dir);
         assert_eq!(loaded.language, "tr");
         assert_eq!(loaded.canvas_width, 2000);
+        assert!(loaded.log_word_wrap);
         assert_eq!(loaded.recent_circuits[0], "/tmp/a.sim1");
         let _ = std::fs::remove_file(&dir);
     }

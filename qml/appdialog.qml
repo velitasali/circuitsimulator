@@ -218,6 +218,15 @@ Rectangle {
                         onToggled: AppDialog.autoUpdate = checked
                         Binding on checked { value: AppDialog.autoUpdate }
                     }
+
+                    Header { text: I18n.tr( "Message Panels" ) }
+
+                    Check {
+                        text: I18n.tr( "Wrap text in compiler and simulator messages" )
+                        checked: AppDialog.logWordWrap
+                        onToggled: AppDialog.logWordWrap = checked
+                        Binding on checked { value: AppDialog.logWordWrap }
+                    }
                 }
 
                 // -------------------------------------------------------- Circuit

@@ -13581,5 +13581,17 @@ false: Fixed value Source or controlled by linker.</translation>
         <source>could not solve matrix</source>
         <translation>could not solve matrix</translation>
     </message>
+    <message>
+        <source>Wrap Text</source>
+        <translation>Wrap Text</translation>
+    </message>
+    <message>
+        <source>Message Panels</source>
+        <translation>Message Panels</translation>
+    </message>
+    <message>
+        <source>Wrap text in compiler and simulator messages</source>
+        <translation>Wrap text in compiler and simulator messages</translation>
+    </message>
 </context>
 </TS>

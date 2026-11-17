@@ -59,7 +59,6 @@ Item {
                             anchors.rightMargin: 2
                             width: 16; height: 16
                             padding: 0
-                            radius: 3
                             ToolTip.text: EditorPanel.compiling
                                           ? I18n.tr("Cancel compilation")
                                           : I18n.tr("Upload and Run on the active device")
@@ -86,7 +85,6 @@ Item {
                             anchors.rightMargin: 2
                             width: 16; height: 16
                             padding: 0
-                            radius: 3
                             ToolTip.text: I18n.tr("File Settings")
                             ToolTip.delay: 500
                             contentItem: AppIcon {
@@ -106,7 +104,6 @@ Item {
                             anchors.rightMargin: 2
                             width: 16; height: 16
                             padding: 0
-                            radius: 3
                             ToolTip.text: I18n.tr( "Close" )
                             ToolTip.delay: 500
                             contentItem: AppText {
@@ -142,7 +139,6 @@ Item {
                 implicitWidth: 20
                 implicitHeight: 20
                 padding: 0
-                radius: 4
                 ToolTip.text: I18n.tr( "New File" )
                 ToolTip.delay: 500
                 contentItem: AppIcon {
@@ -175,7 +171,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 8
+            radius: 10
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1

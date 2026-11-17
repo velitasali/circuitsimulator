@@ -104,7 +104,7 @@ T.ComboBox {
         }
 
         background: Rectangle {
-            radius: 4
+            radius: 6
             color: delegateItem.highlighted ? appTheme.highlight : "transparent"
         }
     }
@@ -163,7 +163,7 @@ T.ComboBox {
     background: Rectangle {
         implicitWidth: 120
         implicitHeight: 24
-        radius: 4
+        radius: 8
         color: control.enabled ? appTheme.base : appTheme.window
         border.width: 1
         border.color: (control.activeFocus || control.down) ? appTheme.highlight
@@ -200,7 +200,7 @@ T.ComboBox {
             color: appTheme.window
             border.color: appTheme.mid
             border.width: 1
-            radius: 6
+            radius: 10
         }
     }
 }

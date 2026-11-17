@@ -113,7 +113,7 @@ Rectangle {
                 Layout.fillWidth: true
                 implicitWidth: contentCol.implicitWidth + 28
                 implicitHeight: contentCol.implicitHeight + 28
-                radius: 8
+                radius: 12
                 color: "transparent"
                 border.color: appTheme.mid
                 border.width: 1

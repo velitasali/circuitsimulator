@@ -159,7 +159,7 @@ Item {
         x: root.r("sidePanel").x; y: root.r("sidePanel").y
         width: root.r("sidePanel").width; height: root.r("sidePanel").height
         color: appTheme.window
-        radius: 6
+        radius: 14
         border.color: appTheme.mid
         border.width: 1
         z: root.overlayZ( "sidePanel" )
@@ -277,7 +277,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        radius: 8
+                        radius: 10
                         color: appTheme.base
                         border.color: appTheme.mid
                         border.width: 1
@@ -304,7 +304,7 @@ Item {
                 Item {
                     Rectangle {
                         anchors.fill: parent
-                        radius: 8
+                        radius: 10
                         color: appTheme.base
                         border.color: appTheme.mid
                         border.width: 1
@@ -321,7 +321,7 @@ Item {
                 Item {
                     Rectangle {
                         anchors.fill: parent
-                        radius: 8
+                        radius: 10
                         color: appTheme.base
                         border.color: appTheme.mid
                         border.width: 1
@@ -351,7 +351,7 @@ Item {
         x: root.r("editorPanel").x; y: root.r("editorPanel").y
         width: root.r("editorPanel").width; height: root.r("editorPanel").height
         color: root.overlayBg
-        radius: 6
+        radius: 14
         border.color: appTheme.mid
         border.width: 1
         z: root.overlayZ( "editorPanel" )
@@ -530,7 +530,7 @@ Item {
         // the already-sized Rectangle, so nothing feeds back into the sizing.
         background: Rectangle {
             color: root.overlayBg
-            radius: 6
+            radius: height / 2
             border.color: appTheme.mid
             border.width: 1
 
@@ -554,7 +554,7 @@ Item {
 
                 Rectangle {
                     anchors.fill: parent
-                    radius: 5
+                    radius: height / 2
                     color: gripMouse.pressed
                              ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.22 )
                              : gripMouse.containsMouse
@@ -754,8 +754,8 @@ Item {
         id: textItem
         Rectangle {
             id: msgPill
-            implicitWidth: msgText.implicitWidth + 14
-            implicitHeight: msgText.implicitHeight + 6
+            implicitWidth: Math.ceil(msgText.implicitWidth + 14)
+            implicitHeight: Math.ceil((msgText.implicitHeight + 6) / 2) * 2
             radius: msgPill.height / 2
             color: CircuitPanel.messageBg
             visible: msgText.text !== ""
@@ -776,8 +776,8 @@ Item {
     Component {
         id: coordsItem
         Rectangle {
-            implicitWidth: coordsRow.implicitWidth + 14
-            implicitHeight: coordsRow.implicitHeight + 6
+            implicitWidth: Math.ceil(coordsRow.implicitWidth + 14)
+            implicitHeight: Math.ceil((coordsRow.implicitHeight + 6) / 2) * 2
             radius: height / 2
             color: Qt.rgba( appTheme.windowText.r, appTheme.windowText.g,
                             appTheme.windowText.b, 0.10 )

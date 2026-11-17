@@ -50,7 +50,7 @@ T.Menu {
         color: appTheme.window
         border.color: appTheme.mid
         border.width: 1
-        radius: 6
+        radius: 10
     }
 
     property real contentImplicitWidth: 180

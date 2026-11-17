@@ -26,7 +26,7 @@ Item {
         opacity: 0.95
         border.color: appTheme.mid
         border.width: 1
-        radius: 6
+        radius: 10
     }
 
     AppText {

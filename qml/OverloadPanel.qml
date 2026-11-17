@@ -52,7 +52,7 @@ Popup {
         color: appTheme.window
         border.color: appTheme.mid
         border.width: 1
-        radius: 12
+        radius: 16
     }
 
     contentItem: Item {
@@ -94,7 +94,7 @@ Popup {
 
                     width: list.width
                     height: 26
-                    radius: 4
+                    radius: 8
                     color: hover.hovered ? appTheme.highlight : "transparent"
 
                     RowLayout {

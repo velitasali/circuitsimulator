@@ -161,7 +161,7 @@ Rectangle {
                 layer.enabled: true
                 Rectangle {
                     anchors.fill: parent
-                    radius: 6
+                    radius: 10
                     color: "white"
                 }
             }
@@ -170,7 +170,7 @@ Rectangle {
                 id: laFrame
                 anchors.fill: parent
                 color: LogicAnalyzer.paperColor
-                radius: 6
+                radius: 10
                 layer.enabled: true
                 layer.effect: MultiEffect {
                     maskEnabled: true
@@ -222,7 +222,7 @@ Rectangle {
                     y: Math.min( parent.height - height - 6, Math.max( 6, root.cursorY + 8 ) )
                     width: measureCol.implicitWidth + 12
                     height: measureCol.implicitHeight + 8
-                    radius: 3
+                    radius: 6
                     color: LogicAnalyzer.cursorFill
                     border.color: LogicAnalyzer.cursorBorder
                     border.width: 1
@@ -467,7 +467,7 @@ Rectangle {
                             indicator: Rectangle {
                                 implicitWidth: 18
                                 implicitHeight: 18
-                                radius: 3
+                                radius: 5
                                 color: busCheck.checked ? busCheck.chColor
                                                         : ( busCheck.hovered ? Qt.rgba( appTheme.midlight.r, appTheme.midlight.g, appTheme.midlight.b, 0.35 )
                                                                              : Qt.rgba( appTheme.base.r, appTheme.base.g, appTheme.base.b, 0.45 ) )

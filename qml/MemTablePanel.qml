@@ -143,7 +143,7 @@ Rectangle {
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1
-            radius: 2
+            radius: 8
             clip: true
 
             ListView {

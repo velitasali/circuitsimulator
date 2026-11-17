@@ -735,7 +735,7 @@ Item {
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1
-            radius: 6
+            radius: 10
         }
 
         AppText {
@@ -779,7 +779,7 @@ Item {
             opacity: 0.96
             border.color: appTheme.mid
             border.width: 1
-            radius: 6
+            radius: 10
         }
 
         AppText {
@@ -863,7 +863,7 @@ Item {
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1
-            radius: 4
+            radius: 8
         }
 
         ListView {

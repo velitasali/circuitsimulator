@@ -25,7 +25,7 @@ T.ToolButton {
 
     background: Rectangle {
         anchors.fill: parent
-        radius: 4
+        radius: 8
         visible: control.checked || control.hovered
         color: control.checked ? appTheme.highlight : appTheme.midlight
     }

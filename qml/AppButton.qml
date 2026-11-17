@@ -50,7 +50,7 @@ T.Button {
         implicitWidth: 80
         implicitHeight: 24
         visible: !control.flat || control.down || control.checked || control.highlighted
-        radius: 4
+        radius: 8
         color: {
             if (control.highlighted)
                 return control.down ? Qt.darker(appTheme.highlight, 1.15)

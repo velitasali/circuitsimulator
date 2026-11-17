@@ -99,7 +99,7 @@ T.SpinBox {
     background: Rectangle {
         implicitWidth: 80
         implicitHeight: 24
-        radius: 4
+        radius: 8
         color: control.enabled ? appTheme.base : appTheme.window
         border.width: 1
         border.color: control.activeFocus ? appTheme.highlight

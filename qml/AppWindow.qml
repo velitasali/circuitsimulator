@@ -23,6 +23,11 @@ ApplicationWindow {
     // it the window drives the panel, as SizeRootObjectToView did.
     property bool sizeToContent: false
     property bool resizable: !sizeToContent
+    property bool maximizable: resizable
+
+    flags: maximizable
+           ? Qt.Window
+           : (Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
 
     // The declaring ApplicationWindow tracks us and closes us with itself.
     property bool closeWithOwner: true

@@ -29,7 +29,7 @@ Dialog {
         color: appTheme.window
         border.color: appTheme.mid
         border.width: 1
-        radius: 10
+        radius: 16
     }
 
     header: null
@@ -83,7 +83,7 @@ Dialog {
 
                     background: Rectangle {
                         implicitHeight: 28
-                        radius: 5
+                        radius: 8
                         color: discardBtn.down ? appTheme.dark : (discardBtn.hovered ? appTheme.midlight : appTheme.button)
                         border.color: appTheme.mid
                         border.width: 1
@@ -116,7 +116,7 @@ Dialog {
 
                     background: Rectangle {
                         implicitHeight: 28
-                        radius: 5
+                        radius: 8
                         color: cancelBtn.down ? appTheme.dark : (cancelBtn.hovered ? appTheme.midlight : appTheme.button)
                         border.color: appTheme.mid
                         border.width: 1
@@ -148,7 +148,7 @@ Dialog {
 
                     background: Rectangle {
                         implicitHeight: 28
-                        radius: 5
+                        radius: 8
                         color: acceptBtn.down ? Qt.darker(appTheme.highlight, 1.2) : (acceptBtn.hovered ? Qt.lighter(appTheme.highlight, 1.1) : appTheme.highlight)
                         border.color: Qt.darker(appTheme.highlight, 1.3)
                         border.width: 1

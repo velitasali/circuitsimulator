@@ -51,7 +51,7 @@ Rectangle {
                 required property var modelData
                 width: ListView.view ? ListView.view.width : 400
                 height: cardText.implicitHeight + 20
-                radius: 4
+                radius: 10
                 color: pal.base
                 border.color: pal.mid
                 border.width: 1

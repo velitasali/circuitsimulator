@@ -220,7 +220,7 @@ Item {
         anchors.topMargin: 14
         anchors.right: parent.right
         anchors.rightMargin: 14
-        radius: 6
+        radius: 10
         color: "#e80e1218"
         border.color: "#1cffffff"
         border.width: 1
@@ -310,7 +310,7 @@ Item {
                 id: modePill
                 width: 96
                 height: 18
-                radius: 3
+                radius: height / 2
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 color: middleRow.isFull ? "#2eff3232" : "#2400c86e"

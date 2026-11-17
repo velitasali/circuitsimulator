@@ -135,7 +135,7 @@ Rectangle {
             Layout.fillHeight: true
             implicitWidth: stack.implicitWidth
             implicitHeight: stack.implicitHeight
-            radius: 8
+            radius: 12
             color: "transparent"
             border.color: appTheme.mid
             border.width: 1

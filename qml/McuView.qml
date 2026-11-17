@@ -60,7 +60,7 @@ Rectangle {
         color: appTheme.base
         border.color: appTheme.mid
         border.width: 1
-        radius: 3
+        radius: 8
         clip: true
         Layout.fillWidth: true
         Layout.fillHeight: true
@@ -78,6 +78,8 @@ Rectangle {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: frame.headerHeight
+                topLeftRadius: Math.max(0, frame.radius - 1)
+                topRightRadius: Math.max(0, frame.radius - 1)
                 color: appTheme.window
                 Item {
                     id: headerData
@@ -151,7 +153,7 @@ Rectangle {
                         width: hexRow.cellW
                         height: parent.height - 2
                         y: 1
-                        radius: 2
+                        radius: 4
                         readonly property string hexVal: {
                             if ( !hexRow.rowData )
                                 return hexRow.wordMode ? "----" : "--"
@@ -261,7 +263,7 @@ Rectangle {
                 Layout.preferredHeight: 28
                 implicitWidth: statusRow.implicitWidth + 8
                 color: appTheme.base
-                radius: 4
+                radius: 8
                 border.color: appTheme.mid
                 border.width: 1
 
@@ -288,7 +290,7 @@ Rectangle {
                                 id: statusBitDelegate
                                 required property int index
                                 width: 24; height: 22
-                                radius: 3
+                                radius: 5
                                 readonly property bool bitSet: ( McuMonitor.statusValue >> ( 7 - statusBitDelegate.index ) ) & 1
                                 readonly property string bitName: ( statusBitDelegate.index < McuMonitor.statusBits.length && McuMonitor.statusBits[statusBitDelegate.index].length > 0 ) ? McuMonitor.statusBits[statusBitDelegate.index] : ( "b" + ( 7 - statusBitDelegate.index ) )
                                 color: statusBitDelegate.bitSet ? ( CircuitCanvas.pinInputHighColor || appTheme.highlight ) : appTheme.alternateBase
@@ -324,7 +326,7 @@ Rectangle {
                 Layout.preferredHeight: 28
                 implicitWidth: pcRow.implicitWidth + 12
                 color: appTheme.base
-                radius: 4
+                radius: 8
                 border.color: appTheme.mid
                 border.width: 1
 
@@ -436,7 +438,7 @@ Rectangle {
                         color: appTheme.base
                         border.color: appTheme.mid
                         border.width: 1
-                        radius: 4
+                        radius: 8
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -508,7 +510,7 @@ Rectangle {
                                         required property int index
                                         width: ListView.view.width
                                         height: regListView.itemH
-                                        radius: 2
+                                        radius: 4
                                         color: regMouse.containsMouse ? appTheme.midlight : ( regDelegate.index % 2 ? appTheme.alternateBase : "transparent" )
 
                                         RowLayout {
@@ -561,7 +563,7 @@ Rectangle {
                         color: appTheme.base
                         border.color: appTheme.mid
                         border.width: 1
-                        radius: 4
+                        radius: 8
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -636,7 +638,7 @@ Rectangle {
                                         required property int index
                                         width: ListView.view.width
                                         height: varListView.itemH
-                                        radius: 2
+                                        radius: 4
                                         color: varMouse.containsMouse ? appTheme.midlight : ( varDelegate.index % 2 ? appTheme.alternateBase : "transparent" )
 
                                         RowLayout {
@@ -695,7 +697,7 @@ Rectangle {
                     color: appTheme.base
                     border.color: appTheme.mid
                     border.width: 1
-                    radius: 4
+                    radius: 8
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -826,7 +828,7 @@ Rectangle {
                                     width: ListView.view.width
                                     height: watchListView.itemH
                                     color: watchRowMouse.containsMouse ? appTheme.midlight : ( watchDelegate.index % 2 ? appTheme.alternateBase : "transparent" )
-                                    radius: 2
+                                    radius: 4
 
                                     MouseArea {
                                         id: watchRowMouse
@@ -882,7 +884,7 @@ Rectangle {
                                             Layout.preferredWidth: 65
                                             Layout.preferredHeight: 18
                                             color: appTheme.window
-                                            radius: 3
+                                            radius: height / 2
                                             border.color: appTheme.mid
                                             border.width: 1
                                             AppText {
@@ -1058,7 +1060,7 @@ Rectangle {
                             width: ListView.view.width
                             height: ramListView.itemH
                             color: ramListMouse.containsMouse ? appTheme.midlight : ( ramListDelegate.index % 2 ? appTheme.alternateBase : "transparent" )
-                            radius: 2
+                            radius: 4
 
                             RowLayout {
                                 anchors.fill: parent
@@ -1370,7 +1372,7 @@ Rectangle {
             color: appTheme.window
             border.color: appTheme.highlight
             border.width: 2
-            radius: 6
+            radius: 12
         }
 
         ColumnLayout {

@@ -14,7 +14,8 @@ T.TextField {
     id: control
     SystemPalette { id: appTheme }
 
-    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
+    font.family: App.fontFamily
+    font.pixelSize: App.fontSize
     color: appTheme.text
     selectionColor: appTheme.highlight
     selectedTextColor: appTheme.highlightedText
@@ -62,7 +63,7 @@ T.TextField {
     background: Rectangle {
         implicitWidth: 120
         implicitHeight: 24
-        radius: 4
+        radius: 8
         color: control.enabled ? appTheme.base : appTheme.window
         border.width: 1
         border.color: control.activeFocus ? appTheme.highlight

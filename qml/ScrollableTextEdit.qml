@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import cs_app
 
 /* Scrollable TextEdit inside a Flickable.
  * Uses plain TextEdit rather than TextArea.flickable because TextArea clips
@@ -21,7 +22,10 @@ Item {
     property alias placeholderTextColor: placeholderLabel.color
     property string placeholderText: ""
     property bool wordWrap: false
+    property int wrapMode: wordWrap ? TextEdit.Wrap : TextEdit.NoWrap
     property int contentPadding: 9
+    property bool defaultContextMenu: true
+    readonly property bool _wrapped: wrapMode !== TextEdit.NoWrap
 
     readonly property alias selectedText: area.selectedText
     readonly property alias editor: area
@@ -56,7 +60,7 @@ Item {
         anchors.fill: parent
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        contentWidth: root.wordWrap ? width : Math.max(width, area.implicitWidth)
+        contentWidth: root._wrapped ? width : Math.max(width, area.implicitWidth)
         contentHeight: Math.max(height, area.implicitHeight)
 
         /* TextEdit's large-document support only re-renders the glyphs it
@@ -75,23 +79,25 @@ Item {
 
         ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
         ScrollBar.horizontal: AppScrollBar {
-            policy: root.wordWrap ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
+            policy: root._wrapped ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         }
 
         TextEdit {
             id: area
-            width: root.wordWrap ? flick.width : Math.max(flick.width, implicitWidth)
+            width: root._wrapped ? flick.width : Math.max(flick.width, implicitWidth)
             height: Math.max(flick.height, implicitHeight)
-            wrapMode: root.wordWrap ? TextEdit.Wrap : TextEdit.NoWrap
+            wrapMode: root.wrapMode
             topPadding: root.contentPadding
             bottomPadding: root.contentPadding
             leftPadding: root.contentPadding
             rightPadding: root.contentPadding
+            font.family: App.fontFamily
+            font.pixelSize: App.fontNormal
             selectionColor: appTheme.highlight
             selectedTextColor: appTheme.highlightedText
 
             onWrapModeChanged: {
-                if (root.wordWrap) {
+                if (root._wrapped) {
                     flick.contentX = 0
                 }
             }
@@ -106,6 +112,17 @@ Item {
                 color: appTheme.placeholderText
                 wrapMode: Text.WordWrap
                 visible: area.length === 0
+            }
+
+            TapHandler {
+                enabled: root.defaultContextMenu
+                acceptedButtons: Qt.RightButton
+                onTapped: defaultMenu.popup()
+            }
+
+            AppTextContextMenu {
+                id: defaultMenu
+                textEdit: area
             }
         }
     }

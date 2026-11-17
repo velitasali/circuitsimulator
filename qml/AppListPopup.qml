@@ -44,7 +44,7 @@ Popup {
         color: appTheme.window
         border.color: appTheme.mid
         border.width: 1
-        radius: 12
+        radius: 16
     }
 
     contentItem: Item {
@@ -68,7 +68,7 @@ Popup {
 
                 width: list.width
                 height: 24
-                radius: 4
+                radius: 8
                 color: rowRect.modelData.current
                        ? appTheme.alternateBase
                        : (hover.hovered ? appTheme.highlight : "transparent")

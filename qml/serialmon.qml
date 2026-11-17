@@ -121,34 +121,25 @@ Rectangle {
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1
-            radius: 6
+            radius: 10
             clip: true
 
-            Flickable {
+            ScrollableTextEdit {
+                id: logArea
                 anchors.fill: parent
                 anchors.margins: 1
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                contentWidth: logArea.implicitWidth
-                contentHeight: logArea.implicitHeight
-
-                onWidthChanged: { contentX += 1; contentX -= 1 }
-                onHeightChanged: { contentY += 1; contentY -= 1 }
-
-                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-                ScrollBar.horizontal: AppScrollBar { policy: ScrollBar.AsNeeded }
-
-                TextArea.flickable: TextArea {
-                    id: logArea
-                    text: pane.text
-                    readOnly: true
-                    wrapMode: TextEdit.WrapAnywhere
-                    font.family: "Ubuntu Mono"
-                    font.pixelSize: App.fontNormal
-                    color: appTheme.windowText
-                    background: null
-                    onTextChanged: cursorPosition = length
-                }
+                text: pane.text
+                readOnly: true
+                selectByMouse: true
+                wrapMode: TextEdit.WrapAnywhere
+                contentPadding: 6
+                font: Qt.font({
+                    family: App.fontMonoFamily || "Ubuntu Mono",
+                    pixelSize: App.fontNormal,
+                    fixedPitch: true
+                })
+                color: appTheme.windowText
+                onTextChanged: scrollToTail()
             }
         }
     }
@@ -179,6 +170,8 @@ Rectangle {
                 id: pauseBtn
                 checkable: true
                 checked: root.currentPaused
+                leftPadding: 10
+                rightPadding: 10
                 text: root.currentPaused ? I18n.tr( "Resume" ) : I18n.tr( "Pause" )
                 font: root.uiFont
                 onToggled: root.doSetPaused(checked)

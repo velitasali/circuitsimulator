@@ -80,7 +80,7 @@ Rectangle {
             Layout.fillWidth: true
             implicitWidth: groupCol.implicitWidth + 28
             implicitHeight: groupCol.implicitHeight + 28
-            radius: 8
+            radius: 12
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1
@@ -146,7 +146,7 @@ Rectangle {
                         color: Qt.rgba(appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.12)
                         border.color: appTheme.highlight
                         border.width: 1
-                        radius: 4
+                        radius: 8
 
                         RowLayout {
                             id: hintRow

@@ -49,34 +49,25 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: SerialTerminal.rxBackground
-            radius: 4
+            radius: 10
             clip: true
 
-            Flickable {
+            ScrollableTextEdit {
+                id: rxArea
                 anchors.fill: parent
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                contentWidth: rxArea.implicitWidth
-                contentHeight: rxArea.implicitHeight
-
-                onWidthChanged: { contentX += 1; contentX -= 1 }
-                onHeightChanged: { contentY += 1; contentY -= 1 }
-
-                ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-                ScrollBar.horizontal: AppScrollBar { policy: ScrollBar.AsNeeded }
-
-                TextArea.flickable: TextArea {
-                    id: rxArea
-                    text: SerialTerminal.log
-                    textFormat: TextEdit.RichText
-                    readOnly: true
-                    wrapMode: TextEdit.WrapAnywhere
-                    font.family: "Ubuntu Mono"
-                    font.pixelSize: App.fontNormal
-                    color: SerialTerminal.rxText
-                    background: null
-                    onTextChanged: cursorPosition = length
-                }
+                text: SerialTerminal.log
+                textFormat: TextEdit.RichText
+                readOnly: true
+                selectByMouse: true
+                wrapMode: TextEdit.WrapAnywhere
+                contentPadding: 6
+                font: Qt.font({
+                    family: App.fontMonoFamily || "Ubuntu Mono",
+                    pixelSize: App.fontNormal,
+                    fixedPitch: true
+                })
+                color: SerialTerminal.rxText
+                onTextChanged: scrollToTail()
             }
         }
 
@@ -116,7 +107,7 @@ Rectangle {
             AppTextField {
                 id: txField
                 Layout.fillWidth: true
-                font.family: "Ubuntu Mono"
+                font.family: App.fontMonoFamily || "Ubuntu Mono"
                 text: SerialTerminal.inputText
                 onTextEdited: SerialTerminal.inputText = text
                 onAccepted: SerialTerminal.send()

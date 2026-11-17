@@ -11,10 +11,10 @@ T.ToolButton {
     id: control
     SystemPalette { id: appTheme }
 
-    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            contentItem.implicitWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
-                             contentItem.implicitHeight + topPadding + bottomPadding)
+    implicitWidth: Math.ceil(Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                                      contentItem.implicitWidth + leftPadding + rightPadding))
+    implicitHeight: Math.ceil(Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                                       contentItem.implicitHeight + topPadding + bottomPadding))
 
     font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
     padding: 4
@@ -24,7 +24,8 @@ T.ToolButton {
     // button on a coloured surface can lift it off that instead.
     property color tint: appTheme.windowText
     property color textColor: control.isCheckedActive ? appTheme.highlight : control.tint
-    property real radius: 5
+    // Negative means automatic circle (when square) or pill (when wider than tall).
+    property real radius: -1
 
     // True only when the button is actively checked AND enabled.
     readonly property bool isCheckedActive: control.checked && control.enabled
@@ -36,7 +37,7 @@ T.ToolButton {
         // the content, which is what the text ones (zoom, warnings) need.
         implicitWidth: 26
         implicitHeight: 26
-        radius: control.radius
+        radius: control.radius >= 0 ? control.radius : Math.min(width, height) / 2
 
         // When active (checked and enabled), use a highlight tint matching the border.
         // When disabled or unchecked, do not show highlight decoration.

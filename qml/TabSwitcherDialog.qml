@@ -23,7 +23,7 @@ Dialog {
         color: appTheme.window
         border.color: appTheme.mid
         border.width: 1
-        radius: 12
+        radius: 16
     }
 
     onClosed: TabSwitcher.visible = false
@@ -92,7 +92,7 @@ Dialog {
 
                 width: list.width - (vbar.visible ? vbar.width : 0)
                 height: 28
-                radius: 4
+                radius: 8
                 color: index === list.currentIndex ? appTheme.highlight : (hover.hovered ? appTheme.alternateBase : "transparent")
 
                 RowLayout {

@@ -35,6 +35,7 @@ Item {
         anchors.fill: parent
         readOnly: true
         selectByMouse: true
+        defaultContextMenu: false
         wordWrap: AppDialog.logWordWrap
         contentPadding: 9 // was document()->setDocumentMargin( 9 )
         textFormat: TextEdit.RichText

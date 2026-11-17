@@ -40,7 +40,7 @@ T.CheckBox {
         x: control.text ? (control.mirrored ? control.width - width - control.rightPadding : control.leftPadding)
                         : control.leftPadding + (control.availableWidth - width) / 2
         y: control.topPadding + (control.availableHeight - height) / 2
-        radius: 3
+        radius: 5
         color: control.checkState !== Qt.Unchecked ? appTheme.highlight
              : (control.enabled ? appTheme.base : appTheme.window)
         border.width: 1

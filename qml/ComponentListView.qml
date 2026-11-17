@@ -157,7 +157,7 @@ Item {
                 anchors.fill: parent
                 anchors.leftMargin: 4
                 anchors.rightMargin: 4
-                radius: 4
+                radius: 6
                 visible: hover.hovered
                 color: appTheme.highlight
             }

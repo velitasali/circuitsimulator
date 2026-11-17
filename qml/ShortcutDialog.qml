@@ -101,7 +101,7 @@ Dialog {
         color: appTheme.window
         border.color: appTheme.mid
         border.width: 1
-        radius: 10
+        radius: 16
     }
 
     contentItem: Item {
@@ -133,7 +133,7 @@ Dialog {
                 color: appTheme.base
                 border.color: captureArea.activeFocus ? appTheme.highlight : appTheme.mid
                 border.width: captureArea.activeFocus ? 2 : 1
-                radius: 6
+                radius: 10
 
                 focus: true
                 activeFocusOnTab: false

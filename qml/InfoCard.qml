@@ -18,7 +18,7 @@ Rectangle {
     color: InfoWidget.panelBackground
     border.color: InfoWidget.panelBorder
     border.width: 1
-    radius: 12
+    radius: 16
 
     Connections {
         target: InfoWidget

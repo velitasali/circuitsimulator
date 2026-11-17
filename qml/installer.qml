@@ -49,7 +49,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 8
+            radius: 12
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1
@@ -58,6 +58,7 @@ Rectangle {
             ListView {
                 id: list
                 anchors.fill: parent
+                anchors.margins: 1
                 clip: true
                 model: Installer.items
                 boundsBehavior: Flickable.StopAtBounds
@@ -70,6 +71,10 @@ Rectangle {
 
                     width: list.width
                     height: modelData.isGroupHeader ? 28 : 54
+                    topLeftRadius: rowItem.index === 0 ? 11 : 0
+                    topRightRadius: rowItem.index === 0 ? 11 : 0
+                    bottomLeftRadius: rowItem.index === list.count - 1 ? 11 : 0
+                    bottomRightRadius: rowItem.index === list.count - 1 ? 11 : 0
                     color: modelData.isGroupHeader ? appTheme.alternateBase
                                                    : (index % 2 ? Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.35) : "transparent")
 
@@ -164,7 +169,7 @@ Rectangle {
             color: appTheme.window
             border.color: appTheme.mid
             border.width: 1
-            radius: 8
+            radius: 14
         }
 
         ColumnLayout {
@@ -199,13 +204,23 @@ Rectangle {
                 color: appTheme.windowText
             }
 
-            ScrollView {
+            Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                radius: 8
+                color: appTheme.base
+                border.color: appTheme.mid
+                border.width: 1
                 clip: true
 
-                AppTextArea {
+                ScrollableTextEdit {
+                    id: infoArea
+                    anchors.fill: parent
+                    anchors.margins: 1
                     readOnly: true
+                    selectByMouse: true
+                    wordWrap: true
+                    contentPadding: 8
                     text: (Installer.info.items && Installer.info.items.length > 0)
                           ? Installer.info.items.join("\n")
                           : I18n.tr("No installed components found in package.")

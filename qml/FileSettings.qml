@@ -42,7 +42,7 @@ Rectangle {
             Layout.fillWidth: true
             implicitWidth: groupCol.implicitWidth + 28
             implicitHeight: groupCol.implicitHeight + 28
-            radius: 8
+            radius: 12
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1

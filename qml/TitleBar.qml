@@ -181,7 +181,7 @@ Item {
             height: 26
             implicitWidth: menuPillRow.implicitWidth + 14
             width: implicitWidth
-            radius: 6
+            radius: height / 2
             color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
             opacity: bar.windowActive ? 1.0 : 0.7
 
@@ -276,7 +276,7 @@ Item {
                         }
 
                         background: Rectangle {
-                            radius: 4
+                            radius: height / 2
                             color: (barItem.down || barItem.highlighted)
                                 ? Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.16)
                                 : barItem.hovered
@@ -337,7 +337,7 @@ Item {
         x: Math.max(minLeftX, Math.min(maxRightX - width, Math.round((bar.width - width) / 2)))
         visible: width > 0
         clip: true
-        radius: 6
+        radius: height / 2
         color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
         opacity: bar.windowActive ? 1.0 : 0.7
 
@@ -379,7 +379,7 @@ Item {
 
             Rectangle {
                 visible: bar.projectName !== ""
-                radius: 4
+                radius: height / 2
                 color: Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.08)
                 readonly property real naturalWidth: projText.implicitWidth + 10
                 implicitWidth: naturalWidth
@@ -454,7 +454,7 @@ Item {
         width: captionButtons.width
         height: parent.height
         color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.78)
-        topRightRadius: (Qt.platform.os === "linux" && !bar.maximized) ? 10 : 0
+        topRightRadius: (Qt.platform.os === "linux" && !bar.maximized) ? 14 : 0
 
         Row {
             id: captionButtons
@@ -561,7 +561,7 @@ Item {
             Rectangle {
                 width: 46
                 height: captionButtons.height
-                topRightRadius: (Qt.platform.os === "linux" && !bar.maximized) ? 10 : 0
+                topRightRadius: (Qt.platform.os === "linux" && !bar.maximized) ? 14 : 0
                 color: closeMouse.pressed
                     ? Qt.darker(App.closeHoverBg, 1.15)
                     : closeMouse.containsMouse

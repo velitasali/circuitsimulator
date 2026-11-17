@@ -269,7 +269,7 @@ Rectangle {
 
         Layout.fillWidth: true
         implicitHeight: cardLayout.implicitHeight + 12
-        radius: 5
+        radius: 10
         color: Qt.rgba( appTheme.base.r, appTheme.base.g, appTheme.base.b, 0.45 )
         border.color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.55 )
         border.width: 1
@@ -318,7 +318,7 @@ Rectangle {
                                                            : ( chRow.checkedList && chRow.checkedList[chBtn.index] === true )
 
                 background: Rectangle {
-                    radius: 3
+                    radius: 7
                     color: chBtn.on ? chBtn.modelData.color
                                     : ( chBtn.hovered ? Qt.rgba( appTheme.midlight.r, appTheme.midlight.g, appTheme.midlight.b, 0.35 )
                                                       : Qt.rgba( appTheme.base.r, appTheme.base.g, appTheme.base.b, 0.45 ) )
@@ -364,7 +364,7 @@ Rectangle {
                 layer.enabled: true
                 Rectangle {
                     anchors.fill: parent
-                    radius: 6
+                    radius: 10
                     color: "white"
                 }
             }
@@ -373,7 +373,7 @@ Rectangle {
                 id: scopeFrame
                 anchors.fill: parent
                 color: Oscilloscope.paperColor
-                radius: 6
+                radius: 10
                 layer.enabled: true
                 layer.effect: MultiEffect {
                     maskEnabled: true
@@ -433,7 +433,7 @@ Rectangle {
                     y: Math.min( parent.height - height - 6, Math.max( 6, root.cursorY + 8 ) )
                     width: measureCol.implicitWidth + 12
                     height: measureCol.implicitHeight + 8
-                    radius: 3
+                    radius: 6
                     color: Oscilloscope.cursorFill
                     border.color: Oscilloscope.cursorBorder
                     border.width: 1
@@ -603,7 +603,7 @@ Rectangle {
                             font.bold: Oscilloscope.tracks === trackBtn.modelData
                             checked: Oscilloscope.tracks === trackBtn.modelData
                             background: Rectangle {
-                                radius: 3
+                                radius: 7
                                 color: trackBtn.checked ? appTheme.highlight : ( trackBtn.hovered ? appTheme.midlight : "transparent" )
                                 border.width: 1
                                 border.color: trackBtn.checked ? appTheme.highlight : appTheme.mid
@@ -782,7 +782,7 @@ Rectangle {
                         font.bold: true
 
                         background: Rectangle {
-                            radius: 3
+                            radius: 7
                             color: edgeBtn.checked ? Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.25 )
                                                    : "transparent"
                             border.width: 1

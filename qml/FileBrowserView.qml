@@ -299,7 +299,7 @@ Item {
             color: appTheme.window
             border.color: appTheme.mid
             border.width: 1
-            radius: 10
+            radius: 14
         }
 
         Overlay.modal: Rectangle {
@@ -334,7 +334,7 @@ Item {
                     Rectangle {
                         implicitWidth: 26
                         implicitHeight: 26
-                        radius: 5
+                        radius: height / 2
                         color: Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.18 )
 
                         AppIcon {
@@ -370,7 +370,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 22
-                    radius: 4
+                    radius: 8
                     color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.18 )
                     border.color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.35 )
                     border.width: 1
@@ -413,7 +413,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 30
-                        radius: 5
+                        radius: 8
                         color: appTheme.base
                         border.width: newFileInput.activeFocus ? 2 : 1
                         border.color: newFileInput.activeFocus ? appTheme.highlight : appTheme.mid
@@ -540,7 +540,7 @@ Item {
                         rightPadding: 12
 
                         background: Rectangle {
-                            radius: 4
+                            radius: 8
                             color: cancelFileBtn.down ? appTheme.dark : ( cancelFileBtn.hovered ? appTheme.midlight : appTheme.button )
                             border.color: appTheme.mid
                             border.width: 1
@@ -565,7 +565,7 @@ Item {
                         rightPadding: 14
 
                         background: Rectangle {
-                            radius: 4
+                            radius: 8
                             color: !createFileBtn.enabled
                                    ? Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.4 )
                                    : ( createFileBtn.down
@@ -611,7 +611,7 @@ Item {
             color: appTheme.window
             border.color: appTheme.mid
             border.width: 1
-            radius: 10
+            radius: 14
         }
 
         Overlay.modal: Rectangle {
@@ -646,7 +646,7 @@ Item {
                     Rectangle {
                         implicitWidth: 26
                         implicitHeight: 26
-                        radius: 5
+                        radius: height / 2
                         color: Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.18 )
 
                         AppIcon {
@@ -682,7 +682,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 22
-                    radius: 4
+                    radius: 8
                     color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.18 )
                     border.color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.35 )
                     border.width: 1
@@ -725,7 +725,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 30
-                        radius: 5
+                        radius: 8
                         color: appTheme.base
                         border.width: newDirInput.activeFocus ? 2 : 1
                         border.color: newDirInput.activeFocus ? appTheme.highlight : appTheme.mid
@@ -807,7 +807,7 @@ Item {
                         rightPadding: 12
 
                         background: Rectangle {
-                            radius: 4
+                            radius: 8
                             color: cancelFolderBtn.down ? appTheme.dark : ( cancelFolderBtn.hovered ? appTheme.midlight : appTheme.button )
                             border.color: appTheme.mid
                             border.width: 1
@@ -832,7 +832,7 @@ Item {
                         rightPadding: 14
 
                         background: Rectangle {
-                            radius: 4
+                            radius: 8
                             color: !createFolderBtn.enabled
                                    ? Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.4 )
                                    : ( createFolderBtn.down
@@ -878,7 +878,7 @@ Item {
             color: appTheme.window
             border.color: appTheme.mid
             border.width: 1
-            radius: 10
+            radius: 14
         }
 
         Overlay.modal: Rectangle {
@@ -913,7 +913,7 @@ Item {
                     Rectangle {
                         implicitWidth: 26
                         implicitHeight: 26
-                        radius: 5
+                        radius: height / 2
                         color: Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.18 )
 
                         AppIcon {
@@ -949,7 +949,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 22
-                    radius: 4
+                    radius: 8
                     color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.18 )
                     border.color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.35 )
                     border.width: 1
@@ -992,7 +992,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 30
-                        radius: 5
+                        radius: 8
                         color: appTheme.base
                         border.width: renameInput.activeFocus ? 2 : 1
                         border.color: renameInput.activeFocus ? appTheme.highlight : appTheme.mid
@@ -1074,7 +1074,7 @@ Item {
                         rightPadding: 12
 
                         background: Rectangle {
-                            radius: 4
+                            radius: 8
                             color: cancelRenameBtn.down ? appTheme.dark : ( cancelRenameBtn.hovered ? appTheme.midlight : appTheme.button )
                             border.color: appTheme.mid
                             border.width: 1
@@ -1099,7 +1099,7 @@ Item {
                         rightPadding: 14
 
                         background: Rectangle {
-                            radius: 4
+                            radius: 8
                             color: !renameBtn.enabled
                                    ? Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.4 )
                                    : ( renameBtn.down
@@ -1188,7 +1188,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 8
+            radius: 10
             color: appTheme.base
             border.color: appTheme.mid
             border.width: 1
@@ -1254,7 +1254,7 @@ Item {
                         anchors.fill: parent
                         anchors.leftMargin: 4
                         anchors.rightMargin: 4
-                        radius: 4
+                        radius: 6
                         visible: hoverHandler.hovered || rowDelegate.model.path === root.selectedPath
                         color: hoverHandler.hovered
                                ? appTheme.highlight

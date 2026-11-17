@@ -135,14 +135,14 @@ ApplicationWindow {
 
         Rectangle {
             anchors.fill: parent
-            radius: 10
+            radius: 14
         }
     }
 
     RectangularShadow {
         anchors.fill: windowFrame
         visible: win.linuxShadowMargin > 0
-        radius: 10
+        radius: 14
         blur: 14
         offset: Qt.vector2d(0, 3)
         color: win.active ? App.windowShadow : App.windowShadowInactive
@@ -152,7 +152,7 @@ ApplicationWindow {
         id: windowFrame
         anchors.fill: parent
         anchors.margins: win.linuxShadowMargin
-        radius: win.linuxShadowMargin > 0 ? 10 : 0
+        radius: win.linuxShadowMargin > 0 ? 14 : 0
         color: appTheme.window
         layer.enabled: win.linuxShadowMargin > 0
         layer.effect: MultiEffect {
@@ -194,7 +194,7 @@ ApplicationWindow {
         anchors.fill: windowFrame
         z: 20
         visible: win.linuxShadowMargin > 0
-        radius: 10
+        radius: 14
         color: "transparent"
         border.color: appTheme.mid
         border.width: 1
@@ -540,6 +540,7 @@ ApplicationWindow {
     OwnedWindow {
         id: circSettingsWin
         title: I18n.tr("Circuit Settings")
+        maximizable: false
         width: Math.max(420, minimumWidth)
         height: 560
         minimumWidth: panelItem ? Math.max(360, Math.ceil(panelItem.implicitWidth)) : 360
@@ -565,6 +566,7 @@ ApplicationWindow {
     OwnedWindow {
         id: installerWin
         title: I18n.tr("Library Manager")
+        maximizable: false
         width: 600
         height: 520
         minimumWidth: 480
@@ -1020,8 +1022,6 @@ ApplicationWindow {
                    ? App.translate("Properties: %1").arg(itemTitle)
                    : App.translate("Properties")
             sizeToContent: true
-            resizable: false
-            flags: Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
             minimumWidth: 320
             minimumHeight: 160
             visible: true

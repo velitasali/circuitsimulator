@@ -56,7 +56,7 @@ T.MenuItem {
             y: 1
             width: parent.width - 4
             height: parent.height - 2
-            radius: 4
+            radius: 6
             color: control.highlighted ? appTheme.highlight : "transparent"
         }
     }

@@ -50,7 +50,7 @@ Popup {
         color: appTheme.window
         border.color: appTheme.mid
         border.width: 1
-        radius: 12
+        radius: 16
     }
 
     contentItem: Item {
@@ -104,7 +104,7 @@ Popup {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 74
-                radius: 8
+                radius: 10
                 color: appTheme.base
                 border.color: appTheme.mid
                 border.width: 1

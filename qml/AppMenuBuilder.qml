@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import cs_app
+import cs_ui
 
 /* Shared builder that populates AppContextMenu trees from AppMenuBar JSON. */
 Item {
@@ -55,7 +56,7 @@ Item {
         // Parent temporarily to `builder` (in the scene), not to the Menu (a Popup),
         // before addItem() reparents into the menu's visual hierarchy.
         return menuItemComp.createObject(builder, {
-            text: isSep ? "" : String(entry.text),
+            text: isSep ? "" : UiUtils.stripMnemonic(String(entry.text)),
             enabled: !isSep && !!entry.enabled,
             visible: entry.visible !== false,
             isSeparator: isSep,
@@ -82,7 +83,7 @@ Item {
                 if (entry.visible === false)
                     continue
                 var sub = subMenuComp.createObject(menu, {
-                    title: String(entry.text)
+                    title: UiUtils.stripMnemonic(String(entry.text))
                 }) as AppContextMenu
                 if (!sub)
                     continue
@@ -100,7 +101,7 @@ Item {
 
     function createSubMenu(parentMenu: AppContextMenu, titleText: string): AppContextMenu {
         return subMenuComp.createObject(parentMenu, {
-            title: titleText
+            title: UiUtils.stripMnemonic(titleText)
         }) as AppContextMenu
     }
 }

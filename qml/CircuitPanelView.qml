@@ -1160,12 +1160,7 @@ Item {
     }
 
     function closeAppMenu(): void {
-        for ( var i = 0; i < appMenu.count; ++i ) {
-            var sub = appMenu.menuAt( i )
-            if ( sub && sub.opened )
-                sub.close()
-        }
-        appMenu.close()
+        appMenu.closeTree()
     }
 
     Connections {

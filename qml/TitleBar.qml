@@ -100,9 +100,9 @@ Item {
 
     function closeAllMenus(): void {
         for (var i = 0; i < menuBar.count; ++i) {
-            var m = menuBar.menuAt(i)
+            var m = menuBar.menuAt(i) as AppContextMenu
             if (m && m.opened)
-                m.close()
+                m.closeTree()
         }
         if (!App.nativeMenus)
             AppMenuBar.setAltMenuOpen(false)
@@ -219,6 +219,26 @@ Item {
                     font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSmall })
                     background: null
 
+                    Keys.onPressed: (event) => {
+                        if ((event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) !== 0)
+                            return
+                        var keyText = String(event.text || "").toLowerCase()
+                        if (keyText === "")
+                            return
+                        for (var i = 0; i < menuBar.count; ++i) {
+                            var it = menuBar.itemAt(i) as T.MenuBarItem
+                            var m = menuBar.menuAt(i) as AppContextMenu
+                            if (!it || !m)
+                                continue
+                            var mark = UiUtils.splitMnemonic(m.rawTitle).mark.toLowerCase()
+                            if (mark !== "" && mark === keyText) {
+                                it.triggered()
+                                event.accepted = true
+                                return
+                            }
+                        }
+                    }
+
                     contentItem: Row {
                         spacing: menuBar.spacing
                         Repeater {
@@ -240,8 +260,33 @@ Item {
                         topPadding: 0
                         bottomPadding: 0
 
-                        readonly property var mnemonic: UiUtils.splitMnemonic(barItem.text)
+                        readonly property string rawTitle: (barItem.menu as AppContextMenu)?.rawTitle ?? String(barItem.text)
+                        readonly property var mnemonic: UiUtils.splitMnemonic(rawTitle)
                         readonly property real labelOpacity: bar.windowActive ? (enabled ? 1.0 : 0.4) : 0.75
+
+                        // Qt's MenuBarItem fails to activate Alt+<key> mnemonics when enabled/visible
+                        // starts false during initial layout, and stripping '&' from `menu.title`
+                        // prevents an ambiguous overload if it ever did grab one.
+                        Shortcut {
+                            enabled: bar.visible && bar.menuBarVisible
+                                && barItem.mnemonic.mark !== ""
+                                && !CommandCenter.visible && !TabSwitcher.visible
+                            sequences: barItem.mnemonic.mark !== "" ? ["Alt+" + barItem.mnemonic.mark] : []
+                            onActivated: {
+                                if (UiUtils.hasModalOverlay(bar.Overlay.overlay, null))
+                                    return
+                                for (var i = 0; i < menuBar.count; ++i) {
+                                    var m = menuBar.menuAt(i) as AppContextMenu
+                                    if (m && m !== barItem.menu && m.opened)
+                                        m.closeTree()
+                                }
+                                var ownMenu = barItem.menu as AppContextMenu
+                                if (ownMenu && ownMenu.opened)
+                                    ownMenu.closeTree()
+                                else
+                                    barItem.triggered()
+                            }
+                        }
 
                         contentItem: Item {
                             implicitWidth: mnemonicRow.implicitWidth
@@ -296,12 +341,13 @@ Item {
                             property bool menuDirty: true
                             popupType: Popup.Item
                             focus: true
-                            title: {
+                            rawTitle: {
                                 var ms = AppMenuBar.menus
                                 return (ms && index >= 0 && index < ms.length && ms[index])
                                     ? String(ms[index].title || "")
                                     : ""
                             }
+                            title: UiUtils.stripMnemonic(rawTitle)
                             onOpenedChanged: bar.syncAltMenuOpen()
                             onAboutToShow: {
                                 if (topMenu.menuDirty || topMenu.count === 0) {

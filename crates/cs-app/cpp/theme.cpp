@@ -517,8 +517,17 @@ public:
     bool eventFilter(QObject* obj, QEvent* event) override
     {
         const QEvent::Type type = event->type();
-        if (type == QEvent::ApplicationDeactivate) {
+        if (type == QEvent::ApplicationDeactivate || type == QEvent::Shortcut) {
             disarmAlt();
+            return QObject::eventFilter(obj, event);
+        }
+        if (type == QEvent::ShortcutOverride) {
+            auto* ke = static_cast<QKeyEvent*>(event);
+            if (ke->key() != Qt::Key_Alt && ke->key() != Qt::Key_Meta) {
+                disarmAlt();
+            } else if (s_on_alt && s_on_alt(0)) {
+                return true;
+            }
             return QObject::eventFilter(obj, event);
         }
 
@@ -575,10 +584,10 @@ public:
         switch (type) {
         case QEvent::KeyPress: {
             auto* ke = static_cast<QKeyEvent*>(event);
+            const Qt::KeyboardModifiers otherMods =
+                ke->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier);
+            const bool bareAlt = ke->key() == Qt::Key_Alt && otherMods == Qt::NoModifier;
             if (!ke->isAutoRepeat()) {
-                const Qt::KeyboardModifiers otherMods =
-                    ke->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::MetaModifier);
-                const bool bareAlt = ke->key() == Qt::Key_Alt && otherMods == Qt::NoModifier;
                 m_altArmed = bareAlt;
                 m_closeOnRelease = false;
                 // The open menu would close itself on this press, and the release
@@ -588,6 +597,10 @@ public:
                     m_closeOnRelease = true;
                     return true;
                 }
+            } else if (bareAlt && s_on_alt && s_on_alt(0)) {
+                return true;
+            } else if (!bareAlt) {
+                disarmAlt();
             }
             break;
         }

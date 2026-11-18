@@ -10,6 +10,8 @@ T.Menu {
 
     // Copied onto the parent row that addMenu/insertMenu builds from `delegate`.
     property string iconLigature: ""
+    // Unstripped menu title (e.g. "&File") when `title` is stripped to avoid Qt's broken delayed mnemonic grab.
+    property string rawTitle: ""
 
     // Keep context menus and cascading submenus inside the window's overlay
     // (Popup.Item) so Qt doesn't spin up separate QQuickPopupWindow OS windows
@@ -56,6 +58,16 @@ T.Menu {
     property real contentImplicitWidth: 180
     property real contentImplicitHeight: 0
     property bool populating: false
+
+    function closeTree() {
+        for (var i = 0; i < count; ++i) {
+            var sub = menuAt(i) as AppContextMenu
+            if (sub && sub.opened)
+                sub.closeTree()
+        }
+        if (opened)
+            close()
+    }
 
     function updateGeometry() {
         var maxW = 180

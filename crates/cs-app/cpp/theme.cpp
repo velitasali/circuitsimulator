@@ -38,7 +38,8 @@
 extern "C" {
 void cs_win_register_chrome(uintptr_t hwnd);
 void cs_win_unregister_chrome(uintptr_t hwnd);
-void cs_win_apply_dwm(uintptr_t hwnd, int dark);
+void cs_win_apply_dwm(uintptr_t hwnd, int dark, int refresh_frame);
+void cs_win_forget_window(uintptr_t hwnd);
 int cs_win_native_event(uintptr_t hwnd, uint32_t message, uintptr_t w_param, intptr_t l_param,
                         intptr_t* out_result);
 }
@@ -56,11 +57,47 @@ static int (*s_on_alt)(int phase) = nullptr;
 #ifdef Q_OS_WIN
 static int s_current_theme_dark = -1;
 static QHash<uintptr_t, QPointer<QWindow>> s_main_windows;
+static QHash<uintptr_t, QPointer<QWindow>> s_themed_windows;
 
 static bool is_main_window(QWindow* w)
 {
     return w && w->transientParent() == nullptr
         && w->objectName() == QStringLiteral("mainWindow");
+}
+
+static bool is_themed_quick_window(QWindow* w)
+{
+    if (!w)
+        return false;
+    const Qt::WindowType wt = w->type();
+    if (wt != Qt::Window && wt != Qt::Dialog)
+        return false;
+    return qobject_cast<QQuickWindow*>(w) != nullptr;
+}
+
+static void prune_themed_windows_for(QWindow* w)
+{
+    for (auto it = s_themed_windows.begin(); it != s_themed_windows.end();) {
+        if (it.value().isNull() || it.value().data() == w) {
+            it = s_themed_windows.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+static void register_themed_window(QWindow* w)
+{
+    if (!is_themed_quick_window(w) || !w->handle())
+        return;
+    const uintptr_t hwnd = static_cast<uintptr_t>(w->winId());
+    if (!hwnd)
+        return;
+    auto existing = s_themed_windows.constFind(hwnd);
+    if (existing == s_themed_windows.constEnd() || existing.value().data() != w) {
+        prune_themed_windows_for(w);
+        s_themed_windows.insert(hwnd, w);
+    }
 }
 
 static void prune_main_windows_for(QWindow* w)
@@ -174,6 +211,29 @@ extern "C" int cs_win_hit_test_titlebar(uintptr_t hwnd, int client_x, int client
     return 0;
 }
 
+static void fill_window_background(HWND hwnd, HDC hdc)
+{
+    if (!hwnd || !hdc)
+        return;
+    RECT rc;
+    if (!GetClientRect(hwnd, &rc) || rc.right <= rc.left || rc.bottom <= rc.top)
+        return;
+    const QColor bg = QGuiApplication::palette().color(QPalette::Window);
+    HBRUSH brush = CreateSolidBrush(RGB(bg.red(), bg.green(), bg.blue()));
+    if (!brush)
+        return;
+    FillRect(hdc, &rc, brush);
+    DeleteObject(brush);
+}
+
+static void paint_window_background(HWND hwnd)
+{
+    if (HDC hdc = GetDC(hwnd)) {
+        fill_window_background(hwnd, hdc);
+        ReleaseDC(hwnd, hdc);
+    }
+}
+
 class WinChromeNativeFilter : public QAbstractNativeEventFilter
 {
 public:
@@ -184,6 +244,22 @@ public:
 
         MSG* msg = static_cast<MSG*>(message);
         const uintptr_t hwnd = reinterpret_cast<uintptr_t>(msg->hwnd);
+
+        if (msg->message == WM_ERASEBKGND || (msg->message == WM_SHOWWINDOW && msg->wParam)) {
+            auto themedIt = s_themed_windows.find(hwnd);
+            if (themedIt != s_themed_windows.end()) {
+                if (themedIt.value().isNull()) {
+                    s_themed_windows.erase(themedIt);
+                } else if (msg->message == WM_ERASEBKGND) {
+                    fill_window_background(msg->hwnd, reinterpret_cast<HDC>(msg->wParam));
+                    *result = 1;
+                    return true;
+                } else {
+                    paint_window_background(msg->hwnd);
+                }
+            }
+        }
+
         auto it = s_main_windows.find(hwnd);
         if (it == s_main_windows.end())
             return false;
@@ -207,8 +283,10 @@ static void apply_dwm_all(bool dark)
 {
     const auto windows = QGuiApplication::topLevelWindows();
     for (QWindow* w : windows) {
-        if (w)
-            cs_win_apply_dwm(static_cast<uintptr_t>(w->winId()), dark ? 1 : 0);
+        if (w && w->handle()) {
+            cs_win_apply_dwm(static_cast<uintptr_t>(w->winId()), dark ? 1 : 0,
+                             w->isVisible() ? 1 : 0);
+        }
     }
 }
 #endif
@@ -328,13 +406,32 @@ public:
             auto* se = static_cast<QPlatformSurfaceEvent*>(event);
             if (se->surfaceEventType() == QPlatformSurfaceEvent::SurfaceCreated) {
                 register_main_window(w);
+                register_themed_window(w);
+                if (s_current_theme_dark >= 0 && w->handle()) {
+                    cs_win_apply_dwm(static_cast<uintptr_t>(w->winId()), s_current_theme_dark, 0);
+                }
             } else if (se->surfaceEventType() == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
+                if (w->handle())
+                    cs_win_forget_window(static_cast<uintptr_t>(w->winId()));
+                prune_themed_windows_for(w);
                 prune_main_windows_for(w);
             }
-        } else if (type == QEvent::Show || type == QEvent::WinIdChange) {
+        } else if (type == QEvent::Show) {
             register_main_window(w);
-            if (s_current_theme_dark >= 0)
-                cs_win_apply_dwm(static_cast<uintptr_t>(w->winId()), s_current_theme_dark);
+            register_themed_window(w);
+            if (s_current_theme_dark >= 0 && w->handle()) {
+                const uintptr_t hwnd = static_cast<uintptr_t>(w->winId());
+                cs_win_apply_dwm(hwnd, s_current_theme_dark, 0);
+                if (is_themed_quick_window(w))
+                    paint_window_background(reinterpret_cast<HWND>(hwnd));
+            }
+        } else if (type == QEvent::WinIdChange) {
+            register_main_window(w);
+            register_themed_window(w);
+            if (s_current_theme_dark >= 0 && w->handle()) {
+                cs_win_apply_dwm(static_cast<uintptr_t>(w->winId()), s_current_theme_dark,
+                                 w->isVisible() ? 1 : 0);
+            }
         }
 #elif defined(Q_OS_LINUX)
         if (type == QEvent::PlatformSurface) {

@@ -154,11 +154,18 @@ Rectangle {
                             anchors.margins: 4
                             spacing: 6
                             AppIcon { icon: "warning"; color: appTheme.windowText }
-                            AppText {
-                                text: EditorPanel.toolPathWarning
-                                color: appTheme.windowText
-                                wrapMode: Text.WordWrap
+                            Item {
                                 Layout.fillWidth: true
+                                Layout.preferredWidth: 340
+                                implicitHeight: warningText.implicitHeight
+
+                                AppText {
+                                    id: warningText
+                                    width: parent.width > 0 ? parent.width : 340
+                                    text: EditorPanel.toolPathWarning
+                                    color: appTheme.windowText
+                                    wrapMode: Text.WordWrap
+                                }
                             }
                         }
                     }

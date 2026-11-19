@@ -4,7 +4,7 @@
 //! `cpp/theme.cpp` forwards Qt's `QAbstractNativeEventFilter` messages and
 //! provides `cs_win_hit_test_titlebar` for walking the `QQuickItem` tree.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::mem;
 use std::sync::Mutex;
@@ -29,9 +29,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowExW, FindWindowW, GWL_STYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect,
     HTCAPTION, HTCLIENT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IsZoomed, NCCALCSIZE_PARAMS,
     SM_CXPADDEDBORDER, SM_CXSIZEFRAME, SM_CYSIZEFRAME, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, WM_DISPLAYCHANGE,
-    WM_NCCALCSIZE, WM_NCHITTEST, WM_SETTINGCHANGE, WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
-    WS_SYSMENU, WS_THICKFRAME,
+    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos,
+    WM_DISPLAYCHANGE, WM_NCCALCSIZE, WM_NCHITTEST, WM_SETTINGCHANGE, WS_CAPTION, WS_MAXIMIZEBOX,
+    WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
 };
 use windows::core::{PCWSTR, w};
 
@@ -54,6 +54,7 @@ struct AutoHideClearance {
 }
 
 static CHROME_APPLIED: Mutex<Option<HashSet<usize>>> = Mutex::new(None);
+static DWM_DARK_APPLIED: Mutex<Option<HashMap<usize, bool>>> = Mutex::new(None);
 static AUTOHIDE: Mutex<Vec<AutoHideClearance>> = Mutex::new(Vec::new());
 static REFRESHING_AUTOHIDE: AtomicBool = AtomicBool::new(false);
 
@@ -271,27 +272,55 @@ pub extern "C" fn cs_win_unregister_chrome(raw_hwnd: usize) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn cs_win_apply_dwm(raw_hwnd: usize, dark: i32) {
+pub extern "C" fn cs_win_apply_dwm(raw_hwnd: usize, dark: i32, refresh_frame: i32) {
     if raw_hwnd == 0 {
         return;
     }
+    let want_dark = dark != 0;
+    {
+        let mut guard = DWM_DARK_APPLIED.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(HashMap::new);
+        if map.get(&raw_hwnd).copied() == Some(want_dark) {
+            return;
+        }
+        map.insert(raw_hwnd, want_dark);
+    }
     let hwnd = hwnd_from_usize(raw_hwnd);
-    let value: BOOL = if dark != 0 { TRUE } else { FALSE };
+    let value: BOOL = if want_dark { TRUE } else { FALSE };
     let val_ptr = (&value as *const BOOL).cast::<c_void>();
     let val_size = mem::size_of::<BOOL>() as u32;
     unsafe {
         // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE (Win10 1903+); 19 is the older constant.
         let _ = DwmSetWindowAttribute(hwnd, DWMWINDOWATTRIBUTE(20), val_ptr, val_size);
         let _ = DwmSetWindowAttribute(hwnd, DWMWINDOWATTRIBUTE(19), val_ptr, val_size);
-        let _ = SetWindowPos(
-            hwnd,
-            HWND::default(),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
-        );
+        if refresh_frame != 0 {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND::default(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOZORDER
+                    | SWP_NOACTIVATE
+                    | SWP_NOOWNERZORDER
+                    | SWP_FRAMECHANGED,
+            );
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn cs_win_forget_window(raw_hwnd: usize) {
+    if raw_hwnd == 0 {
+        return;
+    }
+    if let Ok(mut guard) = DWM_DARK_APPLIED.lock() {
+        if let Some(map) = guard.as_mut() {
+            map.remove(&raw_hwnd);
+        }
     }
 }
 

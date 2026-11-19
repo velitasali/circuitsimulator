@@ -89,24 +89,30 @@ Rectangle {
             color: pal.mid
         }
 
-        AppText {
+        Item {
             Layout.fillWidth: true
             Layout.preferredWidth: 400
-            wrapMode: Text.WordWrap
-            font.pixelSize: App.fontSmall
-            color: pal.windowText
-            linkColor: pal.highlight
-            textFormat: Text.RichText
-            lineHeight: 1.25
-            text: "<p>" + I18n.tr("This program uses Qt version %1.").replace("%1", App.qtVersion) + "<br/>"
-                + I18n.tr("Qt is licensed under the GNU LGPL version 3.") + "<br/>"
-                + I18n.tr("Please see <a href=\"https://www.qt.io/licensing/\">qt.io/licensing</a> for an overview of Qt licensing.") + "</p>"
-                + "<p>" + I18n.tr("Copyright (C) 2026 The Qt Company Ltd and other contributors.") + "</p>"
-            onLinkActivated: (link) => Qt.openUrlExternally(link)
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
-                acceptedButtons: Qt.NoButton
+            implicitHeight: legalText.implicitHeight
+
+            AppText {
+                id: legalText
+                width: parent.width > 0 ? parent.width : 400
+                wrapMode: Text.WordWrap
+                font.pixelSize: App.fontSmall
+                color: pal.windowText
+                linkColor: pal.highlight
+                textFormat: Text.RichText
+                lineHeight: 1.25
+                text: "<p>" + I18n.tr("This program uses Qt version %1.").replace("%1", App.qtVersion) + "<br/>"
+                    + I18n.tr("Qt is licensed under the GNU LGPL version 3.") + "<br/>"
+                    + I18n.tr("Please see <a href=\"https://www.qt.io/licensing/\">qt.io/licensing</a> for an overview of Qt licensing.") + "</p>"
+                    + "<p>" + I18n.tr("Copyright (C) 2026 The Qt Company Ltd and other contributors.") + "</p>"
+                onLinkActivated: (link) => Qt.openUrlExternally(link)
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    acceptedButtons: Qt.NoButton
+                }
             }
         }
     }

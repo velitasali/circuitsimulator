@@ -212,17 +212,9 @@ ApplicationWindow {
         id: aboutWin
         title: App.translate("About Circuit Simulator")
         sizeToContent: true
-        source: visible ? "about.qml" : ""
-        visible: App.aboutVisible
+        panelSource: "about.qml"
+        openRequested: App.aboutVisible
 
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -235,21 +227,12 @@ ApplicationWindow {
         id: examplesWin
         title: App.translate("Example circuits")
         sizeToContent: true
-        source: visible ? "examples.qml" : ""
-        visible: false
+        panelSource: "examples.qml"
 
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
-                visible = false
+                openRequested = false
             }
         }
 
@@ -258,7 +241,7 @@ ApplicationWindow {
             ignoreUnknownSignals: true
             function onExampleChosen(id: string): void {
                 CircuitCanvas.loadExample(id)
-                examplesWin.visible = false
+                examplesWin.openRequested = false
             }
         }
     }
@@ -268,21 +251,12 @@ ApplicationWindow {
         title: I18n.tr("AC Sweep")
         width: 820
         height: 560
-        source: visible ? "BodeView.qml" : ""
-        visible: false
+        panelSource: "BodeView.qml"
 
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
-                visible = false
+                openRequested = false
             }
         }
     }
@@ -292,21 +266,12 @@ ApplicationWindow {
         title: I18n.tr("DC Parameter Sweep / Curve Tracer")
         width: 920
         height: 620
-        source: visible ? "CurveTracerView.qml" : ""
-        visible: false
+        panelSource: "CurveTracerView.qml"
 
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
-                visible = false
+                openRequested = false
             }
         }
     }
@@ -316,16 +281,9 @@ ApplicationWindow {
         title: I18n.tr("Oscilloscope")
         width: 900
         height: 520
-        source: visible ? "OscView.qml" : ""
-        visible: App.oscVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        panelSource: "OscView.qml"
+        openRequested: App.oscVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -339,16 +297,9 @@ ApplicationWindow {
         title: I18n.tr("Logic Analyzer")
         width: 900
         height: 520
-        source: visible ? "LaView.qml" : ""
-        visible: App.laVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        panelSource: "LaView.qml"
+        openRequested: App.laVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -362,16 +313,9 @@ ApplicationWindow {
         title: I18n.tr("MCU Monitor")
         width: 900
         height: 520
-        source: visible ? "McuView.qml" : ""
-        visible: App.mcuVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        panelSource: "McuView.qml"
+        openRequested: App.mcuVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -381,6 +325,7 @@ ApplicationWindow {
     }
 
     property var serialMonWindows: ({})
+    property var serialMonLastPos: null
 
     function omitKey(map: var, key: string): var {
         var copy = {}
@@ -402,17 +347,17 @@ ApplicationWindow {
             existing.bringToFront()
             return
         }
-        var count = Object.keys(serialMonWindows).length
-        var offset = (count % 8) * 28
-        var posX = win.x + Math.round((win.width - 560) / 2) + offset
-        var posY = win.y + Math.round((win.height - 420) / 2) + offset
         var winTitle = title ? title : SerialMonitor.titleFor(monId)
-        var w = serialMonComp.createObject(win, {
+        var props = {
             monId: monId,
-            title: winTitle,
-            x: posX,
-            y: posY
-        }) as AppWindow
+            title: winTitle
+        }
+        if (win.serialMonLastPos) {
+            props.hasSavedPosition = true
+            props.savedX = win.serialMonLastPos.x
+            props.savedY = win.serialMonLastPos.y
+        }
+        var w = serialMonComp.createObject(win, props) as AppWindow
         if (w) {
             serialMonWindows[monId] = w
         }
@@ -423,6 +368,9 @@ ApplicationWindow {
             return
         var w = serialMonWindows[monId] as AppWindow
         if (w) {
+            if (w.hasSavedPosition) {
+                win.serialMonLastPos = { x: w.savedX, y: w.savedY }
+            }
             serialMonWindows = win.omitKey(serialMonWindows, monId)
             w.destroy()
         }
@@ -445,14 +393,18 @@ ApplicationWindow {
             property string monId: ""
             width: 560
             height: 420
-            visible: true
+            panelSource: "qrc:/qt/qml/cs_app/serialmon.qml"
+            panelProperties: ({ monitorId: monWin.monId })
+            openRequested: true
 
-            Component.onCompleted: {
-                monWin.loadSource("qrc:/qt/qml/cs_app/serialmon.qml", { monitorId: monWin.monId })
-            }
+            onSavedXChanged: if (monWin.hasSavedPosition) win.serialMonLastPos = { x: monWin.savedX, y: monWin.savedY }
+            onSavedYChanged: if (monWin.hasSavedPosition) win.serialMonLastPos = { x: monWin.savedX, y: monWin.savedY }
 
             onClosing: (close) => {
                 close.accepted = true
+                if (monWin.hasSavedPosition) {
+                    win.serialMonLastPos = { x: monWin.savedX, y: monWin.savedY }
+                }
                 if (win.serialMonWindows && win.serialMonWindows[monWin.monId]) {
                     win.serialMonWindows = win.omitKey(win.serialMonWindows, monWin.monId)
                 }
@@ -469,17 +421,10 @@ ApplicationWindow {
         title: I18n.tr("Serial Terminal")
         width: 560
         height: 420
-        source: visible ? "terminal.qml" : ""
-        visible: App.terminalVisible
-        onVisibleChanged: {
-            if (visible) {
-                SerialTerminal.setDark(win.darkChrome)
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        panelSource: "terminal.qml"
+        openRequested: App.terminalVisible
+
+        onAboutToShow: SerialTerminal.setDark(win.darkChrome)
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -495,16 +440,9 @@ ApplicationWindow {
         height: 480
         minimumWidth: 520
         minimumHeight: 300
-        source: visible ? "MemTablePanel.qml" : ""
-        visible: MemoryTable.visible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        panelSource: "MemTablePanel.qml"
+        openRequested: MemoryTable.visible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -517,18 +455,11 @@ ApplicationWindow {
         id: settingsWin
         title: I18n.tr("Settings")
         sizeToContent: true
-        minimumWidth: 420
-        minimumHeight: 380
-        source: visible ? "appdialog.qml" : ""
-        visible: App.settingsVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        contentMinWidth: 420
+        contentMinHeight: 380
+        panelSource: "appdialog.qml"
+        openRequested: App.settingsVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -541,20 +472,13 @@ ApplicationWindow {
         id: circSettingsWin
         title: I18n.tr("Circuit Settings")
         maximizable: false
-        width: Math.max(420, minimumWidth)
+        width: 420
         height: 560
         minimumWidth: panelItem ? Math.max(360, Math.ceil(panelItem.implicitWidth)) : 360
         minimumHeight: 380
-        source: visible ? "circuitdialog.qml" : ""
-        visible: App.circuitSettingsVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        panelSource: "circuitdialog.qml"
+        openRequested: App.circuitSettingsVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -571,16 +495,9 @@ ApplicationWindow {
         height: 520
         minimumWidth: 480
         minimumHeight: 360
-        source: visible ? "installer.qml" : ""
-        visible: App.installerVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        panelSource: "installer.qml"
+        openRequested: App.installerVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -697,11 +614,11 @@ ApplicationWindow {
             } else if (id === "file.openFolder") {
                 openFolderDialog.open()
             } else if (id === "file.examples") {
-                examplesWin.visible = true
+                examplesWin.open()
             } else if (id === "sim.bode") {
-                bodeWin.visible = true
+                bodeWin.open()
             } else if (id === "sim.dcSweep") {
-                curveTracerWin.visible = true
+                curveTracerWin.open()
             } else if (id === "file.exportSpice") {
                 saveSpiceDialog.open()
             } else if (id === "file.exportKicad") {
@@ -1022,20 +939,22 @@ ApplicationWindow {
                    ? App.translate("Properties: %1").arg(itemTitle)
                    : App.translate("Properties")
             sizeToContent: true
-            minimumWidth: 320
-            minimumHeight: 160
-            visible: true
+            contentMinWidth: 320
+            contentMinHeight: 160
+            panelSource: "PropDialog.qml"
+            panelProperties: ({ "itemUid": itemUid })
+            openRequested: true
 
-            Component.onCompleted: {
-                loadSource("PropDialog.qml", { "itemUid": itemUid })
-                raise()
-                requestActivate()
-            }
+            onSavedXChanged: if (propWin.hasSavedPosition) propWindowManager.recordPosition(propWin.itemUid, propWin.savedX, propWin.savedY)
+            onSavedYChanged: if (propWin.hasSavedPosition) propWindowManager.recordPosition(propWin.itemUid, propWin.savedX, propWin.savedY)
 
             onClosing: (close) => {
                 if (!win.isQuitting) {
                     close.accepted = false
-                    propWin.visible = false
+                    if (propWin.hasSavedPosition) {
+                        propWindowManager.recordPosition(propWin.itemUid, propWin.savedX, propWin.savedY)
+                    }
+                    propWin.openRequested = false
                     propWindowManager.closeDialog(propWin.itemUid)
                 }
             }
@@ -1045,6 +964,16 @@ ApplicationWindow {
     QtObject {
         id: propWindowManager
         property var windows: ({})
+        property var lastPos: null
+        property var lastPosByUid: ({})
+
+        function recordPosition(uid: string, px: int, py: int): void {
+            var pos = { x: px, y: py }
+            lastPos = pos
+            if (uid && uid.length > 0) {
+                lastPosByUid[uid] = pos
+            }
+        }
 
         function syncOpenDialogs(): void {
             var list = CircuitCanvas.openPropDialogs || []
@@ -1054,12 +983,17 @@ ApplicationWindow {
                 var uid = entry.uid
                 activeUids[uid] = true
                 if (!windows[uid]) {
-                    var w = propWindowComponent.createObject(win, {
+                    var props = {
                         itemUid: uid,
-                        itemTitle: entry.title || entry.typeText || "",
-                        x: win.x + Math.round((win.width - 320) / 2),
-                        y: win.y + Math.round((win.height - 160) / 2)
-                    })
+                        itemTitle: entry.title || entry.typeText || ""
+                    }
+                    var saved = lastPosByUid[uid] || lastPos
+                    if (saved) {
+                        props.hasSavedPosition = true
+                        props.savedX = saved.x
+                        props.savedY = saved.y
+                    }
+                    var w = propWindowComponent.createObject(win, props)
                     if (w) {
                         windows[uid] = w
                     }
@@ -1082,6 +1016,9 @@ ApplicationWindow {
                 var targetWin = windows[delId]
                 windows = win.omitKey(windows, delId)
                 if (targetWin) {
+                    if (targetWin.hasSavedPosition) {
+                        recordPosition(delId, targetWin.savedX, targetWin.savedY)
+                    }
                     targetWin.destroy()
                 }
             }
@@ -1090,6 +1027,9 @@ ApplicationWindow {
         function closeDialog(uid: string): void {
             var targetWin = windows[uid]
             if (targetWin) {
+                if (targetWin.hasSavedPosition) {
+                    recordPosition(uid, targetWin.savedX, targetWin.savedY)
+                }
                 windows = win.omitKey(windows, uid)
                 targetWin.destroy()
             }
@@ -1250,17 +1190,10 @@ ApplicationWindow {
         id: findWin
         title: I18n.tr("Find/Replace")
         sizeToContent: true
-        minimumWidth: 460
-        source: visible ? "FindReplace.qml" : ""
-        visible: EditorPanel.findVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        contentMinWidth: 460
+        panelSource: "FindReplace.qml"
+        openRequested: EditorPanel.findVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -1272,17 +1205,10 @@ ApplicationWindow {
         id: fileSettingsWin
         title: I18n.tr("File Settings")
         sizeToContent: true
-        minimumWidth: 420
-        source: visible ? "FileSettings.qml" : ""
-        visible: EditorPanel.fileSettingsVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        contentMinWidth: 420
+        panelSource: "FileSettings.qml"
+        openRequested: EditorPanel.fileSettingsVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false
@@ -1296,17 +1222,10 @@ ApplicationWindow {
                ? I18n.tr("%1 Settings").arg(EditorPanel.compilerName)
                : I18n.tr("Compiler Settings")
         sizeToContent: true
-        minimumWidth: 420
-        source: visible ? "CompilerSettings.qml" : ""
-        visible: EditorPanel.compilerSettingsVisible
-        onVisibleChanged: {
-            if (visible) {
-                x = win.x + Math.round((win.width - width) / 2)
-                y = win.y + Math.round((win.height - height) / 2)
-                raise()
-                requestActivate()
-            }
-        }
+        contentMinWidth: 420
+        panelSource: "CompilerSettings.qml"
+        openRequested: EditorPanel.compilerSettingsVisible
+
         onClosing: (close) => {
             if (!win.isQuitting) {
                 close.accepted = false

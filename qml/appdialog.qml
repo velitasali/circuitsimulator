@@ -356,13 +356,20 @@ Rectangle {
                                onValueModified: AppDialog.slopeSteps = value
                                Binding on value { value: AppDialog.slopeSteps } }
                     }
-                    AppText {
-                        text: I18n.tr( "These are defaults for new circuits; the open circuit is edited from Circuit Settings." )
-                        color: appTheme.windowText
-                        opacity: 0.65
-                        wrapMode: Text.WordWrap
+                    Item {
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 420
                         Layout.topMargin: 4
+                        implicitHeight: simDefaultsHint.implicitHeight
+
+                        AppText {
+                            id: simDefaultsHint
+                            width: parent.width > 0 ? parent.width : 420
+                            text: I18n.tr( "These are defaults for new circuits; the open circuit is edited from Circuit Settings." )
+                            color: appTheme.windowText
+                            opacity: 0.65
+                            wrapMode: Text.WordWrap
+                        }
                     }
                 }
 
@@ -371,13 +378,20 @@ Rectangle {
                     id: tabEditor
                     Header { text: I18n.tr( "Editor Settings" ); first: true }
 
-                    AppText {
+                    Item {
                         visible: !AppDialog.hasEditor
-                        text: I18n.tr( "The editor is not open, so these settings are unavailable." )
-                        color: appTheme.windowText
-                        opacity: 0.65
-                        wrapMode: Text.WordWrap
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 420
+                        implicitHeight: editorClosedHint.implicitHeight
+
+                        AppText {
+                            id: editorClosedHint
+                            width: parent.width > 0 ? parent.width : 420
+                            text: I18n.tr( "The editor is not open, so these settings are unavailable." )
+                            color: appTheme.windowText
+                            opacity: 0.65
+                            wrapMode: Text.WordWrap
+                        }
                     }
 
                     ColumnLayout {

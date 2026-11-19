@@ -71,14 +71,14 @@ Item {
         ContextMenuItem {
             text: I18n.tr("Copy")
             iconLigature: "content_copy"
-            shortcutText: "Ctrl+C"
+            shortcutText: UiUtils.formatShortcut("Ctrl+C")
             enabled: area.selectedText.length > 0
             onTriggered: area.copy()
         }
         ContextMenuItem {
             text: I18n.tr("Select All")
             iconLigature: "select_all"
-            shortcutText: "Ctrl+A"
+            shortcutText: UiUtils.formatShortcut("Ctrl+A")
             onTriggered: area.selectAll()
         }
         ContextMenuSeparator {}

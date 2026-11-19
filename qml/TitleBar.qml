@@ -270,7 +270,7 @@ Item {
                         Shortcut {
                             enabled: bar.visible && bar.menuBarVisible
                                 && barItem.mnemonic.mark !== ""
-                                && !CommandCenter.visible && !TabSwitcher.visible
+                                && !CommandCenter.visible && !CommandCenter.recordingShortcut && !TabSwitcher.visible
                             sequences: barItem.mnemonic.mark !== "" ? ["Alt+" + barItem.mnemonic.mark] : []
                             onActivated: {
                                 if (UiUtils.hasModalOverlay(bar.Overlay.overlay, null))

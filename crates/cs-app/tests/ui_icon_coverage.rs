@@ -235,6 +235,7 @@ fn every_ui_icon_is_used_in_rust_or_qml() {
     let root = workspace_root();
     let qml_icons = collect_qml_icons(&root);
     let rust_sources: Vec<String> = [
+        "crates/cs-app/src/actions.rs",
         "crates/cs-app/src/menu_bar.rs",
         "crates/cs-app/src/command_center.rs",
         "crates/cs-app/src/circuit_panel.rs",

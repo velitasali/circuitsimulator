@@ -75,14 +75,78 @@ QtObject {
         return isFinite(v) ? v : fallback
     }
 
-    function shortcutFor(actionId: string): string {
-        var scs = AppMenuBar.shortcuts
-        if (!scs) return ""
-        for (var i = 0; i < scs.length; ++i) {
-            if (scs[i] && scs[i].id === actionId)
-                return scs[i].shortcut || ""
+    readonly property bool isMacOS: Qt.platform.os === "osx" || Qt.platform.os === "macos"
+
+    function formatShortcut(seq: string): string {
+        if (!seq) return ""
+        var trimmed = String(seq).trim()
+        if (!trimmed) return ""
+        if (!isMacOS) return trimmed
+
+        var ctrl = false
+        var alt = false
+        var shift = false
+        var meta = false
+        var key = ""
+        var prefix = trimmed
+
+        if (trimmed === "+") {
+            prefix = ""
+            key = "+"
+        } else if (trimmed.endsWith("++")) {
+            prefix = trimmed.substring(0, trimmed.length - 2)
+            key = "+"
         }
-        return ""
+
+        if (prefix.length > 0) {
+            var raw = prefix.split("+")
+            var tokens = []
+            for (var i = 0; i < raw.length; ++i) {
+                var tok = raw[i].trim()
+                if (tok.length > 0)
+                    tokens.push(tok)
+            }
+            if (!key && tokens.length > 0) {
+                key = tokens.pop()
+            }
+            for (var j = 0; j < tokens.length; ++j) {
+                var mod = tokens[j].toLowerCase()
+                if (mod === "ctrl" || mod === "cmd" || mod === "command") ctrl = true
+                else if (mod === "alt" || mod === "option") alt = true
+                else if (mod === "shift") shift = true
+                else if (mod === "meta" || mod === "control") meta = true
+            }
+        }
+
+        var lower = key.toLowerCase()
+        var displayKey = key
+        if (lower === "tab") displayKey = "⇥"
+        else if (lower === "backtab") { shift = true; displayKey = "⇥" }
+        else if (lower === "backspace") displayKey = "⌫"
+        else if (lower === "delete" || lower === "del") displayKey = "⌦"
+        else if (lower === "return" || lower === "enter") displayKey = "↩"
+        else if (lower === "esc" || lower === "escape") displayKey = "⎋"
+        else if (lower === "left") displayKey = "←"
+        else if (lower === "right") displayKey = "→"
+        else if (lower === "up") displayKey = "↑"
+        else if (lower === "down") displayKey = "↓"
+        else if (lower === "home") displayKey = "↖"
+        else if (lower === "end") displayKey = "↘"
+        else if (lower === "pageup" || lower === "pgup") displayKey = "⇞"
+        else if (lower === "pagedown" || lower === "pgdown") displayKey = "⇟"
+
+        var out = ""
+        if (meta) out += "⌃"
+        if (alt) out += "⌥"
+        if (shift) out += "⇧"
+        if (ctrl) out += "⌘"
+        return out + displayKey
+    }
+
+    function shortcutFor(actionId: string): string {
+        var map = AppMenuBar.shortcutMap
+        var seq = (map && map[actionId]) ? String(map[actionId]) : ""
+        return seq ? formatShortcut(seq) : ""
     }
 
     // Menu strings use &F for Alt+F; native MenuItem hides the ampersand, AppText does not.

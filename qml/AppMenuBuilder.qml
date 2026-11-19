@@ -62,7 +62,7 @@ Item {
             isSeparator: isSep,
             checkable: !isSep && !!entry.checkable && !entry.submenu,
             checked: !!entry.checked,
-            shortcutText: entry.shortcut ? String(entry.shortcut) : "",
+            shortcutText: entry.shortcut ? UiUtils.formatShortcut(String(entry.shortcut)) : "",
             itemPath: (!isSep && !entry.submenu && entry.path) ? String(entry.path) : ""
         }) as ContextMenuItem
     }

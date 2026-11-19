@@ -1,12 +1,16 @@
 //! Application menu tree. QML draws it in-window; macOS builds NSMenu from
 //! the same JSON. No QMenuBar / QAction — qt-bridge cannot host Widgets.
 
-use crate::macos_host;
-use crate::ui_icon::UiIcon;
-use cs_engine::i18n;
-use qtbridge::qobject;
-use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::Path;
+
+use cs_engine::settings::AppSettings;
+use cs_engine::{i18n, settings};
+use qtbridge::qobject;
+use serde_json::{Map, Value, json};
+
+use crate::actions::{self, MenuLeaf};
+use crate::{macos_host, pending};
 
 #[derive(Clone)]
 struct Entry {
@@ -30,11 +34,14 @@ struct MenuNode {
 pub struct AppMenuBar {
     menus: Vec<MenuNode>,
     json: Vec<Value>,
-    /// QML `Shortcut` data for every menu row that carries one. The in-window
-    /// menu bar only paints the keys as text, so non-macOS platforms register
-    /// them from here; macOS leaves this empty because the NSMenu built from
-    /// the same tree already owns the key equivalents.
+    /// QML `Shortcut` registrations consumed by `Main.qml`. On non-macOS
+    /// platforms this covers both menu items and palette-only actions; on
+    /// macOS `NSMenu` owns modifier/function menu shortcuts, so this contains
+    /// only non-menu shortcuts and bare-key shortcuts (`G`).
     shortcuts: Vec<Value>,
+    /// Effective Qt shortcut string for every canonical action ID (including
+    /// canvas-owned and native-menu shortcuts) for context-menu labels.
+    shortcut_map: Map<String, Value>,
     running: bool,
     paused: bool,
     show_grid: bool,
@@ -52,145 +59,19 @@ fn t(s: &str) -> String {
     i18n::tr(s)
 }
 
-/// Where an action shows up in the Command Center. The circuit palette and the
-/// editor palette differ: Ctrl+S saves the circuit or the focused file.
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum PaletteScope {
-    Always,
-    Editor,
-    Circuit,
-}
-
-impl PaletteScope {
-    pub fn includes(self, editor_focused: bool) -> bool {
-        match self {
-            Self::Always => true,
-            Self::Editor => editor_focused,
-            Self::Circuit => !editor_focused,
-        }
-    }
-}
-
-/// One Command Center action. Its `shortcut` is the default the user's
-/// custom binding overrides; `menu_bar` is where that binding is registered.
-#[derive(Clone, Copy)]
-pub struct PaletteAction {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub shortcut: &'static str,
-    pub icon: UiIcon,
-}
-
-const fn act(
-    id: &'static str,
-    label: &'static str,
-    shortcut: &'static str,
-    icon: UiIcon,
-) -> PaletteAction {
-    PaletteAction {
-        id,
-        label,
-        shortcut,
-        icon,
-    }
-}
-
-/// Shortcut-bindable actions, in Command Center order. `collect_shortcuts`
-/// walks the menu tree instead of this list, so a row that is missing here
-/// still keeps its menu shortcut.
-#[rustfmt::skip]
-pub const PALETTE_ACTIONS: &[(PaletteScope, PaletteAction)] = &[
-    (PaletteScope::Always,  act("file.new", "New", "Ctrl+N", UiIcon::Add)),
-    (PaletteScope::Always,  act("file.newCirc", "New Circuit", "", UiIcon::AccountTree)),
-    (PaletteScope::Always,  act("file.newFile", "New File", "", UiIcon::NoteAdd)),
-    (PaletteScope::Always,  act("file.newWindow", "New Window", "Ctrl+Shift+N", UiIcon::OpenInNew)),
-    (PaletteScope::Always,  act("file.open", "Open...", "Ctrl+O", UiIcon::FolderOpen)),
-    (PaletteScope::Always,  act("file.examples", "Example Circuits...", "", UiIcon::LibraryBooks)),
-    (PaletteScope::Always,  act("file.save", "Save", "Ctrl+S", UiIcon::Save)),
-    (PaletteScope::Always,  act("file.saveAs", "Save As...", "Ctrl+Shift+S", UiIcon::SaveAs)),
-    (PaletteScope::Always,  act("file.saveCirc", "Save Circuit", "", UiIcon::Save)),
-    (PaletteScope::Always,  act("file.saveCircAs", "Save Circuit As...", "", UiIcon::SaveAs)),
-    (PaletteScope::Always,  act("file.saveFile", "Save File", "", UiIcon::Save)),
-    (PaletteScope::Always,  act("file.saveFileAs", "Save File As...", "", UiIcon::SaveAs)),
-    (PaletteScope::Always,  act("file.saveAll", "Save All", "Ctrl+Alt+S", UiIcon::Save)),
-    (PaletteScope::Always,  act("file.close", "Close", "Ctrl+W", UiIcon::Close)),
-    (PaletteScope::Always,  act("file.closeCirc", "Close Circuit", "", UiIcon::Close)),
-    (PaletteScope::Always,  act("file.closeFile", "Close File", "", UiIcon::Close)),
-    (PaletteScope::Always,  act("file.openFolder", "Open Project", "", UiIcon::FolderOpen)),
-    (PaletteScope::Always,  act("file.closeProject", "Close Project", "", UiIcon::FolderOff)),
-    (PaletteScope::Always,  act("file.saveImage", "Save Circuit as Image...", "", UiIcon::Image)),
-    (PaletteScope::Always,  act("file.exportSpice", "Export SPICE Netlist...", "", UiIcon::Description)),
-    (PaletteScope::Always,  act("file.exportKicad", "Export KiCad Netlist...", "", UiIcon::AccountTree)),
-    (PaletteScope::Always,  act("file.exportSub", "Export as Subcircuit...", "", UiIcon::IosShare)),
-    (PaletteScope::Always,  act("file.appSettings", "Application Settings...", "Ctrl+,", UiIcon::Settings)),
-    (PaletteScope::Always,  act("file.quit", "Quit", "Ctrl+Q", UiIcon::ExitToApp)),
-    (PaletteScope::Always,  act("edit.undo", "Undo", "Ctrl+Z", UiIcon::Undo)),
-    (PaletteScope::Always,  act("edit.redo", "Redo", "Ctrl+Y", UiIcon::Redo)),
-    (PaletteScope::Always,  act("edit.cut", "Cut", "Ctrl+X", UiIcon::ContentCut)),
-    (PaletteScope::Always,  act("edit.copy", "Copy", "Ctrl+C", UiIcon::ContentCopy)),
-    (PaletteScope::Always,  act("edit.paste", "Paste", "Ctrl+V", UiIcon::ContentPaste)),
-    (PaletteScope::Always,  act("edit.selectAll", "Select All", "Ctrl+A", UiIcon::SelectAll)),
-    (PaletteScope::Always,  act("edit.delete", "Delete Selection", "Delete", UiIcon::Delete)),
-    (PaletteScope::Always,  act("edit.find", "Find", "Ctrl+F", UiIcon::Search)),
-    (PaletteScope::Always,  act("edit.format", "Format Document", "Ctrl+Shift+I", UiIcon::FormatAlignLeft)),
-    (PaletteScope::Always,  act("edit.triggerCompletion", "Trigger Completion", "Ctrl+Space", UiIcon::Lightbulb)),
-    (PaletteScope::Always,  act("edit.gotoDefinition", "Go to Definition", "Ctrl+F12", UiIcon::Search)),
-    (PaletteScope::Always,  act("edit.rotateCw", "Rotate Clockwise", "Ctrl+R", UiIcon::RotateRight)),
-    (PaletteScope::Always,  act("edit.rotateCcw", "Rotate Counter-Clockwise", "Ctrl+Shift+R", UiIcon::RotateLeft)),
-    (PaletteScope::Always,  act("edit.flipH", "Flip Horizontal", "Ctrl+L", UiIcon::Flip)),
-    (PaletteScope::Always,  act("edit.flipV", "Flip Vertical", "Ctrl+Shift+L", UiIcon::Flip)),
-    (PaletteScope::Always,  act("view.zoomIn", "Zoom In", "Ctrl++", UiIcon::ZoomIn)),
-    (PaletteScope::Always,  act("view.zoomOut", "Zoom Out", "Ctrl+-", UiIcon::ZoomOut)),
-    (PaletteScope::Always,  act("view.zoomFit", "Fit to View", "Ctrl+9", UiIcon::FitScreen)),
-    (PaletteScope::Always,  act("view.zoomSel", "Zoom to Selection", "", UiIcon::FitScreen)),
-    (PaletteScope::Always,  act("view.zoomOne", "Actual Size (1:1)", "Ctrl+0", UiIcon::ZoomOutMap)),
-    (PaletteScope::Always,  act("view.showGrid", "Toggle Grid", "G", UiIcon::Grid4x4)),
-    (PaletteScope::Always,  act("view.showScroll", "Toggle Scrollbars", "", UiIcon::SwapVert)),
-    (PaletteScope::Always,  act("view.searchComp", "Search Components", "Ctrl+Shift+F", UiIcon::Search)),
-    (PaletteScope::Always,  act("view.focusFiles", "Focus Files", "Ctrl+Shift+E", UiIcon::Folder)),
-    (PaletteScope::Always,  act("view.focusEditor", "Focus Text Editor", "Ctrl+E", UiIcon::Code)),
-    (PaletteScope::Always,  act("view.focusSimLog", "Focus Simulator Messages", "Ctrl+Shift+M", UiIcon::Terminal)),
-    (PaletteScope::Always,  act("view.focusCompLog", "Focus Compiler Messages", "Ctrl+Shift+U", UiIcon::Build)),
-    (PaletteScope::Always,  act("view.sidePanel", "Toggle Side Panel", "Ctrl+B", UiIcon::DockToLeft)),
-    (PaletteScope::Always,  act("view.editorPanel", "Toggle Editor Panel", "", UiIcon::Code)),
-    (PaletteScope::Always,  act("view.toggleActivePanel", "Toggle Active Panel", "Ctrl+J", UiIcon::DockToLeft)),
-    (PaletteScope::Always,  act("view.libManager", "Library Manager", "", UiIcon::LocalLibrary)),
-    (PaletteScope::Always,  act("circ.power", "Start / Stop Simulation", "F8", UiIcon::PowerSettingsNew)),
-    (PaletteScope::Always,  act("circ.pause", "Pause / Resume Simulation", "F9", UiIcon::Pause)),
-    (PaletteScope::Always,  act("circ.step", "Step Simulation", "", UiIcon::SkipNext)),
-    (PaletteScope::Always,  act("circ.settings", "Circuit Properties...", "", UiIcon::Tune)),
-    (PaletteScope::Always,  act("circ.addAllComponents", "Add All Components", "", UiIcon::GridView)),
-    (PaletteScope::Always,  act("sim.compile", "Compile", "F10", UiIcon::Build)),
-    (PaletteScope::Always,  act("sim.load", "Upload", "F11", UiIcon::Upload)),
-    (PaletteScope::Always,  act("sim.uploadRun", "Upload and Run", "", UiIcon::PlayArrow)),
-    (PaletteScope::Always,  act("sim.debug", "Debug", "F12", UiIcon::BugReport)),
-    (PaletteScope::Always,  act("sim.run", "Run", "F5", UiIcon::FastForward)),
-    (PaletteScope::Always,  act("sim.step", "Step", "F6", UiIcon::StepInto)),
-    (PaletteScope::Always,  act("sim.stepOver", "Step Over", "F7", UiIcon::StepOver)),
-    (PaletteScope::Always,  act("sim.debugPause", "Pause Debugger", "", UiIcon::Pause)),
-    (PaletteScope::Always,  act("sim.stop", "Stop Debugger", "", UiIcon::Stop)),
-    (PaletteScope::Always,  act("sim.reset", "Reset Debugger", "", UiIcon::RestartAlt)),
-    (PaletteScope::Always,  act("sim.animateLogic", "Animate Logic", "", UiIcon::MotionPhotosOn)),
-    (PaletteScope::Always,  act("sim.animateCurr", "Animate Current", "", UiIcon::Waves)),
-    (PaletteScope::Always,  act("sim.bode", "AC Sweep...", "", UiIcon::ShowChart)),
-    (PaletteScope::Always,  act("sim.dcSweep", "DC Parameter Sweep...", "", UiIcon::Insights)),
-    (PaletteScope::Always,  act("help.info", "Simulation Info", "", UiIcon::Info)),
-    (PaletteScope::Always,  act("help.about", "About Circuit Simulator", "", UiIcon::Help)),
-    (PaletteScope::Always,  act("debug.toggleRepaintOverlay", "Toggle Canvas Repaint Debug Overlay", "Ctrl+Alt+D", UiIcon::BugReport)),
-    (PaletteScope::Always,  act("debug.toggleComponentRects", "Show Component Rect", "Ctrl+Alt+C", UiIcon::CropFree)),
-];
-
 fn item(
     id: &str,
     text: &str,
-    shortcut: &str,
     enabled: bool,
     checkable: bool,
     checked: bool,
+    custom: &BTreeMap<String, String>,
 ) -> Entry {
-    let custom_shortcut = cs_engine::settings::get().shortcuts.get(id).cloned();
-    let sc = custom_shortcut.unwrap_or_else(|| shortcut.into());
+    let sc = if id.is_empty() {
+        String::new()
+    } else {
+        actions::effective_shortcut(id, custom)
+    };
     Entry {
         id: id.into(),
         text: text.into(),
@@ -293,106 +174,42 @@ fn serialize_menus(menus: &[MenuNode]) -> Vec<Value> {
         .collect()
 }
 
-/// `Canvas::key_press` already implements these by hand. The canvas marks every
-/// key it receives as handled, so a QML `Shortcut` bound to the same chord would
-/// fire the action a second time — the menu keeps printing the hint, but only
-/// the canvas reacts to the key.
-const CANVAS_SHORTCUTS: &[&str] = &[
-    "Ctrl+A",
-    "Ctrl+C",
-    "Ctrl+V",
-    "Ctrl+X",
-    "Ctrl+Y",
-    "Ctrl+Z",
-    "Delete",
-    "Backspace",
-];
-
-fn canvas_owns(shortcut: &str) -> bool {
-    CANVAS_SHORTCUTS
-        .iter()
-        .any(|s| s.eq_ignore_ascii_case(shortcut))
-}
-
-/// Actions and chords that are hardcoded with dedicated `Shortcut` components
-/// in QML (`Ctrl+Shift+P` for Command Palette, `Ctrl+P` for Jump to Reference,
-/// `Ctrl+Tab` for Tab Switcher).
-///
-/// They must not be registered dynamically by `menuShortcutInstantiator` in
-/// `Main.qml`, otherwise Qt Quick detects an ambiguous shortcut overload and
-/// suppresses both from firing.
-const HARDCODED_ACTIONS: &[&str] = &["view.cmdPalette", "view.jumpRef", "view.tabSwitch"];
-
-const HARDCODED_CHORDS: &[&str] = &["Ctrl+Shift+P", "Ctrl+P", "Ctrl+Tab", "Ctrl+Shift+Tab"];
-
-fn hardcoded_owns(id: &str, shortcut: &str) -> bool {
-    HARDCODED_ACTIONS.contains(&id)
-        || HARDCODED_CHORDS
-            .iter()
-            .any(|s| s.eq_ignore_ascii_case(shortcut))
-}
-
-/// Every leaf that carries a shortcut, flattened for QML `Shortcut` items.
-/// All but macOS use this: the in-window menu bar only paints the keys as text,
-/// so without it a reassigned shortcut would show up in the menu and the
-/// Command Center yet never fire. Leaves with an empty shortcut are skipped —
-/// that is both a parent/separator and a shortcut the user cleared.
-fn collect_shortcuts(entries: &[Entry], out: &mut Vec<Value>) {
+fn collect_menu_leaves<'a>(entries: &'a [Entry], out: &mut Vec<MenuLeaf<'a>>) {
     for e in entries {
         if let Some(sub) = &e.submenu {
-            collect_shortcuts(&sub.entries, out);
+            collect_menu_leaves(&sub.entries, out);
             continue;
         }
-        if e.separator || e.id.is_empty() || e.shortcut.is_empty() {
+        if e.separator || e.id.is_empty() {
             continue;
         }
-        if canvas_owns(&e.shortcut) || hardcoded_owns(&e.id, &e.shortcut) {
-            continue;
-        }
-        out.push(json!({
-            "id": e.id,
-            "shortcut": e.shortcut,
-            "enabled": e.enabled,
-        }));
+        out.push(MenuLeaf {
+            id: &e.id,
+            shortcut: &e.shortcut,
+            enabled: e.enabled,
+        });
     }
 }
 
-fn menu_shortcuts(menus: &[MenuNode]) -> Vec<Value> {
-    let mut out = Vec::new();
+fn qml_shortcuts_for(
+    menus: &[MenuNode],
+    native_menus: bool,
+    custom: &BTreeMap<String, String>,
+) -> Vec<Value> {
+    let mut leaves = Vec::new();
     for m in menus {
-        collect_shortcuts(&m.entries, &mut out);
+        collect_menu_leaves(&m.entries, &mut leaves);
     }
-    let custom_shortcuts = cs_engine::settings::get().shortcuts;
-    for (_, action) in PALETTE_ACTIONS {
-        if hardcoded_owns(action.id, action.shortcut) || out.iter().any(|v| v["id"] == action.id) {
-            continue;
-        }
-        let effective_shortcut = custom_shortcuts
-            .get(action.id)
-            .map(|s| s.as_str())
-            .unwrap_or(action.shortcut);
-        if effective_shortcut.is_empty()
-            || canvas_owns(effective_shortcut)
-            || hardcoded_owns(action.id, effective_shortcut)
-            || out.iter().any(|v| {
-                v["shortcut"]
-                    .as_str()
-                    .map(|s| s.eq_ignore_ascii_case(effective_shortcut))
-                    .unwrap_or(false)
-            })
-        {
-            continue;
-        }
-        out.push(json!({
-            "id": action.id,
-            "shortcut": effective_shortcut,
-            "enabled": true,
-        }));
-    }
-    out
+    actions::collect_qml_shortcuts(&leaves, native_menus, custom)
 }
 
-fn recent_entries(prefix: &str, clear_id: &str, clear_text: &str, paths: &[String]) -> Vec<Entry> {
+fn recent_entries(
+    prefix: &str,
+    clear_id: &str,
+    clear_text: &str,
+    paths: &[String],
+    custom: &BTreeMap<String, String>,
+) -> Vec<Entry> {
     let mut entries = Vec::new();
     for (i, p) in paths.iter().enumerate() {
         let name = Path::new(p)
@@ -402,28 +219,30 @@ fn recent_entries(prefix: &str, clear_id: &str, clear_text: &str, paths: &[Strin
         entries.push(item(
             &format!("{prefix}.{i}"),
             &format!("{}. {name}", i + 1),
-            "",
             true,
             false,
             false,
+            custom,
         ));
     }
     if entries.is_empty() {
-        entries.push(item("", &t("(None)"), "", false, false, false));
+        entries.push(item("", &t("(None)"), false, false, false, custom));
     }
     entries.push(sep());
     entries.push(item(
         clear_id,
         clear_text,
-        "",
         !paths.is_empty(),
         false,
         false,
+        custom,
     ));
     entries
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_menus(
+    st: &AppSettings,
     running: bool,
     paused: bool,
     show_grid: bool,
@@ -436,7 +255,7 @@ fn build_menus(
     can_paste: bool,
     has_project: bool,
 ) -> Vec<MenuNode> {
-    let st = cs_engine::settings::get();
+    let c = &st.shortcuts;
     let power_text = if running {
         t("&Stop Simulation")
     } else {
@@ -455,43 +274,36 @@ fn build_menus(
                 sub(
                     &t("&New"),
                     vec![
-                        item("file.newFile", &t("&File"), "", true, false, false),
-                        item("file.newCirc", &t("&Circuit"), "", true, false, false),
-                        item(
-                            "file.newWindow",
-                            &t("&Window"),
-                            "Ctrl+Shift+N",
-                            true,
-                            false,
-                            false,
-                        ),
+                        item("file.newFile", &t("&File"), true, false, false, c),
+                        item("file.newCirc", &t("&Circuit"), true, false, false, c),
+                        item("file.newWindow", &t("&Window"), true, false, false, c),
                     ],
                 ),
-                item("file.open", &t("&Open..."), "Ctrl+O", true, false, false),
+                item("file.open", &t("&Open..."), true, false, false, c),
                 item(
                     "file.examples",
                     &t("Example &Circuits..."),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 sep(),
                 item(
                     "file.openFolder",
                     &t("Open &Project"),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "file.closeProject",
                     &t("Close &Project"),
-                    "",
                     has_project,
                     false,
                     false,
+                    c,
                 ),
                 sub(
                     &t("Recent Projects"),
@@ -500,26 +312,13 @@ fn build_menus(
                         "file.clearRecentProjects",
                         &t("Clear Recent Projects"),
                         &st.recent_projects,
+                        c,
                     ),
                 ),
                 sep(),
-                item("file.save", &t("&Save"), "Ctrl+S", true, false, false),
-                item(
-                    "file.saveAs",
-                    &t("Save &As..."),
-                    "Ctrl+Shift+S",
-                    true,
-                    false,
-                    false,
-                ),
-                item(
-                    "file.saveAll",
-                    &t("Save A&ll"),
-                    "Ctrl+Alt+S",
-                    true,
-                    false,
-                    false,
-                ),
+                item("file.save", &t("&Save"), true, false, false, c),
+                item("file.saveAs", &t("Save &As..."), true, false, false, c),
+                item("file.saveAll", &t("Save A&ll"), true, false, false, c),
                 sep(),
                 sub(
                     &t("Recent Circuits"),
@@ -528,31 +327,32 @@ fn build_menus(
                         "file.clearRecentCircuits",
                         &t("Clear Recent Circuits"),
                         &st.recent_circuits,
+                        c,
                     ),
                 ),
                 item(
                     "file.exportSpice",
                     &t("Export &SPICE Netlist..."),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "file.exportKicad",
                     &t("Export &KiCad Netlist..."),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "file.exportSub",
                     &t("&Export as Subcircuit..."),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 sub(&t("&Insert Subcircuit"), vec![]),
                 sep(),
@@ -563,329 +363,249 @@ fn build_menus(
                         "file.clearRecentFiles",
                         &t("Clear Recent Files"),
                         &st.recent_files,
+                        c,
                     ),
                 ),
-                item("file.close", &t("&Close"), "Ctrl+W", true, false, false),
-                item("file.closeFile", &t("Close File"), "", true, false, false),
-                item(
-                    "file.closeCirc",
-                    &t("Close Circuit"),
-                    "",
-                    true,
-                    false,
-                    false,
-                ),
+                item("file.close", &t("&Close"), true, false, false, c),
+                item("file.closeFile", &t("Close File"), true, false, false, c),
+                item("file.closeCirc", &t("Close Circuit"), true, false, false, c),
                 sep(),
-                item(
-                    "file.settings",
-                    &t("Settings"),
-                    "Ctrl+,",
-                    true,
-                    false,
-                    false,
-                ),
+                item("file.settings", &t("Settings"), true, false, false, c),
                 sep(),
-                item("file.quit", &t("&Quit"), "Ctrl+Q", true, false, false),
+                item("file.quit", &t("&Quit"), true, false, false, c),
             ],
         },
         MenuNode {
             title: t("&Edit"),
             entries: vec![
-                item("edit.undo", &t("&Undo"), "Ctrl+Z", can_undo, false, false),
-                item("edit.redo", &t("&Redo"), "Ctrl+Y", can_redo, false, false),
+                item("edit.undo", &t("&Undo"), can_undo, false, false, c),
+                item("edit.redo", &t("&Redo"), can_redo, false, false, c),
                 sep(),
-                item(
-                    "edit.cut",
-                    &t("Cu&t"),
-                    "Ctrl+X",
-                    has_selection,
-                    false,
-                    false,
-                ),
-                item(
-                    "edit.copy",
-                    &t("&Copy"),
-                    "Ctrl+C",
-                    has_selection,
-                    false,
-                    false,
-                ),
-                item(
-                    "edit.paste",
-                    &t("&Paste"),
-                    "Ctrl+V",
-                    can_paste,
-                    false,
-                    false,
-                ),
-                item("edit.find", &t("Find"), "Ctrl+F", true, false, false),
-                item(
-                    "edit.format",
-                    &t("Format Document"),
-                    "Ctrl+Shift+I",
-                    true,
-                    false,
-                    false,
-                ),
+                item("edit.cut", &t("Cu&t"), has_selection, false, false, c),
+                item("edit.copy", &t("&Copy"), has_selection, false, false, c),
+                item("edit.paste", &t("&Paste"), can_paste, false, false, c),
+                item("edit.find", &t("Find"), true, false, false, c),
+                item("edit.format", &t("Format Document"), true, false, false, c),
                 item(
                     "edit.triggerCompletion",
                     &t("Trigger Completion"),
-                    "Ctrl+Space",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "edit.gotoDefinition",
                     &t("Go to Definition"),
-                    "Ctrl+F12",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 sep(),
                 item(
                     "edit.rotateCw",
                     &t("Rotate Clockwise"),
-                    "Ctrl+R",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "edit.rotateCcw",
                     &t("Rotate Counter-Clockwise"),
-                    "Ctrl+Shift+R",
                     true,
                     false,
                     false,
+                    c,
                 ),
-                item(
-                    "edit.flipH",
-                    &t("Flip Horizontal"),
-                    "Ctrl+L",
-                    true,
-                    false,
-                    false,
-                ),
-                item(
-                    "edit.flipV",
-                    &t("Flip Vertical"),
-                    "Ctrl+Shift+L",
-                    true,
-                    false,
-                    false,
-                ),
+                item("edit.flipH", &t("Flip Horizontal"), true, false, false, c),
+                item("edit.flipV", &t("Flip Vertical"), true, false, false, c),
                 sep(),
                 item(
                     "circ.addAllComponents",
                     &t("Add All Components"),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
             ],
         },
         MenuNode {
             title: t("&View"),
             entries: vec![
-                item("view.zoomIn", &t("Zoom In"), "Ctrl++", true, false, false),
-                item("view.zoomOut", &t("Zoom Out"), "Ctrl+-", true, false, false),
-                item(
-                    "view.zoomFit",
-                    &t("Zoom to Fit"),
-                    "Ctrl+9",
-                    true,
-                    false,
-                    false,
-                ),
+                item("view.zoomIn", &t("Zoom In"), true, false, false, c),
+                item("view.zoomOut", &t("Zoom Out"), true, false, false, c),
+                item("view.zoomFit", &t("Zoom to Fit"), true, false, false, c),
                 item(
                     "view.zoomSel",
                     &t("Zoom to Selection"),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
-                item(
-                    "view.zoomOne",
-                    &t("Reset Zoom"),
-                    "Ctrl+0",
-                    true,
-                    false,
-                    false,
-                ),
+                item("view.zoomOne", &t("Reset Zoom"), true, false, false, c),
                 sep(),
-                item("view.showGrid", &t("Show Grid"), "", true, true, show_grid),
+                item("view.showGrid", &t("Show Grid"), true, true, show_grid, c),
                 item(
                     "view.showScroll",
                     &t("Show Scrollbars"),
-                    "",
                     true,
                     true,
                     show_scroll,
+                    c,
                 ),
                 sep(),
                 item(
                     "view.cmdPalette",
                     &t("Command Center"),
-                    "Ctrl+Shift+P",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "view.jumpRef",
                     &t("Jump to Reference"),
-                    "Ctrl+P",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "view.tabSwitch",
                     &t("Switch Tab/Circuit"),
-                    if cfg!(target_os = "macos") {
-                        "Meta+Tab"
-                    } else {
-                        "Ctrl+Tab"
-                    },
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "view.searchComp",
                     &t("Search Components"),
-                    "Ctrl+Shift+F",
                     true,
                     false,
                     false,
+                    c,
                 ),
-                item(
-                    "view.focusFiles",
-                    &t("Focus Files"),
-                    "Ctrl+Shift+E",
-                    true,
-                    false,
-                    false,
-                ),
+                item("view.focusFiles", &t("Focus Files"), true, false, false, c),
                 item(
                     "view.focusEditor",
                     &t("Focus Text Editor"),
-                    "Ctrl+E",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "view.focusSimLog",
                     &t("Focus Simulator Messages"),
-                    "Ctrl+Shift+M",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "view.focusCompLog",
                     &t("Focus Compiler Messages"),
-                    "Ctrl+Shift+U",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 sep(),
-                item("view.sidePanel", &t("Side Panel"), "", true, false, false),
+                item("view.sidePanel", &t("Side Panel"), true, false, false, c),
                 item(
                     "view.editorPanel",
                     &t("Editor Panel"),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 item(
                     "view.toggleActivePanel",
                     &t("Toggle Active Panel"),
-                    "Ctrl+J",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 sep(),
                 item(
                     "view.libManager",
                     &t("Library Manager"),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
             ],
         },
         MenuNode {
             title: t("&Simulation"),
             entries: vec![
-                item("sim.power", &power_text, "", true, false, false),
-                item("sim.pause", &pause_text, "", running, false, false),
-                item("sim.bode", &t("AC &Sweep..."), "", true, false, false),
+                item("sim.power", &power_text, true, false, false, c),
+                item("sim.pause", &pause_text, running, false, false, c),
+                item("sim.bode", &t("AC &Sweep..."), true, false, false, c),
                 item(
                     "sim.dcSweep",
                     &t("&DC Parameter Sweep..."),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
                 sep(),
-                item("sim.compile", &t("Compile"), "F10", true, false, false),
-                item("sim.load", &t("Upload"), "F11", true, false, false),
+                item("sim.compile", &t("Compile"), true, false, false, c),
+                item("sim.load", &t("Upload"), true, false, false, c),
                 sep(),
-                item("sim.debug", &t("Debug"), "F12", true, false, false),
-                item("sim.run", &t("Run"), "F5", true, false, false),
-                item("sim.step", &t("Step"), "F6", true, false, false),
-                item("sim.stepOver", &t("Step Over"), "F7", true, false, false),
+                item("sim.debug", &t("Debug"), true, false, false, c),
+                item("sim.run", &t("Run"), true, false, false, c),
+                item("sim.step", &t("Step"), true, false, false, c),
+                item("sim.stepOver", &t("Step Over"), true, false, false, c),
                 item(
                     "sim.debugPause",
                     &t("Pause Debugger"),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
-                item("sim.stop", &t("Stop Debugger"), "", true, false, false),
-                item("sim.reset", &t("Reset Debugger"), "", true, false, false),
+                item("sim.stop", &t("Stop Debugger"), true, false, false, c),
+                item("sim.reset", &t("Reset Debugger"), true, false, false, c),
                 sep(),
                 item(
                     "sim.animateLogic",
                     &t("Animate Logic"),
-                    "",
                     true,
                     true,
                     animate_logic,
+                    c,
                 ),
                 item(
                     "sim.animateCurr",
                     &t("Animate Current"),
-                    "",
                     true,
                     true,
                     animate_curr,
+                    c,
                 ),
             ],
         },
         MenuNode {
             title: t("&Help"),
             entries: vec![
-                item("help.info", &t("Simulation Info"), "", true, false, false),
+                item("help.info", &t("Simulation Info"), true, false, false, c),
                 item(
                     "help.about",
                     &t("&About Circuit Simulator"),
-                    "",
                     true,
                     false,
                     false,
+                    c,
                 ),
             ],
         },
@@ -894,9 +614,10 @@ fn build_menus(
 
 impl Default for AppMenuBar {
     fn default() -> Self {
-        let st = cs_engine::settings::get();
+        let st = settings::get();
         let has_project = project_open_from_settings(&st);
         let menus = build_menus(
+            &st,
             false,
             false,
             st.draw_grid,
@@ -910,11 +631,13 @@ impl Default for AppMenuBar {
             has_project,
         );
         let json = serialize_menus(&menus);
-        let shortcuts = menu_shortcuts(&menus);
+        let shortcuts = qml_shortcuts_for(&menus, cfg!(target_os = "macos"), &st.shortcuts);
+        let shortcut_map = actions::effective_shortcut_map(&st.shortcuts);
         Self {
             menus,
             json,
             shortcuts,
+            shortcut_map,
             running: false,
             paused: false,
             show_grid: st.draw_grid,
@@ -930,8 +653,8 @@ impl Default for AppMenuBar {
     }
 }
 
-fn project_open_from_settings(st: &cs_engine::settings::AppSettings) -> bool {
-    if crate::pending::no_project() {
+fn project_open_from_settings(st: &AppSettings) -> bool {
+    if pending::no_project() {
         return false;
     }
     st.last_project_dir
@@ -964,7 +687,7 @@ fn find_entry_mut<'a>(menus: &'a mut [MenuNode], path: &str) -> Option<&'a mut E
 }
 
 fn map_recent_action(id: &str) -> Option<String> {
-    let st = cs_engine::settings::get();
+    let st = settings::get();
     let (prefix, list) = if let Some(rest) = id.strip_prefix("file.recentCirc.") {
         (rest, &st.recent_circuits)
     } else if let Some(rest) = id.strip_prefix("file.recentFile.") {
@@ -1002,11 +725,23 @@ fn find_by_id_mut<'a>(entries: &'a mut [Entry], id: &str) -> Option<&'a mut Entr
 
 impl AppMenuBar {
     fn republish(&mut self) {
+        let custom = settings::with(|s| s.shortcuts.clone());
+        let next_shortcuts = qml_shortcuts_for(&self.menus, cfg!(target_os = "macos"), &custom);
+        let next_map = actions::effective_shortcut_map(&custom);
+        let shortcuts_changed = self.shortcuts != next_shortcuts;
+        let map_changed = self.shortcut_map != next_map;
+
         self.json = serialize_menus(&self.menus);
-        self.shortcuts = menu_shortcuts(&self.menus);
+        self.shortcuts = next_shortcuts;
+        self.shortcut_map = next_map;
         macos_host::set_native_menu_json(&Value::Array(self.json.clone()).to_string());
         self.menus_changed();
-        self.shortcuts_changed();
+        if shortcuts_changed {
+            self.shortcuts_changed();
+        }
+        if map_changed {
+            self.shortcut_map_changed();
+        }
     }
 }
 
@@ -1014,11 +749,18 @@ impl AppMenuBar {
 impl AppMenuBar {
     qproperty!("menus", Read = menus, Notify = menus_changed);
     qproperty!("shortcuts", Read = shortcuts, Notify = shortcuts_changed);
+    qproperty!(
+        "shortcutMap",
+        Read = shortcut_map,
+        Notify = shortcut_map_changed
+    );
 
     #[qsignal]
     fn menus_changed(&mut self);
     #[qsignal]
     fn shortcuts_changed(&mut self);
+    #[qsignal]
+    fn shortcut_map_changed(&mut self);
     #[qsignal]
     fn toggle_popup_requested(&mut self);
     #[qsignal]
@@ -1030,6 +772,10 @@ impl AppMenuBar {
 
     fn shortcuts(&self) -> Vec<Value> {
         self.shortcuts.clone()
+    }
+
+    fn shortcut_map(&self) -> Value {
+        Value::Object(self.shortcut_map.clone())
     }
 
     #[qslot]
@@ -1057,20 +803,10 @@ impl AppMenuBar {
     }
 
     #[qslot]
-    fn set_custom_shortcut(&mut self, id: String, shortcut: String) {
-        cs_engine::settings::edit(|s| {
-            if shortcut.is_empty() {
-                s.shortcuts.remove(&id);
-            } else {
-                s.shortcuts.insert(id, shortcut);
-            }
-        });
-        self.rebuild();
-    }
-
-    #[qslot]
     fn rebuild(&mut self) {
+        let st = settings::get();
         self.menus = build_menus(
+            &st,
             self.running,
             self.paused,
             self.show_grid,
@@ -1243,6 +979,13 @@ mod tests {
             .map(|e| e["shortcut"].as_str().unwrap_or_default().to_string())
     }
 
+    fn default_menus() -> Vec<MenuNode> {
+        let st = AppSettings::default();
+        build_menus(
+            &st, false, false, true, false, true, true, false, false, false, false, false,
+        )
+    }
+
     #[test]
     fn collect_shortcuts_walks_submenus_and_skips_keyless_rows() {
         let node = MenuNode {
@@ -1267,7 +1010,7 @@ mod tests {
                 },
             ],
         };
-        let list = menu_shortcuts(&[node]);
+        let list = qml_shortcuts_for(&[node], false, &BTreeMap::new());
         assert_eq!(shortcut_of(&list, "file.save").as_deref(), Some("Ctrl+S"));
         assert_eq!(
             shortcut_of(&list, "file.recentFile.0").as_deref(),
@@ -1276,7 +1019,7 @@ mod tests {
         );
         assert!(
             list.iter().all(|e| e["id"] != "file.closeProject"),
-            "a cleared shortcut must not be registered"
+            "a keyless row must not be registered"
         );
     }
 
@@ -1290,83 +1033,101 @@ mod tests {
                 leaf("edit.find", "Ctrl+F"),
             ],
         };
-        let list = menu_shortcuts(&[node]);
+        let list = qml_shortcuts_for(&[node], false, &BTreeMap::new());
         assert_eq!(shortcut_of(&list, "edit.undo"), None);
         assert_eq!(shortcut_of(&list, "edit.delete"), None);
         assert_eq!(shortcut_of(&list, "edit.find").as_deref(), Some("Ctrl+F"));
     }
 
     #[test]
-    fn default_menu_bar_publishes_save_shortcuts_for_qml() {
-        let bar = AppMenuBar::default();
-        let list = bar.shortcuts();
+    fn default_menu_bar_publishes_expected_shortcuts_for_non_macos_and_macos() {
+        let menus = default_menus();
+        let empty = BTreeMap::new();
+
+        // Non-macOS registers menu + non-menu shortcuts.
+        let non_mac = qml_shortcuts_for(&menus, false, &empty);
+        for (id, expected) in [
+            ("file.save", "Ctrl+S"),
+            ("file.saveAs", "Ctrl+Shift+S"),
+            ("file.close", "Ctrl+W"),
+            ("file.new", "Ctrl+N"),
+            ("file.newWindow", "Ctrl+Shift+N"),
+            ("file.settings", "Ctrl+,"),
+            ("edit.rotateCw", "Ctrl+R"),
+            ("edit.rotateCcw", "Ctrl+Shift+R"),
+            ("edit.triggerCompletion", "Ctrl+Space"),
+            ("edit.gotoDefinition", "Ctrl+F12"),
+            ("edit.flipH", "Ctrl+L"),
+            ("edit.flipV", "Ctrl+Shift+L"),
+            ("view.zoomIn", "Ctrl++"),
+            ("view.zoomOut", "Ctrl+-"),
+            ("view.zoomFit", "Ctrl+9"),
+            ("view.zoomOne", "Ctrl+0"),
+            ("view.showGrid", "G"),
+            ("view.sidePanel", "Ctrl+B"),
+            ("sim.power", "F8"),
+            ("sim.pause", "F9"),
+            ("debug.toggleRepaintOverlay", "Ctrl+Alt+D"),
+            ("debug.toggleComponentRects", "Ctrl+Alt+C"),
+        ] {
+            assert_eq!(
+                shortcut_of(&non_mac, id).as_deref(),
+                Some(expected),
+                "non-macOS QML list must include {id}"
+            );
+        }
+        for hardcoded in ["view.cmdPalette", "view.jumpRef", "view.tabSwitch"] {
+            assert_eq!(
+                shortcut_of(&non_mac, hardcoded),
+                None,
+                "{hardcoded} is hardcoded in Main.qml; must not be registered dynamically"
+            );
+        }
+
+        // macOS skips NSMenu-owned chords (Ctrl+S, F8, Ctrl+B, etc.) while keeping
+        // non-menu shortcuts (Ctrl+N, Ctrl+Alt+D/C) and bare-key menu items (G).
+        let mac = qml_shortcuts_for(&menus, true, &empty);
+        assert_eq!(shortcut_of(&mac, "file.save"), None);
+        assert_eq!(shortcut_of(&mac, "sim.power"), None);
+        assert_eq!(shortcut_of(&mac, "view.sidePanel"), None);
+        assert_eq!(shortcut_of(&mac, "view.showGrid").as_deref(), Some("G"));
+        assert_eq!(shortcut_of(&mac, "file.new").as_deref(), Some("Ctrl+N"));
         assert_eq!(
-            shortcut_of(&list, "file.save").as_deref(),
-            Some("Ctrl+S"),
-            "QML registers Ctrl+S from this list on non-macOS platforms"
-        );
-        assert_eq!(
-            shortcut_of(&list, "file.saveAs").as_deref(),
-            Some("Ctrl+Shift+S")
-        );
-        assert_eq!(shortcut_of(&list, "file.close").as_deref(), Some("Ctrl+W"));
-        assert_eq!(shortcut_of(&list, "file.new").as_deref(), Some("Ctrl+N"));
-        assert_eq!(
-            shortcut_of(&list, "file.newWindow").as_deref(),
-            Some("Ctrl+Shift+N")
-        );
-        assert_eq!(
-            shortcut_of(&list, "edit.rotateCw").as_deref(),
-            Some("Ctrl+R")
-        );
-        assert_eq!(
-            shortcut_of(&list, "edit.rotateCcw").as_deref(),
-            Some("Ctrl+Shift+R")
-        );
-        assert_eq!(
-            shortcut_of(&list, "edit.triggerCompletion").as_deref(),
-            Some("Ctrl+Space")
-        );
-        assert_eq!(
-            shortcut_of(&list, "edit.gotoDefinition").as_deref(),
-            Some("Ctrl+F12")
-        );
-        assert_eq!(shortcut_of(&list, "edit.flipH").as_deref(), Some("Ctrl+L"));
-        assert_eq!(
-            shortcut_of(&list, "edit.flipV").as_deref(),
-            Some("Ctrl+Shift+L")
-        );
-        assert_eq!(shortcut_of(&list, "view.zoomIn").as_deref(), Some("Ctrl++"));
-        assert_eq!(
-            shortcut_of(&list, "view.zoomOut").as_deref(),
-            Some("Ctrl+-")
-        );
-        assert_eq!(
-            shortcut_of(&list, "view.zoomFit").as_deref(),
-            Some("Ctrl+9")
-        );
-        assert_eq!(
-            shortcut_of(&list, "view.zoomOne").as_deref(),
-            Some("Ctrl+0")
-        );
-        assert_eq!(
-            shortcut_of(&list, "debug.toggleRepaintOverlay").as_deref(),
+            shortcut_of(&mac, "debug.toggleRepaintOverlay").as_deref(),
             Some("Ctrl+Alt+D")
         );
         assert_eq!(
-            shortcut_of(&list, "view.cmdPalette"),
-            None,
-            "hardcoded in Main.qml; must not be registered dynamically"
+            shortcut_of(&mac, "debug.toggleComponentRects").as_deref(),
+            Some("Ctrl+Alt+C")
         );
+    }
+
+    #[test]
+    fn menu_tree_uses_canonical_shortcuts_from_registry() {
+        let menus = default_menus();
+        let json = serialize_menus(&menus);
+        let find_menu_shortcut = |id: &str| -> Option<String> {
+            for m in &json {
+                if let Some(items) = m["items"].as_array() {
+                    for it in items {
+                        if it["id"] == id {
+                            return it["shortcut"].as_str().map(String::from);
+                        }
+                    }
+                }
+            }
+            None
+        };
         assert_eq!(
-            shortcut_of(&list, "view.jumpRef"),
-            None,
-            "hardcoded in Main.qml; must not be registered dynamically"
+            find_menu_shortcut("file.settings").as_deref(),
+            Some("Ctrl+,")
         );
+        assert_eq!(find_menu_shortcut("sim.power").as_deref(), Some("F8"));
+        assert_eq!(find_menu_shortcut("sim.pause").as_deref(), Some("F9"));
+        assert_eq!(find_menu_shortcut("view.showGrid").as_deref(), Some("G"));
         assert_eq!(
-            shortcut_of(&list, "view.tabSwitch"),
-            None,
-            "hardcoded in Main.qml; must not be registered dynamically"
+            find_menu_shortcut("view.sidePanel").as_deref(),
+            Some("Ctrl+B")
         );
     }
 }

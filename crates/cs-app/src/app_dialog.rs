@@ -655,6 +655,9 @@ impl AppDialog {
         self.s = AppSettings::default();
         self.s.language = "en".into();
         cs_engine::i18n::set_locale("en");
+        settings::edit(|s| {
+            s.shortcuts.clear();
+        });
         self.persist();
         self.app_changed();
         self.circuit_changed();

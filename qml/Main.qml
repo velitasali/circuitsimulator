@@ -653,7 +653,7 @@ ApplicationWindow {
                     CircuitCanvas.newCircuit()
             } else if (id === "file.newCirc") {
                 CircuitCanvas.newCircuit()
-            } else if (id === "file.open" || id === "file.openCirc" || id === "file.openFile") {
+            } else if (id === "file.open") {
                 openDialog.open()
             } else if (id === "file.save") {
                 if (EditorPanel.focused)
@@ -708,7 +708,7 @@ ApplicationWindow {
                 saveKicadDialog.open()
             } else if (id === "file.closeProject") {
                 FileBrowser.closeProject()
-            } else if (id === "file.settings" || id === "file.appSettings") {
+            } else if (id === "file.settings") {
                 App.showSettings()
             } else if (id === "file.clearRecentCircuits") {
                 AppDialog.clearRecentCircuits(); AppMenuBar.rebuild()
@@ -727,9 +727,9 @@ ApplicationWindow {
                 App.showAbout()
             } else if (id === "help.info") {
                 CircuitPanel.toggleInfo()
-            } else if (id === "sim.power" || id === "circ.power") {
+            } else if (id === "sim.power") {
                 CircuitCanvas.powerCirc()
-            } else if (id === "sim.pause" || id === "circ.pause") {
+            } else if (id === "sim.pause") {
                 CircuitCanvas.pauseCirc()
             } else if (id === "circ.settings") {
                 App.showCircuitSettings()
@@ -766,17 +766,17 @@ ApplicationWindow {
             } else if (id === "view.focusEditor") {
                 CircuitPanel.showEditor()
                 EditorPanel.focusEditor()
-            } else if (id === "view.focusSimLog" || id === "view.simLog") {
+            } else if (id === "view.focusSimLog") {
                 CircuitPanel.showSidePanel()
                 App.sidePanelTab = 2
-            } else if (id === "view.focusCompLog" || id === "view.compLog") {
+            } else if (id === "view.focusCompLog") {
                 CircuitPanel.showSidePanel()
                 App.sidePanelTab = 3
             } else if (id === "view.sidePanel") {
                 CircuitPanel.togglePanel("sidePanel")
             } else if (id === "view.editorPanel") {
                 CircuitPanel.togglePanel("editorPanel")
-            } else if (id === "view.toggleActivePanel" || id === "view.collapsePanel") {
+            } else if (id === "view.toggleActivePanel") {
                 CircuitPanel.toggleActiveOverlay()
             } else if (id === "view.libManager") {
                 App.showInstaller()
@@ -789,9 +789,9 @@ ApplicationWindow {
             } else if (id === "view.tabSwitch") {
                 if (!TabSwitcher.visible) win.populateTabSwitcher()
                 TabSwitcher.openSwitcher(true)
-            } else if (id === "debug.toggleRepaintOverlay" || id === "debug_toggle_repaint_overlay") {
+            } else if (id === "debug.toggleRepaintOverlay") {
                 AppDialog.repaintOverlayEnabled = !AppDialog.repaintOverlayEnabled
-            } else if (id === "debug.toggleComponentRects" || id === "debug_toggle_component_rects") {
+            } else if (id === "debug.toggleComponentRects") {
                 AppDialog.showComponentRects = !AppDialog.showComponentRects
             } else if (id === "edit.undo") {
                 if (EditorPanel.focused) EditorPanel.undo()
@@ -808,7 +808,7 @@ ApplicationWindow {
             } else if (id === "edit.paste") {
                 if (EditorPanel.focused) EditorPanel.paste()
                 else CircuitCanvas.pasteAtCursor()
-            } else if (id === "edit.selectAll" || id === "edit.select_all") {
+            } else if (id === "edit.selectAll") {
                 if (EditorPanel.focused) EditorPanel.selectAll()
                 else CircuitCanvas.selectAll()
             } else if (id === "edit.find") {
@@ -829,32 +829,32 @@ ApplicationWindow {
                 CircuitCanvas.flipV()
             } else if (id === "edit.delete") {
                 CircuitCanvas.removeSelection()
-            } else if (id === "sim.compile" || id === "sim_compile") {
+            } else if (id === "sim.compile") {
                 EditorPanel.compile()
-            } else if (id === "sim.load" || id === "sim_load") {
+            } else if (id === "sim.load") {
                 EditorPanel.upload()
-            } else if (id === "sim.uploadRun" || id === "sim.upload_run") {
+            } else if (id === "sim.uploadRun") {
                 if (EditorPanel.documents.length === 0 && !CircuitCanvas.simRunning)
                     CircuitCanvas.editFirmware("")
                 EditorPanel.uploadRun()
-            } else if (id === "sim.debug" || id === "sim_debug") {
+            } else if (id === "sim.debug") {
                 CircuitPanel.showEditor()
                 if (EditorPanel.documents.length === 0)
                     CircuitCanvas.editFirmware("")
                 EditorPanel.debug()
-            } else if (id === "sim.run" || id === "sim_run") {
+            } else if (id === "sim.run") {
                 if (EditorPanel.documents.length === 0 && !CircuitCanvas.simRunning)
                     CircuitCanvas.editFirmware("")
                 EditorPanel.run()
-            } else if (id === "sim.step" || id === "sim_step") {
+            } else if (id === "sim.step") {
                 EditorPanel.debugStep()
-            } else if (id === "sim.stepOver" || id === "sim_step_over") {
+            } else if (id === "sim.stepOver") {
                 EditorPanel.debugStepOver()
-            } else if (id === "sim.debugPause" || id === "sim_debug_pause") {
+            } else if (id === "sim.debugPause") {
                 EditorPanel.debugPause()
-            } else if (id === "sim.stop" || id === "sim_stop") {
+            } else if (id === "sim.stop") {
                 EditorPanel.debugStop()
-            } else if (id === "sim.reset" || id === "sim_reset") {
+            } else if (id === "sim.reset") {
                 EditorPanel.debugReset()
             } else if (id === "circ.addAllComponents") {
                 CircuitCanvas.addAllComponents()
@@ -1440,6 +1440,7 @@ ApplicationWindow {
     }
 
     Shortcut {
+        enabled: !CommandCenter.recordingShortcut
         sequences: ["Ctrl+P", "Meta+P"]
         onActivated: {
             CommandCenter.setCircuitItems(CircuitCanvas.items)
@@ -1447,21 +1448,20 @@ ApplicationWindow {
         }
     }
     Shortcut {
+        enabled: !CommandCenter.recordingShortcut
         sequences: ["Ctrl+Shift+P", "Meta+Shift+P"]
         onActivated: win.openCommandPalette()
     }
 
-    // Every menu row that carries a shortcut gets a real Qt Shortcut here, from
-    // the same AppMenuBar list the menu paints its key labels from — so a
-    // binding reassigned in the Command Center starts working immediately.
-    // macOS is excluded: its NSMenu already owns the key equivalents, and a
-    // QML Shortcut on top would fire the action a second time.
+    // QML Shortcut registrations sourced from AppMenuBar.shortcuts (already
+    // filtered by platform: on macOS, NSMenu-owned chords are omitted while
+    // non-menu and bare-key actions remain registered here).
     Instantiator {
         id: menuShortcutInstantiator
-        model: App.nativeMenus ? [] : AppMenuBar.shortcuts
+        model: AppMenuBar.shortcuts
         delegate: Shortcut {
             id: menuShortcutItem
-            // Reassigned keys are stored in Qt notation already ("Ctrl+Shift+S").
+            // Stored in canonical Qt notation ("Ctrl+Shift+S").
             required property var modelData
             property string actionId: menuShortcutItem.modelData.id || ""
             sequences: {
@@ -1470,7 +1470,7 @@ ApplicationWindow {
                     return ["Ctrl++", "Ctrl+="]
                 return s ? [s] : []
             }
-            enabled: !!menuShortcutItem.modelData.enabled
+            enabled: !!menuShortcutItem.modelData.enabled && !CommandCenter.recordingShortcut
             onActivated: {
                 if (menuShortcutItem.actionId !== "")
                     AppMenuBar.triggerAction(menuShortcutItem.actionId)
@@ -1568,6 +1568,7 @@ ApplicationWindow {
     }
 
     Shortcut {
+        enabled: !CommandCenter.recordingShortcut
         sequences: ["Ctrl+Tab", "Meta+Tab"]
         onActivated: {
             if (!TabSwitcher.visible) win.populateTabSwitcher()
@@ -1575,6 +1576,7 @@ ApplicationWindow {
         }
     }
     Shortcut {
+        enabled: !CommandCenter.recordingShortcut
         sequences: ["Ctrl+Shift+Tab", "Meta+Shift+Tab"]
         onActivated: {
             if (!TabSwitcher.visible) win.populateTabSwitcher()

@@ -11,7 +11,7 @@ Dialog {
     parent: Overlay.overlay
     x: parent ? Math.round((parent.width - width) / 2) : 100
     y: parent ? Math.max(40, Math.round((parent.height - height) / 2)) : 100
-    width: 380
+    width: 400
     padding: 0
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
@@ -20,19 +20,43 @@ Dialog {
     property string actionId: ""
     property string actionName: ""
     property string currentShortcut: ""
+    property string defaultShortcut: ""
     property string recordedShortcut: ""
+
+    readonly property var conflictInfo: (root.visible && root.actionId)
+        ? CommandCenter.shortcutConflict(root.actionId, root.recordedShortcut)
+        : ({ kind: "none", label: "" })
+    readonly property string conflictKind: (conflictInfo && conflictInfo.kind) ? String(conflictInfo.kind) : "none"
+    readonly property string conflictLabel: (conflictInfo && conflictInfo.label) ? String(conflictInfo.label) : ""
+    readonly property bool isReserved: conflictKind === "reserved"
+    readonly property bool isConflict: conflictKind === "conflict"
+
+    function commitShortcut(): void {
+        if (root.isReserved)
+            return
+        if (root.actionId) {
+            if (root.recordedShortcut === root.defaultShortcut)
+                CommandCenter.resetShortcut(root.actionId)
+            else
+                CommandCenter.setShortcut(root.actionId, root.recordedShortcut)
+        }
+        root.close()
+    }
 
     onOpened: {
         recordedShortcut = currentShortcut
+        CommandCenter.recordingShortcut = true
         captureArea.forceActiveFocus()
         focusTimer.restart()
     }
     onVisibleChanged: {
+        CommandCenter.recordingShortcut = visible
         if (visible) {
             captureArea.forceActiveFocus()
             focusTimer.restart()
         }
     }
+    Component.onDestruction: CommandCenter.recordingShortcut = false
 
     Timer {
         id: focusTimer
@@ -46,13 +70,13 @@ Dialog {
     }
 
     function keyToString(key: int, text: string): string {
-        if (key >= Qt.Key_F1 && key <= Qt.Key_F12) {
+        if (key >= Qt.Key_F1 && key <= Qt.Key_F24) {
             return "F" + (key - Qt.Key_F1 + 1)
         }
         switch (key) {
             case Qt.Key_Escape: return "Esc"
-            case Qt.Key_Tab: return "Tab"
-            case Qt.Key_Backtab: return "Backtab"
+            case Qt.Key_Tab:
+            case Qt.Key_Backtab: return "Tab"
             case Qt.Key_Backspace: return "Backspace"
             case Qt.Key_Return:
             case Qt.Key_Enter: return "Return"
@@ -97,7 +121,7 @@ Dialog {
     }
 
     background: Rectangle {
-        implicitWidth: 380
+        implicitWidth: 400
         color: appTheme.window
         border.color: appTheme.mid
         border.width: 1
@@ -105,7 +129,7 @@ Dialog {
     }
 
     contentItem: Item {
-        implicitWidth: 380
+        implicitWidth: 400
         implicitHeight: layout.implicitHeight + 32
 
         TapHandler {
@@ -131,8 +155,10 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
                 color: appTheme.base
-                border.color: captureArea.activeFocus ? appTheme.highlight : appTheme.mid
-                border.width: captureArea.activeFocus ? 2 : 1
+                border.color: root.isReserved
+                    ? CircuitCanvas.msgErrorBg
+                    : (captureArea.activeFocus ? appTheme.highlight : appTheme.mid)
+                border.width: (captureArea.activeFocus || root.isReserved) ? 2 : 1
                 radius: 10
 
                 focus: true
@@ -141,7 +167,7 @@ Dialog {
                 AppText {
                     anchors.fill: parent
                     anchors.leftMargin: 10
-                    text: root.recordedShortcut
+                    text: UiUtils.formatShortcut(root.recordedShortcut)
                     font.pixelSize: App.fontTitle
                     font.bold: true
                     color: appTheme.windowText
@@ -173,10 +199,7 @@ Dialog {
                         return
                     }
                     if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && event.modifiers === Qt.NoModifier) {
-                        if (root.actionId) {
-                            CommandCenter.setShortcut(root.actionId, root.recordedShortcut)
-                        }
-                        root.close()
+                        root.commitShortcut()
                         event.accepted = true
                         return
                     }
@@ -184,9 +207,10 @@ Dialog {
                     if (!keyStr) return
 
                     var parts = []
-                    if (event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) parts.push("Ctrl")
+                    if (event.modifiers & Qt.ControlModifier) parts.push("Ctrl")
                     if (event.modifiers & Qt.AltModifier) parts.push("Alt")
-                    if (event.modifiers & Qt.ShiftModifier) parts.push("Shift")
+                    if ((event.modifiers & Qt.ShiftModifier) || event.key === Qt.Key_Backtab) parts.push("Shift")
+                    if (event.modifiers & Qt.MetaModifier) parts.push("Meta")
                     parts.push(keyStr)
                     root.recordedShortcut = parts.join("+")
                     event.accepted = true
@@ -197,13 +221,38 @@ Dialog {
                 }
             }
 
+            AppText {
+                visible: root.isReserved || root.isConflict
+                text: root.isReserved
+                    ? I18n.tr("Reserved shortcut (%1). Choose another key combination.").arg(root.conflictLabel)
+                    : I18n.tr("Currently assigned to %1. Saving will clear that binding.").arg(root.conflictLabel)
+                font.pixelSize: App.fontSmall
+                color: root.isReserved ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
 
                 AppButton {
                     text: I18n.tr("Clear")
-                    onClicked: root.recordedShortcut = ""
+                    enabled: root.recordedShortcut.length > 0
+                    onClicked: {
+                        root.recordedShortcut = ""
+                        captureArea.forceActiveFocus()
+                    }
+                }
+
+                AppButton {
+                    text: I18n.tr("Reset")
+                    visible: root.defaultShortcut.length > 0
+                    enabled: root.recordedShortcut !== root.defaultShortcut
+                    onClicked: {
+                        root.recordedShortcut = root.defaultShortcut
+                        captureArea.forceActiveFocus()
+                    }
                 }
 
                 Item { Layout.fillWidth: true }
@@ -217,12 +266,8 @@ Dialog {
                     text: I18n.tr("OK")
                     font.bold: true
                     highlighted: true
-                    onClicked: {
-                        if (root.actionId) {
-                            CommandCenter.setShortcut(root.actionId, root.recordedShortcut)
-                        }
-                        root.close()
-                    }
+                    enabled: !root.isReserved
+                    onClicked: root.commitShortcut()
                 }
             }
         }

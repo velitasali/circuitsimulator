@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 #![windows_subsystem = "windows"]
 
+mod actions;
 mod app;
 mod app_dialog;
 mod circuit_canvas;

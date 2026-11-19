@@ -10,11 +10,6 @@ AppContextMenu {
     property TextInput textInput: null
     property TextEdit textEdit: null
 
-    // Display text only, as everywhere else -- these bindings are the editor's own,
-    // not shortcuts registered here.
-    readonly property bool _mac: Qt.platform.os === "osx" || Qt.platform.os === "macos"
-    readonly property string _mod: _mac ? "⌘" : "Ctrl+"
-
     readonly property bool _hasSelection: textInput ? textInput.selectedText !== "" : (textEdit ? textEdit.selectedText !== "" : false)
     readonly property bool _editable: textInput ? !textInput.readOnly : (textEdit ? !textEdit.readOnly : false)
     readonly property bool _canUndo: textInput ? textInput.canUndo : (textEdit ? textEdit.canUndo : false)
@@ -45,14 +40,14 @@ AppContextMenu {
     ContextMenuItem {
         iconLigature: "undo"
         text: I18n.tr("Undo")
-        shortcutText: menu._mod + "Z"
+        shortcutText: UiUtils.formatShortcut("Ctrl+Z")
         enabled: menu._editable && menu._canUndo
         onTriggered: menu.execEditAction("undo")
     }
     ContextMenuItem {
         iconLigature: "redo"
         text: I18n.tr("Redo")
-        shortcutText: menu._mac ? "⇧⌘Z" : "Ctrl+Y"
+        shortcutText: UiUtils.formatShortcut(UiUtils.isMacOS ? "Ctrl+Shift+Z" : "Ctrl+Y")
         enabled: menu._editable && menu._canRedo
         onTriggered: menu.execEditAction("redo")
     }
@@ -62,21 +57,21 @@ AppContextMenu {
     ContextMenuItem {
         iconLigature: "content_cut"
         text: I18n.tr("Cut")
-        shortcutText: menu._mod + "X"
+        shortcutText: UiUtils.formatShortcut("Ctrl+X")
         enabled: menu._editable && menu._hasSelection
         onTriggered: menu.execEditAction("cut")
     }
     ContextMenuItem {
         iconLigature: "content_copy"
         text: I18n.tr("Copy")
-        shortcutText: menu._mod + "C"
+        shortcutText: UiUtils.formatShortcut("Ctrl+C")
         enabled: menu._hasSelection
         onTriggered: menu.execEditAction("copy")
     }
     ContextMenuItem {
         iconLigature: "content_paste"
         text: I18n.tr("Paste")
-        shortcutText: menu._mod + "V"
+        shortcutText: UiUtils.formatShortcut("Ctrl+V")
         enabled: menu._editable && menu._canPaste
         onTriggered: menu.execEditAction("paste")
     }
@@ -92,7 +87,7 @@ AppContextMenu {
     ContextMenuItem {
         iconLigature: "select_all"
         text: I18n.tr("Select All")
-        shortcutText: menu._mod + "A"
+        shortcutText: UiUtils.formatShortcut("Ctrl+A")
         enabled: menu._hasText
         onTriggered: menu.execEditAction("selectAll")
     }

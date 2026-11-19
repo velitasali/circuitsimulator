@@ -147,7 +147,7 @@ Dialog {
 
                     AppText {
                         visible: delegateItem.modelData.shortcut && delegateItem.modelData.shortcut.length > 0
-                        text: delegateItem.modelData.shortcut || ""
+                        text: UiUtils.formatShortcut(delegateItem.modelData.shortcut || "")
                         font.pixelSize: App.fontSmall
                         color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.mid
                         horizontalAlignment: Text.AlignRight
@@ -175,6 +175,7 @@ Dialog {
                             shortcutDialog.actionId = delegateItem.modelData.data || ""
                             shortcutDialog.actionName = delegateItem.modelData.text || ""
                             shortcutDialog.currentShortcut = delegateItem.modelData.shortcut || ""
+                            shortcutDialog.defaultShortcut = delegateItem.modelData.defaultShortcut || ""
                             actionContextMenu.popup()
                         }
                     }

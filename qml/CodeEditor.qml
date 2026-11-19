@@ -617,8 +617,6 @@ Item {
     AppContextMenu {
         id: editorMenu
 
-        readonly property bool _mac: Qt.platform.os === "osx" || Qt.platform.os === "macos"
-        readonly property string _mod: _mac ? "⌘" : "Ctrl+"
         readonly property bool _hasSelection: area.selectedText && area.selectedText.length > 0
 
         ContextMenuItem {
@@ -626,7 +624,7 @@ Item {
             height: visible ? implicitHeight : 0
             iconLigature: "search"
             text: I18n.tr("Go to Definition")
-            shortcutText: UiUtils.shortcutFor("edit.gotoDefinition") || (editorMenu._mod + "F12")
+            shortcutText: UiUtils.shortcutFor("edit.gotoDefinition")
             onTriggered: AppMenuBar.triggerAction("edit.gotoDefinition")
         }
         ContextMenuSeparator { visible: EditorPanel.lspReady }
@@ -634,14 +632,14 @@ Item {
         ContextMenuItem {
             iconLigature: "undo"
             text: I18n.tr("Undo")
-            shortcutText: editorMenu._mod + "Z"
+            shortcutText: UiUtils.formatShortcut("Ctrl+Z")
             enabled: area.canUndo
             onTriggered: area.undo()
         }
         ContextMenuItem {
             iconLigature: "redo"
             text: I18n.tr("Redo")
-            shortcutText: editorMenu._mac ? "⇧⌘Z" : "Ctrl+Y"
+            shortcutText: UiUtils.formatShortcut(UiUtils.isMacOS ? "Ctrl+Shift+Z" : "Ctrl+Y")
             enabled: area.canRedo
             onTriggered: area.redo()
         }
@@ -651,21 +649,21 @@ Item {
         ContextMenuItem {
             iconLigature: "content_cut"
             text: I18n.tr("Cut")
-            shortcutText: editorMenu._mod + "X"
+            shortcutText: UiUtils.formatShortcut("Ctrl+X")
             enabled: editorMenu._hasSelection
             onTriggered: area.cut()
         }
         ContextMenuItem {
             iconLigature: "content_copy"
             text: I18n.tr("Copy")
-            shortcutText: editorMenu._mod + "C"
+            shortcutText: UiUtils.formatShortcut("Ctrl+C")
             enabled: editorMenu._hasSelection
             onTriggered: area.copy()
         }
         ContextMenuItem {
             iconLigature: "content_paste"
             text: I18n.tr("Paste")
-            shortcutText: editorMenu._mod + "V"
+            shortcutText: UiUtils.formatShortcut("Ctrl+V")
             enabled: area.canPaste
             onTriggered: area.paste()
         }
@@ -681,7 +679,7 @@ Item {
         ContextMenuItem {
             iconLigature: "format_align_left"
             text: I18n.tr("Format Document")
-            shortcutText: UiUtils.shortcutFor("edit.format") || (editorMenu._mac ? "⇧⌘I" : "Ctrl+Shift+I")
+            shortcutText: UiUtils.shortcutFor("edit.format")
             onTriggered: EditorPanel.formatDocument()
         }
 

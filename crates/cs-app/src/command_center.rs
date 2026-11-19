@@ -1,10 +1,16 @@
 //! Command Center / Command Palette / Jump to Reference.
 
-use crate::menu_bar::{PALETTE_ACTIONS, PaletteAction};
-use crate::ui_icon::UiIcon;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use cs_engine::library::{self, Library};
+use cs_engine::{catalog, i18n, settings};
 use qtbridge::qobject;
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
+
+use crate::actions::{self, Conflict};
+use crate::pending;
+use crate::ui_icon::UiIcon;
 
 pub struct CommandCenter {
     search_text: String,
@@ -12,29 +18,31 @@ pub struct CommandCenter {
     items: Vec<Value>,
     circuit_items: Vec<Value>,
     visible: bool,
+    recording_shortcut: bool,
     project_dir: String,
     editor_focused: bool,
-    lib: cs_engine::library::Library,
+    lib: Library,
 }
 
 impl Default for CommandCenter {
     fn default() -> Self {
-        let s = cs_engine::settings::get();
-        let proj = if crate::pending::no_project() {
+        let s = settings::get();
+        let proj = if pending::no_project() {
             String::new()
         } else {
             s.last_project_dir
                 .or_else(|| s.recent_projects.first().cloned())
                 .unwrap_or_default()
         };
-        let mut lib = cs_engine::library::Library::new();
-        lib.add_catalog_mcus(&cs_engine::catalog::standard());
+        let mut lib = Library::new();
+        lib.add_catalog_mcus(&catalog::standard());
         Self {
             search_text: String::new(),
             current_row: 0,
             items: Vec::new(),
             circuit_items: Vec::new(),
             visible: false,
+            recording_shortcut: false,
             project_dir: proj,
             editor_focused: false,
             lib,
@@ -64,6 +72,12 @@ impl CommandCenter {
         Notify = visible_changed
     );
     qproperty!(
+        "recordingShortcut",
+        Read = recording_shortcut,
+        Write = set_recording_shortcut,
+        Notify = recording_shortcut_changed
+    );
+    qproperty!(
         "projectDir",
         Read = project_dir,
         Write = set_project_dir,
@@ -84,6 +98,8 @@ impl CommandCenter {
     fn items_changed(&mut self);
     #[qsignal]
     fn visible_changed(&mut self);
+    #[qsignal]
+    fn recording_shortcut_changed(&mut self);
     #[qsignal]
     fn project_dir_changed(&mut self);
     #[qsignal]
@@ -109,6 +125,10 @@ impl CommandCenter {
         self.visible
     }
 
+    fn recording_shortcut(&self) -> bool {
+        self.recording_shortcut
+    }
+
     fn project_dir(&self) -> String {
         self.project_dir.clone()
     }
@@ -121,6 +141,13 @@ impl CommandCenter {
         if self.visible != v {
             self.visible = v;
             self.visible_changed();
+        }
+    }
+
+    fn set_recording_shortcut(&mut self, recording: bool) {
+        if self.recording_shortcut != recording {
+            self.recording_shortcut = recording;
+            self.recording_shortcut_changed();
         }
     }
 
@@ -239,15 +266,37 @@ impl CommandCenter {
 
     #[qslot]
     fn set_shortcut(&mut self, id: String, shortcut: String) {
-        cs_engine::settings::edit(|s| {
-            if shortcut.is_empty() {
-                s.shortcuts.remove(&id);
-            } else {
-                s.shortcuts.insert(id, shortcut);
-            }
+        let mut applied = false;
+        settings::edit(|s| {
+            applied = actions::set_shortcut(&mut s.shortcuts, &id, &shortcut);
+        });
+        if applied {
+            self.shortcuts_updated();
+            self.repopulate();
+        }
+    }
+
+    #[qslot]
+    fn reset_shortcut(&mut self, id: String) {
+        settings::edit(|s| {
+            actions::reset_shortcut(&mut s.shortcuts, &id);
         });
         self.shortcuts_updated();
         self.repopulate();
+    }
+
+    #[qslot]
+    fn shortcut_conflict(&self, id: String, shortcut: String) -> Value {
+        let custom = settings::with(|s| s.shortcuts.clone());
+        let (kind, label) = match actions::check_conflict(&id, &shortcut, &custom) {
+            Conflict::None => ("none", String::new()),
+            Conflict::Reserved { reason } => ("reserved", i18n::tr(reason)),
+            Conflict::Action { label, .. } => ("conflict", i18n::tr(label)),
+        };
+        json!({
+            "kind": kind,
+            "label": label,
+        })
     }
 
     fn repopulate(&mut self) {
@@ -271,16 +320,13 @@ impl CommandCenter {
         }
         let mut entries = Vec::new();
 
-        let custom_shortcuts = cs_engine::settings::get().shortcuts;
-        for action in palette_actions(self.editor_focused) {
-            let effective_shortcut = custom_shortcuts
-                .get(action.id)
-                .map(|s| s.as_str())
-                .unwrap_or(action.shortcut);
-            let trans_label = cs_engine::i18n::tr(action.label);
-            let label_rank = cs_engine::library::text_match_tier(action.label, filter)
-                .or_else(|| cs_engine::library::text_match_tier(&trans_label, filter));
-            let id_rank = cs_engine::library::text_match_tier(action.id, filter);
+        let custom_shortcuts = settings::with(|s| s.shortcuts.clone());
+        for action in actions::palette_actions() {
+            let effective = actions::effective_shortcut(action.id, &custom_shortcuts);
+            let trans_label = i18n::tr(action.label);
+            let label_rank = library::text_match_tier(action.label, filter)
+                .or_else(|| library::text_match_tier(&trans_label, filter));
+            let id_rank = library::text_match_tier(action.id, filter);
             let rank = match (label_rank, id_rank) {
                 (Some(a), Some(b)) => Some(a.min(b)),
                 (Some(a), None) => Some(a),
@@ -292,7 +338,8 @@ impl CommandCenter {
                     rank: r,
                     item: json!({
                         "text": trans_label,
-                        "shortcut": effective_shortcut,
+                        "shortcut": effective,
+                        "defaultShortcut": action.default_shortcut,
                         "icon": action.icon.as_str(),
                         "type": "action",
                         "data": action.id,
@@ -485,12 +532,12 @@ impl CommandCenter {
             ("Jump to Code Editor", "view.editorPanel", UiIcon::Code),
             (
                 "Jump to Simulator Messages",
-                "view.simLog",
+                "view.focusSimLog",
                 UiIcon::Terminal,
             ),
             (
                 "Jump to Compiler Messages",
-                "view.compLog",
+                "view.focusCompLog",
                 UiIcon::PestControl,
             ),
             (
@@ -500,7 +547,7 @@ impl CommandCenter {
             ),
         ];
         for (label, id, icon) in quick_jumps {
-            let trans_label = cs_engine::i18n::tr(label);
+            let trans_label = i18n::tr(label);
             if filter.is_empty()
                 || label.to_lowercase().contains(filter)
                 || trans_label.to_lowercase().contains(filter)
@@ -518,16 +565,8 @@ impl CommandCenter {
     }
 }
 
-fn palette_actions(editor_focused: bool) -> impl Iterator<Item = PaletteAction> {
-    PALETTE_ACTIONS
-        .iter()
-        .copied()
-        .filter(move |(scope, _)| scope.includes(editor_focused))
-        .map(|(_, action)| action)
-}
-
 fn scan_dir_files(dir: &Path, files: &mut Vec<PathBuf>, max: usize) {
-    if let Ok(entries) = std::fs::read_dir(dir) {
+    if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_dir() {

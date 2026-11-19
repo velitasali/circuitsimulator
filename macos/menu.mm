@@ -39,13 +39,35 @@ static NSString* CSStripAmpersand(NSString* s) {
 static void CSApplyShortcut(NSMenuItem* item, NSString* shortcut) {
     if (shortcut.length == 0)
         return;
+    NSString* trimmed = [shortcut stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0)
+        return;
+
     NSEventModifierFlags flags = 0;
-    NSString* key = shortcut;
-    NSArray* parts = [shortcut componentsSeparatedByString:@"+"];
-    if (parts.count > 1) {
-        key = parts.lastObject;
-        for (NSUInteger i = 0; i + 1 < parts.count; i++) {
-            NSString* p = [parts[i] lowercaseString];
+    NSString* key = nil;
+    NSString* prefix = trimmed;
+    if ([trimmed isEqualToString:@"+"]) {
+        prefix = @"";
+        key = @"+";
+    } else if ([trimmed hasSuffix:@"++"]) {
+        prefix = [trimmed substringToIndex:trimmed.length - 2];
+        key = @"+";
+    }
+
+    if (prefix.length > 0) {
+        NSArray<NSString*>* rawParts = [prefix componentsSeparatedByString:@"+"];
+        NSMutableArray<NSString*>* tokens = [NSMutableArray arrayWithCapacity:rawParts.count];
+        for (NSString* raw in rawParts) {
+            NSString* tok = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (tok.length > 0)
+                [tokens addObject:tok];
+        }
+        if (!key && tokens.count > 0) {
+            key = tokens.lastObject;
+            [tokens removeLastObject];
+        }
+        for (NSString* tok in tokens) {
+            NSString* p = tok.lowercaseString;
             if ([p isEqualToString:@"ctrl"] || [p isEqualToString:@"cmd"] || [p isEqualToString:@"command"])
                 flags |= NSEventModifierFlagCommand;
             else if ([p isEqualToString:@"shift"])
@@ -55,25 +77,68 @@ static void CSApplyShortcut(NSMenuItem* item, NSString* shortcut) {
             else if ([p isEqualToString:@"meta"] || [p isEqualToString:@"control"])
                 flags |= NSEventModifierFlagControl;
         }
-    } else {
-        flags = NSEventModifierFlagCommand;
     }
-    NSString* equiv = key.lowercaseString;
-    if ([equiv isEqualToString:@"tab"])
+    if (key.length == 0)
+        return;
+
+    NSString* lower = key.lowercaseString;
+    NSString* equiv = nil;
+    BOOL isFunctionKey = NO;
+    unichar special = 0;
+
+    if ([lower isEqualToString:@"tab"]) {
         equiv = @"\t";
-    else if ([equiv isEqualToString:@"escape"] || [equiv isEqualToString:@"esc"])
+    } else if ([lower isEqualToString:@"backtab"]) {
+        flags |= NSEventModifierFlagShift;
+        equiv = @"\t";
+    } else if ([lower isEqualToString:@"escape"] || [lower isEqualToString:@"esc"]) {
         equiv = @"\e";
-    else if ([equiv isEqualToString:@"space"])
+    } else if ([lower isEqualToString:@"space"]) {
         equiv = @" ";
-    else if (equiv.length >= 2 && [equiv hasPrefix:@"f"]) {
-        int fnum = [[equiv substringFromIndex:1] intValue];
-        if (fnum >= 1 && fnum <= 12) {
-            unichar fchar = NSF1FunctionKey + (fnum - 1);
-            equiv = [NSString stringWithCharacters:&fchar length:1];
-            if (parts.count == 1)
-                flags = 0;
+    } else if ([lower isEqualToString:@"return"] || [lower isEqualToString:@"enter"]) {
+        equiv = @"\r";
+    } else if ([lower isEqualToString:@"backspace"]) {
+        special = NSBackspaceCharacter;
+    } else if ([lower isEqualToString:@"delete"] || [lower isEqualToString:@"del"]) {
+        special = NSDeleteFunctionKey;
+    } else if ([lower isEqualToString:@"left"]) {
+        special = NSLeftArrowFunctionKey;
+    } else if ([lower isEqualToString:@"right"]) {
+        special = NSRightArrowFunctionKey;
+    } else if ([lower isEqualToString:@"up"]) {
+        special = NSUpArrowFunctionKey;
+    } else if ([lower isEqualToString:@"down"]) {
+        special = NSDownArrowFunctionKey;
+    } else if ([lower isEqualToString:@"home"]) {
+        special = NSHomeFunctionKey;
+    } else if ([lower isEqualToString:@"end"]) {
+        special = NSEndFunctionKey;
+    } else if ([lower isEqualToString:@"pageup"] || [lower isEqualToString:@"pgup"]) {
+        special = NSPageUpFunctionKey;
+    } else if ([lower isEqualToString:@"pagedown"] || [lower isEqualToString:@"pgdown"]) {
+        special = NSPageDownFunctionKey;
+    } else if ([lower isEqualToString:@"insert"] || [lower isEqualToString:@"ins"]) {
+        special = NSInsertFunctionKey;
+    } else if (lower.length >= 2 && [lower hasPrefix:@"f"]) {
+        int fnum = [[lower substringFromIndex:1] intValue];
+        if (fnum >= 1 && fnum <= 24) {
+            special = NSF1FunctionKey + (fnum - 1);
+            isFunctionKey = YES;
         }
     }
+
+    if (special != 0) {
+        equiv = [NSString stringWithCharacters:&special length:1];
+    } else if (!equiv) {
+        equiv = lower;
+    }
+
+    // Bare non-function keys (e.g. "G" for Toggle Grid) must stay out of
+    // NSMenu so AppKit does not intercept typing in text inputs; QML registers
+    // them via AppMenuBar.shortcuts instead.
+    if ((flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl)) == 0 && !isFunctionKey)
+        return;
+
     item.keyEquivalent = equiv;
     item.keyEquivalentModifierMask = flags;
 }

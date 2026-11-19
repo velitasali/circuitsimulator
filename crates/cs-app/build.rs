@@ -142,9 +142,7 @@ fn compile_macos() {
 }
 
 fn compile_theme() {
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        return;
-    }
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let cpp_dir = manifest.join("cpp");
     let header = cpp_dir.join("theme.h");
@@ -161,36 +159,43 @@ fn compile_theme() {
         .flag_if_supported("/Zc:__cplusplus")
         .flag_if_supported("/permissive-");
 
+    if os == "macos" {
+        if let Some(libs) = qmake_query("QT_INSTALL_LIBS") {
+            let p = PathBuf::from(&libs);
+            build.flag(&format!("-F{libs}"));
+            build.include(p.join("QtCore.framework/Headers"));
+            build.include(p.join("QtGui.framework/Headers"));
+        }
+    }
     if let Some(inc) = qmake_query("QT_INSTALL_HEADERS") {
         let p = PathBuf::from(inc);
         build.include(&p);
         build.include(p.join("QtCore"));
         build.include(p.join("QtGui"));
-        build.include(p.join("QtQml"));
-        build.include(p.join("QtQuick"));
-        if let Some(rhi) = qtgui_rhi_header_include(&p) {
-            if let Some(priv_root) = rhi.parent() {
-                build.include(priv_root);
-                if let Some(ver) = priv_root.file_name() {
-                    let core_priv = p.join("QtCore").join(ver);
-                    build.include(&core_priv);
-                    build.include(core_priv.join("QtCore"));
+        if os != "macos" {
+            build.include(p.join("QtQml"));
+            build.include(p.join("QtQuick"));
+            if let Some(rhi) = qtgui_rhi_header_include(&p) {
+                if let Some(priv_root) = rhi.parent() {
+                    build.include(priv_root);
+                    if let Some(ver) = priv_root.file_name() {
+                        let core_priv = p.join("QtCore").join(ver);
+                        build.include(&core_priv);
+                        build.include(core_priv.join("QtCore"));
+                    }
                 }
+                build.include(rhi);
             }
-            build.include(rhi);
         }
     }
 
     build.compile("cs_theme");
 
-    if let Some(libs) = qmake_query("QT_INSTALL_LIBS") {
+    if os == "macos" {
+        println!("cargo:rustc-link-lib=framework=QtGui");
+    } else if let Some(libs) = qmake_query("QT_INSTALL_LIBS") {
         println!("cargo:rustc-link-search=native={libs}");
         println!("cargo:rustc-link-lib=Qt6Gui");
-    }
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        println!("cargo:rustc-link-lib=dwmapi");
-        println!("cargo:rustc-link-lib=user32");
-        println!("cargo:rustc-link-lib=shell32");
     }
 }
 
@@ -257,16 +262,8 @@ fn compile_canvas_item() {
     let cpp_dir = manifest.join("cpp");
     let header = cpp_dir.join("circuit_canvas_item.h");
     let source = cpp_dir.join("circuit_canvas_item.cpp");
-    let screen_header = cpp_dir.join("instrument_screen_item.h");
-    let screen_source = cpp_dir.join("instrument_screen_item.cpp");
-    let frame_header = cpp_dir.join("image_frame.h");
-    let frame_source = cpp_dir.join("image_frame.cpp");
     println!("cargo:rerun-if-changed={}", header.display());
     println!("cargo:rerun-if-changed={}", source.display());
-    println!("cargo:rerun-if-changed={}", screen_header.display());
-    println!("cargo:rerun-if-changed={}", screen_source.display());
-    println!("cargo:rerun-if-changed={}", frame_header.display());
-    println!("cargo:rerun-if-changed={}", frame_source.display());
     println!(
         "cargo:rerun-if-changed={}",
         cpp_dir.join("vello_share.cpp").display()
@@ -278,19 +275,16 @@ fn compile_canvas_item() {
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let moc_out = out_dir.join("moc_circuit_canvas_item.cpp");
-    let screen_moc_out = out_dir.join("moc_instrument_screen_item.cpp");
 
     let moc = moc_bin();
-    for (hdr, moc_path) in [(&header, &moc_out), (&screen_header, &screen_moc_out)] {
-        let status = Command::new(&moc)
-            .arg(hdr)
-            .arg("-o")
-            .arg(moc_path)
-            .status()
-            .unwrap_or_else(|e| panic!("failed to run {}: {e}", moc.display()));
-        if !status.success() {
-            panic!("moc failed on {}", hdr.display());
-        }
+    let status = Command::new(&moc)
+        .arg(&header)
+        .arg("-o")
+        .arg(&moc_out)
+        .status()
+        .unwrap_or_else(|e| panic!("failed to run {}: {e}", moc.display()));
+    if !status.success() {
+        panic!("moc failed on {}", header.display());
     }
 
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -298,12 +292,11 @@ fn compile_canvas_item() {
     build
         .cpp(true)
         .file(&source)
-        .file(&screen_source)
-        .file(&frame_source)
         .file(&moc_out)
-        .file(&screen_moc_out)
         .include(&cpp_dir)
-        .flag("-std=c++17");
+        .std("c++17")
+        .flag_if_supported("/Zc:__cplusplus")
+        .flag_if_supported("/permissive-");
     // macOS keeps the IOSurface handoff in vello_preview.mm. The other
     // platforms compile the shared-texture handoff beside this item.
     if os != "macos" {
@@ -347,13 +340,6 @@ fn compile_canvas_item() {
     } else if let Some(libs) = qmake_query("QT_INSTALL_LIBS") {
         println!("cargo:rustc-link-search=native={libs}");
         println!("cargo:rustc-link-lib=Qt6Quick");
-    }
-    if os == "windows" {
-        println!("cargo:rustc-link-lib=d3d11");
-        println!("cargo:rustc-link-lib=d3d12");
-        println!("cargo:rustc-link-lib=dxgi");
-    } else if os == "linux" {
-        println!("cargo:rustc-link-lib=vulkan");
     }
 }
 

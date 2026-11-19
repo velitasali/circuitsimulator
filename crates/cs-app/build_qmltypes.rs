@@ -628,7 +628,7 @@ fn render_qmltypes(classes: &BTreeMap<String, QmlClass>) -> String {
          \x20       Signal { name: \"frameReady\" }\n\
          \x20   }\n\
          \x20   Component {\n\
-         \x20       file: \"cpp/instrument_screen_item.h\"\n\
+         \x20       file: \"cpp/circuit_canvas_item.h\"\n\
          \x20       name: \"ScopeScreenItem\"\n\
          \x20       accessSemantics: \"reference\"\n\
          \x20       prototype: \"QQuickItem\"\n\
@@ -636,7 +636,7 @@ fn render_qmltypes(classes: &BTreeMap<String, QmlClass>) -> String {
          \x20       exportMetaObjectRevisions: [256]\n\
          \x20   }\n\
          \x20   Component {\n\
-         \x20       file: \"cpp/instrument_screen_item.h\"\n\
+         \x20       file: \"cpp/circuit_canvas_item.h\"\n\
          \x20       name: \"LogicScreenItem\"\n\
          \x20       accessSemantics: \"reference\"\n\
          \x20       prototype: \"QQuickItem\"\n\

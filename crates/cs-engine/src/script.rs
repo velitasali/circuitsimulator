@@ -3,10 +3,10 @@
 //!
 //! Not drawn (catalog-last).
 
-use std::ffi::{CStr, c_char, c_int, c_void};
+use std::ffi::{c_int, c_void};
 use std::sync::Once;
 
-use cs_script::{Engine, McuApi};
+use cs_script::Engine;
 
 use crate::digital::{
     IoPin, IoPort, PinAction, PinMode, SpiMode, SpiModule, SpiPins, TwiMode, TwiModule, TwiPins,
@@ -18,51 +18,263 @@ static INSTALL: Once = Once::new();
 fn install_api() {
     INSTALL.call_once(|| {
         crate::sim_log::init_script_logging();
-        Engine::set_mcu_api(&McuApi {
-            iopin_set_pin_mode: Some(iopin_set_pin_mode),
-            iopin_get_inp_state: Some(iopin_get_inp_state),
-            iopin_set_out_state: Some(iopin_set_out_state),
-            iopin_set_state_z: Some(iopin_set_state_z),
-            iopin_set_out_stat_fast: Some(iopin_set_out_stat_fast),
-            iopin_schedule_state: Some(iopin_schedule_state),
-            iopin_get_voltage: Some(iopin_get_voltage),
-            iopin_set_voltage: Some(iopin_set_voltage),
-            iopin_set_out_high_v: Some(iopin_set_out_high_v),
-            iopin_set_impedance: Some(iopin_set_impedance),
-            ioport_set_pin_mode: Some(ioport_set_pin_mode),
-            ioport_get_inp_state: Some(ioport_get_inp_state),
-            ioport_set_out_state: Some(ioport_set_out_state),
-            ioport_schedule_state: Some(ioport_schedule_state),
-            ioport_trigger: Some(ioport_trigger),
-            cpu_get_pin: Some(cpu_get_pin),
-            cpu_get_port: Some(cpu_get_port),
-            cpu_circ_time: Some(cpu_circ_time),
-            cpu_add_event: Some(cpu_add_event),
-            cpu_cancel_events: Some(cpu_cancel_events),
-            cpu_read_ram: Some(cpu_read_ram),
-            cpu_write_ram: Some(cpu_write_ram),
-            cpu_read_pgm: Some(cpu_read_pgm),
-            cpu_write_pgm: Some(cpu_write_pgm),
-            mcupin_set_direction: Some(mcupin_set_direction),
-            mcupin_set_port_state: Some(mcupin_set_port_state),
-            mcupin_control_pin: Some(mcupin_control_pin),
-            mcupin_set_ext_int: Some(mcupin_set_ext_int),
-            mcupin_set_out_state: Some(mcupin_set_out_state),
-            mcuport_control_port: Some(mcuport_control_port),
-            mcuport_set_direction: Some(mcuport_set_direction),
-            mcuport_set_out_state: Some(mcuport_set_out_state),
-            cpu_get_mcu_pin: Some(cpu_get_pin),
-            cpu_get_mcu_port: Some(cpu_get_port),
-            uart_set_baud: Some(uart_set_baud),
-            uart_set_data_bits: Some(uart_set_data_bits),
-            uart_send_byte: Some(uart_send_byte),
-            spi_set_mode: Some(spi_set_mode),
-            spi_send_byte: Some(spi_send_byte),
-            twi_set_mode: Some(twi_set_mode),
-            twi_send_byte: Some(twi_send_byte),
-            twi_set_address: Some(twi_set_address),
-        });
     });
+}
+
+fn register_mcu_types(
+    engine: &mut Engine,
+    script_cpu: *mut c_void,
+) -> Result<(), cs_script::Error> {
+    for ty in [
+        "IoPin",
+        "IoPort",
+        "ScriptCpu",
+        "McuPin",
+        "McuPort",
+        "Uart",
+        "SPI",
+        "TWI",
+    ] {
+        engine.register_type(ty)?;
+    }
+
+    let methods: &[(&str, &str, *const c_void)] = &[
+        (
+            "IoPin",
+            "void setPinMode(uint m)",
+            iopin_set_pin_mode as *const c_void,
+        ),
+        (
+            "IoPin",
+            "bool getInpState()",
+            iopin_get_inp_state as *const c_void,
+        ),
+        (
+            "IoPin",
+            "void setOutState(bool s)",
+            iopin_set_out_state as *const c_void,
+        ),
+        (
+            "IoPin",
+            "void setStateZ(bool z)",
+            iopin_set_state_z as *const c_void,
+        ),
+        (
+            "IoPin",
+            "void setOutStatFast(bool s)",
+            iopin_set_out_stat_fast as *const c_void,
+        ),
+        (
+            "IoPin",
+            "void scheduleState(bool state, uint64 time)",
+            iopin_schedule_state as *const c_void,
+        ),
+        (
+            "IoPin",
+            "double getVoltage()",
+            iopin_get_voltage as *const c_void,
+        ),
+        (
+            "IoPin",
+            "void setVoltage(double v)",
+            iopin_set_voltage as *const c_void,
+        ),
+        (
+            "IoPin",
+            "void setOutHighV(double v)",
+            iopin_set_out_high_v as *const c_void,
+        ),
+        (
+            "IoPin",
+            "void setImpedance(double imp)",
+            iopin_set_impedance as *const c_void,
+        ),
+        (
+            "IoPort",
+            "void setPinMode(uint m)",
+            ioport_set_pin_mode as *const c_void,
+        ),
+        (
+            "IoPort",
+            "uint getInpState()",
+            ioport_get_inp_state as *const c_void,
+        ),
+        (
+            "IoPort",
+            "void setOutState(uint s)",
+            ioport_set_out_state as *const c_void,
+        ),
+        (
+            "IoPort",
+            "void scheduleState(uint32 state, uint64 time)",
+            ioport_schedule_state as *const c_void,
+        ),
+        (
+            "IoPort",
+            "void trigger(uint n)",
+            ioport_trigger as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "IoPin@ getPin(const string pin)",
+            cpu_get_pin as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "IoPort@ getPort(const string port)",
+            cpu_get_port as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "uint64 circTime()",
+            cpu_circ_time as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "void addEvent(uint64 t)",
+            cpu_add_event as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "void cancelEvents()",
+            cpu_cancel_events as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "int readRAM(uint n)",
+            cpu_read_ram as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "void writeRAM(uint a, int v)",
+            cpu_write_ram as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "int readPGM(uint n)",
+            cpu_read_pgm as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "void writePGM(uint a, int v)",
+            cpu_write_pgm as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "McuPin@ getMcuPin(const string pin)",
+            cpu_get_pin as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "McuPort@ getMcuPort(const string port)",
+            cpu_get_port as *const c_void,
+        ),
+        (
+            "McuPin",
+            "void setDirection(bool o)",
+            mcupin_set_direction as *const c_void,
+        ),
+        (
+            "McuPin",
+            "void setPortState(bool s)",
+            mcupin_set_port_state as *const c_void,
+        ),
+        (
+            "McuPin",
+            "void controlPin(bool outCtrl, bool dirCtrl)",
+            mcupin_control_pin as *const c_void,
+        ),
+        (
+            "McuPin",
+            "void setExtInt(uint mode)",
+            mcupin_set_ext_int as *const c_void,
+        ),
+        (
+            "McuPin",
+            "void setPinMode(uint m)",
+            iopin_set_pin_mode as *const c_void,
+        ),
+        (
+            "McuPin",
+            "bool getInpState()",
+            iopin_get_inp_state as *const c_void,
+        ),
+        (
+            "McuPin",
+            "void setOutState(bool s)",
+            mcupin_set_out_state as *const c_void,
+        ),
+        (
+            "McuPin",
+            "double getVoltage()",
+            iopin_get_voltage as *const c_void,
+        ),
+        (
+            "McuPin",
+            "void setVoltage(double v)",
+            iopin_set_voltage as *const c_void,
+        ),
+        (
+            "McuPort",
+            "void controlPort(bool o, bool d)",
+            mcuport_control_port as *const c_void,
+        ),
+        (
+            "McuPort",
+            "void setDirection(uint d)",
+            mcuport_set_direction as *const c_void,
+        ),
+        (
+            "McuPort",
+            "uint getInpState()",
+            ioport_get_inp_state as *const c_void,
+        ),
+        (
+            "McuPort",
+            "void setOutState(uint s)",
+            mcuport_set_out_state as *const c_void,
+        ),
+        (
+            "Uart",
+            "void setBaudRate(int t)",
+            uart_set_baud as *const c_void,
+        ),
+        (
+            "Uart",
+            "void setDataBits(uint8 b)",
+            uart_set_data_bits as *const c_void,
+        ),
+        (
+            "Uart",
+            "void sendByte(uint8 b)",
+            uart_send_byte as *const c_void,
+        ),
+        ("SPI", "void setMode(int t)", spi_set_mode as *const c_void),
+        (
+            "SPI",
+            "void sendByte(uint8 b)",
+            spi_send_byte as *const c_void,
+        ),
+        ("TWI", "void setMode(int t)", twi_set_mode as *const c_void),
+        (
+            "TWI",
+            "void sendByte(uint8 b)",
+            twi_send_byte as *const c_void,
+        ),
+        (
+            "TWI",
+            "void setAddress(uint8 a)",
+            twi_set_address as *const c_void,
+        ),
+    ];
+
+    for &(ty, decl, ptr) in methods {
+        unsafe { engine.register_method(ty, decl, ptr)? };
+    }
+    if !script_cpu.is_null() {
+        engine.register_global("ScriptCpu component", script_cpu)?;
+    }
+    Ok(())
 }
 
 /// C++ `ScriptUsart`.
@@ -395,8 +607,7 @@ impl ScriptCpu {
         install_api();
         let ptr = self as *mut Self;
         let mut engine = Engine::new().map_err(|e| crate::Error::Parse(e.to_string()))?;
-        engine
-            .register_mcu(ptr as *mut c_void)
+        register_mcu_types(&mut engine, ptr as *mut c_void)
             .map_err(|e| crate::Error::Parse(e.to_string()))?;
         unsafe {
             for u in &mut (*ptr).usarts {
@@ -762,35 +973,35 @@ unsafe extern "C" fn iopin_set_pin_mode(pin: *mut c_void, m: u32) {
     }
     unsafe { (*(pin as *mut IoPin)).set_pin_mode(PinMode::from_u32(m)) };
 }
-unsafe extern "C" fn iopin_get_inp_state(pin: *mut c_void) -> c_int {
+unsafe extern "C" fn iopin_get_inp_state(pin: *mut c_void) -> bool {
     if pin.is_null() {
-        return 0;
+        return false;
     }
-    unsafe { (*(pin as *mut IoPin)).last_inp_state() as c_int }
+    unsafe { (*(pin as *mut IoPin)).last_inp_state() }
 }
-unsafe extern "C" fn iopin_set_out_state(pin: *mut c_void, s: c_int) {
+unsafe extern "C" fn iopin_set_out_state(pin: *mut c_void, s: bool) {
     if pin.is_null() {
         return;
     }
-    unsafe { (*(pin as *mut IoPin)).set_out_state(s != 0) };
+    unsafe { (*(pin as *mut IoPin)).set_out_state(s) };
 }
-unsafe extern "C" fn iopin_set_state_z(pin: *mut c_void, z: c_int) {
+unsafe extern "C" fn iopin_set_state_z(pin: *mut c_void, z: bool) {
     if pin.is_null() {
         return;
     }
-    unsafe { (*(pin as *mut IoPin)).set_state_z(z != 0) };
+    unsafe { (*(pin as *mut IoPin)).set_state_z(z) };
 }
-unsafe extern "C" fn iopin_set_out_stat_fast(pin: *mut c_void, s: c_int) {
+unsafe extern "C" fn iopin_set_out_stat_fast(pin: *mut c_void, s: bool) {
     if pin.is_null() {
         return;
     }
-    unsafe { (*(pin as *mut IoPin)).set_out_stat_fast(s != 0) };
+    unsafe { (*(pin as *mut IoPin)).set_out_stat_fast(s) };
 }
-unsafe extern "C" fn iopin_schedule_state(pin: *mut c_void, s: c_int, time: u64) {
+unsafe extern "C" fn iopin_schedule_state(pin: *mut c_void, s: bool, time: u64) {
     if pin.is_null() {
         return;
     }
-    let _ = unsafe { (*(pin as *mut IoPin)).schedule_state(s != 0, time) };
+    let _ = unsafe { (*(pin as *mut IoPin)).schedule_state(s, time) };
 }
 unsafe extern "C" fn iopin_get_voltage(pin: *mut c_void) -> f64 {
     if pin.is_null() {
@@ -850,21 +1061,21 @@ unsafe extern "C" fn ioport_trigger(port: *mut c_void, n: u32) {
     let _ = unsafe { (*(port as *mut IoPort)).trigger(n) };
 }
 
-unsafe extern "C" fn cpu_get_pin(cpu: *mut c_void, name: *const c_char) -> *mut c_void {
+unsafe extern "C" fn cpu_get_pin(cpu: *mut c_void, name: *const c_void) -> *mut c_void {
     if cpu.is_null() || name.is_null() {
         return std::ptr::null_mut();
     }
-    let name = unsafe { CStr::from_ptr(name) }.to_string_lossy();
+    let name = unsafe { cs_script::as_string_cstr(name) }.to_string_lossy();
     match unsafe { (*(cpu as *mut ScriptCpu)).get_pin_mut(&name) } {
         Some(p) => p as *mut IoPin as *mut c_void,
         None => std::ptr::null_mut(),
     }
 }
-unsafe extern "C" fn cpu_get_port(cpu: *mut c_void, name: *const c_char) -> *mut c_void {
+unsafe extern "C" fn cpu_get_port(cpu: *mut c_void, name: *const c_void) -> *mut c_void {
     if cpu.is_null() || name.is_null() {
         return std::ptr::null_mut();
     }
-    let name = unsafe { CStr::from_ptr(name) }.to_string_lossy();
+    let name = unsafe { cs_script::as_string_cstr(name) }.to_string_lossy();
     match unsafe { (*(cpu as *mut ScriptCpu)).get_port_mut(&name) } {
         Some(p) => p as *mut IoPort as *mut c_void,
         None => std::ptr::null_mut(),
@@ -933,23 +1144,23 @@ unsafe extern "C" fn cpu_write_pgm(cpu: *mut c_void, addr: u32, v: c_int) {
     }
 }
 
-unsafe extern "C" fn mcupin_set_direction(pin: *mut c_void, o: c_int) {
+unsafe extern "C" fn mcupin_set_direction(pin: *mut c_void, o: bool) {
     if pin.is_null() {
         return;
     }
-    unsafe { (*(pin as *mut IoPin)).set_direction(o != 0) };
+    unsafe { (*(pin as *mut IoPin)).set_direction(o) };
 }
-unsafe extern "C" fn mcupin_set_port_state(pin: *mut c_void, s: c_int) {
+unsafe extern "C" fn mcupin_set_port_state(pin: *mut c_void, s: bool) {
     if pin.is_null() {
         return;
     }
-    unsafe { (*(pin as *mut IoPin)).set_port_state(s != 0) };
+    unsafe { (*(pin as *mut IoPin)).set_port_state(s) };
 }
-unsafe extern "C" fn mcupin_control_pin(pin: *mut c_void, out_ctrl: c_int, dir_ctrl: c_int) {
+unsafe extern "C" fn mcupin_control_pin(pin: *mut c_void, out_ctrl: bool, dir_ctrl: bool) {
     if pin.is_null() {
         return;
     }
-    unsafe { (*(pin as *mut IoPin)).control_pin(out_ctrl != 0, dir_ctrl != 0) };
+    unsafe { (*(pin as *mut IoPin)).control_pin(out_ctrl, dir_ctrl) };
 }
 unsafe extern "C" fn mcupin_set_ext_int(pin: *mut c_void, mode: u32) {
     if pin.is_null() {
@@ -957,17 +1168,17 @@ unsafe extern "C" fn mcupin_set_ext_int(pin: *mut c_void, mode: u32) {
     }
     unsafe { (*(pin as *mut IoPin)).set_ext_int(mode) };
 }
-unsafe extern "C" fn mcupin_set_out_state(pin: *mut c_void, s: c_int) {
+unsafe extern "C" fn mcupin_set_out_state(pin: *mut c_void, s: bool) {
     if pin.is_null() {
         return;
     }
-    unsafe { (*(pin as *mut IoPin)).mcu_set_out_state(s != 0) };
+    unsafe { (*(pin as *mut IoPin)).mcu_set_out_state(s) };
 }
-unsafe extern "C" fn mcuport_control_port(port: *mut c_void, o: c_int, d: c_int) {
+unsafe extern "C" fn mcuport_control_port(port: *mut c_void, o: bool, d: bool) {
     if port.is_null() {
         return;
     }
-    unsafe { (*(port as *mut IoPort)).control_port(o != 0, d != 0) };
+    unsafe { (*(port as *mut IoPort)).control_port(o, d) };
 }
 unsafe extern "C" fn mcuport_set_direction(port: *mut c_void, d: u32) {
     if port.is_null() {
@@ -988,17 +1199,13 @@ unsafe extern "C" fn uart_set_baud(uart: *mut c_void, baud: c_int) {
     }
     unsafe { (*(uart as *mut ScriptUsart)).module.set_baud_rate(baud) };
 }
-unsafe extern "C" fn uart_set_data_bits(uart: *mut c_void, bits: u32) {
+unsafe extern "C" fn uart_set_data_bits(uart: *mut c_void, bits: u8) {
     if uart.is_null() {
         return;
     }
-    unsafe {
-        (*(uart as *mut ScriptUsart))
-            .module
-            .set_data_bits(bits as u8)
-    };
+    unsafe { (*(uart as *mut ScriptUsart)).module.set_data_bits(bits) };
 }
-unsafe extern "C" fn uart_send_byte(uart: *mut c_void, b: u32) {
+unsafe extern "C" fn uart_send_byte(uart: *mut c_void, b: u8) {
     if uart.is_null() {
         return;
     }
@@ -1011,7 +1218,7 @@ unsafe extern "C" fn uart_send_byte(uart: *mut c_void, b: u32) {
         let tx = (*u).tx;
         let now = (*cpu).circ_time;
         (*cpu).with_flat_pins(|pins| {
-            (*u).module.send_byte(b as u8, now, pins, tx);
+            (*u).module.send_byte(b, now, pins, tx);
         });
     }
 }
@@ -1035,7 +1242,7 @@ unsafe extern "C" fn spi_set_mode(spi: *mut c_void, mode: c_int) {
         });
     }
 }
-unsafe extern "C" fn spi_send_byte(spi: *mut c_void, b: u32) {
+unsafe extern "C" fn spi_send_byte(spi: *mut c_void, b: u8) {
     if spi.is_null() {
         return;
     }
@@ -1044,7 +1251,7 @@ unsafe extern "C" fn spi_send_byte(spi: *mut c_void, b: u32) {
         if (*s).cpu.is_null() {
             return;
         }
-        (*s).module.sr_reg = b as u8;
+        (*s).module.sr_reg = b;
         if (*s).module.mode == SpiMode::Master {
             let now = (*(*s).cpu).circ_time;
             let map = (*s).pins;
@@ -1075,7 +1282,7 @@ unsafe extern "C" fn twi_set_mode(twi: *mut c_void, mode: c_int) {
         });
     }
 }
-unsafe extern "C" fn twi_send_byte(twi: *mut c_void, b: u32) {
+unsafe extern "C" fn twi_send_byte(twi: *mut c_void, b: u8) {
     if twi.is_null() {
         return;
     }
@@ -1084,7 +1291,7 @@ unsafe extern "C" fn twi_send_byte(twi: *mut c_void, b: u32) {
         if (*t).cpu.is_null() {
             return;
         }
-        let data = b as u8;
+        let data = b;
         if (*t).module.mode == TwiMode::Slave {
             (*t).module.tx_reg = data;
             return;
@@ -1101,11 +1308,11 @@ unsafe extern "C" fn twi_send_byte(twi: *mut c_void, b: u32) {
         });
     }
 }
-unsafe extern "C" fn twi_set_address(twi: *mut c_void, a: u32) {
+unsafe extern "C" fn twi_set_address(twi: *mut c_void, a: u8) {
     if twi.is_null() {
         return;
     }
-    unsafe { (*(twi as *mut ScriptTwi)).module.set_address(a as u8) };
+    unsafe { (*(twi as *mut ScriptTwi)).module.set_address(a) };
 }
 
 #[cfg(test)]

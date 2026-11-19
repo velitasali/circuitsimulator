@@ -1,19 +1,52 @@
-/* Cross-platform Qt theme helper (Windows / Linux). macOS uses macos/titlebar.mm. */
+/* Cross-platform Qt theme helper and non-macOS window event filters. */
 
 #pragma once
+
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int cs_apply_theme(const char* theme_name);
-void cs_set_titlebar_dark(int dark);
+typedef struct CsQtPalette {
+    uint32_t window;
+    uint32_t window_text;
+    uint32_t base;
+    uint32_t alternate_base;
+    uint32_t tooltip_base;
+    uint32_t tooltip_text;
+    uint32_t text;
+    uint32_t placeholder_text;
+    uint32_t disabled_text;
+    uint32_t disabled_window_text;
+    uint32_t button;
+    uint32_t button_text;
+    uint32_t disabled_button_text;
+    uint32_t bright_text;
+    uint32_t link;
+    uint32_t highlight;
+    uint32_t highlighted_text;
+    uint32_t accent;
+    uint32_t mid;
+    uint32_t midlight;
+    uint32_t shadow;
+    uint32_t dark;
+    uint32_t light;
+} CsQtPalette;
+
+/* Returns -2 if no QGuiApplication, -1 if Unknown, 0 = Light, 1 = Dark. */
+int cs_qt_query_system_dark(int unset_scheme);
+/* scheme_mode: 0 = System (leave unset), 1 = Light, 2 = Dark. */
+void cs_qt_apply_palette(int scheme_mode, const CsQtPalette* pal);
+
 void cs_apply_app_icon();
-// phase 0: return nonzero when the menu is open. phase 1: toggle, return nonzero
-// when that release should be consumed.
+void cs_ensure_theme_filter();
+void cs_set_titlebar_dark(int dark);
+/* phase 0: return nonzero when the menu is open. phase 1: toggle, return nonzero
+ * when that release should be consumed. */
 void cs_install_alt_menu_filter(int (*on_alt)(int phase));
-// Runs a nullary slot now. The queued invoker returns before QML can say
-// whether the menu actually toggled.
+/* Runs a nullary slot now. The queued invoker returns before QML can say
+ * whether the menu actually toggled. */
 int cs_invoke_direct(void* obj, const char* method);
 
 #ifdef __cplusplus

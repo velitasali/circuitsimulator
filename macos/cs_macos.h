@@ -23,7 +23,8 @@ void cs_macos_set_titlebar_dark(int dark);
 void cs_macos_titlebar_mouse_down(void);
 /* Left margin, in points, that clears the traffic lights. 8 in fullscreen. */
 int cs_macos_titlebar_leading_inset(void);
-int cs_macos_apply_theme(const char* theme_name);
+/* Fallback dark-mode check via NSApp.effectiveAppearance. */
+int cs_macos_system_dark(void);
 
 void cs_macos_apply_app_icon(const char* path);
 void cs_macos_beep(void);

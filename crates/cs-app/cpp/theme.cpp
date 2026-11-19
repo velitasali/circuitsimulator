@@ -1,27 +1,24 @@
 #include "theme.h"
 
-#include <cstring>
-
-#include <QtCore/QAbstractNativeEventFilter>
-#include <QtCore/QCoreApplication>
-#include <QtCore/QEvent>
-#include <QtCore/QHash>
-#include <QtCore/QMetaObject>
-#include <QtCore/QPointer>
-#include <QtCore/QSet>
 #include <QtCore/QtGlobal>
 #include <QtGui/QColor>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QPalette>
+#include <QtGui/QStyleHints>
+
+#ifndef Q_OS_MACOS
+#include <QtCore/QCoreApplication>
+#include <QtCore/QEvent>
+#include <QtCore/QMetaObject>
+#include <QtCore/QPointer>
 #include <QtGui/QIcon>
 #include <QtGui/QKeyEvent>
-#include <QtGui/QPalette>
 #include <QtGui/QPlatformSurfaceEvent>
-#include <QtGui/QStyleHints>
 #include <QtGui/QWindow>
+#endif
 
 #ifdef Q_OS_LINUX
 #include <QtCore/QMargins>
-#include <QtCore/QPointer>
 #include <QtGui/QRegion>
 #if QT_CONFIG(wayland)
 #include <qpa/qplatformwindow_p.h>
@@ -29,31 +26,36 @@
 #endif
 
 #ifdef Q_OS_WIN
+#include <QtCore/QAbstractNativeEventFilter>
+#include <QtCore/QHash>
 #include <QtQuick/QQuickItem>
 #include <QtQuick/QQuickWindow>
-#include <QtCore/QSettings>
-#ifndef WINVER
-#define WINVER 0x0A00
-#endif
-#ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0A00
-#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#include <windowsx.h>
-#include <dwmapi.h>
-#include <shellapi.h>
+
+extern "C" {
+void cs_win_register_chrome(uintptr_t hwnd);
+void cs_win_unregister_chrome(uintptr_t hwnd);
+void cs_win_apply_dwm(uintptr_t hwnd, int dark);
+int cs_win_native_event(uintptr_t hwnd, uint32_t message, uintptr_t w_param, intptr_t l_param,
+                        intptr_t* out_result);
+}
 #endif
 
-static int s_current_theme_dark = -1;
-static bool s_in_apply_theme = false;
+static QColor from_rgb(uint32_t rgb)
+{
+    return QColor((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+}
+
+#ifndef Q_OS_MACOS
 static int (*s_on_alt)(int phase) = nullptr;
+#endif
 
 #ifdef Q_OS_WIN
-static QHash<HWND, QPointer<QWindow>> s_main_windows;
-static QSet<HWND> s_chrome_applied;
+static int s_current_theme_dark = -1;
+static QHash<uintptr_t, QPointer<QWindow>> s_main_windows;
 
 static bool is_main_window(QWindow* w)
 {
@@ -65,7 +67,7 @@ static void prune_main_windows_for(QWindow* w)
 {
     for (auto it = s_main_windows.begin(); it != s_main_windows.end();) {
         if (it.value().isNull() || it.value().data() == w) {
-            s_chrome_applied.remove(it.key());
+            cs_win_unregister_chrome(it.key());
             it = s_main_windows.erase(it);
         } else {
             ++it;
@@ -73,39 +75,19 @@ static void prune_main_windows_for(QWindow* w)
     }
 }
 
-static void refresh_autohide_clearance();
-
-static void register_main_window_chrome(QWindow* w)
+static void register_main_window(QWindow* w)
 {
     if (!is_main_window(w))
         return;
-    HWND hwnd = reinterpret_cast<HWND>(w->winId());
+    const uintptr_t hwnd = static_cast<uintptr_t>(w->winId());
     if (!hwnd)
         return;
-
     auto existing = s_main_windows.constFind(hwnd);
     if (existing == s_main_windows.constEnd() || existing.value().data() != w) {
         prune_main_windows_for(w);
         s_main_windows.insert(hwnd, w);
     }
-
-    if (!s_chrome_applied.contains(hwnd)) {
-        s_chrome_applied.insert(hwnd);
-        // Keep WS_CAPTION + WS_THICKFRAME so DWM preserves rounded corners,
-        // drop shadow, Aero Snap, and Alt+Space system menu; WM_NCCALCSIZE
-        // removes only the top native titlebar strip.
-        const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-        const LONG_PTR desired = style | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
-        if (desired != style)
-            SetWindowLongPtrW(hwnd, GWL_STYLE, desired);
-
-        MARGINS margins = { 0, 0, 0, 1 };
-        DwmExtendFrameIntoClientArea(hwnd, &margins);
-        // Before SWP_FRAMECHANGED, which sends WM_NCCALCSIZE synchronously.
-        refresh_autohide_clearance();
-        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-    }
+    cs_win_register_chrome(hwnd);
 }
 
 static QQuickItem* find_quick_item(QQuickItem* item, const QString& objectName)
@@ -155,125 +137,41 @@ static bool hit_interactive_descendant(QQuickItem* item, const QPointF& scenePt)
     return false;
 }
 
-// ABM_GETTASKBARPOS is the primary bar only. Secondary monitors use
-// Shell_SecondaryTrayWnd. Cached so WM_NCCALCSIZE does not re-enter the shell.
-enum { kMaxAutoHideMonitors = 8 };
-
-struct AutoHideClearance {
-    HMONITOR monitor;
-    UINT edge;
-};
-
-static AutoHideClearance s_autohide[kMaxAutoHideMonitors];
-static int s_autohide_count = 0;
-static bool s_refreshing_autohide = false;
-
-static UINT tray_edge(const RECT& tray, const RECT& monitor)
+extern "C" int cs_win_hit_test_titlebar(uintptr_t hwnd, int client_x, int client_y,
+                                        int* out_over_title, int* out_over_control)
 {
-    const LONG width = tray.right - tray.left;
-    const LONG height = tray.bottom - tray.top;
-    const LONG leftGap = tray.left - monitor.left;
-    const LONG rightGap = monitor.right - tray.right;
-    const LONG topGap = tray.top - monitor.top;
-    const LONG bottomGap = monitor.bottom - tray.bottom;
-    // A hidden bar is a sliver on the screen edge, or parked just off it.
-    if (width < height)
-        return leftGap <= rightGap ? ABE_LEFT : ABE_RIGHT;
-    return topGap <= bottomGap ? ABE_TOP : ABE_BOTTOM;
-}
+    if (out_over_title)
+        *out_over_title = 0;
+    if (out_over_control)
+        *out_over_control = 0;
 
-static void remember_autohide(AutoHideClearance* list, int* count, HMONITOR monitor, UINT edge)
-{
-    if (!monitor || *count >= kMaxAutoHideMonitors)
-        return;
-    switch (edge) {
-    case ABE_LEFT:
-    case ABE_TOP:
-    case ABE_RIGHT:
-    case ABE_BOTTOM:
-        break;
-    default:
-        return;
+    auto it = s_main_windows.constFind(hwnd);
+    if (it == s_main_windows.constEnd() || it.value().isNull())
+        return 0;
+
+    QWindow* win = it.value().data();
+    auto* qw = qobject_cast<QQuickWindow*>(win);
+    if (!qw)
+        return 0;
+
+    QQuickItem* titleBar = find_quick_item(qw->contentItem(), QStringLiteral("titleBar"));
+    if (!titleBar)
+        titleBar = qw->findChild<QQuickItem*>(QStringLiteral("titleBar"));
+    if (!titleBar || !titleBar->isVisible())
+        return 0;
+
+    const qreal dpr = win->devicePixelRatio() > 0.0 ? win->devicePixelRatio() : 1.0;
+    const QPointF scenePt(client_x / dpr, client_y / dpr);
+    const QPointF local = titleBar->mapFromScene(scenePt);
+    if (local.x() >= 0.0 && local.y() >= 0.0 && local.x() < titleBar->width()
+        && local.y() < titleBar->height()) {
+        if (out_over_title)
+            *out_over_title = 1;
+        if (out_over_control)
+            *out_over_control = hit_interactive_descendant(titleBar, scenePt) ? 1 : 0;
+        return 1;
     }
-    for (int i = 0; i < *count; ++i) {
-        if (list[i].monitor == monitor)
-            return;
-    }
-    list[*count] = AutoHideClearance{monitor, edge};
-    ++*count;
-}
-
-static void refresh_autohide_clearance()
-{
-    if (s_refreshing_autohide)
-        return;
-    s_refreshing_autohide = true;
-
-    AutoHideClearance next[kMaxAutoHideMonitors];
-    int count = 0;
-
-    APPBARDATA abd{};
-    abd.cbSize = sizeof(abd);
-    if (SHAppBarMessage(ABM_GETSTATE, &abd) & ABS_AUTOHIDE) {
-        APPBARDATA pos{};
-        pos.cbSize = sizeof(pos);
-        if (SHAppBarMessage(ABM_GETTASKBARPOS, &pos)) {
-            HMONITOR mon = MonitorFromRect(&pos.rc, MONITOR_DEFAULTTONEAREST);
-            if (!mon) {
-                if (HWND primary = FindWindowW(L"Shell_TrayWnd", nullptr))
-                    mon = MonitorFromWindow(primary, MONITOR_DEFAULTTONEAREST);
-            }
-            remember_autohide(next, &count, mon, pos.uEdge);
-        }
-
-        HWND tray = nullptr;
-        while ((tray = FindWindowExW(nullptr, tray, L"Shell_SecondaryTrayWnd", nullptr)) != nullptr) {
-            RECT trayRect{};
-            if (!GetWindowRect(tray, &trayRect))
-                continue;
-            HMONITOR mon = MonitorFromRect(&trayRect, MONITOR_DEFAULTTONEAREST);
-            if (!mon)
-                continue;
-            MONITORINFO mi{};
-            mi.cbSize = sizeof(mi);
-            if (!GetMonitorInfoW(mon, &mi))
-                continue;
-            remember_autohide(next, &count, mon, tray_edge(trayRect, mi.rcMonitor));
-        }
-    }
-
-    s_autohide_count = count;
-    for (int i = 0; i < count; ++i)
-        s_autohide[i] = next[i];
-    s_refreshing_autohide = false;
-}
-
-static void inset_autohide_edge(HWND hwnd, RECT* rc)
-{
-    HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-    if (!mon)
-        return;
-    for (int i = 0; i < s_autohide_count; ++i) {
-        if (s_autohide[i].monitor != mon)
-            continue;
-        switch (s_autohide[i].edge) {
-        case ABE_LEFT:
-            rc->left += 1;
-            break;
-        case ABE_TOP:
-            rc->top += 1;
-            break;
-        case ABE_RIGHT:
-            rc->right -= 1;
-            break;
-        case ABE_BOTTOM:
-            rc->bottom -= 1;
-            break;
-        default:
-            break;
-        }
-        return;
-    }
+    return 0;
 }
 
 class WinChromeNativeFilter : public QAbstractNativeEventFilter
@@ -285,139 +183,33 @@ public:
             return false;
 
         MSG* msg = static_cast<MSG*>(message);
-        auto it = s_main_windows.find(msg->hwnd);
+        const uintptr_t hwnd = reinterpret_cast<uintptr_t>(msg->hwnd);
+        auto it = s_main_windows.find(hwnd);
         if (it == s_main_windows.end())
             return false;
-        QWindow* win = it.value().data();
-        if (!win) {
-            s_chrome_applied.remove(msg->hwnd);
+        if (it.value().isNull()) {
+            cs_win_unregister_chrome(hwnd);
             s_main_windows.erase(it);
             return false;
         }
 
-        if (msg->message == WM_SETTINGCHANGE || msg->message == WM_DISPLAYCHANGE) {
-            refresh_autohide_clearance();
-            return false;
-        }
-
-        if (msg->message == WM_NCCALCSIZE && msg->wParam == TRUE) {
-            auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(msg->lParam);
-            UINT dpi = GetDpiForWindow(msg->hwnd);
-            if (dpi == 0)
-                dpi = 96;
-            const int frameX = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
-                               + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-            const int frameY = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi)
-                               + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-
-            if (IsZoomed(msg->hwnd)) {
-                params->rgrc[0].left += frameX;
-                params->rgrc[0].top += frameY;
-                params->rgrc[0].right -= frameX;
-                params->rgrc[0].bottom -= frameY;
-
-                // One pixel on the auto-hide edge lets that edge reveal the bar.
-                // A monitor with no taskbar is absent from the cache, so it stays flush.
-                inset_autohide_edge(msg->hwnd, &params->rgrc[0]);
-            } else {
-                // Eliminate top titlebar while preserving invisible left/right/bottom resize borders.
-                params->rgrc[0].left += frameX;
-                params->rgrc[0].right -= frameX;
-                params->rgrc[0].bottom -= frameY;
-            }
-            *result = 0;
+        intptr_t out = 0;
+        if (cs_win_native_event(hwnd, msg->message, static_cast<uintptr_t>(msg->wParam),
+                                static_cast<intptr_t>(msg->lParam), &out)) {
+            *result = static_cast<qintptr>(out);
             return true;
         }
-
-        if (msg->message == WM_NCHITTEST) {
-            POINT pt = { GET_X_LPARAM(msg->lParam), GET_Y_LPARAM(msg->lParam) };
-            ScreenToClient(msg->hwnd, &pt);
-            RECT cr{};
-            GetClientRect(msg->hwnd, &cr);
-
-            // Let DefWindowProc handle left/right/bottom non-client resize borders.
-            if (pt.x < 0 || pt.x >= cr.right || pt.y < 0 || pt.y >= cr.bottom)
-                return false;
-
-            bool overTitle = false;
-            bool overControl = false;
-            if (auto* qw = qobject_cast<QQuickWindow*>(win)) {
-                QQuickItem* titleBar = find_quick_item(qw->contentItem(), QStringLiteral("titleBar"));
-                if (!titleBar)
-                    titleBar = qw->findChild<QQuickItem*>(QStringLiteral("titleBar"));
-                if (titleBar && titleBar->isVisible()) {
-                    const qreal dpr = win->devicePixelRatio() > 0.0 ? win->devicePixelRatio() : 1.0;
-                    const QPointF scenePt(pt.x / dpr, pt.y / dpr);
-                    const QPointF local = titleBar->mapFromScene(scenePt);
-                    if (local.x() >= 0.0 && local.y() >= 0.0
-                        && local.x() < titleBar->width() && local.y() < titleBar->height()) {
-                        overTitle = true;
-                        overControl = hit_interactive_descendant(titleBar, scenePt);
-                    }
-                }
-            }
-
-            if (!IsZoomed(msg->hwnd)) {
-                UINT dpi = GetDpiForWindow(msg->hwnd);
-                if (dpi == 0)
-                    dpi = 96;
-                const int frameX = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
-                                   + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-                const int frameY = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi)
-                                   + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-                // Restored top frame is client area because NCCALCSIZE drops the
-                // native caption. Same thickness as the other edges; buttons stay clickable.
-                if (pt.y < frameY && !overControl) {
-                    if (pt.x < frameX)
-                        *result = HTTOPLEFT;
-                    else if (pt.x >= cr.right - frameX)
-                        *result = HTTOPRIGHT;
-                    else
-                        *result = HTTOP;
-                    return true;
-                }
-            }
-
-            if (overTitle) {
-                *result = overControl ? HTCLIENT : HTCAPTION;
-                return true;
-            }
-        }
-
         return false;
     }
 };
 
-static void apply_dwm(QWindow* w, bool dark)
-{
-    if (!w)
-        return;
-    HWND hwnd = reinterpret_cast<HWND>(w->winId());
-    if (!hwnd)
-        return;
-    BOOL value = dark ? TRUE : FALSE;
-    // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE (Win10 1903+); 19 is the older constant.
-    DwmSetWindowAttribute(hwnd, 20, &value, sizeof(value));
-    DwmSetWindowAttribute(hwnd, 19, &value, sizeof(value));
-    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-}
-
 static void apply_dwm_all(bool dark)
 {
     const auto windows = QGuiApplication::topLevelWindows();
-    for (QWindow* w : windows)
-        apply_dwm(w, dark);
-}
-
-static bool windows_apps_use_dark()
-{
-    QSettings registry(
-        QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
-        QSettings::NativeFormat);
-    if (registry.contains(QStringLiteral("AppsUseLightTheme")))
-        return registry.value(QStringLiteral("AppsUseLightTheme")).toInt() == 0;
-    return false;
+    for (QWindow* w : windows) {
+        if (w)
+            cs_win_apply_dwm(static_cast<uintptr_t>(w->winId()), dark ? 1 : 0);
+    }
 }
 #endif
 
@@ -442,8 +234,6 @@ static int linux_resize_overhang(QWindow* w)
 static void apply_linux_shadow_mask(QWindow* w, int m)
 {
     if (m > 0 && w->width() > 2 * m && w->height() > 2 * m) {
-        // Handles hang `overhang` px outside the frame. One more pixel stays
-        // hittable so the outer edge of the grab is inside the input region.
         const int pad = qMax(0, m - linux_resize_overhang(w) - 1);
         w->setMask(QRegion(pad, pad, w->width() - 2 * pad, w->height() - 2 * pad));
     } else {
@@ -475,9 +265,6 @@ static void apply_linux_shadow_margins(QWindow* w, bool defer)
         return;
     const QVariant prev = w->property("_csLastShadowMargin");
     const bool changed = !prev.isValid() || prev.toInt() != m;
-    // xdg applyConfigure emits WindowStateChange before resizeFromApplyConfigure,
-    // and setCustomMargins sends geometry straight to the shell. A margin change
-    // from that handler would publish the pre-configure size.
     if (changed && defer) {
         if (!w->property("_csShadowMarginQueued").toBool()) {
             w->setProperty("_csShadowMarginQueued", true);
@@ -506,6 +293,7 @@ static void apply_linux_shadow_margins(QWindow* w, bool defer)
 }
 #endif
 
+#ifndef Q_OS_MACOS
 class ThemeEventFilter : public QObject
 {
 public:
@@ -539,14 +327,14 @@ public:
         if (type == QEvent::PlatformSurface) {
             auto* se = static_cast<QPlatformSurfaceEvent*>(event);
             if (se->surfaceEventType() == QPlatformSurfaceEvent::SurfaceCreated) {
-                register_main_window_chrome(w);
+                register_main_window(w);
             } else if (se->surfaceEventType() == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
                 prune_main_windows_for(w);
             }
         } else if (type == QEvent::Show || type == QEvent::WinIdChange) {
-            register_main_window_chrome(w);
+            register_main_window(w);
             if (s_current_theme_dark >= 0)
-                apply_dwm(w, s_current_theme_dark != 0);
+                cs_win_apply_dwm(static_cast<uintptr_t>(w->winId()), s_current_theme_dark);
         }
 #elif defined(Q_OS_LINUX)
         if (type == QEvent::PlatformSurface) {
@@ -590,9 +378,8 @@ public:
             if (!ke->isAutoRepeat()) {
                 m_altArmed = bareAlt;
                 m_closeOnRelease = false;
-                // The open menu would close itself on this press, and the release
-                // would then open it again. Eat the press only while it is open
-                // so a press on the canvas still reaches Alt-click.
+                // Eat the press only while the menu is open so a press on the
+                // canvas still reaches Alt-click.
                 if (bareAlt && s_on_alt && s_on_alt(0)) {
                     m_closeOnRelease = true;
                     return true;
@@ -669,68 +456,69 @@ static void ensure_filter()
     }
 #endif
 }
-
-static QPalette make_palette(bool dark)
-{
-    QPalette palette;
-    if (dark) {
-        palette.setColor(QPalette::Window, QColor(30, 30, 30));
-        palette.setColor(QPalette::WindowText, QColor(230, 230, 230));
-        palette.setColor(QPalette::Base, QColor(42, 42, 42));
-        palette.setColor(QPalette::AlternateBase, QColor(50, 50, 50));
-        palette.setColor(QPalette::ToolTipBase, QColor(50, 50, 50));
-        palette.setColor(QPalette::ToolTipText, QColor(230, 230, 230));
-        palette.setColor(QPalette::Text, QColor(230, 230, 230));
-        palette.setColor(QPalette::PlaceholderText, QColor(140, 140, 140));
-        palette.setColor(QPalette::Disabled, QPalette::Text, Qt::gray);
-        palette.setColor(QPalette::Disabled, QPalette::WindowText, Qt::gray);
-        palette.setColor(QPalette::Button, QColor(45, 45, 45));
-        palette.setColor(QPalette::ButtonText, QColor(230, 230, 230));
-        palette.setColor(QPalette::Disabled, QPalette::ButtonText, Qt::gray);
-        palette.setColor(QPalette::BrightText, Qt::red);
-        palette.setColor(QPalette::Link, QColor(64, 169, 255));
-        palette.setColor(QPalette::Highlight, QColor(64, 169, 255));
-        palette.setColor(QPalette::HighlightedText, Qt::white);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
-        palette.setColor(QPalette::Accent, QColor(64, 169, 255));
 #endif
-        palette.setColor(QPalette::Mid, QColor(60, 60, 60));
-        palette.setColor(QPalette::Midlight, QColor(75, 75, 75));
-        palette.setColor(QPalette::Shadow, QColor(40, 40, 40));
-        palette.setColor(QPalette::Dark, QColor(35, 35, 35));
-        palette.setColor(QPalette::Light, QColor(80, 80, 80));
-    } else {
-        palette.setColor(QPalette::Window, QColor(250, 250, 250));
-        palette.setColor(QPalette::WindowText, QColor(30, 30, 30));
-        palette.setColor(QPalette::Base, Qt::white);
-        palette.setColor(QPalette::AlternateBase, QColor(240, 240, 240));
-        palette.setColor(QPalette::ToolTipBase, Qt::white);
-        palette.setColor(QPalette::ToolTipText, QColor(30, 30, 30));
-        palette.setColor(QPalette::Text, QColor(30, 30, 30));
-        palette.setColor(QPalette::PlaceholderText, QColor(130, 130, 130));
-        palette.setColor(QPalette::Disabled, QPalette::Text, Qt::gray);
-        palette.setColor(QPalette::Disabled, QPalette::WindowText, Qt::gray);
-        palette.setColor(QPalette::Button, QColor(240, 240, 240));
-        palette.setColor(QPalette::ButtonText, QColor(30, 30, 30));
-        palette.setColor(QPalette::Disabled, QPalette::ButtonText, Qt::gray);
-        palette.setColor(QPalette::BrightText, Qt::red);
-        palette.setColor(QPalette::Link, QColor(24, 144, 255));
-        palette.setColor(QPalette::Highlight, QColor(24, 144, 255));
-        palette.setColor(QPalette::HighlightedText, Qt::white);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
-        palette.setColor(QPalette::Accent, QColor(24, 144, 255));
-#endif
-        palette.setColor(QPalette::Mid, QColor(220, 220, 220));
-        palette.setColor(QPalette::Midlight, QColor(230, 230, 230));
-        palette.setColor(QPalette::Shadow, QColor(200, 200, 200));
-        palette.setColor(QPalette::Dark, QColor(210, 210, 210));
-        palette.setColor(QPalette::Light, QColor(255, 255, 255));
-    }
-    return palette;
-}
 
 extern "C" {
 
+int cs_qt_query_system_dark(int unset_scheme)
+{
+    if (!QGuiApplication::instance())
+        return -2;
+    QStyleHints* hints = QGuiApplication::styleHints();
+    if (!hints)
+        return -1;
+    if (unset_scheme)
+        hints->unsetColorScheme();
+    const Qt::ColorScheme scheme = hints->colorScheme();
+    if (scheme == Qt::ColorScheme::Dark)
+        return 1;
+    if (scheme == Qt::ColorScheme::Light)
+        return 0;
+    return -1;
+}
+
+void cs_qt_apply_palette(int scheme_mode, const CsQtPalette* pal)
+{
+    if (!QGuiApplication::instance() || !pal)
+        return;
+
+    if (QStyleHints* hints = QGuiApplication::styleHints()) {
+        if (scheme_mode == 1)
+            hints->setColorScheme(Qt::ColorScheme::Light);
+        else if (scheme_mode == 2)
+            hints->setColorScheme(Qt::ColorScheme::Dark);
+    }
+
+    QPalette palette;
+    palette.setColor(QPalette::Window, from_rgb(pal->window));
+    palette.setColor(QPalette::WindowText, from_rgb(pal->window_text));
+    palette.setColor(QPalette::Base, from_rgb(pal->base));
+    palette.setColor(QPalette::AlternateBase, from_rgb(pal->alternate_base));
+    palette.setColor(QPalette::ToolTipBase, from_rgb(pal->tooltip_base));
+    palette.setColor(QPalette::ToolTipText, from_rgb(pal->tooltip_text));
+    palette.setColor(QPalette::Text, from_rgb(pal->text));
+    palette.setColor(QPalette::PlaceholderText, from_rgb(pal->placeholder_text));
+    palette.setColor(QPalette::Disabled, QPalette::Text, from_rgb(pal->disabled_text));
+    palette.setColor(QPalette::Disabled, QPalette::WindowText, from_rgb(pal->disabled_window_text));
+    palette.setColor(QPalette::Button, from_rgb(pal->button));
+    palette.setColor(QPalette::ButtonText, from_rgb(pal->button_text));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, from_rgb(pal->disabled_button_text));
+    palette.setColor(QPalette::BrightText, from_rgb(pal->bright_text));
+    palette.setColor(QPalette::Link, from_rgb(pal->link));
+    palette.setColor(QPalette::Highlight, from_rgb(pal->highlight));
+    palette.setColor(QPalette::HighlightedText, from_rgb(pal->highlighted_text));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+    palette.setColor(QPalette::Accent, from_rgb(pal->accent));
+#endif
+    palette.setColor(QPalette::Mid, from_rgb(pal->mid));
+    palette.setColor(QPalette::Midlight, from_rgb(pal->midlight));
+    palette.setColor(QPalette::Shadow, from_rgb(pal->shadow));
+    palette.setColor(QPalette::Dark, from_rgb(pal->dark));
+    palette.setColor(QPalette::Light, from_rgb(pal->light));
+    QGuiApplication::setPalette(palette);
+}
+
+#ifndef Q_OS_MACOS
 void cs_apply_app_icon()
 {
     if (QGuiApplication::instance()) {
@@ -739,6 +527,12 @@ void cs_apply_app_icon()
             icon = QIcon(QStringLiteral(":/icons/circuitsimulator.ico"));
         QGuiApplication::setWindowIcon(icon);
     }
+}
+
+void cs_ensure_theme_filter()
+{
+    if (QGuiApplication::instance())
+        ensure_filter();
 }
 
 void cs_set_titlebar_dark(int dark)
@@ -768,70 +562,6 @@ int cs_invoke_direct(void* obj, const char* method)
         return 0;
     return QMetaObject::invokeMethod(qobj, method, Qt::DirectConnection) ? 1 : 0;
 }
-
-int cs_apply_theme(const char* theme_name)
-{
-    if (s_in_apply_theme)
-        return s_current_theme_dark >= 0 ? s_current_theme_dark : 0;
-
-    const bool namedDark = theme_name && strcmp(theme_name, "Dark") == 0;
-    const bool namedLight = theme_name && strcmp(theme_name, "Light") == 0;
-    const bool namedSystem = !theme_name || strcmp(theme_name, "System") == 0
-        || strcmp(theme_name, "") == 0;
-
-    if (!QGuiApplication::instance())
-        return namedDark ? 1 : 0;
-
-    s_in_apply_theme = true;
-
-    bool isSystemDark = false;
-    if (QStyleHints* hints = QGuiApplication::styleHints()) {
-        if (namedSystem)
-            hints->unsetColorScheme();
-        Qt::ColorScheme scheme = hints->colorScheme();
-        if (scheme == Qt::ColorScheme::Dark)
-            isSystemDark = true;
-        else if (scheme == Qt::ColorScheme::Light)
-            isSystemDark = false;
-        else {
-#ifdef Q_OS_WIN
-            isSystemDark = windows_apps_use_dark();
-#endif
-        }
-    } else {
-#ifdef Q_OS_WIN
-        isSystemDark = windows_apps_use_dark();
-#endif
-    }
-
-    bool useDark = false;
-    if (namedDark)
-        useDark = true;
-    else if (namedLight)
-        useDark = false;
-    else
-        useDark = isSystemDark;
-
-    // Publish before setColorScheme: that call can re-enter via QML's
-    // colorSchemeChanged -> App.reloadTheme().
-    s_current_theme_dark = useDark ? 1 : 0;
-
-    if (QStyleHints* hints = QGuiApplication::styleHints()) {
-        if (!namedSystem)
-            hints->setColorScheme(useDark ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
-    }
-
-    QGuiApplication::setPalette(make_palette(useDark));
-
-#ifdef Q_OS_WIN
-    ensure_filter();
-    apply_dwm_all(useDark);
-#elif defined(Q_OS_LINUX)
-    ensure_filter();
 #endif
 
-    s_in_apply_theme = false;
-    return useDark ? 1 : 0;
-}
-
-}
+} // extern "C"

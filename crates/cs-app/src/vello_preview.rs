@@ -60,8 +60,11 @@ mod gpu {
     use vello::wgpu::{Backends, Instance, InstanceDescriptor};
     use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
 
+    #[cfg(any(windows, target_os = "linux"))]
+    use crate::vello_share::{self, ShareHandles};
+
     unsafe extern "C" {
-        fn cs_canvas_item_request_update();
+        fn cs_image_frame_request_update(slot: i32);
     }
 
     #[cfg(target_os = "macos")]
@@ -77,34 +80,6 @@ mod gpu {
         fn cs_vello_shared_commit(slot: i32);
         fn cs_vello_shared_has_base(width: i32, height: i32) -> i32;
         fn cs_vello_shared_patch(patch_tex: *mut c_void, x: i32, y: i32, w: i32, h: i32) -> i32;
-    }
-
-    #[cfg(any(windows, target_os = "linux"))]
-    unsafe extern "C" {
-        fn cs_vello_share_reset_needed(kind: i32, device: u64, width: i32, height: i32) -> i32;
-        fn cs_vello_share_begin(
-            kind: i32,
-            device: u64,
-            queue: u64,
-            instance: u64,
-            physical: u64,
-            family: u32,
-            width: i32,
-            height: i32,
-            out_slot: *mut i32,
-            out_epoch: *mut i32,
-        ) -> i32;
-        fn cs_vello_share_resource(slot: i32) -> u64;
-        fn cs_vello_share_commit(slot: i32);
-        fn cs_vello_share_has_base(width: i32, height: i32) -> i32;
-        fn cs_vello_share_patch_dest(
-            out_dst: *mut i32,
-            out_src: *mut i32,
-            out_copy_full: *mut i32,
-        ) -> i32;
-        fn cs_vello_share_blocked() -> i32;
-        fn cs_vello_share_block();
-        fn cs_vello_share_release();
     }
 
     #[cfg(target_os = "macos")]
@@ -135,7 +110,7 @@ mod gpu {
     }
 
     /// A frame Vello shares with Qt. Dropping it releases wgpu's reference.
-    /// The native image stays alive until `cs_vello_share_release`.
+    /// The native image stays alive until `vello_share::release`.
     #[cfg(any(windows, target_os = "linux"))]
     struct SharedSurface {
         epoch: i32,
@@ -143,16 +118,6 @@ mod gpu {
         height: u32,
         texture: wgpu::Texture,
         view: wgpu::TextureView,
-    }
-
-    #[cfg(any(windows, target_os = "linux"))]
-    struct ShareHandles {
-        kind: i32,
-        device: u64,
-        queue: u64,
-        instance: u64,
-        physical: u64,
-        family: u32,
     }
 
     struct Gpu {
@@ -271,9 +236,7 @@ mod gpu {
             }
         }
         #[cfg(any(windows, target_os = "linux"))]
-        unsafe {
-            cs_vello_share_release();
-        }
+        vello_share::release();
         let mut slot = lock_gpu();
         slot.gpu = None;
         slot.scene = None;
@@ -462,7 +425,7 @@ mod gpu {
             }
             slot.phase = Phase::Idle;
             drop(slot);
-            unsafe { cs_canvas_item_request_update() };
+            unsafe { cs_image_frame_request_update(crate::image_frame::Slot::Canvas as i32) };
         }
     }
 
@@ -556,7 +519,7 @@ mod gpu {
         {
             #[cfg(any(windows, target_os = "linux"))]
             if slot.gpu.as_ref().is_some_and(|gpu| gpu.shared) {
-                unsafe { cs_vello_share_commit(pending.slot) };
+                vello_share::commit(pending.slot as usize);
                 return;
             }
             let _ = pending.slot;
@@ -764,9 +727,7 @@ mod gpu {
         #[cfg(not(target_os = "macos"))]
         {
             #[cfg(any(windows, target_os = "linux"))]
-            if !SHARE_OFF.load(Ordering::Acquire)
-                && unsafe { cs_vello_share_has_base(width as i32, height as i32) } != 0
-            {
+            if !SHARE_OFF.load(Ordering::Acquire) && vello_share::has_base(width, height) {
                 return true;
             }
             FRAME_W.load(Ordering::Acquire) == width && FRAME_H.load(Ordering::Acquire) == height
@@ -855,7 +816,7 @@ mod gpu {
                     gpu.shared = false;
                     gpu.surfaces = [None, None];
                     SHARE_OFF.store(true, Ordering::Release);
-                    unsafe { cs_vello_share_release() };
+                    vello_share::release();
                     log_share_fallback(&err);
                 }
             }
@@ -872,43 +833,24 @@ mod gpu {
 
     #[cfg(any(windows, target_os = "linux"))]
     fn bind_shared(gpu: &mut Gpu, width: u32, height: u32) -> Result<i32, String> {
-        if unsafe { cs_vello_share_blocked() } != 0 {
+        if vello_share::is_blocked() {
             return Err("shared texture is unavailable".to_string());
         }
         let handles = share_handles(gpu)?;
-        if unsafe {
-            cs_vello_share_reset_needed(handles.kind, handles.device, width as i32, height as i32)
-        } != 0
-        {
+        if vello_share::reset_needed(handles.device_bits, width, height) {
             // Drop wgpu's references before begin() destroys the native images.
             gpu.surfaces = [None, None];
         }
-        let mut surface_slot = 0i32;
-        let mut epoch = 0i32;
-        let ok = unsafe {
-            cs_vello_share_begin(
-                handles.kind,
-                handles.device,
-                handles.queue,
-                handles.instance,
-                handles.physical,
-                handles.family,
-                width as i32,
-                height as i32,
-                &mut surface_slot,
-                &mut epoch,
-            )
-        };
-        if ok == 0 || !(0..=1).contains(&surface_slot) {
+        let Some((surface_slot, epoch)) = vello_share::begin(&handles, width, height) else {
             return Err("shared texture failed".to_string());
-        }
+        };
         let ready = gpu.surfaces.iter().all(|surface| {
             surface.as_ref().is_some_and(|surface| {
                 surface.epoch == epoch && surface.width == width && surface.height == height
             })
         });
         if ready {
-            return Ok(surface_slot);
+            return Ok(surface_slot as i32);
         }
         let device = gpu.cx.devices[gpu.dev_id].device.clone();
         for index in 0..2 {
@@ -919,12 +861,7 @@ mod gpu {
                 continue;
             }
             gpu.surfaces[index] = None;
-            // AddRef once per epoch. Calling this every frame would leak.
-            let bits = unsafe { cs_vello_share_resource(index as i32) };
-            if bits == 0 {
-                return Err("shared texture handle failed".to_string());
-            }
-            let (texture, view) = import_shared(&device, bits, width, height);
+            let (texture, view) = import_shared(&device, index, width, height)?;
             gpu.surfaces[index] = Some(SharedSurface {
                 epoch,
                 width,
@@ -933,7 +870,7 @@ mod gpu {
                 view,
             });
         }
-        Ok(surface_slot)
+        Ok(surface_slot as i32)
     }
 
     #[cfg(windows)]
@@ -944,12 +881,9 @@ mod gpu {
                 let dev = dev.ok_or_else(|| "not a Direct3D12 device".to_string())?;
                 use windows::core::Interface;
                 Ok(ShareHandles {
-                    kind: 1,
-                    device: dev.raw_device().as_raw() as usize as u64,
-                    queue: dev.raw_queue().as_raw() as usize as u64,
-                    instance: 0,
-                    physical: 0,
-                    family: 0,
+                    device_bits: dev.raw_device().as_raw() as usize as u64,
+                    device: dev.raw_device().clone(),
+                    queue: dev.raw_queue().clone(),
                 })
             })
         }
@@ -963,12 +897,11 @@ mod gpu {
             device.as_hal::<wgpu::hal::api::Vulkan, _, _>(|dev| {
                 let dev = dev.ok_or_else(|| "not a Vulkan device".to_string())?;
                 Ok(ShareHandles {
-                    kind: 2,
-                    device: dev.raw_device().handle().as_raw(),
-                    queue: dev.raw_queue().as_raw(),
-                    instance: dev.shared_instance().raw_instance().handle().as_raw(),
-                    physical: dev.raw_physical_device().as_raw(),
-                    family: dev.queue_family_index(),
+                    device_bits: dev.raw_device().handle().as_raw(),
+                    instance: dev.shared_instance().raw_instance().clone(),
+                    device: dev.raw_device().clone(),
+                    physical: dev.raw_physical_device(),
+                    queue: dev.raw_queue(),
                 })
             })
         }
@@ -998,17 +931,12 @@ mod gpu {
     #[cfg(windows)]
     fn import_shared(
         device: &wgpu::Device,
-        bits: u64,
+        slot: usize,
         width: u32,
         height: u32,
-    ) -> (wgpu::Texture, wgpu::TextureView) {
-        use windows::core::Interface;
-        // from_raw takes the AddRef from cs_vello_share_resource and does not AddRef again.
-        let resource = unsafe {
-            windows::Win32::Graphics::Direct3D12::ID3D12Resource::from_raw(
-                bits as *mut std::ffi::c_void,
-            )
-        };
+    ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
+        let resource = vello_share::d3d12_resource(slot)
+            .ok_or_else(|| "shared texture handle failed".to_string())?;
         let hal_tex = unsafe {
             wgpu::hal::dx12::Device::texture_from_raw(
                 resource,
@@ -1027,18 +955,18 @@ mod gpu {
         let texture =
             unsafe { device.create_texture_from_hal::<wgpu::hal::api::Dx12>(hal_tex, &desc) };
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        (texture, view)
+        Ok((texture, view))
     }
 
     #[cfg(target_os = "linux")]
     fn import_shared(
         device: &wgpu::Device,
-        bits: u64,
+        slot: usize,
         width: u32,
         height: u32,
-    ) -> (wgpu::Texture, wgpu::TextureView) {
-        use ash::vk::Handle;
-        let image = ash::vk::Image::from_raw(bits);
+    ) -> Result<(wgpu::Texture, wgpu::TextureView), String> {
+        let image = vello_share::vk_image(slot)
+            .ok_or_else(|| "shared texture handle failed".to_string())?;
         let hal_desc = wgpu::hal::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -1057,7 +985,7 @@ mod gpu {
             memory_flags: wgpu::hal::MemoryFlags::empty(),
             view_formats: Vec::new(),
         };
-        // The empty callback leaves destruction to cs_vello_share_release.
+        // The empty callback leaves destruction to vello_share::release.
         let hal_tex = unsafe {
             wgpu::hal::vulkan::Device::texture_from_raw(image, &hal_desc, Some(Box::new(|| {})))
         };
@@ -1065,28 +993,22 @@ mod gpu {
         let texture =
             unsafe { device.create_texture_from_hal::<wgpu::hal::api::Vulkan>(hal_tex, &desc) };
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        (texture, view)
+        Ok((texture, view))
     }
 
     #[cfg(any(windows, target_os = "linux"))]
     #[allow(deprecated)]
     fn composite_shared(slot: &Slot, x: u32, y: u32, width: u32, height: u32) -> bool {
-        let mut dst = 0i32;
-        let mut src = 0i32;
-        let mut copy_full = 0i32;
-        if unsafe { cs_vello_share_patch_dest(&mut dst, &mut src, &mut copy_full) } == 0 {
+        let Some((dst, src, copy_full)) = vello_share::patch_dest() else {
             return false;
-        }
-        if !(0..=1).contains(&dst) || !(0..=1).contains(&src) {
-            return false;
-        }
+        };
         let Some(gpu) = slot.gpu.as_ref() else {
             return false;
         };
-        let Some(dst_surf) = gpu.surfaces[dst as usize].as_ref() else {
+        let Some(dst_surf) = gpu.surfaces[dst].as_ref() else {
             return false;
         };
-        let Some(src_surf) = gpu.surfaces[src as usize].as_ref() else {
+        let Some(src_surf) = gpu.surfaces[src].as_ref() else {
             return false;
         };
         let Some(scratch) = gpu.scratch.as_ref() else {
@@ -1103,7 +1025,7 @@ mod gpu {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("vello-share-patch"),
         });
-        if copy_full != 0 && dst != src {
+        if copy_full && dst != src {
             encoder.copy_texture_to_texture(
                 wgpu::ImageCopyTexture {
                     texture: &src_tex,
@@ -1145,7 +1067,7 @@ mod gpu {
         );
         queue.submit([encoder.finish()]);
         let _ = device.poll(wgpu::Maintain::Wait);
-        unsafe { cs_vello_share_commit(dst) };
+        vello_share::commit(dst);
         true
     }
 
@@ -1158,7 +1080,7 @@ mod gpu {
         SHARE_OFF.store(true, Ordering::Release);
         // Leave the native images alive. Qt may still be sampling the last
         // wrapped texture; release() destroys them after that wrapper is gone.
-        unsafe { cs_vello_share_block() };
+        vello_share::block();
     }
 
     #[cfg(target_os = "macos")]

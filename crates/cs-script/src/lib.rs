@@ -1,9 +1,9 @@
-//! AngelScript via the vendored C++ engine (`angel/`) and a small C ABI
-//! (`c/as_host.h`). Do not replace with Rhai. Host APIs (`IoPort`, `IoPin`,
-//! `McuPort`, `McuPin`, `Uart`, `SPI`, `TWI`) register through
-//! [`Engine::register_mcu`].
+//! AngelScript via the vendored C++ engine (`angel/`) and a minimal C ABI
+//! (`c/as_host.h`). Do not replace with Rhai. Host types and methods register
+//! directly through [`Engine::register_type`], [`Engine::register_method`], and
+//! [`Engine::register_global`].
 
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, c_void};
 use std::os::raw::{c_char, c_int};
 use std::sync::Mutex;
 
@@ -16,75 +16,26 @@ struct AsHost {
     _private: [u8; 0],
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct McuApi {
-    pub iopin_set_pin_mode: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub iopin_get_inp_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> c_int>,
-    pub iopin_set_out_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub iopin_set_state_z: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub iopin_set_out_stat_fast: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub iopin_schedule_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, u64)>,
-    pub iopin_get_voltage: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> f64>,
-    pub iopin_set_voltage: Option<unsafe extern "C" fn(*mut std::ffi::c_void, f64)>,
-    pub iopin_set_out_high_v: Option<unsafe extern "C" fn(*mut std::ffi::c_void, f64)>,
-    pub iopin_set_impedance: Option<unsafe extern "C" fn(*mut std::ffi::c_void, f64)>,
-    pub ioport_set_pin_mode: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub ioport_get_inp_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> u32>,
-    pub ioport_set_out_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub ioport_schedule_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32, u64)>,
-    pub ioport_trigger: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub cpu_get_pin:
-        Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> *mut std::ffi::c_void>,
-    pub cpu_get_port:
-        Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> *mut std::ffi::c_void>,
-    pub cpu_circ_time: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> u64>,
-    pub cpu_add_event: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u64)>,
-    pub cpu_cancel_events: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
-    pub cpu_read_ram: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32) -> c_int>,
-    pub cpu_write_ram: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32, c_int)>,
-    pub cpu_read_pgm: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32) -> c_int>,
-    pub cpu_write_pgm: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32, c_int)>,
-    pub mcupin_set_direction: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub mcupin_set_port_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub mcupin_control_pin: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int)>,
-    pub mcupin_set_ext_int: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub mcupin_set_out_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub mcuport_control_port: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int, c_int)>,
-    pub mcuport_set_direction: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub mcuport_set_out_state: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub cpu_get_mcu_pin:
-        Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> *mut std::ffi::c_void>,
-    pub cpu_get_mcu_port:
-        Option<unsafe extern "C" fn(*mut std::ffi::c_void, *const c_char) -> *mut std::ffi::c_void>,
-    pub uart_set_baud: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub uart_set_data_bits: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub uart_send_byte: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub spi_set_mode: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub spi_send_byte: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub twi_set_mode: Option<unsafe extern "C" fn(*mut std::ffi::c_void, c_int)>,
-    pub twi_send_byte: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-    pub twi_set_address: Option<unsafe extern "C" fn(*mut std::ffi::c_void, u32)>,
-}
-
 unsafe extern "C" {
     fn as_host_create() -> *mut AsHost;
     fn as_host_destroy(host: *mut AsHost);
     fn as_host_compile(host: *mut AsHost, section: *const c_char, source: *const c_char) -> c_int;
     fn as_host_call_int0(host: *mut AsHost, decl: *const c_char, out: *mut c_int) -> c_int;
     fn as_host_call_void0(host: *mut AsHost, decl: *const c_char) -> c_int;
+    fn as_host_call_void1u(host: *mut AsHost, decl: *const c_char, arg: u32) -> c_int;
     fn as_host_has_function(host: *mut AsHost, decl: *const c_char) -> c_int;
     fn as_host_last_error(host: *const AsHost) -> *const c_char;
     fn as_host_library_version() -> *const c_char;
-    fn as_host_set_mcu_api(api: *const McuApi);
     fn as_host_set_print_callback(cb: Option<PrintCallback>);
-    fn as_host_register_mcu(host: *mut AsHost, script_cpu: *mut std::ffi::c_void) -> c_int;
-    fn as_host_register_global(
+    fn as_host_register_type(host: *mut AsHost, name: *const c_char) -> c_int;
+    fn as_host_register_method(
         host: *mut AsHost,
+        type_name: *const c_char,
         decl: *const c_char,
-        ptr: *mut std::ffi::c_void,
+        fn_ptr: *const c_void,
     ) -> c_int;
-    fn as_host_call_void1u(host: *mut AsHost, decl: *const c_char, arg: u32) -> c_int;
+    fn as_host_register_global(host: *mut AsHost, decl: *const c_char, ptr: *mut c_void) -> c_int;
+    fn as_host_string_cstr(as_string: *const c_void) -> *const c_char;
 }
 
 pub type PrintCallback = unsafe extern "C" fn(*const c_char);
@@ -93,6 +44,16 @@ pub fn set_print_callback(cb: Option<PrintCallback>) {
     unsafe {
         as_host_set_print_callback(cb);
     }
+}
+
+/// Extract a UTF-8 view from an AngelScript `const string` object pointer
+/// passed to a registered `extern "C"` method.
+///
+/// # Safety
+/// `as_string` must be null or a valid pointer to an AngelScript `std::string`
+/// for the lifetime `'a`.
+pub unsafe fn as_string_cstr<'a>(as_string: *const c_void) -> &'a CStr {
+    unsafe { CStr::from_ptr(as_host_string_cstr(as_string)) }
 }
 
 /// AngelScript engine with the same defaults as C++ `ScriptBase`:
@@ -143,6 +104,16 @@ impl Engine {
         Ok(())
     }
 
+    /// Execute `decl` with one `uint` argument (e.g. `"void byteReceived( uint d )"`).
+    pub fn call_void1u(&mut self, decl: &str, arg: u32) -> Result<(), Error> {
+        let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;
+        let r = unsafe { as_host_call_void1u(self.ptr, decl.as_ptr(), arg) };
+        if r < 0 {
+            return Err(self.last_error());
+        }
+        Ok(())
+    }
+
     pub fn has_function(&mut self, decl: &str) -> bool {
         let Ok(decl) = CString::new(decl) else {
             return false;
@@ -150,40 +121,46 @@ impl Engine {
         unsafe { as_host_has_function(self.ptr, decl.as_ptr()) != 0 }
     }
 
-    /// Install IoPin / IoPort / ScriptCpu callbacks used by scripted MCUs.
-    pub fn set_mcu_api(api: &McuApi) {
-        unsafe { as_host_set_mcu_api(api) };
-    }
-
-    /// Register MCU types and the global `component` property. Call before
-    /// [`compile`](Self::compile).
-    #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub fn register_mcu(&mut self, script_cpu: *mut std::ffi::c_void) -> Result<(), Error> {
+    /// Register a reference object type (`asOBJ_REF | asOBJ_NOCOUNT`).
+    pub fn register_type(&mut self, name: &str) -> Result<(), Error> {
         let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
-        let r = unsafe { as_host_register_mcu(self.ptr, script_cpu) };
+        let name = CString::new(name).map_err(|_| Error("type name contains NUL".into()))?;
+        let r = unsafe { as_host_register_type(self.ptr, name.as_ptr()) };
         if r < 0 {
             return Err(self.last_error());
         }
         Ok(())
     }
 
-    /// Register a named global (`"Uart UART0"`). Call after [`register_mcu`](Self::register_mcu)
-    /// and before [`compile`](Self::compile).
+    /// Register an object method called with `asCALL_CDECL_OBJFIRST`.
+    ///
+    /// # Safety
+    /// `fn_ptr` must be an `extern "C"` function whose ABI matches `decl` with
+    /// the object pointer (`*mut c_void`) as the first argument.
+    pub unsafe fn register_method(
+        &mut self,
+        type_name: &str,
+        decl: &str,
+        fn_ptr: *const c_void,
+    ) -> Result<(), Error> {
+        let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
+        let type_name =
+            CString::new(type_name).map_err(|_| Error("type name contains NUL".into()))?;
+        let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;
+        let r =
+            unsafe { as_host_register_method(self.ptr, type_name.as_ptr(), decl.as_ptr(), fn_ptr) };
+        if r < 0 {
+            return Err(self.last_error());
+        }
+        Ok(())
+    }
+
+    /// Register a named global (`"ScriptCpu component"`, `"Uart UART0"`).
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    pub fn register_global(&mut self, decl: &str, ptr: *mut std::ffi::c_void) -> Result<(), Error> {
+    pub fn register_global(&mut self, decl: &str, ptr: *mut c_void) -> Result<(), Error> {
         let _life = ENGINE_LIFE.lock().unwrap_or_else(|e| e.into_inner());
         let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;
         let r = unsafe { as_host_register_global(self.ptr, decl.as_ptr(), ptr) };
-        if r < 0 {
-            return Err(self.last_error());
-        }
-        Ok(())
-    }
-
-    /// Execute `decl` with one `uint` argument (e.g. `"void byteReceived( uint d )"`).
-    pub fn call_void1u(&mut self, decl: &str, arg: u32) -> Result<(), Error> {
-        let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;
-        let r = unsafe { as_host_call_void1u(self.ptr, decl.as_ptr(), arg) };
         if r < 0 {
             return Err(self.last_error());
         }
@@ -270,20 +247,20 @@ mod tests {
     }
 
     #[test]
-    fn mcu_types_register() {
-        let mut dummy: u8 = 0;
+    fn generic_type_and_method_register() {
+        unsafe extern "C" fn get_val(obj: *mut c_void) -> c_int {
+            unsafe { i32::from(*(obj as *const u8)) }
+        }
+        let mut dummy: u8 = 7;
         let mut e = Engine::new().unwrap();
-        e.register_mcu((&mut dummy as *mut u8).cast()).unwrap();
-        e.compile(
-            "test",
-            r#"
-            int run() {
-                if (component is null) return 0;
-                return 1;
-            }
-            "#,
-        )
-        .unwrap();
-        assert!(e.has_function("int run()"));
+        e.register_type("Dummy").unwrap();
+        unsafe {
+            e.register_method("Dummy", "int val()", get_val as *const c_void)
+                .unwrap();
+        }
+        e.register_global("Dummy d", (&mut dummy as *mut u8).cast())
+            .unwrap();
+        e.compile("test", "int run() { return d.val(); }").unwrap();
+        assert_eq!(e.call_int0("int run()").unwrap(), 7);
     }
 }

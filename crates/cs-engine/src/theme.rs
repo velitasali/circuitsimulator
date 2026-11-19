@@ -1,6 +1,36 @@
 /// Standard border and outline stroke width for all components (in scene pixels).
 pub const COMPONENT_BORDER_WIDTH: f64 = 1.0;
 
+/// Application-wide Qt `QPalette` RGB values (`0x00RRGGBB`), matching the
+/// C-ABI `CsQtPalette` struct consumed by `cs-app/cpp/theme.cpp`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QtPaletteColors {
+    pub window: u32,
+    pub window_text: u32,
+    pub base: u32,
+    pub alternate_base: u32,
+    pub tooltip_base: u32,
+    pub tooltip_text: u32,
+    pub text: u32,
+    pub placeholder_text: u32,
+    pub disabled_text: u32,
+    pub disabled_window_text: u32,
+    pub button: u32,
+    pub button_text: u32,
+    pub disabled_button_text: u32,
+    pub bright_text: u32,
+    pub link: u32,
+    pub highlight: u32,
+    pub highlighted_text: u32,
+    pub accent: u32,
+    pub mid: u32,
+    pub midlight: u32,
+    pub shadow: u32,
+    pub dark: u32,
+    pub light: u32,
+}
+
 /// Standard wire stroke width (in scene pixels).
 pub const WIRE_WIDTH: f64 = 1.0;
 
@@ -546,6 +576,70 @@ impl ColorTheme {
             format!("#{:02x}{:02x}{:02x}", lit.0, lit.1, lit.2),
             format!("#{:02x}{:02x}{:02x}", unlit.0, unlit.1, unlit.2),
         )
+    }
+
+    /// Central Qt `QPalette` colors for light and dark UI modes.
+    pub const fn qt_palette(dark: bool) -> QtPaletteColors {
+        const fn rgb(r: u8, g: u8, b: u8) -> u32 {
+            ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+        }
+        const GRAY: u32 = rgb(160, 160, 164); // Qt::gray
+        const RED: u32 = rgb(255, 0, 0); // Qt::red
+        const WHITE: u32 = rgb(255, 255, 255); // Qt::white
+
+        if dark {
+            QtPaletteColors {
+                window: rgb(30, 30, 30),
+                window_text: rgb(230, 230, 230),
+                base: rgb(42, 42, 42),
+                alternate_base: rgb(50, 50, 50),
+                tooltip_base: rgb(50, 50, 50),
+                tooltip_text: rgb(230, 230, 230),
+                text: rgb(230, 230, 230),
+                placeholder_text: rgb(140, 140, 140),
+                disabled_text: GRAY,
+                disabled_window_text: GRAY,
+                button: rgb(45, 45, 45),
+                button_text: rgb(230, 230, 230),
+                disabled_button_text: GRAY,
+                bright_text: RED,
+                link: rgb(64, 169, 255),
+                highlight: rgb(64, 169, 255),
+                highlighted_text: WHITE,
+                accent: rgb(64, 169, 255),
+                mid: rgb(60, 60, 60),
+                midlight: rgb(75, 75, 75),
+                shadow: rgb(40, 40, 40),
+                dark: rgb(35, 35, 35),
+                light: rgb(80, 80, 80),
+            }
+        } else {
+            QtPaletteColors {
+                window: rgb(250, 250, 250),
+                window_text: rgb(30, 30, 30),
+                base: WHITE,
+                alternate_base: rgb(240, 240, 240),
+                tooltip_base: WHITE,
+                tooltip_text: rgb(30, 30, 30),
+                text: rgb(30, 30, 30),
+                placeholder_text: rgb(130, 130, 130),
+                disabled_text: GRAY,
+                disabled_window_text: GRAY,
+                button: rgb(240, 240, 240),
+                button_text: rgb(30, 30, 30),
+                disabled_button_text: GRAY,
+                bright_text: RED,
+                link: rgb(24, 144, 255),
+                highlight: rgb(24, 144, 255),
+                highlighted_text: WHITE,
+                accent: rgb(24, 144, 255),
+                mid: rgb(220, 220, 220),
+                midlight: rgb(230, 230, 230),
+                shadow: rgb(200, 200, 200),
+                dark: rgb(210, 210, 210),
+                light: WHITE,
+            }
+        }
     }
 }
 

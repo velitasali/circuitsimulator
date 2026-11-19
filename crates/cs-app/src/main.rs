@@ -26,6 +26,10 @@ mod serial;
 mod tab_switcher;
 mod ui_icon;
 mod vello_preview;
+#[cfg(any(windows, target_os = "linux"))]
+mod vello_share;
+#[cfg(windows)]
+mod win_chrome;
 
 use std::env;
 #[cfg(windows)]

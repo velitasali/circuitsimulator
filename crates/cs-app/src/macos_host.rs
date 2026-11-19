@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+#[cfg(target_os = "macos")]
 use std::ffi::CString;
 #[cfg(not(target_os = "macos"))]
 use std::ffi::c_void;
@@ -10,17 +11,28 @@ use std::os::raw::c_char;
 use std::sync::Mutex;
 #[cfg(not(target_os = "macos"))]
 use std::sync::atomic::AtomicPtr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
 
+#[cfg(windows)]
+use crate::win_chrome;
+use cs_engine::theme::{ColorTheme, QtPaletteColors};
 use qtbridge::QObjectHolder;
 #[cfg(target_os = "macos")]
 use qtbridge::QmlMethodInvoker;
 
 static SIM_RUNNING: AtomicBool = AtomicBool::new(false);
 static SIM_PAUSED: AtomicBool = AtomicBool::new(false);
+static CURRENT_THEME_DARK: AtomicI32 = AtomicI32::new(-1);
+static IN_APPLY_THEME: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "C" {
+    fn cs_qt_query_system_dark(unset_scheme: i32) -> i32;
+    fn cs_qt_apply_palette(scheme_mode: i32, pal: *const QtPaletteColors);
+}
+
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn cs_macos_install_touchbar(
@@ -35,7 +47,7 @@ unsafe extern "C" {
     fn cs_macos_set_titlebar_dark(dark: i32);
     fn cs_macos_titlebar_mouse_down();
     fn cs_macos_titlebar_leading_inset() -> i32;
-    fn cs_macos_apply_theme(theme_name: *const c_char) -> i32;
+    fn cs_macos_system_dark() -> i32;
     fn cs_macos_apply_app_icon(path: *const c_char);
     fn cs_macos_set_menu_callbacks(
         trigger: extern "C" fn(*const c_char),
@@ -47,9 +59,9 @@ unsafe extern "C" {
 
 #[cfg(not(target_os = "macos"))]
 unsafe extern "C" {
-    fn cs_apply_theme(theme_name: *const c_char) -> i32;
     fn cs_set_titlebar_dark(dark: i32);
     fn cs_apply_app_icon();
+    fn cs_ensure_theme_filter();
     fn cs_install_alt_menu_filter(on_alt: extern "C" fn(i32) -> i32);
     fn cs_invoke_direct(obj: *mut c_void, method: *const c_char) -> i32;
 }
@@ -110,19 +122,90 @@ pub fn init_process(name: &str) {
 }
 
 pub fn apply_theme(theme_name: &str) -> bool {
-    let Ok(c) = CString::new(theme_name) else {
-        return false;
+    if IN_APPLY_THEME.swap(true, Ordering::AcqRel) {
+        return CURRENT_THEME_DARK.load(Ordering::Acquire) > 0;
+    }
+
+    let named_dark = theme_name == "Dark";
+    let named_light = theme_name == "Light";
+    let named_system = theme_name.is_empty() || theme_name == "System";
+
+    let qt_dark = unsafe { cs_qt_query_system_dark(i32::from(named_system)) };
+    if qt_dark == -2 {
+        // No QGuiApplication instance yet (e.g. unit tests).
+        #[cfg(target_os = "macos")]
+        let use_dark = if named_dark {
+            true
+        } else if named_light {
+            false
+        } else {
+            unsafe { cs_macos_system_dark() != 0 }
+        };
+        #[cfg(not(target_os = "macos"))]
+        let use_dark = named_dark;
+
+        IN_APPLY_THEME.store(false, Ordering::Release);
+        return use_dark;
+    }
+
+    let is_system_dark = match qt_dark {
+        1 => true,
+        0 => false,
+        _ => {
+            #[cfg(windows)]
+            {
+                win_chrome::apps_use_dark()
+            }
+            #[cfg(target_os = "macos")]
+            {
+                unsafe { cs_macos_system_dark() != 0 }
+            }
+            #[cfg(not(any(windows, target_os = "macos")))]
+            {
+                false
+            }
+        }
     };
+
+    let use_dark = if named_dark {
+        true
+    } else if named_light {
+        false
+    } else {
+        is_system_dark
+    };
+
+    // Publish before setColorScheme: that call can re-enter via QML's
+    // colorSchemeChanged -> App.reloadTheme().
+    CURRENT_THEME_DARK.store(i32::from(use_dark), Ordering::Release);
+
+    let scheme_mode = if named_system {
+        0
+    } else if use_dark {
+        2
+    } else {
+        1
+    };
+    let pal = ColorTheme::qt_palette(use_dark);
+    unsafe {
+        cs_qt_apply_palette(scheme_mode, &pal);
+    }
+
     #[cfg(target_os = "macos")]
-    {
-        let res = unsafe { cs_macos_apply_theme(c.as_ptr()) };
-        return res != 0;
+    unsafe {
+        cs_macos_set_titlebar_dark(i32::from(use_dark));
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let res = unsafe { cs_apply_theme(c.as_ptr()) };
-        res != 0
+    #[cfg(windows)]
+    unsafe {
+        cs_set_titlebar_dark(i32::from(use_dark));
     }
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
+    unsafe {
+        cs_ensure_theme_filter();
+    }
+
+    IN_APPLY_THEME.store(false, Ordering::Release);
+    use_dark
 }
 
 #[cfg(target_os = "macos")]

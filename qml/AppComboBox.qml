@@ -145,8 +145,20 @@ T.ComboBox {
         verticalAlignment: Text.AlignVCenter
 
         background: Item {}
-        ContextMenu.menu: control.editable ? editMenu : null
-        AppTextContextMenu { id: editMenu; textInput: editField }
+        property AppTextContextMenu _editMenu: null
+        Component {
+            id: editMenuComp
+            AppTextContextMenu {}
+        }
+        ContextMenu.menu: null
+        ContextMenu.onRequested: (pos) => {
+            if (!control.editable || editField.ContextMenu.menu)
+                return
+            if (!editField._editMenu)
+                editField._editMenu = editMenuComp.createObject(editField, { textInput: editField }) as AppTextContextMenu
+            if (editField._editMenu)
+                editField._editMenu.popup(pos.x, pos.y)
+        }
 
         onEditingFinished: {
             if (control.editable) {

@@ -214,7 +214,7 @@ Rectangle {
                                     verticalAlignment: TextInput.AlignVCenter
                                     selectByMouse: true
                                     color: hexCell.isSelected ? appTheme.highlightedText
-                                                              : (hexCell.isDimmed ? appTheme.mid : appTheme.windowText)
+                                                              : (hexCell.isDimmed ? appTheme.placeholderText : appTheme.windowText)
 
                                     onActiveFocusChanged: {
                                         if (hexInput.activeFocus)

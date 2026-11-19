@@ -61,7 +61,21 @@ T.SpinBox {
         inputMethodHints: control.inputMethodHints
         selectByMouse: true
         clip: true
-        ContextMenu.menu: AppTextContextMenu { textInput: textInput }
+        property AppTextContextMenu _contextMenu: null
+        Component {
+            id: contextMenuComp
+            AppTextContextMenu {}
+        }
+
+        ContextMenu.menu: null
+        ContextMenu.onRequested: (pos) => {
+            if (textInput.ContextMenu.menu)
+                return
+            if (!textInput._contextMenu)
+                textInput._contextMenu = contextMenuComp.createObject(textInput, { textInput: textInput }) as AppTextContextMenu
+            if (textInput._contextMenu)
+                textInput._contextMenu.popup(pos.x, pos.y)
+        }
     }
 
     up.indicator: Item {

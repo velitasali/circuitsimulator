@@ -2,6 +2,7 @@
 //! snapshots published by the canvas.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use cs_engine::debug::{DebugSession, VarType, WatchEntry};
 use cs_engine::mcu::{self, McuPoke, McuSnap, val2hex};
@@ -9,7 +10,7 @@ use qtbridge::qobject;
 use serde_json::{Value, json};
 
 pub struct McuMonitor {
-    snap: McuSnap,
+    snap: Arc<McuSnap>,
     byte_mode: bool,
     jump_to_address: bool,
     current_tab: i32,
@@ -20,16 +21,19 @@ pub struct McuMonitor {
     flash_revision: i32,
     eeprom_revision: i32,
     watch_revision: i32,
-    symbols_gen: u64,
+    symbols_gen: Option<u64>,
     jump_address: String,
     watch_eval: Vec<Value>,
     addr_names: HashMap<u16, String>,
+    tabs_cache: Option<Value>,
+    registers_cache: Value,
+    variables_cache: Value,
 }
 
 impl Default for McuMonitor {
     fn default() -> Self {
         Self {
-            snap: McuSnap::default(),
+            snap: Arc::new(McuSnap::default()),
             byte_mode: false,
             jump_to_address: false,
             current_tab: 0,
@@ -40,10 +44,13 @@ impl Default for McuMonitor {
             flash_revision: 0,
             eeprom_revision: 0,
             watch_revision: 0,
-            symbols_gen: 0,
+            symbols_gen: None,
             jump_address: String::new(),
             watch_eval: Vec::new(),
             addr_names: HashMap::new(),
+            tabs_cache: None,
+            registers_cache: Value::Array(Vec::new()),
+            variables_cache: Value::Array(Vec::new()),
         }
     }
 }
@@ -413,7 +420,7 @@ impl McuMonitor {
         }
     }
 
-    fn tabs(&self) -> Value {
+    fn build_tabs_json(&self) -> Value {
         if self.snap.id.is_empty() {
             return json!([{ "title": cs_engine::i18n::tr("Watch"), "source": "watch" }]);
         }
@@ -433,11 +440,17 @@ impl McuMonitor {
         Value::Array(tabs)
     }
 
-    fn registers(&self) -> Value {
-        let mut sorted_regs = self.snap.registers.clone();
+    fn tabs(&self) -> Value {
+        self.tabs_cache
+            .clone()
+            .unwrap_or_else(|| self.build_tabs_json())
+    }
+
+    fn rebuild_registers_cache(&mut self) {
+        let mut sorted_regs: Vec<&(String, u16)> = self.snap.registers.iter().collect();
         sorted_regs.sort_by(|a, b| a.0.cmp(&b.0));
         let arr: Vec<Value> = sorted_regs
-            .iter()
+            .into_iter()
             .map(|(name, addr)| {
                 json!({
                     "name": name,
@@ -445,10 +458,14 @@ impl McuMonitor {
                 })
             })
             .collect();
-        Value::Array(arr)
+        self.registers_cache = Value::Array(arr);
     }
 
-    fn variables(&self) -> Value {
+    fn registers(&self) -> Value {
+        self.registers_cache.clone()
+    }
+
+    fn rebuild_variables_cache(&mut self) {
         let mut vars = DebugSession::global().debug_variables();
         vars.sort_by(|a, b| a.name.cmp(&b.name));
         let arr: Vec<Value> = vars
@@ -463,7 +480,11 @@ impl McuMonitor {
                 })
             })
             .collect();
-        Value::Array(arr)
+        self.variables_cache = Value::Array(arr);
+    }
+
+    fn variables(&self) -> Value {
+        self.variables_cache.clone()
     }
 
     #[qslot]
@@ -894,13 +915,17 @@ impl McuMonitor {
 
     fn poll_symbols(&mut self) {
         let generation = DebugSession::global().symbols_generation();
-        if generation != self.symbols_gen {
-            self.symbols_gen = generation;
+        if self.symbols_gen != Some(generation) {
+            self.symbols_gen = Some(generation);
+            self.rebuild_variables_cache();
             self.variables_changed();
         }
     }
 
-    fn apply_snap(&mut self, snap: McuSnap) {
+    fn apply_snap(&mut self, snap: Arc<McuSnap>) {
+        if Arc::ptr_eq(&self.snap, &snap) {
+            return;
+        }
         let tabs_changed = self.snap.id != snap.id
             || self.snap.ram.len() != snap.ram.len()
             || self.snap.flash.len() != snap.flash.len()
@@ -928,8 +953,12 @@ impl McuMonitor {
         }
 
         self.snap = snap;
+        if tabs_changed || self.tabs_cache.is_none() {
+            self.tabs_cache = Some(self.build_tabs_json());
+        }
         if registers_changed || tabs_changed {
             self.rebuild_addr_names();
+            self.rebuild_registers_cache();
         }
         if ram_changed || registers_changed || tabs_changed {
             self.rebuild_watches();
@@ -959,8 +988,22 @@ impl McuMonitor {
 
     #[qslot]
     fn refresh(&mut self) {
-        self.apply_snap(mcu::monitor_snap());
+        self.apply_snap(mcu::monitor_snap_arc());
         self.poll_symbols();
+    }
+
+    #[qslot]
+    fn release_cache(&mut self) {
+        self.snap = Arc::new(McuSnap::default());
+        self.watch_eval.clear();
+        self.watch_eval.shrink_to_fit();
+        self.addr_names.clear();
+        self.addr_names.shrink_to_fit();
+        self.tabs_cache = None;
+        self.registers_cache = Value::Array(Vec::new());
+        self.variables_cache = Value::Array(Vec::new());
+        self.symbols_gen = None;
+        mcu::clear_monitor_snap();
     }
 
     #[qslot]
@@ -1026,7 +1069,7 @@ impl McuMonitor {
         }
         let bit = 1u8 << (bit_index as u8);
         let new_status = self.snap.status ^ bit;
-        self.snap.status = new_status;
+        Arc::make_mut(&mut self.snap).status = new_status;
         self.status_changed();
 
         // Queue poke to status register if address is known
@@ -1111,7 +1154,7 @@ impl McuMonitor {
         let value = val as u8;
         mcu::queue_poke(McuPoke::Ram { addr, value });
         if (addr as usize) < self.snap.ram.len() {
-            self.snap.ram[addr as usize] = value;
+            Arc::make_mut(&mut self.snap).ram[addr as usize] = value;
             self.ram_revision = self.ram_revision.wrapping_add(1);
             self.ram_changed();
             self.rebuild_watches();

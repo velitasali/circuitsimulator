@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use cs_mcu::{CoreKind, Device, McuDesc, McuState};
 
@@ -91,9 +91,9 @@ pub enum McuPoke {
     Eeprom { addr: u16, value: u8 },
 }
 
-fn snap_cell() -> &'static Mutex<McuSnap> {
-    static CELL: OnceLock<Mutex<McuSnap>> = OnceLock::new();
-    CELL.get_or_init(|| Mutex::new(McuSnap::default()))
+fn snap_cell() -> &'static Mutex<Arc<McuSnap>> {
+    static CELL: OnceLock<Mutex<Arc<McuSnap>>> = OnceLock::new();
+    CELL.get_or_init(|| Mutex::new(Arc::new(McuSnap::default())))
 }
 
 fn poke_cell() -> &'static Mutex<Vec<McuPoke>> {
@@ -103,12 +103,25 @@ fn poke_cell() -> &'static Mutex<Vec<McuPoke>> {
 
 pub fn publish_monitor(snap: McuSnap) {
     if let Ok(mut g) = snap_cell().lock() {
-        *g = snap;
+        *g = Arc::new(snap);
     }
 }
 
+pub fn monitor_snap_arc() -> Arc<McuSnap> {
+    snap_cell()
+        .lock()
+        .map(|g| Arc::clone(&g))
+        .unwrap_or_else(|_| Arc::new(McuSnap::default()))
+}
+
 pub fn monitor_snap() -> McuSnap {
-    snap_cell().lock().map(|g| g.clone()).unwrap_or_default()
+    (*monitor_snap_arc()).clone()
+}
+
+pub fn clear_monitor_snap() {
+    if let Ok(mut g) = snap_cell().lock() {
+        *g = Arc::new(McuSnap::default());
+    }
 }
 
 pub fn queue_poke(p: McuPoke) {

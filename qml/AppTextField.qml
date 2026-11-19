@@ -37,7 +37,21 @@ T.TextField {
     palette.mid: appTheme.mid
     palette.midlight: appTheme.midlight
 
-    ContextMenu.menu: AppTextContextMenu { textInput: control }
+    property AppTextContextMenu _contextMenu: null
+    Component {
+        id: contextMenuComp
+        AppTextContextMenu {}
+    }
+
+    ContextMenu.menu: null
+    ContextMenu.onRequested: (pos) => {
+        if (control.ContextMenu.menu)
+            return
+        if (!control._contextMenu)
+            control._contextMenu = contextMenuComp.createObject(control, { textInput: control }) as AppTextContextMenu
+        if (control._contextMenu)
+            control._contextMenu.popup(pos.x, pos.y)
+    }
 
     implicitWidth: implicitBackgroundWidth + leftInset + rightInset
                    || Math.max(contentWidth, placeholder.implicitWidth) + leftPadding + rightPadding

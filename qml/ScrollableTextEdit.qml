@@ -114,15 +114,21 @@ Item {
                 visible: area.length === 0
             }
 
+            property AppTextContextMenu _defaultMenu: null
+            Component {
+                id: defaultMenuComp
+                AppTextContextMenu {}
+            }
+
             TapHandler {
                 enabled: root.defaultContextMenu
                 acceptedButtons: Qt.RightButton
-                onTapped: defaultMenu.popup()
-            }
-
-            AppTextContextMenu {
-                id: defaultMenu
-                textEdit: area
+                onTapped: {
+                    if (!area._defaultMenu)
+                        area._defaultMenu = defaultMenuComp.createObject(area, { textEdit: area }) as AppTextContextMenu
+                    if (area._defaultMenu)
+                        area._defaultMenu.popup()
+                }
             }
         }
     }

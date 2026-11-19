@@ -360,7 +360,7 @@ ApplicationWindow {
     OwnedWindow {
         id: mcuWin
         title: I18n.tr("MCU Monitor")
-        width: 720
+        width: 900
         height: 520
         source: visible ? "McuView.qml" : ""
         visible: App.mcuVisible

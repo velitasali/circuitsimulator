@@ -77,25 +77,9 @@ Dialog {
                     id: discardBtn
                     visible: root.showDiscard
                     text: root.discardText
-                    padding: 6
+                    Layout.minimumHeight: 28
                     leftPadding: 14
                     rightPadding: 14
-
-                    background: Rectangle {
-                        implicitHeight: 28
-                        radius: 8
-                        color: discardBtn.down ? appTheme.dark : (discardBtn.hovered ? appTheme.midlight : appTheme.button)
-                        border.color: appTheme.mid
-                        border.width: 1
-                    }
-
-                    contentItem: AppText {
-                        text: discardBtn.text
-                        font: discardBtn.font
-                        color: appTheme.buttonText
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
 
                     onClicked: {
                         root.close()
@@ -110,25 +94,9 @@ Dialog {
                     id: cancelBtn
                     visible: root.showCancel
                     text: root.cancelText
-                    padding: 6
+                    Layout.minimumHeight: 28
                     leftPadding: 14
                     rightPadding: 14
-
-                    background: Rectangle {
-                        implicitHeight: 28
-                        radius: 8
-                        color: cancelBtn.down ? appTheme.dark : (cancelBtn.hovered ? appTheme.midlight : appTheme.button)
-                        border.color: appTheme.mid
-                        border.width: 1
-                    }
-
-                    contentItem: AppText {
-                        text: cancelBtn.text
-                        font: cancelBtn.font
-                        color: appTheme.buttonText
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
 
                     onClicked: {
                         root.close()
@@ -140,27 +108,12 @@ Dialog {
                 AppButton {
                     id: acceptBtn
                     text: root.acceptText
+                    highlighted: true
                     font.bold: true
-                    padding: 6
+                    Layout.minimumHeight: 28
                     leftPadding: 16
                     rightPadding: 16
                     focus: true
-
-                    background: Rectangle {
-                        implicitHeight: 28
-                        radius: 8
-                        color: acceptBtn.down ? Qt.darker(appTheme.highlight, 1.2) : (acceptBtn.hovered ? Qt.lighter(appTheme.highlight, 1.1) : appTheme.highlight)
-                        border.color: Qt.darker(appTheme.highlight, 1.3)
-                        border.width: 1
-                    }
-
-                    contentItem: AppText {
-                        text: acceptBtn.text
-                        font: acceptBtn.font
-                        color: appTheme.highlightedText
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
 
                     onClicked: {
                         root.close()

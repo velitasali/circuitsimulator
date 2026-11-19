@@ -8,12 +8,16 @@ import cs_app
  * Windows Quick Controls paints a native push button (always light) and
  * colors the label with palette.buttonText. In dark theme that is nearly
  * white, so the control reads as an all-white rectangle.
+ *
+ * Borderless tonal fill differentiates push buttons from bordered input
+ * controls (AppTextField, AppComboBox, AppSpinBox) and matches AppToolButton,
+ * AppTabButton, and AppSwitch.
  */
 T.Button {
     id: control
     SystemPalette { id: appTheme }
 
-    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
+    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize, weight: Font.Medium })
     padding: 6
     leftPadding: 12
     rightPadding: 12
@@ -42,8 +46,15 @@ T.Button {
         display: control.display
         icon: control.icon
         text: control.text
-        font: control.font
-        color: control.highlighted ? appTheme.highlightedText : appTheme.buttonText
+        font: control.font.weight === Font.Normal
+              ? Qt.font({
+                    family: control.font.family,
+                    pixelSize: control.font.pixelSize > 0 ? control.font.pixelSize : App.fontSize,
+                    weight: Font.Medium,
+                    italic: control.font.italic
+                })
+              : control.font
+        color: control.highlighted ? control.palette.highlightedText : control.palette.buttonText
     }
 
     background: Rectangle {
@@ -58,11 +69,14 @@ T.Button {
             if (control.down)
                 return appTheme.dark
             if (control.hovered)
-                return appTheme.midlight
+                return App.darkTheme ? appTheme.midlight : appTheme.mid
             return appTheme.button
         }
-        border.width: 1
-        border.color: control.highlighted ? Qt.darker(appTheme.highlight, 1.2)
-                    : (control.visualFocus ? appTheme.highlight : appTheme.mid)
+        border.width: control.visualFocus ? 1 : 0
+        border.color: control.highlighted
+                      ? (App.darkTheme ? Qt.lighter(appTheme.highlight, 1.35) : Qt.darker(appTheme.highlight, 1.35))
+                      : appTheme.highlight
+
+        Behavior on color { ColorAnimation { duration: 90 } }
     }
 }

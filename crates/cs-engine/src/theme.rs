@@ -599,7 +599,7 @@ impl ColorTheme {
                 placeholder_text: rgb(140, 140, 140),
                 disabled_text: GRAY,
                 disabled_window_text: GRAY,
-                button: rgb(45, 45, 45),
+                button: rgb(58, 58, 58),
                 button_text: rgb(230, 230, 230),
                 disabled_button_text: GRAY,
                 bright_text: RED,
@@ -610,7 +610,7 @@ impl ColorTheme {
                 mid: rgb(60, 60, 60),
                 midlight: rgb(75, 75, 75),
                 shadow: rgb(40, 40, 40),
-                dark: rgb(35, 35, 35),
+                dark: rgb(46, 46, 46),
                 light: rgb(80, 80, 80),
             }
         } else {
@@ -625,7 +625,7 @@ impl ColorTheme {
                 placeholder_text: rgb(130, 130, 130),
                 disabled_text: GRAY,
                 disabled_window_text: GRAY,
-                button: rgb(240, 240, 240),
+                button: rgb(232, 232, 232),
                 button_text: rgb(30, 30, 30),
                 disabled_button_text: GRAY,
                 bright_text: RED,
@@ -763,5 +763,30 @@ mod tests {
 
         let (lit_fallback, _) = ColorTheme::led_color_hex("unknown");
         assert_eq!(lit_fallback, "#ffee22");
+    }
+
+    #[test]
+    fn qt_palette_buttons_separate_from_window_and_inputs() {
+        let luma = |rgb: u32| -> i32 { ((rgb >> 16) & 0xff) as i32 };
+        for dark in [false, true] {
+            let pal = ColorTheme::qt_palette(dark);
+            assert!(
+                (luma(pal.button) - luma(pal.window)).abs() >= 16,
+                "button fill must clearly separate from window (dark={dark})"
+            );
+            assert!(
+                (luma(pal.button) - luma(pal.base)).abs() >= 14,
+                "button fill must clearly separate from input base (dark={dark})"
+            );
+            let hover = if dark { pal.midlight } else { pal.mid };
+            assert!(
+                (luma(hover) - luma(pal.button)).abs() >= 10,
+                "button hover must be distinct from rest (dark={dark})"
+            );
+            assert!(
+                (luma(pal.dark) - luma(pal.button)).abs() >= 10,
+                "button pressed must be distinct from rest (dark={dark})"
+            );
+        }
     }
 }

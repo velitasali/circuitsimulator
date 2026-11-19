@@ -535,52 +535,21 @@ Item {
                     AppButton {
                         id: cancelFileBtn
                         text: I18n.tr( "Cancel" )
-                        implicitHeight: 26
+                        Layout.minimumHeight: 26
                         leftPadding: 12
                         rightPadding: 12
-
-                        background: Rectangle {
-                            radius: 8
-                            color: cancelFileBtn.down ? appTheme.dark : ( cancelFileBtn.hovered ? appTheme.midlight : appTheme.button )
-                            border.color: appTheme.mid
-                            border.width: 1
-                        }
-                        contentItem: AppText {
-                            text: cancelFileBtn.text
-                            font: cancelFileBtn.font
-                            color: appTheme.buttonText
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                         onClicked: createFileDialog.close()
                     }
 
                     AppButton {
                         id: createFileBtn
                         text: I18n.tr( "Create" )
+                        highlighted: true
                         enabled: newFileInput.text.trim().length > 0 && fileValidationText.text.length === 0
                         font.bold: true
-                        implicitHeight: 26
+                        Layout.minimumHeight: 26
                         leftPadding: 14
                         rightPadding: 14
-
-                        background: Rectangle {
-                            radius: 8
-                            color: !createFileBtn.enabled
-                                   ? Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.4 )
-                                   : ( createFileBtn.down
-                                       ? Qt.darker( appTheme.highlight, 1.2 )
-                                       : ( createFileBtn.hovered ? Qt.lighter( appTheme.highlight, 1.1 ) : appTheme.highlight ) )
-                            border.color: createFileBtn.enabled ? Qt.darker( appTheme.highlight, 1.2 ) : "transparent"
-                            border.width: 1
-                        }
-                        contentItem: AppText {
-                            text: createFileBtn.text
-                            font: createFileBtn.font
-                            color: createFileBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                         onClicked: createFileDialog.accept()
                     }
                 }
@@ -802,52 +771,21 @@ Item {
                     AppButton {
                         id: cancelFolderBtn
                         text: I18n.tr( "Cancel" )
-                        implicitHeight: 26
+                        Layout.minimumHeight: 26
                         leftPadding: 12
                         rightPadding: 12
-
-                        background: Rectangle {
-                            radius: 8
-                            color: cancelFolderBtn.down ? appTheme.dark : ( cancelFolderBtn.hovered ? appTheme.midlight : appTheme.button )
-                            border.color: appTheme.mid
-                            border.width: 1
-                        }
-                        contentItem: AppText {
-                            text: cancelFolderBtn.text
-                            font: cancelFolderBtn.font
-                            color: appTheme.buttonText
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                         onClicked: createFolderDialog.close()
                     }
 
                     AppButton {
                         id: createFolderBtn
                         text: I18n.tr( "Create" )
+                        highlighted: true
                         enabled: newDirInput.text.trim().length > 0 && dirValidationText.text.length === 0
                         font.bold: true
-                        implicitHeight: 26
+                        Layout.minimumHeight: 26
                         leftPadding: 14
                         rightPadding: 14
-
-                        background: Rectangle {
-                            radius: 8
-                            color: !createFolderBtn.enabled
-                                   ? Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.4 )
-                                   : ( createFolderBtn.down
-                                       ? Qt.darker( appTheme.highlight, 1.2 )
-                                       : ( createFolderBtn.hovered ? Qt.lighter( appTheme.highlight, 1.1 ) : appTheme.highlight ) )
-                            border.color: createFolderBtn.enabled ? Qt.darker( appTheme.highlight, 1.2 ) : "transparent"
-                            border.width: 1
-                        }
-                        contentItem: AppText {
-                            text: createFolderBtn.text
-                            font: createFolderBtn.font
-                            color: createFolderBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                         onClicked: createFolderDialog.accept()
                     }
                 }
@@ -1069,52 +1007,21 @@ Item {
                     AppButton {
                         id: cancelRenameBtn
                         text: I18n.tr( "Cancel" )
-                        implicitHeight: 26
+                        Layout.minimumHeight: 26
                         leftPadding: 12
                         rightPadding: 12
-
-                        background: Rectangle {
-                            radius: 8
-                            color: cancelRenameBtn.down ? appTheme.dark : ( cancelRenameBtn.hovered ? appTheme.midlight : appTheme.button )
-                            border.color: appTheme.mid
-                            border.width: 1
-                        }
-                        contentItem: AppText {
-                            text: cancelRenameBtn.text
-                            font: cancelRenameBtn.font
-                            color: appTheme.buttonText
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                         onClicked: renameDialog.close()
                     }
 
                     AppButton {
                         id: renameBtn
                         text: I18n.tr( "Rename" )
+                        highlighted: true
                         enabled: renameInput.text.trim().length > 0 && renameValidationText.text.length === 0
                         font.bold: true
-                        implicitHeight: 26
+                        Layout.minimumHeight: 26
                         leftPadding: 14
                         rightPadding: 14
-
-                        background: Rectangle {
-                            radius: 8
-                            color: !renameBtn.enabled
-                                   ? Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.4 )
-                                   : ( renameBtn.down
-                                       ? Qt.darker( appTheme.highlight, 1.2 )
-                                       : ( renameBtn.hovered ? Qt.lighter( appTheme.highlight, 1.1 ) : appTheme.highlight ) )
-                            border.color: renameBtn.enabled ? Qt.darker( appTheme.highlight, 1.2 ) : "transparent"
-                            border.width: 1
-                        }
-                        contentItem: AppText {
-                            text: renameBtn.text
-                            font: renameBtn.font
-                            color: renameBtn.enabled ? appTheme.highlightedText : Qt.rgba( appTheme.buttonText.r, appTheme.buttonText.g, appTheme.buttonText.b, 0.5 )
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
                         onClicked: renameDialog.accept()
                     }
                 }

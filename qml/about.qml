@@ -12,7 +12,7 @@ Rectangle {
 
     SystemPalette { id: pal; colorGroup: SystemPalette.Active }
 
-    implicitWidth: 440
+    implicitWidth: Math.max(440, mainLayout.implicitWidth + 40)
     implicitHeight: mainLayout.implicitHeight + 40
 
     ColumnLayout {
@@ -68,7 +68,7 @@ Rectangle {
                         font.bold: true
                     }
                     AppText {
-                        text: "<a href=\"http://velitasali.com/\">http://velitasali.com</a>"
+                        text: "<a href=\"https://circuitsimulator.velitasali.com/\">https://circuitsimulator.velitasali.com</a>"
                         textFormat: Text.RichText
                         color: pal.windowText
                         linkColor: pal.highlight

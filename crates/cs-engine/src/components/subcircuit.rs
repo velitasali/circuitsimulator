@@ -684,6 +684,7 @@ impl super::drawable::Drawable for Subcircuit {
                     scale: ctx.scale,
                     item_id: &sim_id,
                     on_board: true,
+                    active_item_id: None,
                 };
                 d.push(
                     child.placement.x,

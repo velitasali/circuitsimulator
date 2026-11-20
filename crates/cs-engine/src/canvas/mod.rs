@@ -324,7 +324,26 @@ impl Canvas {
     }
 
     pub fn active_top_level_item_id(&self) -> Option<String> {
-        let devices = self.collect_programmable_devices(self.active_device_id.as_deref());
+        if let Some(aid) = self.active_device_id.as_deref() {
+            if let Some(it) = self.scene.item_by_id(aid)
+                && matches!(it.kind, Part::Mcu(_) | Part::QemuDevice(_))
+            {
+                return Some(aid.to_string());
+            }
+            if let Some((top_id, _)) = aid.split_once('/') {
+                let it = self.scene.item_by_id(top_id)?;
+                if let Part::Subcircuit(_) = &it.kind {
+                    let mut out = Vec::new();
+                    self.scene
+                        .collect_item_programmable_devices(it, &self.search(), &mut out);
+                    if out.iter().any(|d| d.id == aid || d.uid == aid) {
+                        return Some(top_id.to_string());
+                    }
+                }
+            }
+            return None;
+        }
+        let devices = self.collect_programmable_devices(None);
         let active_dev = devices.into_iter().find(|d| d.is_active)?;
         if let Some((top_id, _)) = active_dev.id.split_once('/') {
             Some(top_id.to_string())

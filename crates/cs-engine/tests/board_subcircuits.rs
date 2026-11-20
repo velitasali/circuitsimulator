@@ -254,6 +254,7 @@ fn board_layout_authoring_roundtrip_and_live_led_rendering() {
             scale: 1.0,
             item_id: "",
             on_board: false,
+            active_item_id: None,
         },
     );
     assert!(
@@ -285,6 +286,7 @@ fn board_layout_authoring_roundtrip_and_live_led_rendering() {
             scale: 1.0,
             item_id: "",
             on_board: false,
+            active_item_id: None,
         },
     );
     assert!(
@@ -312,6 +314,7 @@ fn board_layout_authoring_roundtrip_and_live_led_rendering() {
             scale: 1.0,
             item_id: "",
             on_board: false,
+            active_item_id: None,
         },
     );
     assert!(
@@ -405,6 +408,7 @@ fn interactive_board_mounted_push_and_switch_drive_inner_led_live() {
             scale: 1.0,
             item_id: "",
             on_board: false,
+            active_item_id: None,
         },
     );
     assert!(

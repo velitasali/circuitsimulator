@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::{installer, package, settings};
 
@@ -71,11 +72,16 @@ impl CatalogItem {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+struct CatalogInner {
+    items: Vec<CatalogItem>,
+    by_name: HashMap<String, usize>,
+}
+
 /// Parsed itemlib maps. First name wins (C++ `m_components.contains`).
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {
-    items: Vec<CatalogItem>,
-    by_name: HashMap<String, usize>,
+    inner: Arc<CatalogInner>,
 }
 
 impl Catalog {
@@ -84,23 +90,26 @@ impl Catalog {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.inner.items.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.inner.items.len()
     }
 
     pub fn get(&self, name: &str) -> Option<&CatalogItem> {
-        self.by_name.get(name).and_then(|&i| self.items.get(i))
+        self.inner
+            .by_name
+            .get(name)
+            .and_then(|&i| self.inner.items.get(i))
     }
 
     pub fn items(&self) -> &[CatalogItem] {
-        &self.items
+        &self.inner.items
     }
 
     pub fn mcu_items(&self) -> impl Iterator<Item = &CatalogItem> {
-        self.items.iter().filter(|i| i.typ == "MCU")
+        self.inner.items.iter().filter(|i| i.typ == "MCU")
     }
 
     /// C++ `getDataFile`.
@@ -114,12 +123,13 @@ impl Catalog {
     }
 
     pub fn insert(&mut self, item: CatalogItem) {
-        if self.by_name.contains_key(&item.name) {
+        if self.inner.by_name.contains_key(&item.name) {
             return;
         }
-        let i = self.items.len();
-        self.by_name.insert(item.name.clone(), i);
-        self.items.push(item);
+        let inner = Arc::make_mut(&mut self.inner);
+        let i = inner.items.len();
+        inner.by_name.insert(item.name.clone(), i);
+        inner.items.push(item);
     }
 
     /// C++ `ComponentList::loadXml`.

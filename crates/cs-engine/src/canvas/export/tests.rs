@@ -289,6 +289,7 @@ fn test_pins_painted_before_component_body() {
         scale: 1.0,
         item_id: "R-1",
         on_board: false,
+        active_item_id: None,
     };
     let item = Item::resistor("R-1", 100.0, 100.0, 1000.0);
     let mut rec = CallRecorder::default();
@@ -581,6 +582,7 @@ fn test_current_animation_chevrons_drawn_on_top_of_everything() {
         scale: 1.0,
         item_id: "",
         on_board: false,
+        active_item_id: None,
     };
 
     let mut rec = OrderRecorder::default();

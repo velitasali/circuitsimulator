@@ -16,6 +16,7 @@ fn test_all_components_default_geometry_and_drawing() {
         scale: 1.0,
         item_id: "test",
         on_board: false,
+        active_item_id: None,
     };
 
     for case in CASES {

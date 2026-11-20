@@ -1,6 +1,7 @@
-use cs_engine::canvas::{Canvas, PinDirection, Point};
+use cs_engine::canvas::{Canvas, Item, Palette, PinDirection, Point, export};
 use cs_engine::components::Part;
 use cs_engine::digital::PinMode;
+use cs_engine::package::Package;
 use cs_engine::qemu::QemuComp;
 
 #[test]
@@ -488,4 +489,62 @@ fn test_subcircuit_board_active_indicator_detection() {
         svg.contains("#ffff00"),
         "Active board must render the yellow indicator dot"
     );
+
+    // Explicit nested device ID resolves directly to its top-level board item
+    canvas.set_active_device_id(Some("Arduino-1/atmega328-1".to_string()));
+    assert_eq!(
+        canvas.active_top_level_item_id().as_deref(),
+        Some("Arduino-1")
+    );
+    assert!(canvas.is_item_active("Arduino-1"));
+
+    // Non-existent nested device ID under an existing board is inactive
+    canvas.set_active_device_id(Some("Arduino-1/missing-1".to_string()));
+    assert_eq!(canvas.active_top_level_item_id(), None);
+    assert!(!canvas.is_item_active("Arduino-1"));
+}
+
+#[test]
+fn test_many_non_mcu_subcircuits_render_and_resolve_active_fast() {
+    let mut canvas = Canvas::empty();
+    let logic_sim1 = r#"<circuit version="2.0.0" >
+<item itemtype="Resistor" CircId="Resistor-1" Resistance="1 k" />
+<item itemtype="AndGate" CircId="AndGate-1" />
+</circuit>"#;
+    let board_sim1 = r#"<circuit version="2.0.0" >
+<item itemtype="MCU" CircId="atmega328-1" label="atmega328" />
+</circuit>"#;
+
+    for i in 0..80 {
+        let item = Item::subcircuit(
+            format!("74HC00-{i}"),
+            (i % 10) as f64 * 80.0,
+            (i / 10) as f64 * 80.0,
+            "74HC00",
+            Package::default(),
+            logic_sim1,
+            None,
+            false,
+        );
+        canvas.scene_mut().add_saved_item(item);
+    }
+    let board_item = Item::subcircuit(
+        "Arduino-1",
+        0.0,
+        700.0,
+        "Arduino_Uno",
+        Package::default(),
+        board_sim1,
+        None,
+        false,
+    );
+    canvas.scene_mut().add_saved_item(board_item);
+
+    assert_eq!(
+        canvas.active_top_level_item_id().as_deref(),
+        Some("Arduino-1")
+    );
+    let pal = Palette::light();
+    let svg = export::svg_string(&canvas, &pal);
+    assert!(svg.contains("#ffff00"));
 }

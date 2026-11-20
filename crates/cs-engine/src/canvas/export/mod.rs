@@ -58,6 +58,7 @@ pub fn save_image(canvas: &Canvas, path: &Path, palette: &Palette) -> crate::Res
 pub fn svg_string(canvas: &Canvas, palette: &Palette) -> String {
     let sr = canvas.viewport().scene_rect();
     let mut svg = Svg::new(sr);
+    let active_item_id = canvas.active_top_level_item_id();
     paint_scene(
         &mut svg,
         &PaintCtx {
@@ -66,6 +67,7 @@ pub fn svg_string(canvas: &Canvas, palette: &Palette) -> String {
             scale: 1.0,
             item_id: "",
             on_board: false,
+            active_item_id: active_item_id.as_deref(),
         },
     );
     svg.finish()

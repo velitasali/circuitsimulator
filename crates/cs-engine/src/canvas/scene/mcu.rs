@@ -1,5 +1,6 @@
 //! MCU and firmware management, snapshotting, device discovery, and live synchronization.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -7,6 +8,8 @@ use super::Scene;
 use super::item::{Item, ProgrammableDevice};
 use crate::Circuit;
 use crate::components::Part;
+use crate::elements::Kind;
+use crate::sim1;
 use crate::subcircuit::{self, SubcSearch, SubcTreeNode};
 
 impl Scene {
@@ -78,13 +81,15 @@ impl Scene {
                     })
                     .unwrap_or_default();
 
-                let src = if !nested_src.is_empty() {
-                    Some(nested_src.clone())
+                let src: Option<Cow<'_, str>> = if !nested_src.is_empty() {
+                    Some(Cow::Borrowed(nested_src.as_str()))
                 } else {
-                    resolved.map(|r| r.src)
+                    resolved.map(|r| Cow::Owned(r.src))
                 };
 
-                let children = if let Some(inner_src) = src {
+                let children = if let Some(inner_src) = src
+                    && subcircuit::may_contain_subcircuit(&inner_src)
+                {
                     let child_search = if !file_path.is_empty() {
                         search.child_for(Path::new(&file_path))
                     } else {
@@ -116,11 +121,13 @@ impl Scene {
     /// A programmable device (MCU, QEMU device, or board-mounted MCU).
     pub fn collect_programmable_devices(
         &self,
-        search: &crate::subcircuit::SubcSearch,
+        search: &SubcSearch,
         active_id: Option<&str>,
     ) -> Vec<ProgrammableDevice> {
         let mut devices = Vec::new();
-        self.collect_devices_recursive(&self.items, search, "", &mut devices);
+        for it in &self.items {
+            self.collect_item_programmable_devices(it, search, &mut devices);
+        }
 
         // Sort keys built once: board-mounted MCUs group under their board, matching C++
         devices.sort_by(|a, b| a.label.cmp(&b.label));
@@ -135,172 +142,102 @@ impl Scene {
         devices
     }
 
-    fn collect_devices_recursive(
+    pub(crate) fn collect_item_programmable_devices(
         &self,
-        items: &[Item],
-        search: &crate::subcircuit::SubcSearch,
-        parent_label: &str,
+        it: &Item,
+        search: &SubcSearch,
         out: &mut Vec<ProgrammableDevice>,
     ) {
-        for it in items {
-            match &it.kind {
-                Part::Mcu(_) => {
-                    let mut label = it.label.clone();
-                    if !parent_label.is_empty() {
-                        label = format!("{parent_label} / {label}");
-                    }
-                    let kind = crate::subcircuit::device_from_id(&it.id);
-                    let display_text = if !kind.is_empty() && kind != label && kind != it.label {
-                        format!("{label}  ({kind})")
-                    } else {
-                        label.clone()
-                    };
-                    out.push(ProgrammableDevice {
-                        id: it.id.clone(),
-                        uid: it.id.clone(),
-                        label,
-                        display_text,
-                        kind,
-                        is_active: false,
+        match &it.kind {
+            Part::Mcu(_) => {
+                let label = it.label.clone();
+                let kind = subcircuit::device_from_id(&it.id);
+                let display_text = if !kind.is_empty() && kind != label {
+                    format!("{label}  ({kind})")
+                } else {
+                    label.clone()
+                };
+                out.push(ProgrammableDevice {
+                    id: it.id.clone(),
+                    uid: it.id.clone(),
+                    label,
+                    display_text,
+                    kind,
+                    is_active: false,
+                });
+            }
+            Part::QemuDevice(qemu) => {
+                let label = it.label.clone();
+                let kind = qemu.qemu.device.clone();
+                let display_text = if !kind.is_empty() && kind != label {
+                    format!("{label}  ({kind})")
+                } else {
+                    label.clone()
+                };
+                out.push(ProgrammableDevice {
+                    id: it.id.clone(),
+                    uid: it.id.clone(),
+                    label,
+                    display_text,
+                    kind,
+                    is_active: qemu.active,
+                });
+            }
+            Part::Subcircuit(subc) => {
+                let board_label = &it.label;
+                let src: Option<Cow<'_, str>> = if !subc.nested_src.is_empty() {
+                    Some(Cow::Borrowed(subc.nested_src.as_str()))
+                } else {
+                    subcircuit::resolve_subc(&subc.device, search).map(|r| Cow::Owned(r.src))
+                };
+                if let Some(inner_src) = src
+                    && subcircuit::may_contain_programmable_device(&inner_src)
+                    && let Ok(parsed) = sim1::parse_sim1(&inner_src)
+                {
+                    let has_exposed_mcu = parsed.items.iter().any(|inner_it| {
+                        inner_it.main_comp
+                            && matches!(
+                                inner_it.comp.kind,
+                                Kind::Mcu(_) | Kind::McuItem(_) | Kind::QemuDevice(_)
+                            )
                     });
-                }
-                Part::QemuDevice(qemu) => {
-                    let mut label = it.label.clone();
-                    if !parent_label.is_empty() {
-                        label = format!("{parent_label} / {label}");
-                    }
-                    let kind = qemu.qemu.device.clone();
-                    let display_text = if !kind.is_empty() && kind != label && kind != it.label {
-                        format!("{label}  ({kind})")
-                    } else {
-                        label.clone()
-                    };
-                    out.push(ProgrammableDevice {
-                        id: it.id.clone(),
-                        uid: it.id.clone(),
-                        label,
-                        display_text,
-                        kind,
-                        is_active: qemu.active,
-                    });
-                }
-                Part::Subcircuit(subc) => {
-                    let board_label = if parent_label.is_empty() {
-                        it.label.clone()
-                    } else {
-                        format!("{parent_label} / {}", it.label)
-                    };
-                    let src = if !subc.nested_src.is_empty() {
-                        Some(subc.nested_src.clone())
-                    } else {
-                        crate::subcircuit::resolve_subc(&subc.device, search).map(|r| r.src)
-                    };
-                    if let Some(inner_src) = src {
-                        if let Ok(parsed) = crate::sim1::parse_sim1(&inner_src) {
-                            let _child_search = if let Some(p) = &subc.nested_path {
-                                search.child_for(std::path::Path::new(p))
-                            } else {
-                                search.clone()
-                            };
-                            let has_exposed_mcu = parsed.items.iter().any(|inner_it| {
-                                inner_it.main_comp
-                                    && matches!(
-                                        inner_it.comp.kind,
-                                        crate::elements::Kind::Mcu(_)
-                                            | crate::elements::Kind::McuItem(_)
-                                            | crate::elements::Kind::QemuDevice(_)
-                                    )
-                            });
-                            for inner_it in &parsed.items {
-                                if has_exposed_mcu && !inner_it.main_comp {
-                                    continue;
-                                }
-                                match &inner_it.comp.kind {
-                                    crate::elements::Kind::Mcu(_) => {
-                                        let inner_id = inner_it.comp.id.clone();
-                                        let inner_label = inner_it
-                                            .label
-                                            .as_ref()
-                                            .unwrap_or(&inner_it.comp.id)
-                                            .clone();
-                                        let inner_dev =
-                                            crate::subcircuit::device_from_id(&inner_id);
-                                        let full_label = format!("{board_label} / {inner_label}");
-                                        let display_text =
-                                            if !inner_dev.is_empty() && inner_dev != inner_label {
-                                                format!("{full_label}  ({inner_dev})")
-                                            } else {
-                                                full_label.clone()
-                                            };
-                                        out.push(ProgrammableDevice {
-                                            id: format!("{}/{}", it.id, inner_id),
-                                            uid: format!("{}/{}", it.id, inner_id),
-                                            label: full_label,
-                                            display_text,
-                                            kind: inner_dev,
-                                            is_active: false,
-                                        });
-                                    }
-                                    crate::elements::Kind::McuItem(inner_spec) => {
-                                        let inner_id = inner_it.comp.id.clone();
-                                        let inner_label = inner_it
-                                            .label
-                                            .as_ref()
-                                            .unwrap_or(&inner_it.comp.id)
-                                            .clone();
-                                        let inner_dev = if !inner_spec.device.is_empty() {
-                                            inner_spec.device.clone()
-                                        } else {
-                                            crate::subcircuit::device_from_id(&inner_id)
-                                        };
-                                        let full_label = format!("{board_label} / {inner_label}");
-                                        let display_text =
-                                            if !inner_dev.is_empty() && inner_dev != inner_label {
-                                                format!("{full_label}  ({inner_dev})")
-                                            } else {
-                                                full_label.clone()
-                                            };
-                                        out.push(ProgrammableDevice {
-                                            id: format!("{}/{}", it.id, inner_id),
-                                            uid: format!("{}/{}", it.id, inner_id),
-                                            label: full_label,
-                                            display_text,
-                                            kind: inner_dev,
-                                            is_active: false,
-                                        });
-                                    }
-                                    crate::elements::Kind::QemuDevice(inner_qemu) => {
-                                        let inner_id = inner_it.comp.id.clone();
-                                        let inner_label = inner_it
-                                            .label
-                                            .as_ref()
-                                            .unwrap_or(&inner_it.comp.id)
-                                            .clone();
-                                        let inner_dev = inner_qemu.device.clone();
-                                        let full_label = format!("{board_label} / {inner_label}");
-                                        let display_text =
-                                            if !inner_dev.is_empty() && inner_dev != inner_label {
-                                                format!("{full_label}  ({inner_dev})")
-                                            } else {
-                                                full_label.clone()
-                                            };
-                                        out.push(ProgrammableDevice {
-                                            id: format!("{}/{}", it.id, inner_id),
-                                            uid: format!("{}/{}", it.id, inner_id),
-                                            label: full_label,
-                                            display_text,
-                                            kind: inner_dev,
-                                            is_active: false,
-                                        });
-                                    }
-                                    _ => {}
+                    for inner_it in &parsed.items {
+                        if has_exposed_mcu && !inner_it.main_comp {
+                            continue;
+                        }
+                        let inner_dev = match &inner_it.comp.kind {
+                            Kind::Mcu(_) => subcircuit::device_from_id(&inner_it.comp.id),
+                            Kind::McuItem(inner_spec) => {
+                                if !inner_spec.device.is_empty() {
+                                    inner_spec.device.clone()
+                                } else {
+                                    subcircuit::device_from_id(&inner_it.comp.id)
                                 }
                             }
-                        }
+                            Kind::QemuDevice(inner_qemu) => inner_qemu.device.clone(),
+                            _ => continue,
+                        };
+                        let inner_id = &inner_it.comp.id;
+                        let inner_label = inner_it.label.as_deref().unwrap_or(inner_id);
+                        let full_label = format!("{board_label} / {inner_label}");
+                        let display_text = if !inner_dev.is_empty() && inner_dev != inner_label {
+                            format!("{full_label}  ({inner_dev})")
+                        } else {
+                            full_label.clone()
+                        };
+                        let qualified_id = format!("{}/{inner_id}", it.id);
+                        out.push(ProgrammableDevice {
+                            id: qualified_id.clone(),
+                            uid: qualified_id,
+                            label: full_label,
+                            display_text,
+                            kind: inner_dev,
+                            is_active: false,
+                        });
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
     }
 

@@ -415,6 +415,7 @@ pub fn paint_item(
         scale: ctx.scale,
         item_id: &it.id,
         on_board: ctx.on_board || hide_pins_in_board_layout,
+        active_item_id: ctx.active_item_id,
     };
     let pins = if it.is_node() || hide_pins_in_board_layout {
         Vec::new()

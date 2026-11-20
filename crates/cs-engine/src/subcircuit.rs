@@ -1038,13 +1038,37 @@ pub(crate) fn snapshot_subcircuits_from_src_with_visited(
     snapshot_subcircuits_from_src_inner(src, search, depth, visited)
 }
 
+#[inline]
+pub(crate) fn contains_ascii_ignore_case(haystack: &[u8], needle_lower: &[u8]) -> bool {
+    if needle_lower.is_empty() {
+        return true;
+    }
+    haystack
+        .windows(needle_lower.len())
+        .any(|w| w.eq_ignore_ascii_case(needle_lower))
+}
+
+#[inline]
+pub(crate) fn may_contain_subcircuit(src: &str) -> bool {
+    let b = src.as_bytes();
+    contains_ascii_ignore_case(b, b"subcircuit") || contains_ascii_ignore_case(b, b"sub_circuit")
+}
+
+#[inline]
+pub(crate) fn may_contain_programmable_device(src: &str) -> bool {
+    let b = src.as_bytes();
+    contains_ascii_ignore_case(b, b"mcu")
+        || contains_ascii_ignore_case(b, b"micro")
+        || contains_ascii_ignore_case(b, b"qemu")
+}
+
 fn snapshot_subcircuits_from_src_inner(
     src: &str,
     search: &SubcSearch,
     depth: u32,
     visited: &mut HashSet<String>,
 ) -> Vec<SubcTreeNode> {
-    if depth >= MAX_NEST {
+    if depth >= MAX_NEST || !may_contain_subcircuit(src) {
         return Vec::new();
     }
     let Ok(parsed) = circ1::parse_circ1(src).or_else(|_| sim1::parse_legacy_to_circ1(src)) else {

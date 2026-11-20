@@ -185,12 +185,14 @@ fn record_scene(
         scene_h + 160.0,
     );
     let circuit = canvas.scene();
+    let active_item_id = canvas.active_top_level_item_id();
     let ctx = PaintCtx {
         canvas,
         pal: palette,
         scale: zoom,
         item_id: "",
         on_board: false,
+        active_item_id: active_item_id.as_deref(),
     };
     if let Some(pkg_uid) = canvas.board_layout_pkg() {
         let connected = rustc_hash::FxHashSet::default();

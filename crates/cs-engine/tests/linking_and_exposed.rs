@@ -151,6 +151,7 @@ fn link_to_component_canvas_interaction_undo_delete_paste_and_overlay() {
         scale: 1.0,
         item_id: "",
         on_board: false,
+        active_item_id: None,
     };
     paint_scene(&mut rec, &ctx);
     assert!(
@@ -536,6 +537,7 @@ fn select_exposed_components_workflow_overlay_persistence_and_subcircuit_props()
         scale: 1.0,
         item_id: "",
         on_board: false,
+        active_item_id: None,
     };
     paint_scene(&mut rec, &ctx);
     assert!(rec.strokes.contains(&pal.exposed_highlight));

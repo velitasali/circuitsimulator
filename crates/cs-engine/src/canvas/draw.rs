@@ -262,6 +262,7 @@ pub struct PaintCtx<'a> {
     pub scale: f64,
     pub item_id: &'a str,
     pub on_board: bool,
+    pub active_item_id: Option<&'a str>,
 }
 
 impl<'a> PaintCtx<'a> {
@@ -277,6 +278,6 @@ impl<'a> PaintCtx<'a> {
 
     #[inline]
     pub fn is_active(&self) -> bool {
-        self.canvas.is_item_active(self.item_id)
+        self.active_item_id == Some(self.item_id)
     }
 }

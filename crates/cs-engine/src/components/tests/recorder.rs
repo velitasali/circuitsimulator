@@ -515,6 +515,7 @@ fn record_part_paint_with_board(part: &Part, on_board: bool) -> DrawRecorder {
         scale: 1.0,
         item_id: "test-item",
         on_board,
+        active_item_id: None,
     };
     let mut recorder = DrawRecorder::new();
     part.paint(&mut recorder, &ctx);
@@ -530,6 +531,7 @@ pub fn record_drawable_paint<T: Drawable>(drawable: &T) -> DrawRecorder {
         scale: 1.0,
         item_id: "test-item",
         on_board: false,
+        active_item_id: None,
     };
     let mut recorder = DrawRecorder::new();
     drawable.paint(&mut recorder, &ctx);
@@ -546,6 +548,7 @@ pub fn record_item_paint(item: &Item) -> DrawRecorder {
         scale: 1.0,
         item_id: &item.id,
         on_board: false,
+        active_item_id: None,
     };
     let mut recorder = DrawRecorder::new();
     let connected = rustc_hash::FxHashSet::default();

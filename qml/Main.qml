@@ -640,6 +640,11 @@ ApplicationWindow {
                 EditorPanel.focusEditor()
             } else if (id.indexOf("openProj:") === 0) {
                 FileBrowser.rootPath = id.substring(9)
+            } else if (id.indexOf("insertSubc:") === 0) {
+                var subcName = id.substring(11)
+                var subcSpec = subcName + ",Subcircuit"
+                ComponentList.addRecent(subcSpec)
+                CircuitCanvas.addComponent(subcSpec)
             } else if (id === "help.about") {
                 App.showAbout()
             } else if (id === "help.info") {
@@ -803,6 +808,9 @@ ApplicationWindow {
             App.windowTitle = CircuitCanvas.fileName
                     ? CircuitCanvas.fileName + " — Circuit Simulator"
                     : "Circuit Simulator"
+            ComponentList.setCircuitPath(CircuitCanvas.filePath)
+            CommandCenter.setCircuitPath(CircuitCanvas.filePath)
+            AppMenuBar.setCircuitPath(CircuitCanvas.filePath)
             if (CircuitCanvas.filePath) {
                 AppDialog.addRecentCircuit(CircuitCanvas.filePath)
                 AppMenuBar.rebuild()
@@ -1251,6 +1259,8 @@ ApplicationWindow {
             CommandCenter.projectDir = FileBrowser.rootPath
             EditorPanel.projectPath = FileBrowser.rootPath
             CircuitCanvas.projectPath = FileBrowser.rootPath
+            ComponentList.setProjectDir(FileBrowser.rootPath)
+            AppMenuBar.setProjectDir(FileBrowser.rootPath)
         }
     }
 
@@ -1293,6 +1303,11 @@ ApplicationWindow {
         CommandCenter.projectDir = FileBrowser.rootPath
         EditorPanel.projectPath = FileBrowser.rootPath
         CircuitCanvas.projectPath = FileBrowser.rootPath
+        ComponentList.setProjectDir(FileBrowser.rootPath)
+        AppMenuBar.setProjectDir(FileBrowser.rootPath)
+        ComponentList.setCircuitPath(CircuitCanvas.filePath)
+        CommandCenter.setCircuitPath(CircuitCanvas.filePath)
+        AppMenuBar.setCircuitPath(CircuitCanvas.filePath)
         CommandCenter.setCircuitItems(CircuitCanvas.items)
         CommandCenter.editorFocused = EditorPanel.focused
         var simLine

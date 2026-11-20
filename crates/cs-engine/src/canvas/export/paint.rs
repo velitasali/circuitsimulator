@@ -1,9 +1,9 @@
-use crate::canvas::Scene;
 use crate::canvas::draw::{Align, Color, Draw, PaintCtx, parse_hex};
 use crate::canvas::geom::{Point, Rect};
 use crate::canvas::pin::Pin;
 use crate::canvas::scene::Item;
 use crate::canvas::wire::Wire;
+use crate::canvas::{LinkMode, Scene};
 use crate::theme::{BUS_WIRE_WIDTH, COMPONENT_BORDER_WIDTH, WIRE_WIDTH};
 
 pub fn paint_scene(d: &mut dyn Draw, ctx: &PaintCtx<'_>) {
@@ -13,6 +13,20 @@ pub fn paint_scene(d: &mut dyn Draw, ctx: &PaintCtx<'_>) {
         paint_grid(d, sr, ctx.scale, ctx.pal.grid);
     }
     let scene = ctx.canvas.scene();
+    if let Some(pkg_uid) = ctx.canvas.board_layout_pkg() {
+        let connected_pins = rustc_hash::FxHashSet::default();
+        if let Some(pkg) = scene.item_by_id(pkg_uid) {
+            paint_item(d, ctx, scene, pkg, &connected_pins);
+        }
+        for it in scene.items() {
+            if it.id == pkg_uid || !ctx.canvas.is_item_visible_in_board_layout(it) {
+                continue;
+            }
+            paint_item(d, ctx, scene, it, &connected_pins);
+        }
+        paint_board_layout_overlay(d, ctx, scene);
+        return;
+    }
     for w in scene.wires() {
         paint_wire(d, ctx, w);
     }
@@ -25,6 +39,122 @@ pub fn paint_scene(d: &mut dyn Draw, ctx: &PaintCtx<'_>) {
     }
     for w in scene.wires() {
         paint_wire_chevrons(d, ctx, w);
+    }
+    paint_linking_overlay(d, ctx, scene);
+}
+
+pub fn paint_board_layout_overlay(d: &mut dyn Draw, ctx: &PaintCtx<'_>, scene: &Scene) {
+    let Some(pkg_uid) = ctx.canvas.board_layout_pkg() else {
+        return;
+    };
+    let Some(pkg_rect) = ctx.canvas.board_layout_pkg_rect() else {
+        return;
+    };
+    let accent = ctx.pal.link_highlight;
+    let pad = 3.0;
+    let pts = [
+        [pkg_rect.x - pad, pkg_rect.y - pad],
+        [pkg_rect.x + pkg_rect.w + pad, pkg_rect.y - pad],
+        [pkg_rect.x + pkg_rect.w + pad, pkg_rect.y + pkg_rect.h + pad],
+        [pkg_rect.x - pad, pkg_rect.y + pkg_rect.h + pad],
+        [pkg_rect.x - pad, pkg_rect.y - pad],
+    ];
+    d.polyline(&pts, accent, 1.5, true);
+
+    for it in scene.items() {
+        if it.id == pkg_uid || !ctx.canvas.is_item_mounted_in_board_layout(it) {
+            continue;
+        }
+        let r = it.hit_rect();
+        d.stroke_round_rect(r.x - 1.5, r.y - 1.5, r.w + 3.0, r.h + 3.0, 2.5, accent, 1.2);
+    }
+}
+
+pub fn paint_linking_overlay(d: &mut dyn Draw, ctx: &PaintCtx<'_>, scene: &Scene) {
+    let Some(mode) = ctx.canvas.link_mode() else {
+        return;
+    };
+    let dashed_rect = |d: &mut dyn Draw, r: Rect, pad: f64, color: Color, width: f64| {
+        let x0 = r.x - pad;
+        let y0 = r.y - pad;
+        let x1 = r.x + r.w + pad;
+        let y1 = r.y + r.h + pad;
+        let pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+        d.polyline(&pts, color, width, true);
+    };
+    match mode {
+        LinkMode::Component(src_id) => {
+            let Some(src_item) = scene.item_by_id(src_id) else {
+                return;
+            };
+            let sr = src_item.hit_rect();
+            let scx = sr.x + sr.w * 0.5;
+            let scy = sr.y + sr.h * 0.5;
+            let accent = ctx.pal.link_highlight;
+
+            for (idx, target_id) in src_item.links.iter().enumerate() {
+                let Some(target) = scene.item_by_id(target_id) else {
+                    continue;
+                };
+                let tr = target.hit_rect();
+                let tcx = tr.x + tr.w * 0.5;
+                let tcy = tr.y + tr.h * 0.5;
+                d.polyline(&[[scx, scy], [tcx, tcy]], accent.fade(0.65), 1.2, true);
+                d.fill_round_rect(
+                    tr.x - 2.0,
+                    tr.y - 2.0,
+                    tr.w + 4.0,
+                    tr.h + 4.0,
+                    3.0,
+                    accent.fade(0.22),
+                );
+                d.stroke_round_rect(
+                    tr.x - 2.0,
+                    tr.y - 2.0,
+                    tr.w + 4.0,
+                    tr.h + 4.0,
+                    3.0,
+                    accent,
+                    1.5,
+                );
+                let label = idx.to_string();
+                let bw = (label.len() as f64 * 5.0 + 6.0).max(11.0);
+                let bh = 11.0;
+                let bx = tr.x - 4.0;
+                let by = tr.y - 4.0;
+                d.fill_round_rect(bx, by, bw, bh, 2.5, accent);
+                d.text(
+                    bx + bw * 0.5,
+                    by + bh * 0.5,
+                    &label,
+                    7.5,
+                    ctx.pal.link_badge_text,
+                    Align::Center,
+                );
+            }
+            dashed_rect(d, sr, 3.0, accent, 1.5);
+        }
+        LinkMode::Exposed(pkg_id) => {
+            let accent = ctx.pal.exposed_highlight;
+            if let Some(pkg) = scene.item_by_id(pkg_id) {
+                dashed_rect(d, pkg.hit_rect(), 3.0, accent, 1.5);
+            }
+            for it in scene.items() {
+                if !it.main_comp {
+                    continue;
+                }
+                let r = it.hit_rect();
+                d.fill_round_rect(
+                    r.x - 2.0,
+                    r.y - 2.0,
+                    r.w + 4.0,
+                    r.h + 4.0,
+                    3.0,
+                    accent.fade(0.32),
+                );
+                d.stroke_round_rect(r.x - 2.0, r.y - 2.0, r.w + 4.0, r.h + 4.0, 3.0, accent, 1.6);
+            }
+        }
     }
 }
 
@@ -281,18 +411,28 @@ pub fn paint_item(
         scale: ctx.scale,
         item_id: &it.id,
     };
-    let pins = if it.is_node() { Vec::new() } else { it.pins() };
+    let hide_pins_in_board_layout = ctx
+        .canvas
+        .board_layout_pkg()
+        .is_some_and(|pkg_uid| pkg_uid != it.id);
+    let pins = if it.is_node() || hide_pins_in_board_layout {
+        Vec::new()
+    } else {
+        it.pins()
+    };
     for pin in &pins {
         paint_pin(d, ctx, scene, it, pin, connected_pins.contains(&pin.id));
     }
     it.kind.paint(d, &item_ctx);
-    if !matches!(
-        it.kind,
-        crate::components::Part::Subcircuit(_)
-            | crate::components::Part::Mcu(_)
-            | crate::components::Part::SubPackage(_)
-            | crate::components::Part::Node(_)
-    ) && it.show_id
+    if !hide_pins_in_board_layout
+        && !matches!(
+            it.kind,
+            crate::components::Part::Subcircuit(_)
+                | crate::components::Part::Mcu(_)
+                | crate::components::Part::SubPackage(_)
+                | crate::components::Part::Node(_)
+        )
+        && it.show_id
         && !it.label.is_empty()
     {
         let (lx, ly) = it.label_pos();
@@ -313,7 +453,7 @@ pub fn paint_item(
         );
         d.pop();
     }
-    if !it.is_node() && it.show_val {
+    if !hide_pins_in_board_layout && !it.is_node() && it.show_val {
         let val_text = it.val_label_text();
         if !val_text.is_empty() {
             let (vx, vy) = it.val_pos();

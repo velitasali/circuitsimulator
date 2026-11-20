@@ -23,6 +23,7 @@ pub struct LibraryItem {
     pub expanded: bool,
     pub icon: String,
     pub aliases: Vec<String>,
+    pub is_custom: bool,
 }
 
 /// Text match ranking matching C++ `TreeItem::textMatchTier`:
@@ -116,6 +117,7 @@ pub struct VisibleRow {
     pub expanded: bool,
     pub has_children: bool,
     pub icon: String,
+    pub is_custom: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -291,6 +293,7 @@ impl Library {
                             expanded: false,
                             has_children: false,
                             icon: orig.icon.clone(),
+                            is_custom: orig.is_custom,
                         });
                     }
                 }
@@ -318,6 +321,7 @@ impl Library {
                     expanded,
                     has_children: !recent_rows.is_empty(),
                     icon: String::new(),
+                    is_custom: false,
                 });
                 if expanded {
                     out.extend(recent_rows);
@@ -325,13 +329,18 @@ impl Library {
             }
         }
 
-        let roots: Vec<u32> = self
-            .items
-            .iter()
-            .filter(|i| i.parent.is_none())
-            .map(|i| i.id)
-            .collect();
-        for id in roots {
+        let mut custom_roots: Vec<u32> = Vec::new();
+        let mut builtin_roots: Vec<u32> = Vec::new();
+        for it in &self.items {
+            if it.parent.is_none() {
+                if it.is_custom {
+                    custom_roots.push(it.id);
+                } else {
+                    builtin_roots.push(it.id);
+                }
+            }
+        }
+        for id in custom_roots.into_iter().chain(builtin_roots) {
             self.walk(id, 0, searching, &needle, &mut out);
         }
         out
@@ -390,6 +399,7 @@ impl Library {
             expanded,
             has_children: kids,
             icon: it.icon.clone(),
+            is_custom: it.is_custom,
         });
         if expanded {
             let mut children = self.children(id);
@@ -421,6 +431,15 @@ impl Library {
 
     /// C++ `getCategory` / `addCategory`. Reuses an existing node of this name.
     pub fn ensure_category(&mut self, name: &str, parent: Option<u32>) -> u32 {
+        self.ensure_category_with_custom(name, parent, false)
+    }
+
+    fn ensure_category_with_custom(
+        &mut self,
+        name: &str,
+        parent: Option<u32>,
+        is_custom: bool,
+    ) -> u32 {
         if let Some(id) = self.find_category(name) {
             return id;
         }
@@ -437,14 +456,15 @@ impl Library {
             item_type,
             comp_type: name.to_string(),
             kind: None,
-            expanded: false,
+            expanded: is_custom,
             icon: String::new(),
             aliases: Vec::new(),
+            is_custom,
         });
         id
     }
 
-    fn ensure_category_path(&mut self, path: &str) -> Option<u32> {
+    fn ensure_category_path(&mut self, path: &str, is_custom: bool) -> Option<u32> {
         if path.is_empty() {
             return None;
         }
@@ -454,7 +474,7 @@ impl Library {
             if segment.is_empty() {
                 continue;
             }
-            let id = self.ensure_category(segment, parent);
+            let id = self.ensure_category_with_custom(segment, parent, is_custom);
             parent = Some(id);
             last = Some(id);
         }
@@ -464,7 +484,7 @@ impl Library {
     /// Add MCU and Subcircuit entries from itemlib XML (C++ `loadXml`).
     pub fn add_catalog_mcus(&mut self, catalog: &crate::catalog::Catalog) {
         for item in catalog.items() {
-            let (kind, comp_type, aliases) = match item.typ.as_str() {
+            let (kind, comp_type, mut aliases) = match item.typ.as_str() {
                 "MCU" => (
                     PlaceKind::Mcu,
                     "MCU",
@@ -486,7 +506,11 @@ impl Library {
             }) {
                 continue;
             }
-            let parent = self.ensure_category_path(&item.category);
+            if item.is_custom {
+                aliases.push("Custom".into());
+                aliases.push("Local".into());
+            }
+            let parent = self.ensure_category_path(&item.category, item.is_custom);
             self.items.push(LibraryItem {
                 id: self.next_id(),
                 caption: item.name.clone(),
@@ -497,6 +521,7 @@ impl Library {
                 expanded: false,
                 icon: "ic2.svg".into(),
                 aliases,
+                is_custom: item.is_custom,
             });
         }
     }
@@ -1922,6 +1947,7 @@ fn catalog() -> Vec<LibraryItem> {
             expanded: false,
             icon: spec.icon.to_string(),
             aliases: spec.aliases.iter().map(|&s| s.to_string()).collect(),
+            is_custom: false,
         });
     }
     items

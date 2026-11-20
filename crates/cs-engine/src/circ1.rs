@@ -16,6 +16,54 @@ pub type ParsedV3Item = ParsedCirc1Item;
 pub use parse_circ1 as parse_circuit_v3;
 pub use write_circ1 as write_circuit_v3;
 
+/// Placement of a component on a Board/Shield `SubPackage` face, relative to the package's `(0, 0)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoardPlacement {
+    pub x: f64,
+    pub y: f64,
+    pub rotation: f64,
+    pub hflip: i32,
+    pub vflip: i32,
+}
+
+impl BoardPlacement {
+    pub fn at(x: f64, y: f64) -> Self {
+        Self {
+            x,
+            y,
+            rotation: 0.0,
+            hflip: 1,
+            vflip: 1,
+        }
+    }
+}
+
+/// SimulIDE uses `-1e6` as a sentinel for "not placed on the board face".
+const BOARD_SENTINEL: f64 = -900_000.0;
+
+pub fn parse_board_placement(attrs: &[(String, String)]) -> Option<BoardPlacement> {
+    let (x, y) = prop(attrs, "boardPos")
+        .or_else(|| prop(attrs, "board_pos"))
+        .and_then(parse_point)?;
+    if !x.is_finite() || !y.is_finite() || x <= BOARD_SENTINEL || y <= BOARD_SENTINEL {
+        return None;
+    }
+    let rotation = prop(attrs, "boardRot")
+        .or_else(|| prop(attrs, "board_rot"))
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|r| r.is_finite() && *r > BOARD_SENTINEL)
+        .unwrap_or(0.0);
+    let hflip = parse_flip(prop(attrs, "boardHflip").or_else(|| prop(attrs, "board_hflip")));
+    let vflip = parse_flip(prop(attrs, "boardVflip").or_else(|| prop(attrs, "board_vflip")));
+    Some(BoardPlacement {
+        x,
+        y,
+        rotation,
+        hflip,
+        vflip,
+    })
+}
+
 /// Shared graphic attributes written beside the type's [`crate::components::PropDef`] list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GraphicAttrs {
@@ -31,6 +79,9 @@ pub struct GraphicAttrs {
     pub show_prop: Option<String>,
     pub val_pos: Option<(f64, f64)>,
     pub val_rot: i32,
+    pub main_comp: bool,
+    pub links: Vec<String>,
+    pub board: Option<BoardPlacement>,
 }
 
 impl Default for GraphicAttrs {
@@ -48,6 +99,9 @@ impl Default for GraphicAttrs {
             show_prop: None,
             val_pos: None,
             val_rot: 0,
+            main_comp: false,
+            links: Vec::new(),
+            board: None,
         }
     }
 }
@@ -98,6 +152,24 @@ impl GraphicAttrs {
         if self.val_rot != 0 {
             s.push_str(&format!(" valLabRot=\"{}\"", self.val_rot));
         }
+        if self.main_comp {
+            s.push_str(" mainComp=\"true\"");
+        }
+        if !self.links.is_empty() {
+            s.push_str(&format!(" Links=\"{},\"", self.links.join(",")));
+        }
+        if let Some(b) = self.board {
+            s.push_str(&format!(" boardPos=\"{}\"", fmt_pos(b.x, b.y)));
+            if b.rotation != 0.0 {
+                s.push_str(&format!(" boardRot=\"{}\"", b.rotation));
+            }
+            if b.hflip != 1 {
+                s.push_str(&format!(" boardHflip=\"{}\"", b.hflip));
+            }
+            if b.vflip != 1 {
+                s.push_str(&format!(" boardVflip=\"{}\"", b.vflip));
+            }
+        }
         s
     }
 
@@ -125,8 +197,24 @@ impl GraphicAttrs {
         g.val_rot = prop(attrs, "valLabRot")
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
+        g.main_comp = prop(attrs, "mainComp")
+            .or_else(|| prop(attrs, "MainComp"))
+            .map(parse_bool)
+            .unwrap_or(false);
+        g.links = prop(attrs, "Links")
+            .map(parse_links_attr)
+            .unwrap_or_default();
+        g.board = parse_board_placement(attrs);
         g
     }
+}
+
+pub fn parse_links_attr(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn parse_flip(v: Option<&str>) -> i32 {
@@ -153,6 +241,14 @@ fn is_graphic_attr(name: &str) -> bool {
             | "ShowProp"
             | "valLabPos"
             | "valLabRot"
+            | "mainComp"
+            | "Links"
+            | "boardPos"
+            | "boardRot"
+            | "boardHflip"
+            | "boardVflip"
+            | "circPos"
+            | "circRot"
     )
 }
 
@@ -405,8 +501,21 @@ fn create_led_matrix(id: String, attrs: &[(String, String)]) -> Result<Part> {
 fn create_max72xx(id: String, attrs: &[(String, String)]) -> Result<Part> {
     create_of(id, attrs, Part::Max72xx)
 }
-fn create_led_bar(id: String, attrs: &[(String, String)]) -> Result<Part> {
-    create_of(id, attrs, Part::LedBar)
+fn create_led_bar(_id: String, attrs: &[(String, String)]) -> Result<Part> {
+    let mut p = crate::components::LedBar::default();
+    apply_item_attrs(&mut p, attrs)?;
+    if prop(attrs, "Segments").is_none() {
+        if let Some(size_str) = prop(attrs, "Size") {
+            if let Some(n) = size_str
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+            {
+                let _ = p.set_prop_text("Segments", &n.to_string());
+            }
+        }
+    }
+    Ok(Part::LedBar(p))
 }
 fn create_rgb_led(id: String, attrs: &[(String, String)]) -> Result<Part> {
     create_of(id, attrs, Part::RgbLed)

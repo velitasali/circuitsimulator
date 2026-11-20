@@ -81,27 +81,24 @@ Item {
         acceptedButtons: Qt.AllButtons
         cursorShape: {
             switch (CircuitCanvas.cursor) {
-            case "openhand":   return Qt.OpenHandCursor
-            case "closedhand": return Qt.ClosedHandCursor
-            case "cross":      return Qt.CrossCursor
-            case "splith":     return Qt.SplitHCursor
-            case "splitv":     return Qt.SplitVCursor
-            case "sizeall":    return Qt.SizeAllCursor
-            default:           return Qt.ArrowCursor
+            case "openhand":     return Qt.OpenHandCursor
+            case "closedhand":   return Qt.ClosedHandCursor
+            case "cross":        return Qt.CrossCursor
+            case "splith":       return Qt.SplitHCursor
+            case "splitv":       return Qt.SplitVCursor
+            case "sizeall":      return Qt.SizeAllCursor
+            case "pointinghand": return Qt.PointingHandCursor
+            default:             return Qt.ArrowCursor
             }
         }
         preventStealing: true
 
         onPressed: (ev) => {
             root.forceActiveFocus()
+            const wasLinking = CircuitCanvas.linkingFrom.length > 0
             CircuitCanvas.mousePress(ev.button, ev.x, ev.y, ev.modifiers)
-            if (CircuitCanvas.linkingFrom && ev.button === Qt.LeftButton) {
-                if (CircuitCanvas.hasItemSelection)
-                    CircuitCanvas.completeLink()
-                else
-                    CircuitCanvas.stopLinking()
+            if (wasLinking)
                 return
-            }
             if (ev.button === Qt.RightButton) {
                 if (CircuitCanvas.hasPinHit)
                     pinMenu.popup()
@@ -165,16 +162,8 @@ Item {
         readonly property string pinId: CircuitCanvas.hitPinId
         readonly property bool isInverted: CircuitCanvas.hitPinInverted
         readonly property bool isPackage: CircuitCanvas.hitPinIsPackage
-        readonly property string itemUid: {
-            var p = pinId
-            var i = p.lastIndexOf("-")
-            return i > 0 ? p.substring(0, i) : ""
-        }
-        readonly property string localPinId: {
-            var p = pinId
-            var i = p.lastIndexOf("-")
-            return i > 0 ? p.substring(i + 1) : p
-        }
+        readonly property string itemUid: CircuitCanvas.hitPinItemUid
+        readonly property string localPinId: CircuitCanvas.hitPinLocalId
 
         ContextMenuItem {
             text: I18n.tr("Invert Pin")
@@ -193,8 +182,7 @@ Item {
             iconLigature: "edit"
             visible: pinMenu.isPackage
             onTriggered: {
-                editPinContent.loadPin(pinMenu.itemUid, pinMenu.localPinId)
-                editPinPopup.open()
+                editPinWin.openForPin(pinMenu.itemUid, pinMenu.localPinId)
             }
         }
         ContextMenuItem {
@@ -283,9 +271,10 @@ Item {
         readonly property bool isProbe: itemType === "Probe"
         readonly property bool isTestUnit: itemType === "TestUnit"
         readonly property bool isDcMotor: itemType === "DcMotor"
+        readonly property bool isStepper: itemType === "Stepper"
         readonly property bool isLed: itemType === "Led" || itemType === "LED"
         readonly property bool isDial: itemType === "Dial"
-        readonly property bool isLinker: isLed || isDial || isDcMotor || isMcuChip
+        readonly property bool isLinker: isLed || isDial || isDcMotor || isStepper || isMcuChip
         readonly property bool hasMonitors: (CircuitCanvas.selectedItemMonitors && CircuitCanvas.selectedItemMonitors.length > 0)
         readonly property bool hasFlash: CircuitCanvas.selectedHasFlash
         readonly property bool hasEeprom: CircuitCanvas.selectedHasEeprom
@@ -626,8 +615,7 @@ Item {
             visible: itemMenu.isSubPackage
             onTriggered: {
                 if (itemMenu.itemUid) {
-                    generatePinsContent.uid = itemMenu.itemUid
-                    generatePinsPopup.open()
+                    generatePinsWin.openForItem(itemMenu.itemUid)
                 }
             }
         }
@@ -637,6 +625,19 @@ Item {
             iconLigature: "link"
             visible: itemMenu.isSubPackage
             onTriggered: if (itemMenu.itemUid) CircuitCanvas.startLinking(itemMenu.itemUid)
+        }
+        ContextMenuItem {
+            text: CircuitCanvas.boardLayoutPkg.length > 0
+                ? I18n.tr("Exit Board Layout")
+                : I18n.tr("Edit Board Layout")
+            iconLigature: "developer_board"
+            visible: itemMenu.isSubPackage
+            onTriggered: {
+                if (CircuitCanvas.boardLayoutPkg.length > 0)
+                    CircuitCanvas.exitBoardLayout()
+                else if (itemMenu.itemUid)
+                    CircuitCanvas.enterBoardLayout(itemMenu.itemUid)
+            }
         }
 
         AppContextMenu {
@@ -941,30 +942,114 @@ Item {
         }
     }
 
-    Dialog {
-        id: editPinPopup
+    AppWindow {
+        id: editPinWin
+        ownerWindow: root.Window.window as Window
+        modality: Qt.WindowModal
         title: I18n.tr("Edit Package Pin")
-        modal: true
-        anchors.centerIn: parent
-        padding: 0
-        EditPinDialog {
-            id: editPinContent
-            onAccepted: editPinPopup.close()
-            onDeleted: editPinPopup.close()
-            onRejected: editPinPopup.close()
+        sizeToContent: true
+        contentMinWidth: 380
+        panelSource: "EditPinDialog.qml"
+
+        property string targetUid: ""
+        property string targetPinId: ""
+
+        function openForPin(itemUid: string, pinId: string): void {
+            targetUid = itemUid
+            targetPinId = pinId
+            var p = panel as EditPinDialog
+            if (visible && p) {
+                p.loadPin(itemUid, pinId)
+                bringToFront()
+                p.focusFirstField()
+            } else {
+                open()
+            }
+        }
+
+        onAboutToShow: {
+            var p = panel as EditPinDialog
+            if (p && targetUid && targetPinId)
+                p.loadPin(targetUid, targetPinId)
+        }
+
+        onVisibleChanged: {
+            if (visible) {
+                Qt.callLater(function() {
+                    var p = editPinWin.panel as EditPinDialog
+                    if (editPinWin.visible && p)
+                        p.focusFirstField()
+                })
+            }
+        }
+
+        onClosing: (close) => {
+            if (!editPinWin.isQuitting) {
+                close.accepted = false
+                openRequested = false
+            }
+        }
+
+        Connections {
+            target: editPinWin.panel
+            ignoreUnknownSignals: true
+            function onAccepted(): void { editPinWin.openRequested = false }
+            function onDeleted(): void { editPinWin.openRequested = false }
+            function onRejected(): void { editPinWin.openRequested = false }
         }
     }
 
-    Dialog {
-        id: generatePinsPopup
-        title: I18n.tr("Generate Pins")
-        modal: true
-        anchors.centerIn: parent
-        padding: 0
-        GeneratePinsDialog {
-            id: generatePinsContent
-            onAccepted: generatePinsPopup.close()
-            onRejected: generatePinsPopup.close()
+    AppWindow {
+        id: generatePinsWin
+        ownerWindow: root.Window.window as Window
+        modality: Qt.WindowModal
+        title: I18n.tr("Generate Package Pins")
+        sizeToContent: true
+        contentMinWidth: 360
+        panelSource: "GeneratePinsDialog.qml"
+
+        property string targetUid: ""
+
+        function openForItem(itemUid: string): void {
+            targetUid = itemUid
+            var p = panel as GeneratePinsDialog
+            if (visible && p) {
+                p.uid = itemUid
+                bringToFront()
+                p.focusFirstField()
+            } else {
+                open()
+            }
+        }
+
+        onAboutToShow: {
+            var p = panel as GeneratePinsDialog
+            if (p && targetUid)
+                p.uid = targetUid
+        }
+
+        onVisibleChanged: {
+            if (visible) {
+                Qt.callLater(function() {
+                    var p = generatePinsWin.panel as GeneratePinsDialog
+                    if (generatePinsWin.visible && p)
+                        p.focusFirstField()
+                })
+            }
+        }
+
+        onClosing: (close) => {
+            if (!generatePinsWin.isQuitting) {
+                close.accepted = false
+                openRequested = false
+            }
+        }
+
+        Connections {
+            target: generatePinsWin.panel
+            ignoreUnknownSignals: true
+            function onAccepted(): void { generatePinsWin.openRequested = false }
+            function onRejected(): void { generatePinsWin.openRequested = false }
         }
     }
 
@@ -1092,6 +1177,60 @@ Item {
         }
         CircuitCanvas.handleKey(ev.key, ev.modifiers)
         ev.accepted = true
+    }
+
+    Rectangle {
+        visible: CircuitCanvas.linkingFrom.length > 0 || CircuitCanvas.boardLayoutPkg.length > 0
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: hBar.visible ? hBar.height + 10 : 10
+        z: 40
+        radius: 6
+        height: linkBannerRow.implicitHeight + 10
+        width: linkBannerRow.implicitWidth + 20
+        color: appTheme.window
+        border.color: CircuitCanvas.linkingExposed
+            ? CircuitCanvas.exposedHighlightColor
+            : CircuitCanvas.linkHighlightColor
+        border.width: 1.5
+
+        Row {
+            id: linkBannerRow
+            anchors.centerIn: parent
+            spacing: 10
+
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 8
+                height: 8
+                radius: 4
+                color: CircuitCanvas.linkingExposed
+                    ? CircuitCanvas.exposedHighlightColor
+                    : CircuitCanvas.linkHighlightColor
+            }
+
+            AppText {
+                anchors.verticalCenter: parent.verticalCenter
+                color: appTheme.windowText
+                text: CircuitCanvas.boardLayoutPkg.length > 0
+                    ? I18n.tr("Board Layout — drag components onto the package face (R to rotate), press Esc or Done to finish")
+                    : (CircuitCanvas.linkingExposed
+                        ? I18n.tr("Select Exposed Components — click components to toggle, click empty space or Esc to finish")
+                        : I18n.tr("Link to Component") + " (" + CircuitCanvas.linkingFrom + ") — "
+                            + I18n.tr("click components to toggle, click empty space or Esc to finish"))
+            }
+
+            AppButton {
+                anchors.verticalCenter: parent.verticalCenter
+                text: I18n.tr("Done")
+                onClicked: {
+                    if (CircuitCanvas.boardLayoutPkg.length > 0)
+                        CircuitCanvas.exitBoardLayout()
+                    else
+                        CircuitCanvas.stopLinking()
+                }
+            }
+        }
     }
 
     Rectangle {

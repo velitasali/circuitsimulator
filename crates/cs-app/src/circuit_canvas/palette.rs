@@ -10,6 +10,8 @@ pub(super) fn update_palette_colors(canvas: &mut super::CircuitCanvas) {
     canvas.canvas_color = ColorTheme::get_hex(ColorId::CanvasBackground, dark);
     canvas.grid_color = ColorTheme::get_hex(ColorId::CanvasGridDots, dark);
     canvas.band_color = ColorTheme::get_hex(ColorId::ItemHovered, dark);
+    canvas.link_highlight_color = ColorTheme::get_hex(ColorId::LinkHighlight, dark);
+    canvas.exposed_highlight_color = ColorTheme::get_hex(ColorId::ExposedHighlight, dark);
     canvas.body_color = ColorTheme::get_hex(ColorId::ComponentBody, dark);
     canvas.border_color = ColorTheme::get_hex(ColorId::ComponentBorder, dark);
     canvas.wire_color = ColorTheme::get_hex(ColorId::WireOpen, dark);

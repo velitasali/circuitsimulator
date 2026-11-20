@@ -4,6 +4,7 @@
 //! QML draws from the scene snapshot; this module owns selection, wires, and
 //! the viewport transform.
 
+pub(crate) mod board_layout;
 pub(crate) mod clipboard;
 pub(crate) mod dirty;
 pub(crate) mod drag;
@@ -39,7 +40,7 @@ pub use export::{
     render_viewport_regions_mut, render_viewport_regions_projected_mut, save_image, svg_string,
 };
 pub use files::MemoryItemInfo;
-pub use geom::{Point, Rect, map_rect, snap_to_grid4, to_grid};
+pub use geom::{Point, Rect, map_rect, map_scene, snap_to_grid4, to_grid};
 pub use image_buf::ImageBuf;
 pub use pin::{PIN_HIT_RADIUS, Pin, PinDirection, PinGeom};
 pub use place::PlaceKind;
@@ -108,6 +109,23 @@ pub(crate) fn wrap_chevron_step(mut step: f64) -> f64 {
     step
 }
 
+/// Active interactive linking session on the canvas.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LinkMode {
+    /// "Link to Component": toggling targets in `source_uid`'s `Item::links`.
+    Component(String),
+    /// "Select Exposed Components": toggling `Item::main_comp` for a `SubPackage`.
+    Exposed(String),
+}
+
+impl LinkMode {
+    pub fn source_uid(&self) -> &str {
+        match self {
+            Self::Component(id) | Self::Exposed(id) => id,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Canvas {
     pub(crate) viewport: Vp,
@@ -135,6 +153,7 @@ pub struct Canvas {
     pub(crate) anim_tick: u32,
     pub(crate) sim_tick: u32,
     pub(crate) file_path: Option<String>,
+    pub(crate) project_dir: Option<std::path::PathBuf>,
     pub(crate) running: Option<crate::Circuit>,
     pub(crate) readings: std::collections::HashMap<String, crate::instruments::ReadingView>,
     pub(crate) scope_traces: crate::plot::PlotBuffer,
@@ -171,12 +190,12 @@ pub struct Canvas {
     pub(crate) catalog: crate::catalog::Catalog,
     pub(crate) audio_sink: Option<std::sync::Arc<std::sync::Mutex<dyn crate::audio::AudioSink>>>,
     pub(crate) hit_label_info: Option<(String, bool)>,
-    pub(crate) hit_pin_id: Option<String>,
+    pub(crate) hit_pin: Option<(String, String)>,
     pub(crate) last_wheel_item: Option<(String, f64, String, f64)>,
-    /// C++ `Linker::m_selecComp`: uid of the component currently linking others.
-    pub(crate) linking_from: Option<String>,
-    /// linker uid -> linked component uids.
-    pub(crate) linked: std::collections::HashMap<String, Vec<String>>,
+    /// C++ `Linker::m_selecComp`: active component-linking or exposed-selection mode.
+    pub(crate) link_mode: Option<LinkMode>,
+    /// Active "Edit Board Layout" session for a `SubPackage`.
+    pub(crate) board_layout: Option<board_layout::BoardLayoutSession>,
     pub(crate) probe_last_high: std::collections::HashMap<String, bool>,
     pub(crate) overload_states:
         std::collections::HashMap<String, crate::overload::ItemOverloadState>,
@@ -242,6 +261,7 @@ impl Canvas {
             anim_tick: 0,
             sim_tick: 0,
             file_path: None,
+            project_dir: None,
             running: None,
             readings: std::collections::HashMap::new(),
             scope_traces: crate::instruments::empty_scope_traces(),
@@ -275,10 +295,10 @@ impl Canvas {
             catalog: crate::catalog::Catalog::new(),
             audio_sink: None,
             hit_label_info: None,
-            hit_pin_id: None,
+            hit_pin: None,
             last_wheel_item: None,
-            linking_from: None,
-            linked: std::collections::HashMap::new(),
+            link_mode: None,
+            board_layout: None,
             probe_last_high: std::collections::HashMap::new(),
             overload_states: std::collections::HashMap::new(),
             overload_log: Vec::new(),
@@ -741,16 +761,29 @@ impl Canvas {
     }
 
     pub fn has_pin_hit(&self) -> bool {
-        self.hit_pin_id.is_some()
+        self.hit_pin.is_some()
     }
 
     pub fn hit_pin_id(&self) -> Option<&str> {
-        self.hit_pin_id.as_deref()
+        self.hit_pin.as_ref().map(|(pin_id, _)| pin_id.as_str())
+    }
+
+    pub fn hit_pin_item_id(&self) -> Option<&str> {
+        self.hit_pin.as_ref().map(|(_, item_id)| item_id.as_str())
+    }
+
+    pub fn hit_pin_local_id(&self) -> Option<&str> {
+        let (pin_id, item_id) = self.hit_pin.as_ref()?;
+        Some(
+            pin_id
+                .strip_prefix(item_id.as_str())
+                .and_then(|rest| rest.strip_prefix('-'))
+                .unwrap_or(pin_id.as_str()),
+        )
     }
 
     pub fn is_hit_pin_inverted(&self) -> bool {
-        self.hit_pin_id
-            .as_deref()
+        self.hit_pin_id()
             .map(|id| self.scene.is_pin_inverted(id))
             .unwrap_or(false)
     }

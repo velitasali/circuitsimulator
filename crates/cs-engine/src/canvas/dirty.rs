@@ -8,6 +8,7 @@
 use rustc_hash::FxHashSet;
 
 use super::Canvas;
+use super::board_layout;
 use super::geom::{Point, Rect, map_local};
 use super::pin::Pin;
 use super::scene::wires::pin_belongs;
@@ -257,6 +258,21 @@ impl Canvas {
         if dx == 0.0 && dy == 0.0 {
             return false;
         }
+        if let Some(pkg_uid) = self.board_layout.as_ref().map(|s| s.pkg_uid.clone()) {
+            self.dirty_selected_now();
+            let mut changed = false;
+            for it in self.scene.items_mut() {
+                if it.selected && it.id != pkg_uid && board_layout::is_boardable_part(&it.kind) {
+                    it.x += dx;
+                    it.y += dy;
+                    changed = true;
+                }
+            }
+            if changed {
+                self.dirty_selected_now();
+            }
+            return changed;
+        }
         self.dirty_move_footprint();
         let changed = self.scene.move_selected(dx, dy);
         if changed {
@@ -394,6 +410,22 @@ impl Canvas {
     }
 
     pub(crate) fn select_intersecting(&mut self, band: Rect) -> bool {
+        if let Some(pkg_uid) = self.board_layout.as_ref().map(|s| s.pkg_uid.clone()) {
+            let norm = band.normalized();
+            self.dirty_selected_now();
+            let mut changed = false;
+            for it in self.scene.items_mut() {
+                let want = it.id != pkg_uid
+                    && board_layout::is_boardable_part(&it.kind)
+                    && it.hit_rect().intersects(&norm);
+                if it.selected != want {
+                    it.selected = want;
+                    changed = true;
+                }
+            }
+            self.dirty_selected_now();
+            return changed;
+        }
         self.dirty_selected_now();
         let changed = self.scene.select_intersecting(band);
         self.dirty_selected_now();
@@ -433,6 +465,9 @@ impl Canvas {
     }
 
     pub(crate) fn sync_wires_for_selected(&mut self) {
+        if self.board_layout.is_some() {
+            return;
+        }
         let moved_ids: Vec<String> = self
             .scene
             .items()
@@ -510,6 +545,15 @@ impl Canvas {
 
 /// Quantized glow used to decide whether an analog-painted part changed.
 pub fn analog_visual_bucket(it: &Item, circuit: &crate::Circuit) -> Option<i32> {
+    analog_visual_bucket_for_part(&it.kind, &it.id, circuit)
+}
+
+/// Quantized glow for a `Part` identified by `item_id` in `circuit` (top-level or board child).
+pub fn analog_visual_bucket_for_part(
+    part: &Part,
+    item_id: &str,
+    circuit: &crate::Circuit,
+) -> Option<i32> {
     fn glow_bucket(ratio: f64) -> i32 {
         (ratio.clamp(0.0, 2.0).sqrt() * 24.0).round() as i32
     }
@@ -523,19 +567,19 @@ pub fn analog_visual_bucket(it: &Item, circuit: &crate::Circuit) -> Option<i32> 
             circuit.pin_voltage(pin_id).unwrap_or(0.0)
         })
     }
-    match &it.kind {
+    match part {
         Part::Led(p) => {
-            let current = pin_i(circuit, &it.id, crate::elements::pins::PIN_LEFT).max(0.0);
+            let current = pin_i(circuit, item_id, crate::elements::pins::PIN_LEFT).max(0.0);
             let max_i = p.max_current.max(0.001);
             let mut ratio = current / max_i;
             // Paint can light from Vf even when pin current is ~0; the
             // current-only bucket missed that until a full raster (scroll).
             if ratio <= 0.001 {
-                let va = pin_v(circuit, &it.id, crate::elements::pins::PIN_LEFT);
+                let va = pin_v(circuit, item_id, crate::elements::pins::PIN_LEFT);
                 let vc = if p.grounded {
                     0.0
                 } else {
-                    pin_v(circuit, &it.id, crate::elements::pins::PIN_RIGHT)
+                    pin_v(circuit, item_id, crate::elements::pins::PIN_RIGHT)
                 };
                 let v_diff = (va - vc).max(0.0);
                 if v_diff > p.threshold * 0.95 {
@@ -545,14 +589,42 @@ pub fn analog_visual_bucket(it: &Item, circuit: &crate::Circuit) -> Option<i32> 
             }
             Some(glow_bucket(ratio))
         }
+        Part::LedBar(p) => {
+            let n = p.segments.clamp(1, 30);
+            let mut mask = 0i32;
+            for i in 0..n {
+                let va =
+                    super::with_pin_id_idx(item_id, crate::elements::pins::PIN_LEFT, i, |pid| {
+                        circuit.pin_voltage(pid)
+                    })
+                    .unwrap_or(0.0);
+                let vc = if p.grounded {
+                    0.0
+                } else {
+                    super::with_pin_id_idx(item_id, crate::elements::pins::PIN_RIGHT, i, |pid| {
+                        circuit.pin_voltage(pid)
+                    })
+                    .unwrap_or(0.0)
+                };
+                let cur =
+                    super::with_pin_id_idx(item_id, crate::elements::pins::PIN_LEFT, i, |pid| {
+                        circuit.current_out_of_pin(pid)
+                    })
+                    .unwrap_or(0.0);
+                if (va - vc) > 1.5 || cur > 0.0005 {
+                    mask |= 1 << i;
+                }
+            }
+            Some(mask)
+        }
         Part::RgbLed(_) => {
-            let ir = pin_i(circuit, &it.id, crate::elements::pins::PIN_RGB_R).abs() / 0.03;
-            let ig = pin_i(circuit, &it.id, crate::elements::pins::PIN_RGB_G).abs() / 0.03;
-            let ib = pin_i(circuit, &it.id, crate::elements::pins::PIN_RGB_B).abs() / 0.03;
+            let ir = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_R).abs() / 0.03;
+            let ig = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_G).abs() / 0.03;
+            let ib = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_B).abs() / 0.03;
             Some((glow_bucket(ir) << 16) | (glow_bucket(ig) << 8) | glow_bucket(ib))
         }
         Part::Lamp(p) => {
-            let current = pin_i(circuit, &it.id, crate::elements::pins::PIN_LEFT).abs();
+            let current = pin_i(circuit, item_id, crate::elements::pins::PIN_LEFT).abs();
             let max_i = if p.voltage > 1e-6 {
                 p.power / p.voltage
             } else {

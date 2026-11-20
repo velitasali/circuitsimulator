@@ -219,7 +219,7 @@ impl Component for Csource {
         let mut rows = self.prop_rows();
         for r in &mut rows {
             match r.name {
-                "CurrControl" | "Gain" => r.visible = self.control_pins,
+                "CurrControl" => r.visible = self.control_pins,
                 "Voltage" => r.visible = !self.control_pins && !self.curr_source,
                 "Current" => r.visible = !self.control_pins && self.curr_source,
                 _ => {}

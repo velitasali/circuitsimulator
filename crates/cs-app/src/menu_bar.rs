@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use cs_engine::settings::AppSettings;
-use cs_engine::{i18n, settings};
+use cs_engine::{catalog, i18n, project, settings};
 use qtbridge::qobject;
 use serde_json::{Map, Value, json};
 
 use crate::actions::{self, MenuLeaf};
-use crate::{macos_host, pending};
+use crate::{macos_host, path_util, pending};
 
 #[derive(Clone)]
 struct Entry {
@@ -53,6 +53,8 @@ pub struct AppMenuBar {
     has_selection: bool,
     can_paste: bool,
     has_project: bool,
+    circuit_path: String,
+    project_dir: String,
 }
 
 fn t(s: &str) -> String {
@@ -240,6 +242,37 @@ fn recent_entries(
     entries
 }
 
+fn local_subcircuit_names(circuit_path: &str, project_dir: &str) -> Vec<String> {
+    let cat = catalog::local_subcircuits(
+        (!circuit_path.is_empty()).then_some(circuit_path),
+        (!project_dir.is_empty()).then_some(project_dir),
+    );
+    cat.items()
+        .iter()
+        .filter(|i| i.typ == "Subcircuit")
+        .map(|i| i.name.clone())
+        .collect()
+}
+
+fn insert_subcircuit_entries(names: &[String], custom: &BTreeMap<String, String>) -> Vec<Entry> {
+    if names.is_empty() {
+        return vec![item("", &t("(None)"), false, false, false, custom)];
+    }
+    names
+        .iter()
+        .map(|name| {
+            item(
+                &format!("insertSubc:{name}"),
+                name,
+                true,
+                false,
+                false,
+                custom,
+            )
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_menus(
     st: &AppSettings,
@@ -254,6 +287,7 @@ fn build_menus(
     has_selection: bool,
     can_paste: bool,
     has_project: bool,
+    local_subcircuits: &[String],
 ) -> Vec<MenuNode> {
     let c = &st.shortcuts;
     let power_text = if running {
@@ -354,7 +388,10 @@ fn build_menus(
                     false,
                     c,
                 ),
-                sub(&t("&Insert Subcircuit"), vec![]),
+                sub(
+                    &t("&Insert Subcircuit"),
+                    insert_subcircuit_entries(local_subcircuits, c),
+                ),
                 sep(),
                 sub(
                     &t("Recent Files"),
@@ -616,6 +653,16 @@ impl Default for AppMenuBar {
     fn default() -> Self {
         let st = settings::get();
         let has_project = project_open_from_settings(&st);
+        let project_dir = if pending::no_project() {
+            String::new()
+        } else {
+            st.last_project_dir
+                .clone()
+                .or_else(|| st.recent_projects.first().cloned())
+                .map(|p| project::normalize_path(&p))
+                .unwrap_or_default()
+        };
+        let local_subcs = local_subcircuit_names("", &project_dir);
         let menus = build_menus(
             &st,
             false,
@@ -629,6 +676,7 @@ impl Default for AppMenuBar {
             false,
             false,
             has_project,
+            &local_subcs,
         );
         let json = serialize_menus(&menus);
         let shortcuts = qml_shortcuts_for(&menus, cfg!(target_os = "macos"), &st.shortcuts);
@@ -649,6 +697,8 @@ impl Default for AppMenuBar {
             has_selection: false,
             can_paste: false,
             has_project,
+            circuit_path: String::new(),
+            project_dir,
         }
     }
 }
@@ -803,8 +853,27 @@ impl AppMenuBar {
     }
 
     #[qslot]
+    fn set_circuit_path(&mut self, path: String) {
+        let clean = path_util::strip_file_url(&path);
+        if self.circuit_path != clean {
+            self.circuit_path = clean;
+            self.rebuild();
+        }
+    }
+
+    #[qslot]
+    fn set_project_dir(&mut self, dir: String) {
+        let clean = project::normalize_path(&path_util::strip_file_url(&dir));
+        if self.project_dir != clean {
+            self.project_dir = clean;
+            self.rebuild();
+        }
+    }
+
+    #[qslot]
     fn rebuild(&mut self) {
         let st = settings::get();
+        let local_subcs = local_subcircuit_names(&self.circuit_path, &self.project_dir);
         self.menus = build_menus(
             &st,
             self.running,
@@ -818,6 +887,7 @@ impl AppMenuBar {
             self.has_selection,
             self.can_paste,
             self.has_project,
+            &local_subcs,
         );
         self.republish();
     }
@@ -982,7 +1052,19 @@ mod tests {
     fn default_menus() -> Vec<MenuNode> {
         let st = AppSettings::default();
         build_menus(
-            &st, false, false, true, false, true, true, false, false, false, false, false,
+            &st,
+            false,
+            false,
+            true,
+            false,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            &[],
         )
     }
 

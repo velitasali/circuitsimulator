@@ -107,6 +107,8 @@ fn test_sensors_and_variable_passives() {
         kind: cs_engine::elements::Kind::Ldr {
             resistance: 2000.0,
             lux: 50.0,
+            r_dark: 1e6,
+            r_light: 1000.0,
         },
     });
     c.add_resistor("R1", 2000.0);

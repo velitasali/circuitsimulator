@@ -178,7 +178,9 @@ fn functional_properties_reach_the_solver_kind() {
     ldr.set_prop_text("Lux", "1000").unwrap();
     let circuit = inserted(&ldr);
     match &circuit.comp(ID).unwrap().kind {
-        Kind::Ldr { resistance, lux } => {
+        Kind::Ldr {
+            resistance, lux, ..
+        } => {
             assert!((*lux - 1000.0).abs() < 1e-9);
             assert!((*resistance - default_r).abs() > 1.0);
         }

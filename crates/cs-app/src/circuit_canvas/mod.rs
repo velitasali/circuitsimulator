@@ -32,6 +32,8 @@ pub struct CircuitCanvas {
     pub(crate) canvas_color: String,
     pub(crate) viewport_color: String,
     pub(crate) band_color: String,
+    pub(crate) link_highlight_color: String,
+    pub(crate) exposed_highlight_color: String,
     pub(crate) body_color: String,
     pub(crate) border_color: String,
     pub(crate) wire_color: String,
@@ -136,6 +138,8 @@ impl Default for CircuitCanvas {
             canvas_color: String::new(),
             viewport_color: String::new(),
             band_color: String::new(),
+            link_highlight_color: String::new(),
+            exposed_highlight_color: String::new(),
             body_color: String::new(),
             border_color: String::new(),
             wire_color: String::new(),
@@ -652,6 +656,16 @@ impl CircuitCanvas {
     qproperty!("hasLabelHit", Read = has_label_hit, Notify = items_changed);
     qproperty!("hitPinId", Read = hit_pin_id, Notify = items_changed);
     qproperty!(
+        "hitPinItemUid",
+        Read = hit_pin_item_uid,
+        Notify = items_changed
+    );
+    qproperty!(
+        "hitPinLocalId",
+        Read = hit_pin_local_id,
+        Notify = items_changed
+    );
+    qproperty!(
         "hitPinInverted",
         Read = hit_pin_inverted,
         Notify = items_changed
@@ -703,6 +717,16 @@ impl CircuitCanvas {
         Notify = items_changed
     );
     qproperty!("linkingFrom", Read = linking_from, Notify = items_changed);
+    qproperty!(
+        "linkingExposed",
+        Read = linking_exposed,
+        Notify = items_changed
+    );
+    qproperty!(
+        "boardLayoutPkg",
+        Read = board_layout_pkg,
+        Notify = items_changed
+    );
     qproperty!(
         "hitPinIsPackage",
         Read = hit_pin_is_package,
@@ -782,6 +806,16 @@ impl CircuitCanvas {
         Notify = appearance_changed
     );
     qproperty!("bandColor", Read = band_color, Notify = appearance_changed);
+    qproperty!(
+        "linkHighlightColor",
+        Read = link_highlight_color,
+        Notify = appearance_changed
+    );
+    qproperty!(
+        "exposedHighlightColor",
+        Read = exposed_highlight_color,
+        Notify = appearance_changed
+    );
     qproperty!("bodyColor", Read = body_color, Notify = appearance_changed);
     qproperty!(
         "borderColor",
@@ -1539,6 +1573,11 @@ impl CircuitCanvas {
         let from_cli = crate::pending::OPEN_CIRCUIT.get().is_some() && is_first;
 
         self.project_path = new_project.clone();
+        self.inner.set_project_dir(if new_project.is_empty() {
+            None
+        } else {
+            Some(new_project.clone())
+        });
         self.project_path_changed();
 
         if from_cli {
@@ -1629,6 +1668,14 @@ impl CircuitCanvas {
         self.inner.hit_pin_id().unwrap_or("").to_string()
     }
 
+    fn hit_pin_item_uid(&self) -> String {
+        self.inner.hit_pin_item_id().unwrap_or("").to_string()
+    }
+
+    fn hit_pin_local_id(&self) -> String {
+        self.inner.hit_pin_local_id().unwrap_or("").to_string()
+    }
+
     fn hit_pin_inverted(&self) -> bool {
         self.inner.is_hit_pin_inverted()
     }
@@ -1676,6 +1723,14 @@ impl CircuitCanvas {
 
     fn linking_from(&self) -> String {
         self.inner.linking_from().unwrap_or("").to_string()
+    }
+
+    fn linking_exposed(&self) -> bool {
+        self.inner.is_linking_exposed()
+    }
+
+    fn board_layout_pkg(&self) -> String {
+        self.inner.board_layout_pkg().unwrap_or("").to_string()
     }
 
     fn selected_tunnel_visible(&self) -> bool {
@@ -2068,6 +2123,14 @@ impl CircuitCanvas {
     }
     fn band_color(&self) -> String {
         self.band_color.clone()
+    }
+
+    fn link_highlight_color(&self) -> String {
+        self.link_highlight_color.clone()
+    }
+
+    fn exposed_highlight_color(&self) -> String {
+        self.exposed_highlight_color.clone()
     }
     fn body_color(&self) -> String {
         self.body_color.clone()
@@ -3557,13 +3620,8 @@ impl CircuitCanvas {
                     it.id.clone()
                 };
                 let target_path = sub.nested_path.clone().or_else(|| {
-                    cs_engine::subcircuit::resolve_subc(
-                        &sub.device,
-                        &cs_engine::subcircuit::SubcSearch::from_circuit_path(
-                            self.inner.file_path(),
-                        ),
-                    )
-                    .and_then(|r| r.path.map(|p| p.to_string_lossy().into_owned()))
+                    cs_engine::subcircuit::resolve_subc(&sub.device, &self.inner.subc_search())
+                        .and_then(|r| r.path.map(|p| p.to_string_lossy().into_owned()))
                 });
                 if let Some(path) = target_path {
                     self.open_subcircuit_requested(path, label);
@@ -4057,8 +4115,8 @@ impl CircuitCanvas {
 
     #[qslot]
     fn start_linking(&mut self, uid: String) {
-        self.inner.start_linking(&uid);
-        self.items_changed();
+        let c = self.inner.start_linking(&uid);
+        self.apply(c);
     }
 
     #[qslot]
@@ -4070,8 +4128,20 @@ impl CircuitCanvas {
 
     #[qslot]
     fn stop_linking(&mut self) {
-        self.inner.stop_linking();
-        self.items_changed();
+        let c = self.inner.stop_linking();
+        self.apply(c);
+    }
+
+    #[qslot]
+    fn enter_board_layout(&mut self, uid: String) {
+        let c = self.inner.enter_board_layout(&uid);
+        self.apply(c);
+    }
+
+    #[qslot]
+    fn exit_board_layout(&mut self) {
+        let c = self.inner.exit_board_layout();
+        self.apply(c);
     }
 
     #[qslot]

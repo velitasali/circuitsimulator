@@ -93,6 +93,7 @@ impl Scene {
         }
         self.clear_selection();
         let mut id_map = std::collections::HashMap::new();
+        let mut pasted_items = Vec::with_capacity(incoming.items.len());
         for mut it in incoming.items {
             let old = it.id.clone();
             let new_id = match &mut it.kind {
@@ -117,6 +118,16 @@ impl Scene {
             it.selected = true;
             if it.label.is_empty() {
                 it.label = it.id.clone();
+            }
+            pasted_items.push(it);
+        }
+        for mut it in pasted_items {
+            if !it.links.is_empty() {
+                it.links = it
+                    .links
+                    .iter()
+                    .filter_map(|target| id_map.get(target).cloned())
+                    .collect();
             }
             self.add_saved_item(it);
         }
@@ -186,6 +197,9 @@ impl Scene {
         c.ps_per_sec = self.settings.ps_per_sec();
         for it in &self.items {
             it.kind.add_to_circuit(&it.id, &mut c);
+            if !it.links.is_empty() {
+                c.set_links(&it.id, it.links.clone());
+            }
         }
         for h in &self.hidden {
             c.add_comp(h.clone());
@@ -236,6 +250,13 @@ impl Scene {
                 item.custom_val_pos = true;
             }
             item.val_rot = it.graphic.val_rot;
+            item.main_comp =
+                it.graphic.main_comp || matches!(&item.kind, Part::Mcu(mcu) if mcu.is_main_comp);
+            if let Part::Mcu(ref mut mcu) = item.kind {
+                mcu.is_main_comp = item.main_comp;
+            }
+            item.links = it.graphic.links;
+            item.board = it.graphic.board;
 
             // Handle Mcu, QemuDevice, Subcircuit view loading
             match &mut item.kind {
@@ -334,6 +355,7 @@ impl Scene {
                             &subc.program,
                         );
                     }
+                    subc.refresh_board_children();
                 }
                 Part::WaveGen(wg) => {
                     if wg.wav_data.is_none() && !wg.file.is_empty() {

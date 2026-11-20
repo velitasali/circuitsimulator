@@ -24,6 +24,8 @@ pub struct ParsedItem {
     pub show_prop: Option<String>,
     pub val_pos: Option<(f64, f64)>,
     pub val_rot: Option<i32>,
+    pub main_comp: bool,
+    pub links: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -1224,19 +1226,35 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
             }
             ITEM_CSOURCE => {
                 let id = circ_id(&properties)?;
+                let control_pins = prop(&properties, "ControlPins")
+                    .or_else(|| prop(&properties, "Control_Pins"))
+                    .map(parse_bool)
+                    .unwrap_or(true);
+                let curr_source = prop(&properties, "CurrSource")
+                    .map(parse_bool)
+                    .unwrap_or(false);
+                let curr_control = prop(&properties, "CurrControl")
+                    .map(parse_bool)
+                    .unwrap_or(false);
                 let gain = prop(&properties, PROP_GAIN)
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(1.0);
+                let volt = prop(&properties, PROP_VOLTAGE)
+                    .map(|v| parse_si(v, "V"))
+                    .unwrap_or(0.0);
+                let current = prop(&properties, "Current")
+                    .map(|v| parse_si(v, "A"))
+                    .unwrap_or(0.0);
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
                         kind: Kind::Csource {
-                            control_pins: true,
-                            curr_source: false,
-                            curr_control: false,
+                            control_pins,
+                            curr_source,
+                            curr_control,
                             gain,
-                            volt: 0.0,
-                            current: 0.0,
+                            volt,
+                            current,
                             ctrl: 0.0,
                             sense_ohms: prop(&properties, "Sense")
                                 .map(|v| parse_si(v, "Ω"))
@@ -1651,7 +1669,12 @@ pub fn parse_sim1(src: &str) -> Result<ParsedCircuit> {
                 items.push(parsed_item(
                     Comp {
                         id: id.clone(),
-                        kind: Kind::Ldr { resistance, lux },
+                        kind: Kind::Ldr {
+                            resistance,
+                            lux,
+                            r_dark,
+                            r_light,
+                        },
                     },
                     &properties,
                 ));
@@ -2796,6 +2819,13 @@ fn parsed_item(comp: Comp, properties: &[(String, String)]) -> ParsedItem {
         show_prop: prop(properties, PROP_SHOWPROP).map(|s| s.to_string()),
         val_pos: prop(properties, PROP_VALLABPOS).and_then(parse_point),
         val_rot: prop(properties, PROP_VALLABROT).and_then(|v| v.parse().ok()),
+        main_comp: prop(properties, "mainComp")
+            .or_else(|| prop(properties, "MainComp"))
+            .map(parse_bool)
+            .unwrap_or(false),
+        links: prop(properties, "Links")
+            .map(crate::circ1::parse_links_attr)
+            .unwrap_or_default(),
     }
 }
 
@@ -2945,6 +2975,7 @@ pub const LEGACY_ITEMTYPE_ALIASES: &[(&str, &str)] = &[
     ),
     ("7SegmentBCD", crate::components::SevenSegmentBCD::TYPE_ID),
     ("7Segment BCD", crate::components::SevenSegmentBCD::TYPE_ID),
+    ("7 Seg BCD", crate::components::SevenSegmentBCD::TYPE_ID),
     (
         "SevenSegment BCD",
         crate::components::SevenSegmentBCD::TYPE_ID,
@@ -3241,9 +3272,12 @@ fn parse_legacy_graphic_attrs(attrs: &[(String, String)]) -> GraphicAttrs {
             "ShowProp" | "show_prop" => g.show_prop = Some(v.clone()),
             "valLabPos" | "val_lab_pos" => g.val_pos = parse_point(v),
             "valLabRot" | "val_rot" => g.val_rot = v.parse().unwrap_or(0),
+            "mainComp" | "MainComp" => g.main_comp = parse_bool(v),
+            "Links" => g.links = crate::circ1::parse_links_attr(v),
             _ => {}
         }
     }
+    g.board = crate::circ1::parse_board_placement(attrs);
     g
 }
 

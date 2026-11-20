@@ -192,7 +192,19 @@ impl Scene {
                             } else {
                                 search.clone()
                             };
+                            let has_exposed_mcu = parsed.items.iter().any(|inner_it| {
+                                inner_it.main_comp
+                                    && matches!(
+                                        inner_it.comp.kind,
+                                        crate::elements::Kind::Mcu(_)
+                                            | crate::elements::Kind::McuItem(_)
+                                            | crate::elements::Kind::QemuDevice(_)
+                                    )
+                            });
                             for inner_it in &parsed.items {
+                                if has_exposed_mcu && !inner_it.main_comp {
+                                    continue;
+                                }
                                 match &inner_it.comp.kind {
                                     crate::elements::Kind::Mcu(_) => {
                                         let inner_id = inner_it.comp.id.clone();

@@ -1,5 +1,6 @@
 //! Canvas selection clipboard, cut/copy/paste, and geometric transformations.
 
+use crate::canvas::board_layout;
 use crate::canvas::events::Change;
 use crate::canvas::geom::to_grid as snap_point;
 use crate::canvas::{Canvas, Point};
@@ -27,6 +28,9 @@ impl Canvas {
     }
 
     pub fn paste_at(&mut self, at: Point) -> Change {
+        if self.board_layout.is_some() {
+            return Change::default();
+        }
         let Some((src, origin)) = self.clipboard.clone() else {
             return Change::default();
         };
@@ -47,13 +51,18 @@ impl Canvas {
     }
 
     pub fn cut_selection(&mut self) -> Change {
-        if !self.scene.any_selected() {
+        if self.board_layout.is_some() || !self.scene.any_selected() {
             return Change::default();
         }
         self.copy_selection();
         self.push_undo();
         let mut c = Change::edit();
         c.items = self.drop_selected_visuals();
+        if let Some(mode) = &self.link_mode {
+            if self.scene.item_by_id(mode.source_uid()).is_none() {
+                self.link_mode = None;
+            }
+        }
         c.wires = true;
         c.merge(self.refresh_sim());
         c.merge(self.refresh_props());
@@ -61,12 +70,17 @@ impl Canvas {
     }
 
     pub fn delete_selected(&mut self) -> Change {
-        if !self.scene.any_selected() {
+        if self.board_layout.is_some() || !self.scene.any_selected() {
             return Change::default();
         }
         self.push_undo();
         let mut c = Change::edit();
         c.items = self.drop_selected_visuals();
+        if let Some(mode) = &self.link_mode {
+            if self.scene.item_by_id(mode.source_uid()).is_none() {
+                self.link_mode = None;
+            }
+        }
         c.wires = true;
         c.merge(self.refresh_sim());
         c.merge(self.refresh_props());
@@ -74,6 +88,26 @@ impl Canvas {
     }
 
     pub fn select_all(&mut self) -> Change {
+        if let Some(pkg_uid) = self.board_layout.as_ref().map(|s| s.pkg_uid.clone()) {
+            self.dirty_selected_now();
+            let mut changed = false;
+            for it in self.scene.items_mut() {
+                let want = it.id != pkg_uid && board_layout::is_boardable_part(&it.kind);
+                if it.selected != want {
+                    it.selected = want;
+                    changed = true;
+                }
+            }
+            if changed {
+                self.dirty_selected_now();
+            }
+            return Change {
+                items: changed,
+                wires: false,
+                history: false,
+                ..Change::default()
+            };
+        }
         self.dirty_selected_now();
         let changed = self.scene.select_all();
         if changed {
@@ -100,6 +134,22 @@ impl Canvas {
             return Change::default();
         }
         self.push_undo();
+        if let Some(pkg_uid) = self.board_layout.as_ref().map(|s| s.pkg_uid.clone()) {
+            self.dirty_selected_now();
+            let mut changed = false;
+            for it in self.scene.items_mut() {
+                if it.selected && it.id != pkg_uid && board_layout::is_boardable_part(&it.kind) {
+                    it.rotation += degrees * it.hflip as f64 * it.vflip as f64;
+                    changed = true;
+                }
+            }
+            if !changed {
+                self.history.undo.pop();
+                return Change::default();
+            }
+            self.dirty_selected_now();
+            return Change::edit();
+        }
         self.dirty_move_footprint();
         if !self.scene.rotate_selected(degrees) {
             self.history.undo.pop();
@@ -114,6 +164,22 @@ impl Canvas {
             return Change::default();
         }
         self.push_undo();
+        if let Some(pkg_uid) = self.board_layout.as_ref().map(|s| s.pkg_uid.clone()) {
+            self.dirty_selected_now();
+            let mut changed = false;
+            for it in self.scene.items_mut() {
+                if it.selected && it.id != pkg_uid && board_layout::is_boardable_part(&it.kind) {
+                    it.hflip = -it.hflip;
+                    changed = true;
+                }
+            }
+            if !changed {
+                self.history.undo.pop();
+                return Change::default();
+            }
+            self.dirty_selected_now();
+            return Change::edit();
+        }
         self.dirty_move_footprint();
         if !self.scene.flip_h_selected() {
             self.history.undo.pop();
@@ -128,6 +194,22 @@ impl Canvas {
             return Change::default();
         }
         self.push_undo();
+        if let Some(pkg_uid) = self.board_layout.as_ref().map(|s| s.pkg_uid.clone()) {
+            self.dirty_selected_now();
+            let mut changed = false;
+            for it in self.scene.items_mut() {
+                if it.selected && it.id != pkg_uid && board_layout::is_boardable_part(&it.kind) {
+                    it.vflip = -it.vflip;
+                    changed = true;
+                }
+            }
+            if !changed {
+                self.history.undo.pop();
+                return Change::default();
+            }
+            self.dirty_selected_now();
+            return Change::edit();
+        }
         self.dirty_move_footprint();
         if !self.scene.flip_v_selected() {
             self.history.undo.pop();

@@ -150,6 +150,63 @@ int as_host_call_void1u(AsHost* host, const char* decl, unsigned arg) {
     return prepare_and_execute(host, decl, true, arg, nullptr);
 }
 
+int as_host_call_void_di(AsHost* host, const char* decl, double val, int idx) {
+    if (!host || !host->module || !host->context || !decl) {
+        if (host)
+            host->last_error = "not compiled";
+        return -1;
+    }
+    host->last_error.clear();
+    asIScriptFunction* fn = host->module->GetFunctionByDecl(decl);
+    if (!fn) {
+        host->last_error = std::string("function not found: ") + decl;
+        return -1;
+    }
+    host->context->Prepare(fn);
+    host->context->SetArgDouble(0, val);
+    host->context->SetArgDWord(1, static_cast<asDWORD>(idx));
+    int r = host->context->Execute();
+    if (r != asEXECUTION_FINISHED) {
+        if (r == asEXECUTION_EXCEPTION) {
+            const char* desc = host->context->GetExceptionString();
+            host->last_error = desc ? desc : "script exception";
+        } else {
+            host->last_error = "script did not finish";
+        }
+        return -1;
+    }
+    return 0;
+}
+
+int as_host_call_void_si(AsHost* host, const char* decl, const char* str, int idx) {
+    if (!host || !host->module || !host->context || !decl) {
+        if (host)
+            host->last_error = "not compiled";
+        return -1;
+    }
+    host->last_error.clear();
+    asIScriptFunction* fn = host->module->GetFunctionByDecl(decl);
+    if (!fn) {
+        host->last_error = std::string("function not found: ") + decl;
+        return -1;
+    }
+    std::string s(str ? str : "");
+    host->context->Prepare(fn);
+    host->context->SetArgObject(0, &s);
+    host->context->SetArgDWord(1, static_cast<asDWORD>(idx));
+    int r = host->context->Execute();
+    if (r != asEXECUTION_FINISHED) {
+        if (r == asEXECUTION_EXCEPTION) {
+            const char* desc = host->context->GetExceptionString();
+            host->last_error = desc ? desc : "script exception";
+        } else {
+            host->last_error = "script did not finish";
+        }
+        return -1;
+    }
+    return 0;
+}
+
 int as_host_has_function(AsHost* host, const char* decl) {
     if (!host || !host->module || !decl)
         return 0;

@@ -6,10 +6,16 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
+use crate::canvas::{Point, Rect, map_rect};
 use crate::catalog::Catalog;
+use crate::circ1::BoardPlacement;
+use crate::components::Part;
 use crate::digital::LogicOverride;
 use crate::elements::{Comp, Kind};
-use crate::package::{Package, SubcType, convert_package, packages_from_sim1, select_package};
+use crate::package::{
+    Package, SubcType, convert_package, logic_symbol_for_package_name, packages_from_sim1,
+    select_package, select_package_key,
+};
 use crate::sim1::{ParsedCircuit, parse_sim1, parse_xml_props, prop};
 use crate::{Error, Result};
 
@@ -251,6 +257,7 @@ fn load_packages(
 pub struct SubcInstance {
     pub components: Vec<Comp>,
     pub connectors: Vec<(String, String)>,
+    pub links: Vec<(String, Vec<String>)>,
     pub package: Package,
     pub skipped: Vec<String>,
 }
@@ -315,6 +322,7 @@ fn instantiate_resolved(
 
     let mut components = expanded.components;
     let connectors = expanded.connectors;
+    let links = expanded.links;
     let skipped = expanded.skipped;
 
     for pin in package.electrical_pins() {
@@ -326,6 +334,7 @@ fn instantiate_resolved(
     Ok(SubcInstance {
         components,
         connectors,
+        links,
         package,
         skipped,
     })
@@ -334,6 +343,7 @@ fn instantiate_resolved(
 pub struct Expanded {
     pub components: Vec<Comp>,
     pub connectors: Vec<(String, String)>,
+    pub links: Vec<(String, Vec<String>)>,
     pub skipped: Vec<String>,
 }
 
@@ -350,17 +360,28 @@ pub fn expand_parsed(
         .into_iter()
         .map(|c| (c.start, c.end))
         .collect();
+    let mut links: Vec<(String, Vec<String>)> = Vec::new();
     let mut skipped = parsed.skipped;
     for item in parsed.items {
+        let item_links = item.links;
         match item.comp.kind {
             Kind::McuItem(ref spec) => {
+                let comp_id = item.comp.id.clone();
                 match crate::mcu::instantiate_any(&item.comp.id, spec, search) {
-                    Ok(crate::mcu::InstantiatedMcu::Native(mcu)) => components.push(Comp {
-                        id: item.comp.id,
-                        kind: Kind::Mcu(mcu),
-                    }),
+                    Ok(crate::mcu::InstantiatedMcu::Native(mcu)) => {
+                        components.push(Comp {
+                            id: item.comp.id,
+                            kind: Kind::Mcu(mcu),
+                        });
+                        if !item_links.is_empty() {
+                            links.push((comp_id, item_links));
+                        }
+                    }
                     Ok(crate::mcu::InstantiatedMcu::Script(cpu)) => {
                         components.push(Comp::script_cpu(item.comp.id, cpu));
+                        if !item_links.is_empty() {
+                            links.push((comp_id, item_links));
+                        }
                     }
                     Err(e) => skipped.push(format!("MCU:{} ({e})", item.comp.id)),
                 }
@@ -388,6 +409,7 @@ pub fn expand_parsed(
                     Ok(inst) => {
                         components.extend(inst.components);
                         connectors.extend(inst.connectors);
+                        links.extend(inst.links);
                         skipped.extend(inst.skipped);
                     }
                     Err(e) => skipped.push(format!("Subcircuit:{} ({e})", item.comp.id)),
@@ -401,6 +423,9 @@ pub fn expand_parsed(
                 if let Some(levels) = logic {
                     apply_logic_override(&mut comp, levels);
                 }
+                if !item_links.is_empty() {
+                    links.push((comp.id.clone(), item_links));
+                }
                 components.push(comp);
             }
         }
@@ -408,6 +433,7 @@ pub fn expand_parsed(
     Ok(Expanded {
         components,
         connectors,
+        links,
         skipped,
     })
 }
@@ -552,6 +578,17 @@ fn prefix_item_line(line: &str, num_id: &str, instance_id: &str) -> String {
             if k == "CircId" {
                 *v = prefix_val(v);
             }
+            if k == "Links" && !v.is_empty() {
+                let prefixed: Vec<String> = v
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(&prefix_val)
+                    .collect();
+                if !prefixed.is_empty() {
+                    *v = format!("{},", prefixed.join(","));
+                }
+            }
             if typ == "Tunnel" && k == "Name" && !v.is_empty() {
                 let pfx = format!("{instance_id}-");
                 if !v.starts_with(&pfx) {
@@ -601,8 +638,17 @@ pub fn has_nested_mcu(src: &str) -> bool {
     false
 }
 
-/// Returns the `Program` / `program` attribute of the first nested MCU or QemuDevice item, if non-empty.
+fn is_exposed_attr(properties: &[(String, String)]) -> bool {
+    prop(properties, "mainComp")
+        .or_else(|| prop(properties, "MainComp"))
+        .map(crate::sim1::parse_bool)
+        .unwrap_or(false)
+}
+
+/// Returns the `Program` / `program` attribute of the exposed (`mainComp="true"`) nested
+/// MCU/QemuDevice if present, falling back to the first nested MCU/QemuDevice with a non-empty program.
 pub fn nested_mcu_program(src: &str) -> Option<String> {
+    let mut fallback = None;
     for line in src.lines() {
         let trimmed = line.trim();
         if !trimmed.starts_with("<item") {
@@ -623,15 +669,53 @@ pub fn nested_mcu_program(src: &str) -> Option<String> {
             .or_else(|| prop(&properties, "program"))
             .filter(|s| !s.is_empty())
         {
-            return Some(prog.to_string());
+            if is_exposed_attr(&properties) {
+                return Some(prog.to_string());
+            }
+            if fallback.is_none() {
+                fallback = Some(prog.to_string());
+            }
         }
     }
-    None
+    fallback
 }
 
-/// Updates the `Program` attribute on a matching (or first, if `target_inner_id` is `None`)
-/// nested MCU or QemuDevice `<item>` line in `src`.
+/// Updates the `Program` attribute on a matching (or exposed `mainComp="true"`, else first,
+/// if `target_inner_id` is `None`) nested MCU or QemuDevice `<item>` line in `src`.
 pub fn set_nested_mcu_program(src: &str, target_inner_id: Option<&str>, program: &str) -> String {
+    let preferred_id = if target_inner_id.is_some() {
+        target_inner_id.map(str::to_string)
+    } else {
+        let mut first_mcu = None;
+        let mut exposed_mcu = None;
+        for line in src.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("<item") {
+                continue;
+            }
+            let properties = parse_xml_props(trimmed);
+            let Some(typ) = properties
+                .first()
+                .filter(|p| p.0 == "itemtype")
+                .map(|p| p.1.as_str())
+            else {
+                continue;
+            };
+            if !is_nested_mcu_type(typ) {
+                continue;
+            }
+            if let Some(cid) = prop(&properties, "CircId") {
+                if first_mcu.is_none() {
+                    first_mcu = Some(cid.to_string());
+                }
+                if is_exposed_attr(&properties) && exposed_mcu.is_none() {
+                    exposed_mcu = Some(cid.to_string());
+                }
+            }
+        }
+        exposed_mcu.or(first_mcu)
+    };
+
     let mut updated = false;
     src.lines()
         .map(|line| {
@@ -653,7 +737,7 @@ pub fn set_nested_mcu_program(src: &str, target_inner_id: Option<&str>, program:
             if !is_nested_mcu_type(typ) {
                 return line.to_string();
             }
-            if let Some(target) = target_inner_id {
+            if let Some(target) = preferred_id.as_deref() {
                 if prop(&properties, "CircId") != Some(target) {
                     return line.to_string();
                 }
@@ -670,6 +754,188 @@ pub fn set_nested_mcu_program(src: &str, target_inner_id: Option<&str>, program:
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// An inner component marked `mainComp="true"` inside a subcircuit document.
+#[derive(Clone, Debug)]
+pub struct ExposedItem {
+    pub circ_id: String,
+    pub label: String,
+    pub part: Part,
+}
+
+/// A visual/interactive inner component mounted on a Board/Shield subcircuit's package face.
+#[derive(Clone, Debug)]
+pub struct BoardChild {
+    /// Inner `CircId` (e.g. `"Led-1"`). Combined with `num_id@` in the flattened simulation.
+    pub inner_id: String,
+    /// Placement relative to the `Subcircuit`'s package top-left `(0, 0)`.
+    pub placement: BoardPlacement,
+    /// Component visual/property state (cloned from `nested_src` and kept in sync during sim).
+    pub part: Box<Part>,
+}
+
+impl PartialEq for BoardChild {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner_id == other.inner_id
+            && self.placement == other.placement
+            && self.part.type_name() == other.part.type_name()
+    }
+}
+
+/// Extract inner components placed on the face of a Board/Shield `package`.
+///
+/// Only active when `package.subc_type` is `Board` or `Shield` and `logic_symbol` is `false`.
+/// Any non-structural item whose board-space body intersects `(0, 0, body_w, body_h)` is returned
+/// in document order.
+pub fn board_children(src: &str, package: &Package, logic_symbol: bool) -> Vec<BoardChild> {
+    if src.is_empty()
+        || logic_symbol
+        || !matches!(package.subc_type, SubcType::Board | SubcType::Shield)
+    {
+        return Vec::new();
+    }
+    let parsed =
+        crate::circ1::parse_circ1(src).or_else(|_| crate::sim1::parse_legacy_to_circ1(src));
+    let Ok(parsed) = parsed else {
+        return Vec::new();
+    };
+    let pkg_rect = Rect::new(0.0, 0.0, package.body_w(), package.body_h());
+    parsed
+        .items
+        .into_iter()
+        .filter_map(|it| {
+            if matches!(
+                it.part,
+                Part::SubPackage(_) | Part::Node(_) | Part::Tunnel(_) | Part::Bus(_)
+            ) {
+                return None;
+            }
+            let placement = it.graphic.board?;
+            let child_rect = map_rect(
+                Point::new(placement.x, placement.y),
+                it.part.body(),
+                placement.rotation,
+                placement.hflip,
+                placement.vflip,
+            );
+            if !pkg_rect.intersects(&child_rect) {
+                return None;
+            }
+            Some(BoardChild {
+                inner_id: it.circ_id,
+                placement,
+                part: Box::new(it.part),
+            })
+        })
+        .collect()
+}
+
+/// Compute all simulation pin IDs belonging to `part` under `sim_id`.
+pub fn part_pin_ids(sim_id: &str, part: &Part) -> Vec<String> {
+    if let Some(pkg) = part.package() {
+        return pkg
+            .pins
+            .iter()
+            .map(|p| format!("{sim_id}-{}", p.id))
+            .collect();
+    }
+    part.pin_geoms()
+        .into_iter()
+        .map(|cp| {
+            if cp.suffix.starts_with('-') {
+                format!("{sim_id}{}", cp.suffix)
+            } else {
+                format!("{sim_id}-{}", cp.suffix)
+            }
+        })
+        .collect()
+}
+
+/// Parse all components flagged `mainComp="true"` inside a subcircuit `.circ1`/`.sim1` source.
+pub fn exposed_items(src: &str) -> Vec<ExposedItem> {
+    if src.is_empty() {
+        return Vec::new();
+    }
+    let parsed =
+        crate::circ1::parse_circ1(src).or_else(|_| crate::sim1::parse_legacy_to_circ1(src));
+    let Ok(parsed) = parsed else {
+        return Vec::new();
+    };
+    parsed
+        .items
+        .into_iter()
+        .filter(|it| {
+            it.graphic.main_comp
+                || matches!(&it.part, crate::components::Part::Mcu(m) if m.is_main_comp)
+        })
+        .filter(|it| {
+            !matches!(
+                it.part,
+                crate::components::Part::SubPackage(_) | crate::components::Part::Node(_)
+            )
+        })
+        .map(|it| ExposedItem {
+            label: it.graphic.label.unwrap_or_else(|| it.circ_id.clone()),
+            circ_id: it.circ_id,
+            part: it.part,
+        })
+        .collect()
+}
+
+/// Update a property on a specific inner item (by `CircId`) inside a subcircuit `.circ1`/`.sim1` source.
+/// Returns the updated document string if the item and property were successfully updated.
+pub fn set_exposed_item_prop(
+    src: &str,
+    target_inner_id: &str,
+    prop_name: &str,
+    value_text: &str,
+) -> Option<String> {
+    // Parse with circ1/legacy parser to validate & normalize the formatted value via the component's own PropDef.
+    let parsed = crate::circ1::parse_circ1(src)
+        .or_else(|_| crate::sim1::parse_legacy_to_circ1(src))
+        .ok()?;
+    let mut item = parsed
+        .items
+        .into_iter()
+        .find(|it| it.circ_id == target_inner_id)?;
+    item.part.set_prop_text(prop_name, value_text).ok()?;
+    let formatted = item
+        .part
+        .get_prop_text(prop_name)
+        .unwrap_or_else(|| value_text.to_string());
+
+    let mut updated = false;
+    let out = src
+        .lines()
+        .map(|line| {
+            if updated {
+                return line.to_string();
+            }
+            let trimmed = line.trim();
+            if !trimmed.starts_with("<item") {
+                return line.to_string();
+            }
+            let mut properties = parse_xml_props(trimmed);
+            if prop(&properties, "CircId") != Some(target_inner_id) {
+                return line.to_string();
+            }
+            let clean_prop = prop_name.replace('_', "");
+            if let Some((_, val)) = properties.iter_mut().find(|(k, _)| {
+                k == prop_name
+                    || k.eq_ignore_ascii_case(prop_name)
+                    || k.replace('_', "").eq_ignore_ascii_case(&clean_prop)
+            }) {
+                *val = formatted.clone();
+            } else {
+                properties.push((prop_name.to_string(), formatted.clone()));
+            }
+            updated = true;
+            rebuild_item(&properties)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    updated.then_some(out)
 }
 
 /// Layout used by the canvas chip, plus nested source for later flatten.
@@ -695,8 +961,20 @@ pub fn load_view(
         return Err(Error::Parse(format!("subcircuit {device} not found")));
     };
     let packages = load_packages(device, &resolved.src, search, resolved.path.as_deref());
-    let Some(package) = select_package(&packages, logic_symbol, package_name).cloned() else {
+    let Some((key, pkg)) = select_package_key(&packages, logic_symbol, package_name) else {
         return Err(Error::Parse(format!("no packages for subcircuit {device}")));
+    };
+    let package = pkg.clone();
+    let effective_logic_symbol = if packages.len() == 1 {
+        if matches!(package.subc_type, SubcType::Board | SubcType::Shield) {
+            package.logic_symbol
+        } else if !logic_symbol {
+            logic_symbol_for_package_name(key, package.logic_symbol)
+        } else {
+            logic_symbol
+        }
+    } else {
+        logic_symbol
     };
     Ok(SubcView {
         device: device.to_string(),
@@ -704,7 +982,7 @@ pub fn load_view(
         packages,
         nested_src: resolved.src,
         nested_path: resolved.path.map(|p| p.to_string_lossy().into_owned()),
-        logic_symbol,
+        logic_symbol: effective_logic_symbol,
     })
 }
 

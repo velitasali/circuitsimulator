@@ -66,6 +66,9 @@ pub struct Palette {
     pub meter_display: Color,
     pub msg_warn: Color,
     pub msg_error: Color,
+    pub link_highlight: Color,
+    pub exposed_highlight: Color,
+    pub link_badge_text: Color,
 }
 
 impl Palette {
@@ -90,6 +93,9 @@ impl Palette {
             meter_display: to_color(ColorId::MeterDisplayText),
             msg_warn: to_color(ColorId::MsgWarnBg),
             msg_error: to_color(ColorId::MsgErrorBg),
+            link_highlight: to_color(ColorId::LinkHighlight),
+            exposed_highlight: to_color(ColorId::ExposedHighlight),
+            link_badge_text: to_color(ColorId::LinkBadgeText),
         }
     }
 
@@ -114,6 +120,9 @@ impl Palette {
             meter_display: to_color(ColorId::MeterDisplayText),
             msg_warn: to_color(ColorId::MsgWarnBg),
             msg_error: to_color(ColorId::MsgErrorBg),
+            link_highlight: to_color(ColorId::LinkHighlight),
+            exposed_highlight: to_color(ColorId::ExposedHighlight),
+            link_badge_text: to_color(ColorId::LinkBadgeText),
         }
     }
 
@@ -128,9 +137,10 @@ impl Palette {
         pin_low: &str,
         band: &str,
     ) -> Self {
-        let (mr, mg, mb, ma) = ColorTheme::get_rgba(ColorId::MeterDisplayText, false);
-        let (wr, wg, wb, wa) = ColorTheme::get_rgba(ColorId::MsgWarnBg, false);
-        let (er, eg, eb, ea) = ColorTheme::get_rgba(ColorId::MsgErrorBg, false);
+        let to_color = |id| {
+            let (r, g, b, a) = ColorTheme::get_rgba(id, false);
+            Color { r, g, b, a }
+        };
         Self {
             canvas: parse_hex(canvas),
             grid: parse_hex(grid),
@@ -140,28 +150,16 @@ impl Palette {
             pin_high: parse_hex(pin_high),
             pin_low: parse_hex(pin_low),
             band: parse_hex(band),
-            tunnel_color1: Color::rgb(80, 180, 80),
-            tunnel_color2: Color::rgb(50, 50, 50),
-            tunnel_color3: Color::rgb(100, 100, 120),
-            pin_open_high: Color::rgb(255, 180, 0),
-            meter_display: Color {
-                r: mr,
-                g: mg,
-                b: mb,
-                a: ma,
-            },
-            msg_warn: Color {
-                r: wr,
-                g: wg,
-                b: wb,
-                a: wa,
-            },
-            msg_error: Color {
-                r: er,
-                g: eg,
-                b: eb,
-                a: ea,
-            },
+            tunnel_color1: to_color(ColorId::TunnelColor1),
+            tunnel_color2: to_color(ColorId::TunnelColor2),
+            tunnel_color3: to_color(ColorId::TunnelColor3),
+            pin_open_high: to_color(ColorId::PinOpenHigh),
+            meter_display: to_color(ColorId::MeterDisplayText),
+            msg_warn: to_color(ColorId::MsgWarnBg),
+            msg_error: to_color(ColorId::MsgErrorBg),
+            link_highlight: to_color(ColorId::LinkHighlight),
+            exposed_highlight: to_color(ColorId::ExposedHighlight),
+            link_badge_text: to_color(ColorId::LinkBadgeText),
         }
     }
 }

@@ -205,6 +205,11 @@ impl Scene {
         let before_items = self.items.len();
         let before_wires = self.wires.len();
         self.items.retain(|it| !it.selected);
+        if !drop_items.is_empty() {
+            for it in &mut self.items {
+                it.links.retain(|target| !drop_items.contains(target));
+            }
+        }
         self.wires.retain(|w| {
             if w.drawing() {
                 return true;

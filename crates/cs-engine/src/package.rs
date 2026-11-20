@@ -172,8 +172,9 @@ pub fn clean_pin_name(name: &str) -> String {
         .replace("&lt;", "<")
 }
 
-/// C++ `Chip::getPackages`: Package items at the top of a `.sim1` / `.sim2`.
-/// Stops at the first non-Package item. Key is the package `label`.
+/// Extract `Package` / `SubPackage` items from a `.sim1`, `.sim2`, or `.circ1`.
+/// Scans the full document (`.circ1` writes items in scene order, not package-first).
+/// Key is the package `label` / `Name` (falling back to `CircId` when unnamed).
 pub fn packages_from_sim1(src: &str) -> (BTreeMap<String, Package>, String) {
     let mut list = BTreeMap::new();
     let mut subc_type = SubcType::None;
@@ -191,9 +192,10 @@ pub fn packages_from_sim1(src: &str) -> (BTreeMap<String, Package>, String) {
             continue;
         }
         if type_ != "Package" && type_ != "SubPackage" {
-            break;
+            continue;
         }
         let mut pkg_name = String::new();
+        let mut circ_id = String::new();
         let mut pkg_str = String::from("Package; ");
         let mut add = false;
         for (prop_name, mut prop_value) in properties {
@@ -206,6 +208,8 @@ pub fn packages_from_sim1(src: &str) -> (BTreeMap<String, Package>, String) {
                 if !prop_value.is_empty() {
                     pkg_name = prop_value.clone();
                 }
+            } else if prop_name == "CircId" && !prop_value.is_empty() {
+                circ_id = prop_value.clone();
             }
             if prop_name == "Pins" {
                 prop_value = prop_value.replace("&#xa;", "\n");
@@ -221,6 +225,9 @@ pub fn packages_from_sim1(src: &str) -> (BTreeMap<String, Package>, String) {
                 pkg_str.push_str(&prop_value);
                 pkg_str.push_str("; ");
             }
+        }
+        if pkg_name.is_empty() {
+            pkg_name = circ_id;
         }
         if add && !pkg_name.is_empty() {
             let mut pkg = parse_package_str(&pkg_str);
@@ -302,12 +309,12 @@ pub fn parse_package_str(pkg_str: &str) -> Package {
                         }
                     }
                     "border" => pkg.border = val == "true",
-                    "logic_symbol" => pkg.logic_symbol = val == "true",
-                    "custom_color" => pkg.custom_color = val == "true",
+                    "logic_symbol" | "logicsymbol" => pkg.logic_symbol = val == "true",
+                    "custom_color" | "customcolor" => pkg.custom_color = val == "true",
                     "bckgndcolor" => pkg.bckgndcolor = val,
                     "background" => pkg.background = val,
-                    "package_file" => pkg.package_file = val,
-                    "type" => {
+                    "package_file" | "packagefile" => pkg.package_file = val,
+                    "type" | "subctype" => {
                         let t = val.replace("subc", "");
                         if !t.is_empty() {
                             pkg.subc_type = SubcType::from_str_name(&t);
@@ -726,9 +733,21 @@ pub fn select_package_key<'a>(
     let mut dip = None;
     let mut ls = None;
     for entry in packages {
-        if entry.0.ends_with("DIP") {
-            dip = Some(entry);
-        } else {
+        let is_dip_name = entry.0.ends_with("DIP");
+        let is_ls_name = entry.0.ends_with("LS")
+            || entry.0.ends_with("_LS")
+            || entry.0.ends_with("-LS")
+            || entry.0.contains("Logic Symbol");
+        if is_dip_name || (!entry.1.logic_symbol && !is_ls_name) {
+            if dip.is_none() || is_dip_name {
+                dip = Some(entry);
+            }
+        }
+        if is_ls_name || entry.1.logic_symbol {
+            if ls.is_none() || entry.1.logic_symbol || is_ls_name {
+                ls = Some(entry);
+            }
+        } else if !is_dip_name && ls.is_none() {
             ls = Some(entry);
         }
     }
@@ -871,6 +890,30 @@ mod tests {
         assert_eq!(pkg.pins[0].angle, 180);
         assert!(pkg.pins[2].unused());
         assert_eq!(pkg.electrical_pins().count(), 2);
+    }
+
+    #[test]
+    fn packages_from_circ1_finds_subpackage_after_other_items() {
+        let circ1 = r##"<circuit version="1.0.0" rev="0" width="3200" height="2400" >
+<item itemtype="Led" CircId="Led-1" Color="Yellow" Pos="-124,-36" mainComp="true" />
+<item itemtype="Tunnel" CircId="Tunnel-2" Name="anode" IsBus="false" Pos="-156,-36" mainComp="true" />
+<item itemtype="Tunnel" CircId="Tunnel-3" Name="cathode" IsBus="false" Pos="-108,-52" mainComp="true" />
+<item itemtype="SubPackage" CircId="SubPackage-2" Name="LS" Width="6" Height="5" SubcType="Logic" LogicSymbol="true" CustomColor="false" BckGndColor="#ebf0ff" Border="true" Background="" PackageFile="LS_LS.package" Pins="Pin; type=; xpos=-8; ypos=8; angle=180; length=8; space=0; id=anode; label=an&#xa;Pin; type=; xpos=56; ypos=8; angle=0; length=8; space=0; id=cathode; label=ca&#xa;" Pos="-116,12" ShowProp="SubcType" />
+<item itemtype="Connector" CircId="Connector-1" startpinid="Tunnel-2-pin" endpinid="Led-1-lPin" pointList="-156,-36,-140,-36" />
+</circuit>"##;
+        let (list, typ) = packages_from_sim1(circ1);
+        assert_eq!(typ, "Logic");
+        let pkg = list.get("LS").expect("LS package");
+        assert_eq!(pkg.width, 6);
+        assert_eq!(pkg.height, 5);
+        assert_eq!(pkg.subc_type, SubcType::Logic);
+        assert!(pkg.logic_symbol);
+        assert!(pkg.border);
+        assert!(!pkg.custom_color);
+        assert_eq!(pkg.package_file, "LS_LS.package");
+        assert_eq!(pkg.pins.len(), 2);
+        assert_eq!(pkg.pins[0].id, "anode");
+        assert_eq!(pkg.pins[1].id, "cathode");
     }
 
     #[test]

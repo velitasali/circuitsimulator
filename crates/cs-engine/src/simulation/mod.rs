@@ -16,6 +16,7 @@ mod ac;
 mod builder;
 pub mod dc_sweep;
 mod digital_queue;
+mod links;
 mod matrix_solver;
 mod netlist;
 mod nonlinear;
@@ -74,6 +75,12 @@ pub struct Circuit {
     /// A co-sim guest is behind this frame and the wall budget is spent.
     /// Circuit time stays put instead of jumping to the frame end.
     yield_frame: bool,
+    /// Non-electrical component links (`from_id -> ordered target_ids`).
+    comp_links: FxHashMap<String, Vec<String>>,
+    /// Resolved component links (`src_idx -> ordered dst_indices`).
+    resolved_links: Vec<(usize, Vec<usize>)>,
+    /// Last emitted numeric value per linker source index (avoids redundant callbacks).
+    last_linked_sent: FxHashMap<usize, f64>,
 }
 
 impl Default for Circuit {
@@ -111,6 +118,9 @@ impl Default for Circuit {
             frame_deadline: None,
             step_horizon: u64::MAX,
             yield_frame: false,
+            comp_links: FxHashMap::default(),
+            resolved_links: Vec::new(),
+            last_linked_sent: FxHashMap::default(),
         }
     }
 }
@@ -126,8 +136,10 @@ impl Circuit {
         self.last_motor_ps = 1;
         self.events.clear();
         self.sim_started = false;
+        self.last_linked_sent.clear();
         self.reset_device_stamps();
         if self.nodes.is_empty() {
+            self.propagate_links();
             self.sample_instruments();
             self.update_motors_dt(0);
             return Ok(());
@@ -140,6 +152,9 @@ impl Circuit {
         self.sample_instruments();
         self.last_motor_ps = self.circ_time;
         self.update_motors_dt(0);
+        if self.propagate_links() {
+            self.solve_circuit()?;
+        }
         Ok(())
     }
 
@@ -151,6 +166,7 @@ impl Circuit {
     /// With no nodes there is nothing to stamp, so the clock and device state stay.
     pub fn re_solve(&mut self) -> Result<()> {
         if self.nodes.is_empty() {
+            self.propagate_links();
             self.sample_instruments();
             self.update_motors_dt(0);
             return Ok(());
@@ -166,6 +182,9 @@ impl Circuit {
         self.drain_logic_events()?;
         self.sample_instruments();
         self.update_motors_dt(0);
+        if self.propagate_links() {
+            self.solve_circuit()?;
+        }
         self.ensure_analog_clock();
         Ok(())
     }
@@ -285,6 +304,9 @@ impl Circuit {
         self.sample_instruments();
         let dt_ps = self.circ_time.saturating_sub(self.last_motor_ps);
         self.update_motors_dt(dt_ps);
+        if self.propagate_links() && !self.nodes.is_empty() {
+            self.solve_circuit()?;
+        }
         self.last_motor_ps = self.circ_time;
         self.flush_audio();
         Ok(())
@@ -301,6 +323,9 @@ impl Circuit {
         self.sample_instruments();
         let dt_ps = self.circ_time.saturating_sub(self.last_motor_ps);
         self.update_motors_dt(dt_ps);
+        if self.propagate_links() {
+            self.solve_circuit()?;
+        }
         self.last_motor_ps = self.circ_time;
         self.ensure_analog_clock();
         Ok(())

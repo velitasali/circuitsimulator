@@ -921,6 +921,8 @@ impl Canvas {
             .set_scene_size(settings.width as f64, settings.height as f64);
         self.drag = Drag::None;
         self.banding = false;
+        self.link_mode = None;
+        self.board_layout = None;
         self.file_path = None;
         self.hovered_pin = None;
         self.history.clear();
@@ -948,14 +950,38 @@ impl Canvas {
         self.catalog = catalog;
     }
 
-    pub(crate) fn search(&self) -> crate::subcircuit::SubcSearch {
-        let mut s = crate::subcircuit::SubcSearch::from_circuit_path(self.file_path.as_deref());
+    pub fn set_project_dir(&mut self, dir: Option<String>) {
+        self.project_dir = dir
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(std::path::PathBuf::from);
+    }
+
+    pub fn project_dir(&self) -> Option<&std::path::Path> {
+        self.project_dir.as_deref()
+    }
+
+    fn search_for_path(&self, path: Option<&str>) -> crate::subcircuit::SubcSearch {
+        let mut s = crate::subcircuit::SubcSearch::from_circuit_path(path);
+        if let Some(proj) = &self.project_dir {
+            if s.circuit_dir.as_ref() != Some(proj) {
+                s.data_dirs.push(proj.clone());
+            }
+        }
         s.catalog = if self.catalog.is_empty() {
             crate::catalog::standard()
         } else {
             self.catalog.clone()
         };
         s
+    }
+
+    pub fn subc_search(&self) -> crate::subcircuit::SubcSearch {
+        self.search_for_path(self.file_path.as_deref())
+    }
+
+    pub(crate) fn search(&self) -> crate::subcircuit::SubcSearch {
+        self.search_for_path(self.file_path.as_deref())
     }
 
     pub fn collect_programmable_devices(
@@ -982,15 +1008,7 @@ impl Canvas {
         path: Option<String>,
         disk: &str,
     ) -> crate::Result<Change> {
-        let search = {
-            let mut s = crate::subcircuit::SubcSearch::from_circuit_path(path.as_deref());
-            s.catalog = if self.catalog.is_empty() {
-                crate::catalog::standard()
-            } else {
-                self.catalog.clone()
-            };
-            s
-        };
+        let search = self.search_for_path(path.as_deref());
         let saved = if disk.is_empty() {
             String::new()
         } else {
@@ -1009,12 +1027,7 @@ impl Canvas {
         path: Option<String>,
         mark_saved: bool,
     ) -> crate::Result<Change> {
-        let mut search = crate::subcircuit::SubcSearch::from_circuit_path(path.as_deref());
-        search.catalog = if self.catalog.is_empty() {
-            crate::catalog::standard()
-        } else {
-            self.catalog.clone()
-        };
+        let search = self.search_for_path(path.as_deref());
         // Parse before stopping. A bad file must leave the running circuit alone,
         // including live MCU and memory state that power_off writes back.
         let scene = Scene::from_sim1_with(src, &search)?;
@@ -1025,6 +1038,8 @@ impl Canvas {
             .set_scene_size(s.width as f64, s.height as f64);
         self.drag = Drag::None;
         self.banding = false;
+        self.link_mode = None;
+        self.board_layout = None;
         self.file_path = path;
         self.hovered_pin = None;
         self.history.clear();
@@ -1055,7 +1070,11 @@ impl Canvas {
     }
 
     pub fn to_sim1(&self) -> String {
-        self.scene.to_sim1()
+        if self.board_layout.is_some() {
+            self.board_layout_scene_snapshot().to_sim1()
+        } else {
+            self.scene.to_sim1()
+        }
     }
 
     /// Circuit path with `.png`, or `circuit.png` if unsaved. C++ `changeExt`.

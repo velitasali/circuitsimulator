@@ -1,6 +1,7 @@
 use crate::canvas::export::text::text_width;
 use crate::canvas::geom::{Point, Rect, map_local, map_rect, map_scene};
 use crate::canvas::pin::Pin;
+use crate::circ1::BoardPlacement;
 pub use crate::components::*;
 
 /// Canvas overflow status and required dimensions.
@@ -58,6 +59,12 @@ pub struct Item {
     pub kind: Part,
     pub custom_label_pos: bool,
     pub custom_val_pos: bool,
+    /// C++ `Component::m_isMainComp` (`mainComp="true"`): exposed component in a subcircuit.
+    pub main_comp: bool,
+    /// C++ `Linker::m_compList` (`Links="id1,id2,"`): ordered linked target component IDs.
+    pub links: Vec<String>,
+    /// Optional placement on a Board/Shield `SubPackage` face (`boardPos`/`boardRot`/`boardHflip`/`boardVflip`).
+    pub board: Option<BoardPlacement>,
 }
 
 impl Item {
@@ -86,6 +93,9 @@ impl Item {
             kind,
             custom_label_pos: false,
             custom_val_pos: false,
+            main_comp: false,
+            links: Vec::new(),
+            board: None,
         };
         let (lx, ly) = it.default_label_pos();
         it.label_x = lx;
@@ -138,6 +148,9 @@ impl Item {
                 None
             },
             val_rot: self.val_rot,
+            main_comp: self.main_comp || matches!(&self.kind, Part::Mcu(mcu) if mcu.is_main_comp),
+            links: self.links.clone(),
+            board: self.board,
         }
     }
 

@@ -49,6 +49,7 @@ pub enum CursorKind {
     SplitH,
     SplitV,
     SizeAll,
+    PointingHand,
 }
 
 impl CursorKind {
@@ -61,6 +62,7 @@ impl CursorKind {
             Self::SplitH => "splith",
             Self::SplitV => "splitv",
             Self::SizeAll => "sizeall",
+            Self::PointingHand => "pointinghand",
         }
     }
 }
@@ -209,6 +211,91 @@ impl Canvas {
         let alt = mods & MOD_ALT != 0;
         let mut c = Change::default();
 
+        if self.board_layout.is_some() {
+            if button == BUTTON_MIDDLE {
+                self.drag = Drag::Pan { last_item: item };
+                if self.cursor != CursorKind::ClosedHand {
+                    self.cursor = CursorKind::ClosedHand;
+                    c.cursor = true;
+                }
+                return c;
+            }
+            if button == BUTTON_RIGHT {
+                let prev_pin = self.hit_pin.take();
+                let prev_label = self.hit_label_info.take();
+                if let Some(index) = self.hit_board_layout_any(scene) {
+                    if !self.scene.items()[index].selected {
+                        c.items = self.select_only(index);
+                    }
+                }
+                if self.hit_pin != prev_pin || self.hit_label_info != prev_label {
+                    c.items = true;
+                }
+                return c;
+            }
+            if button != BUTTON_LEFT {
+                return c;
+            }
+            if let Some(index) = self.hit_board_layout_item(scene) {
+                if shift {
+                    c.items = self.toggle_selected(index);
+                } else if !self.scene.items()[index].selected {
+                    c.items = self.select_only(index);
+                }
+                let origin = snap_point(scene);
+                self.pending = Some(self.snapshot());
+                self.drag = Drag::Move {
+                    last_scene: origin,
+                    origin,
+                    index,
+                    press_pos: scene,
+                };
+                c.merge(self.set_cursor(CursorKind::ClosedHand));
+                c.items = true;
+                return c;
+            }
+            if shift && !ctrl {
+                self.drag = Drag::Pan { last_item: item };
+                if self.cursor != CursorKind::ClosedHand {
+                    self.cursor = CursorKind::ClosedHand;
+                    c.cursor = true;
+                }
+                return c;
+            }
+            self.banding = true;
+            self.band_rect = Rect::new(scene.x, scene.y, 0.0, 0.0);
+            self.drag = Drag::Band { origin: scene };
+            c.items = self.clear_selection();
+            c.band = true;
+            return c;
+        }
+
+        if self.link_mode.is_some() {
+            if button == BUTTON_LEFT {
+                match target {
+                    Some(HitTarget::Body { index }) | Some(HitTarget::Label { index, .. }) => {
+                        let uid = self.scene.items()[index].id.clone();
+                        return self.complete_link(&uid);
+                    }
+                    Some(HitTarget::Pin { pin, .. }) => {
+                        return self.complete_link(&pin.item_id);
+                    }
+                    _ => return self.stop_linking(),
+                }
+            }
+            if button == BUTTON_RIGHT {
+                return self.stop_linking();
+            }
+            if button == BUTTON_MIDDLE {
+                self.drag = Drag::Pan { last_item: item };
+                if self.cursor != CursorKind::ClosedHand {
+                    self.cursor = CursorKind::ClosedHand;
+                    c.cursor = true;
+                }
+            }
+            return c;
+        }
+
         if self.scene.drawing() {
             if button == BUTTON_LEFT {
                 match &target {
@@ -277,11 +364,11 @@ impl Canvas {
         }
 
         if button == BUTTON_RIGHT {
-            self.hit_pin_id = None;
-            self.hit_label_info = None;
+            let prev_pin = self.hit_pin.take();
+            let prev_label = self.hit_label_info.take();
             match target {
                 Some(HitTarget::Pin { pin, .. }) => {
-                    self.hit_pin_id = Some(pin.id);
+                    self.hit_pin = Some((pin.id, pin.item_id));
                 }
                 Some(HitTarget::Label { index, is_val }) => {
                     let uid = self.scene.items()[index].id.clone();
@@ -303,11 +390,15 @@ impl Canvas {
                 }
                 None => {}
             }
+            if self.hit_pin != prev_pin || self.hit_label_info != prev_label {
+                c.items = true;
+            }
             return c;
         }
 
-        self.hit_pin_id = None;
-        self.hit_label_info = None;
+        if self.hit_pin.take().is_some() || self.hit_label_info.take().is_some() {
+            c.items = true;
+        }
 
         if button != BUTTON_LEFT {
             return c;
@@ -627,6 +718,21 @@ impl Canvas {
                     self.set_push_down(&uid, false);
                     self.merge_sim_raster(&mut c, &uid);
                 }
+                if self.board_layout.is_some() {
+                    if last_scene != origin {
+                        if self.commit_pending() {
+                            c.history = true;
+                        }
+                        self.dirty.mark_full();
+                        c.items = true;
+                    } else {
+                        self.pending = None;
+                    }
+                    self.drag = Drag::None;
+                    c.merge(self.set_cursor(CursorKind::Arrow));
+                    c.merge(self.update_hover(self.last_scene, mods));
+                    return c;
+                }
                 if last_scene == origin {
                     if let Some(id) = self.toggle_switch_at(index, press_pos) {
                         if self.commit_pending() {
@@ -872,6 +978,12 @@ impl Canvas {
             }
         }
         if key == KEY_ESCAPE {
+            if self.board_layout.is_some() {
+                return self.exit_board_layout();
+            }
+            if self.link_mode.is_some() {
+                return self.stop_linking();
+            }
             if self.scene.drawing() {
                 self.pending = None;
                 let cancelled = self.cancel_wire();
@@ -950,6 +1062,19 @@ impl Canvas {
     }
 
     pub(crate) fn update_hover(&mut self, scene: Point, mods: u32) -> Change {
+        if self.board_layout.is_some() {
+            let mut c = Change::default();
+            if self.hovered_pin.take().is_some() {
+                c.hovered_pin = true;
+            }
+            let want = if self.hit_board_layout_item(scene).is_some() {
+                CursorKind::OpenHand
+            } else {
+                CursorKind::Arrow
+            };
+            c.merge(self.set_cursor(want));
+            return c;
+        }
         let alt = mods & MOD_ALT != 0;
         let target = self.scene.hit_top(scene);
         let node_index = match &target {
@@ -974,7 +1099,28 @@ impl Canvas {
             self.hovered_pin = id;
             c.hovered_pin = true;
         }
-        let want = if self.scene.drawing() {
+        let want = if let Some(mode) = &self.link_mode {
+            let hovered_uid = match &target {
+                Some(HitTarget::Body { index }) | Some(HitTarget::Label { index, .. }) => {
+                    self.scene.items().get(*index).map(|it| it.id.as_str())
+                }
+                Some(HitTarget::Pin { pin, .. }) => Some(pin.item_id.as_str()),
+                _ => None,
+            };
+            let is_valid_target = hovered_uid.is_some_and(|uid| {
+                uid != mode.source_uid()
+                    && self.scene.item_by_id(uid).is_some_and(|it| {
+                        !it.is_node()
+                            && !(matches!(mode, crate::canvas::LinkMode::Exposed(_))
+                                && matches!(it.kind, Part::SubPackage(_)))
+                    })
+            });
+            if is_valid_target {
+                CursorKind::PointingHand
+            } else {
+                CursorKind::Cross
+            }
+        } else if self.scene.drawing() {
             CursorKind::Cross
         } else {
             match target {

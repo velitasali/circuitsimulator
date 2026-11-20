@@ -5,9 +5,12 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 
-use cs_engine::library::{Library, TYPE_COMPONENT};
+use cs_engine::library::{Library, RECENT_CATEGORY_ID, TYPE_COMPONENT};
+use cs_engine::{catalog, i18n, project, settings};
 use qtbridge::qobject;
 use serde_json::{Value, json};
+
+use crate::{path_util, pending};
 
 include!(concat!(env!("OUT_DIR"), "/component_svgs.rs"));
 
@@ -70,19 +73,42 @@ fn tinted_icon_file(icon_uri: &str, color: &str) -> String {
     file_url(&path)
 }
 
+fn build_library(circuit_path: &str, project_dir: &str) -> Library {
+    let mut lib = Library::new();
+    let local = catalog::local_subcircuits(
+        (!circuit_path.is_empty()).then_some(circuit_path),
+        (!project_dir.is_empty()).then_some(project_dir),
+    );
+    lib.add_catalog_mcus(&local);
+    lib.add_catalog_mcus(&catalog::standard());
+    lib.set_recent_components(settings::get().recent_components);
+    lib
+}
+
 pub struct ComponentList {
     lib: Library,
     search_filter: String,
+    circuit_path: String,
+    project_dir: String,
 }
 
 impl Default for ComponentList {
     fn default() -> Self {
-        let mut lib = Library::new();
-        lib.add_catalog_mcus(&cs_engine::catalog::standard());
-        lib.set_recent_components(cs_engine::settings::get().recent_components);
+        let project_dir = if pending::no_project() {
+            String::new()
+        } else {
+            let s = settings::get();
+            s.last_project_dir
+                .or_else(|| s.recent_projects.first().cloned())
+                .map(|p| project::normalize_path(&p))
+                .unwrap_or_default()
+        };
+        let lib = build_library("", &project_dir);
         Self {
             lib,
             search_filter: String::new(),
+            circuit_path: String::new(),
+            project_dir,
         }
     }
 }
@@ -112,13 +138,13 @@ impl ComponentList {
                 json!({
                     "id": r.id,
                     "caption": r.caption,
-                    "display": cs_engine::i18n::tr(&r.caption),
+                    "display": i18n::tr(&r.caption),
                     "itemType": r.item_type,
                     "compType": r.comp_type,
                     "depth": r.depth,
                     "expanded": r.expanded,
                     "hasChildren": r.has_children,
-                    "isCustom": false,
+                    "isCustom": r.is_custom,
                     "iconUri": icon_uri,
                 })
             })
@@ -198,6 +224,24 @@ impl ComponentList {
     }
 
     #[qslot]
+    fn set_circuit_path(&mut self, path: String) {
+        let clean = path_util::strip_file_url(&path);
+        if self.circuit_path != clean {
+            self.circuit_path = clean;
+            self.reload_components();
+        }
+    }
+
+    #[qslot]
+    fn set_project_dir(&mut self, dir: String) {
+        let clean = project::normalize_path(&path_util::strip_file_url(&dir));
+        if self.project_dir != clean {
+            self.project_dir = clean;
+            self.reload_components();
+        }
+    }
+
+    #[qslot]
     fn reload_components(&mut self) {
         let expanded_cats: Vec<(String, bool)> = self
             .lib
@@ -206,12 +250,10 @@ impl ComponentList {
             .filter(|it| it.item_type != TYPE_COMPONENT)
             .map(|it| (it.caption.clone(), it.expanded))
             .collect();
-        let recent_expanded = self.lib.is_expanded(cs_engine::library::RECENT_CATEGORY_ID);
+        let recent_expanded = self.lib.is_expanded(RECENT_CATEGORY_ID);
 
-        let mut lib = Library::new();
-        lib.add_catalog_mcus(&cs_engine::catalog::standard());
-        lib.set_recent_components(cs_engine::settings::get().recent_components);
-        lib.set_expanded(cs_engine::library::RECENT_CATEGORY_ID, recent_expanded);
+        let mut lib = build_library(&self.circuit_path, &self.project_dir);
+        lib.set_expanded(RECENT_CATEGORY_ID, recent_expanded);
 
         for (caption, exp) in expanded_cats {
             if let Some(id) = lib

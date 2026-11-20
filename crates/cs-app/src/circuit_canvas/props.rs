@@ -4,7 +4,7 @@ use cs_engine::canvas::{Canvas, Part, Point, Rect};
 use serde_json::{Value, json};
 
 pub(super) fn build_prop_groups_json(it: &cs_engine::canvas::Item) -> Value {
-    let groups: Vec<Value> = it
+    let mut groups: Vec<Value> = it
         .prop_groups()
         .into_iter()
         .map(|group| {
@@ -68,6 +68,77 @@ pub(super) fn build_prop_groups_json(it: &cs_engine::canvas::Item) -> Value {
             })
         })
         .collect();
+
+    if let Part::Subcircuit(subc) = &it.kind {
+        for exposed in cs_engine::subcircuit::exposed_items(&subc.nested_src) {
+            let mut rows = Vec::new();
+            for group in exposed.part.prop_groups() {
+                for row in group.rows {
+                    if !row.visible {
+                        continue;
+                    }
+                    let is_num = row.kind == "double"
+                        || row.kind == "int"
+                        || row.kind == "uint"
+                        || row.kind == "num"
+                        || row.kind == "number";
+                    let raw_text = if row.kind == "bool" {
+                        String::new()
+                    } else {
+                        exposed.part.get_prop_text(row.name).unwrap_or_default()
+                    };
+                    let base_unit = cs_engine::units::base_unit_for(row.unit);
+                    let display_val = if is_num && !base_unit.is_empty() {
+                        raw_text
+                            .strip_suffix(base_unit)
+                            .map(|s| s.trim().to_string())
+                            .unwrap_or_else(|| raw_text.clone())
+                    } else {
+                        raw_text.clone()
+                    };
+                    let translated_caption = cs_engine::i18n::tr(row.caption);
+                    let translated_info = cs_engine::i18n::tr(row.info);
+                    let translated_options: Vec<String> = row
+                        .options
+                        .iter()
+                        .map(|opt| cs_engine::i18n::tr(opt))
+                        .collect();
+                    let namespaced = format!("exposed:{}:{}", exposed.circ_id, row.name);
+                    let mut v = json!({
+                        "name": namespaced,
+                        "kind": row.kind,
+                        "caption": translated_caption,
+                        "info": translated_info,
+                        "unit": base_unit,
+                        "options": translated_options,
+                        "rawOptions": row.options,
+                        "enabled": row.enabled,
+                        "rowVisible": row.visible,
+                        "showOnCanvas": false,
+                        "canShowOnCanvas": false,
+                    });
+                    if row.kind == "bool" {
+                        let b = exposed
+                            .part
+                            .get_prop_text(row.name)
+                            .is_some_and(|s| s == "true");
+                        v["boolValue"] = json!(b);
+                    } else {
+                        v["text"] = json!(display_val);
+                        v["fullText"] = json!(raw_text);
+                    }
+                    rows.push(v);
+                }
+            }
+            if !rows.is_empty() {
+                groups.push(json!({
+                    "name": exposed.label,
+                    "rows": rows,
+                }));
+            }
+        }
+    }
+
     json!(groups)
 }
 

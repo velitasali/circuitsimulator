@@ -170,6 +170,21 @@ fn register_mcu_types(
             cpu_get_port as *const c_void,
         ),
         (
+            "ScriptCpu",
+            "void setLinkedValue(int index, double val, int i)",
+            cpu_set_linked_value as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "void setLinkedString(int index, const string &in str, int i)",
+            cpu_set_linked_string as *const c_void,
+        ),
+        (
+            "ScriptCpu",
+            "void setPropStr(int index, const string &in prop, const string &in val)",
+            cpu_set_prop_str as *const c_void,
+        ),
+        (
             "McuPin",
             "void setDirection(bool o)",
             mcupin_set_direction as *const c_void,
@@ -302,6 +317,26 @@ pub struct ScriptTwi {
     cpu: *mut ScriptCpu,
 }
 
+/// Command queued by a scripted component targeting one of its linked components.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScriptLinkCmd {
+    SetValue {
+        index: usize,
+        val: f64,
+        i: i32,
+    },
+    SetString {
+        index: usize,
+        text: String,
+        i: i32,
+    },
+    SetPropStr {
+        index: usize,
+        prop: String,
+        val: String,
+    },
+}
+
 /// Scripted MCU instance (C++ `ScriptCpu`).
 pub struct ScriptCpu {
     pub id: String,
@@ -317,7 +352,10 @@ pub struct ScriptCpu {
     has_reset: bool,
     has_run_event: bool,
     has_run_step: bool,
+    has_update_step: bool,
     has_volt_changed: bool,
+    has_set_linked_value: bool,
+    has_set_linked_string: bool,
     /// Picoseconds per `runStep` (C++ `cyclesDone * psTick`). Default 1 µs.
     pub ps_tick: u64,
     pub usarts: Vec<ScriptUsart>,
@@ -326,6 +364,7 @@ pub struct ScriptCpu {
     has_byte_received: bool,
     has_frame_sent: bool,
     has_slave_write: bool,
+    link_cmds: Vec<ScriptLinkCmd>,
 }
 
 impl Clone for ScriptCpu {
@@ -344,7 +383,10 @@ impl Clone for ScriptCpu {
             has_reset: false,
             has_run_event: false,
             has_run_step: false,
+            has_update_step: false,
             has_volt_changed: false,
+            has_set_linked_value: false,
+            has_set_linked_string: false,
             ps_tick: self.ps_tick,
             usarts: self
                 .usarts
@@ -380,6 +422,7 @@ impl Clone for ScriptCpu {
             has_byte_received: false,
             has_frame_sent: false,
             has_slave_write: false,
+            link_cmds: Vec::new(),
         }
     }
 }
@@ -413,7 +456,10 @@ impl ScriptCpu {
             has_reset: false,
             has_run_event: false,
             has_run_step: false,
+            has_update_step: false,
             has_volt_changed: false,
+            has_set_linked_value: false,
+            has_set_linked_string: false,
             ps_tick: 1_000_000,
             usarts: Vec::new(),
             spis: Vec::new(),
@@ -421,6 +467,7 @@ impl ScriptCpu {
             has_byte_received: false,
             has_frame_sent: false,
             has_slave_write: false,
+            link_cmds: Vec::new(),
         }
     }
 
@@ -643,7 +690,12 @@ impl ScriptCpu {
         self.has_reset = engine.has_function("void reset()");
         self.has_run_event = engine.has_function("void runEvent()");
         self.has_run_step = engine.has_function("void runStep()");
+        self.has_update_step = engine.has_function("void updateStep()");
         self.has_volt_changed = engine.has_function("void voltChanged()");
+        self.has_set_linked_value = engine.has_function("void setLinkedValue(double, int)");
+        self.has_set_linked_string = engine
+            .has_function("void setLinkedString(const string &in, int)")
+            || engine.has_function("void setLinkedString(string, int)");
         self.has_byte_received = engine.has_function("void byteReceived( uint d )");
         self.has_frame_sent = engine.has_function("void frameSent( uint data )");
         self.has_slave_write = engine.has_function("uint slaveWrite()");
@@ -710,8 +762,43 @@ impl ScriptCpu {
             let _ = self.call_void("void runEvent()");
         } else if self.has_run_step {
             let _ = self.call_void("void runStep()");
+        } else if self.has_update_step {
+            let _ = self.call_void("void updateStep()");
         }
         Vec::new()
+    }
+
+    pub fn call_set_linked_value(&mut self, val: f64, idx: i32) {
+        if !self.has_set_linked_value {
+            return;
+        }
+        if let Some(engine) = self.engine.as_mut() {
+            let _ = engine.call_void_di("void setLinkedValue(double, int)", val, idx);
+        }
+        if self.has_update_step {
+            let _ = self.call_void("void updateStep()");
+        }
+    }
+
+    pub fn call_set_linked_string(&mut self, text: &str, idx: i32) {
+        if !self.has_set_linked_string {
+            return;
+        }
+        if let Some(engine) = self.engine.as_mut() {
+            if engine
+                .call_void_si("void setLinkedString(const string &in, int)", text, idx)
+                .is_err()
+            {
+                let _ = engine.call_void_si("void setLinkedString(string, int)", text, idx);
+            }
+        }
+        if self.has_update_step {
+            let _ = self.call_void("void updateStep()");
+        }
+    }
+
+    pub fn take_link_cmds(&mut self) -> Vec<ScriptLinkCmd> {
+        std::mem::take(&mut self.link_cmds)
     }
 
     pub fn volt_changed(&mut self, v_of: &impl Fn(&str) -> f64) {
@@ -1142,6 +1229,61 @@ unsafe extern "C" fn cpu_write_pgm(cpu: *mut c_void, addr: u32, v: c_int) {
     if let Some(slot) = c.pgm.get_mut(addr as usize) {
         *slot = v as u16;
     }
+}
+
+unsafe extern "C" fn cpu_set_linked_value(cpu: *mut c_void, index: c_int, val: f64, i: c_int) {
+    if cpu.is_null() || index < 0 {
+        return;
+    }
+    let c = unsafe { &mut *(cpu as *mut ScriptCpu) };
+    c.link_cmds.push(ScriptLinkCmd::SetValue {
+        index: index as usize,
+        val,
+        i,
+    });
+}
+
+unsafe extern "C" fn cpu_set_linked_string(
+    cpu: *mut c_void,
+    index: c_int,
+    text: *const c_void,
+    i: c_int,
+) {
+    if cpu.is_null() || text.is_null() || index < 0 {
+        return;
+    }
+    let text = unsafe { cs_script::as_string_cstr(text) }
+        .to_string_lossy()
+        .into_owned();
+    let c = unsafe { &mut *(cpu as *mut ScriptCpu) };
+    c.link_cmds.push(ScriptLinkCmd::SetString {
+        index: index as usize,
+        text,
+        i,
+    });
+}
+
+unsafe extern "C" fn cpu_set_prop_str(
+    cpu: *mut c_void,
+    index: c_int,
+    prop: *const c_void,
+    val: *const c_void,
+) {
+    if cpu.is_null() || prop.is_null() || val.is_null() || index < 0 {
+        return;
+    }
+    let prop = unsafe { cs_script::as_string_cstr(prop) }
+        .to_string_lossy()
+        .into_owned();
+    let val = unsafe { cs_script::as_string_cstr(val) }
+        .to_string_lossy()
+        .into_owned();
+    let c = unsafe { &mut *(cpu as *mut ScriptCpu) };
+    c.link_cmds.push(ScriptLinkCmd::SetPropStr {
+        index: index as usize,
+        prop,
+        val,
+    });
 }
 
 unsafe extern "C" fn mcupin_set_direction(pin: *mut c_void, o: bool) {

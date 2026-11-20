@@ -56,6 +56,9 @@ impl Circuit {
             if self.digital_volt_changed() {
                 continue;
             }
+            if self.propagate_links() {
+                continue;
+            }
             return Ok(());
         }
         Err(Error::NotConverged)
@@ -686,6 +689,7 @@ impl Circuit {
                 _ => {}
             }
         }
+        self.rebuild_links();
     }
 
     pub(crate) fn group_volts(&self) -> Vec<(Vec<String>, f64)> {

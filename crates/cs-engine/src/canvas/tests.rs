@@ -2090,6 +2090,9 @@ fn test_node_drawing_and_color_matching() {
         meter_display: Color::rgb(0, 0, 0),
         msg_warn: Color::rgb(0, 0, 0),
         msg_error: Color::rgb(0, 0, 0),
+        link_highlight: Color::rgb(37, 130, 235),
+        exposed_highlight: Color::rgb(235, 190, 20),
+        link_badge_text: Color::rgb(255, 255, 255),
     };
 
     let pctx = PaintCtx {
@@ -2440,4 +2443,39 @@ fn test_circ_settings_continuous_slider_drag_groups_single_undo() {
     assert!((c.circ_settings().speed_percent() - initial_speed).abs() < 1e-3);
     assert!(!c.is_modified());
     assert!(!c.can_undo());
+}
+
+#[test]
+fn right_click_subpackage_pin_notifies_items_and_resolves_ids() {
+    let mut c = Canvas::empty();
+    let uid = c.scene_mut().add_subpackage(100.0, 100.0);
+    c.set_package_footprint_dip(&uid, "DIP-8", 8, Some(4));
+    // Rename pin "1" to an ID containing a hyphen to verify item/local ID splitting.
+    let mut pin = c.get_package_pin(&uid, "1").unwrap().clone();
+    pin.id = "IN-1".to_string();
+    pin.label = "IN-1".to_string();
+    c.update_package_pin(&uid, "1", pin);
+
+    let full_pin_id = format!("{uid}-IN-1");
+    let pin_scene = c.scene().pin_scene(&full_pin_id).expect("pin scene pos");
+    let pin_item = c.viewport().map_from_circuit(pin_scene);
+
+    let ch = c.mouse_press(crate::canvas::BUTTON_RIGHT, pin_item.x, pin_item.y, 0);
+    assert!(
+        ch.items,
+        "right-clicking a pin must set items=true so QML pinMenu properties refresh"
+    );
+    assert!(c.has_pin_hit());
+    assert_eq!(c.hit_pin_id(), Some(full_pin_id.as_str()));
+    assert_eq!(c.hit_pin_item_id(), Some(uid.as_str()));
+    assert_eq!(c.hit_pin_local_id(), Some("IN-1"));
+
+    // Right-clicking empty space clears hit_pin and notifies again.
+    let empty_item = c.viewport().map_from_circuit(Point::new(-200.0, -200.0));
+    let clear_ch = c.mouse_press(crate::canvas::BUTTON_RIGHT, empty_item.x, empty_item.y, 0);
+    assert!(clear_ch.items);
+    assert!(!c.has_pin_hit());
+    assert_eq!(c.hit_pin_id(), None);
+    assert_eq!(c.hit_pin_item_id(), None);
+    assert_eq!(c.hit_pin_local_id(), None);
 }

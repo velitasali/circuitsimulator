@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float, expect_string};
 use super::{CompPin, Component, Stampable};
-use crate::canvas::{Item, Rect, Scene};
+use crate::canvas::draw::{Color, Draw, PaintCtx, parse_hex};
+use crate::canvas::{Item, Point, Rect, Scene, map_rect, map_scene};
 use crate::digital::{
     LOGIC_DELAY, LOGIC_FALL, LOGIC_IN_HIGH, LOGIC_IN_IMP, LOGIC_IN_LOW, LOGIC_OUT_HIGH,
     LOGIC_OUT_IMP, LOGIC_OUT_LOW, LOGIC_RISE, LogicOverride,
@@ -13,7 +14,8 @@ use crate::digital::{
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 use crate::package::{Package, SubcType};
-use crate::subcircuit::{self, SubcSearch};
+use crate::subcircuit::{self, BoardChild, SubcSearch};
+use crate::theme::{COMPONENT_BORDER_WIDTH, ColorId, ColorTheme};
 
 const LOGIC_PROP_IDS: &[&str] = &[
     "Input_High_V",
@@ -41,6 +43,12 @@ pub struct Subcircuit {
     pub firmware_dir: Option<PathBuf>,
     /// SimulIDE `LogicSubc` levels. Pushed onto inner parts only after a field is set.
     pub logic: LogicOverride,
+    /// Visual/interactive inner components mounted on a Board/Shield package face.
+    pub board_children: Vec<BoardChild>,
+    /// Index of board child currently holding an active pointer press/drag.
+    pub active_board_child: Option<usize>,
+    /// Index of the most recently interacted board child (used for live simulation sync).
+    pub last_interacted_child: Option<usize>,
 }
 
 impl Item {
@@ -54,6 +62,8 @@ impl Item {
         nested_path: Option<String>,
         logic_symbol: bool,
     ) -> Self {
+        let nested_src = nested_src.into();
+        let board_children = subcircuit::board_children(&nested_src, &package, logic_symbol);
         Self::new(
             id,
             x,
@@ -62,12 +72,15 @@ impl Item {
                 device: device.into(),
                 package,
                 packages: BTreeMap::new(),
-                nested_src: nested_src.into(),
+                nested_src,
                 nested_path,
                 logic_symbol,
                 program: String::new(),
                 firmware_dir: None,
                 logic: LogicOverride::default(),
+                board_children,
+                active_board_child: None,
+                last_interacted_child: None,
             },
         )
     }
@@ -85,12 +98,62 @@ impl Default for Subcircuit {
             program: String::new(),
             firmware_dir: None,
             logic: LogicOverride::default(),
+            board_children: Vec::new(),
+            active_board_child: None,
+            last_interacted_child: None,
         }
     }
 }
 
 impl Subcircuit {
     pub const TYPE_ID: &'static str = "Subcircuit";
+
+    /// Rebuild `board_children` from `nested_src`, `package`, and `logic_symbol`.
+    pub fn refresh_board_children(&mut self) {
+        self.board_children =
+            subcircuit::board_children(&self.nested_src, &self.package, self.logic_symbol);
+        self.active_board_child = None;
+        self.last_interacted_child = None;
+    }
+
+    /// Map a point in `Subcircuit` local coordinates into the local coordinates of `board_children[idx]`.
+    pub fn board_child_local(&self, idx: usize, subc_local: Point) -> Option<Point> {
+        let ch = self.board_children.get(idx)?;
+        Some(map_scene(
+            Point::new(ch.placement.x, ch.placement.y),
+            subc_local,
+            ch.placement.rotation,
+            ch.placement.hflip,
+            ch.placement.vflip,
+        ))
+    }
+
+    /// Find the topmost board child whose body contains `subc_local`.
+    pub fn hit_board_child(&self, subc_local: Point) -> Option<(usize, Point)> {
+        if self.logic_symbol || self.board_children.is_empty() {
+            return None;
+        }
+        for (idx, ch) in self.board_children.iter().enumerate().rev() {
+            let local = map_scene(
+                Point::new(ch.placement.x, ch.placement.y),
+                subc_local,
+                ch.placement.rotation,
+                ch.placement.hflip,
+                ch.placement.vflip,
+            );
+            if ch.part.body().contains_point(local) {
+                return Some((idx, local));
+            }
+        }
+        None
+    }
+
+    /// Prefixed simulation component ID for an inner component `inner_id` inside this instance.
+    pub fn child_sim_id(&self, instance_id: &str, inner_id: &str) -> String {
+        let num_id = subcircuit::instance_num_id(instance_id, &self.device);
+        format!("{num_id}@{inner_id}")
+    }
+
     pub fn to_element_kind(&self) -> Kind {
         Kind::Subcircuit {
             device: self.device.clone(),
@@ -112,6 +175,7 @@ impl Subcircuit {
             crate::package::retarget_package(&self.package, &self.packages, ls, None);
         self.logic_symbol = is_ls;
         self.package = pkg;
+        self.refresh_board_children();
         Ok(())
     }
 
@@ -128,6 +192,7 @@ impl Subcircuit {
         );
         self.logic_symbol = is_ls;
         self.package = pkg;
+        self.refresh_board_children();
         Ok(())
     }
 
@@ -451,6 +516,141 @@ impl Component for Subcircuit {
     fn body(&self) -> Rect {
         Rect::new(0.0, 0.0, self.package.body_w(), self.package.body_h())
     }
+
+    fn visual_rect(&self) -> Rect {
+        let mut r = self.body();
+        if !self.logic_symbol {
+            for child in &self.board_children {
+                let child_vis = map_rect(
+                    Point::new(child.placement.x, child.placement.y),
+                    child.part.visual_rect(),
+                    child.placement.rotation,
+                    child.placement.hflip,
+                    child.placement.vflip,
+                );
+                r = r.united(child_vis);
+            }
+        }
+        r
+    }
+
+    fn interact_press(&mut self, local: Point) -> bool {
+        if self.logic_symbol || self.board_children.is_empty() {
+            return false;
+        }
+        for idx in (0..self.board_children.len()).rev() {
+            let Some(child_local) = self.board_child_local(idx, local) else {
+                continue;
+            };
+            if !self.board_children[idx]
+                .part
+                .body()
+                .contains_point(child_local)
+            {
+                continue;
+            }
+            if self.board_children[idx].part.interact_press(child_local) {
+                self.active_board_child = Some(idx);
+                self.last_interacted_child = Some(idx);
+                return true;
+            }
+        }
+        false
+    }
+
+    fn interact_move(&mut self, local: Point) -> bool {
+        let Some(idx) = self.active_board_child else {
+            return false;
+        };
+        let Some(child_local) = self.board_child_local(idx, local) else {
+            return false;
+        };
+        if self.board_children[idx].part.interact_move(child_local) {
+            self.last_interacted_child = Some(idx);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn interact_release(&mut self, local: Point) -> bool {
+        let Some(idx) = self.active_board_child.take() else {
+            return false;
+        };
+        let Some(child_local) = self.board_child_local(idx, local) else {
+            return false;
+        };
+        if self.board_children[idx].part.interact_release(child_local) {
+            self.last_interacted_child = Some(idx);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn interact_cancel(&mut self) -> bool {
+        let Some(idx) = self.active_board_child.take() else {
+            return false;
+        };
+        if let Some(ch) = self.board_children.get_mut(idx) {
+            let changed = ch.part.interact_cancel();
+            if changed {
+                self.last_interacted_child = Some(idx);
+            }
+            changed
+        } else {
+            false
+        }
+    }
+
+    fn interact_toggle(&mut self, local: Point) -> bool {
+        if self.logic_symbol || self.board_children.is_empty() {
+            return false;
+        }
+        for idx in (0..self.board_children.len()).rev() {
+            let Some(child_local) = self.board_child_local(idx, local) else {
+                continue;
+            };
+            if !self.board_children[idx]
+                .part
+                .body()
+                .contains_point(child_local)
+            {
+                continue;
+            }
+            if self.board_children[idx].part.interact_toggle(child_local) {
+                self.last_interacted_child = Some(idx);
+                return true;
+            }
+        }
+        false
+    }
+
+    fn interact_wheel(&mut self, local: Point, delta: f64) -> bool {
+        if self.logic_symbol || self.board_children.is_empty() {
+            return false;
+        }
+        for idx in (0..self.board_children.len()).rev() {
+            let Some(child_local) = self.board_child_local(idx, local) else {
+                continue;
+            };
+            if !self.board_children[idx]
+                .part
+                .body()
+                .contains_point(child_local)
+            {
+                continue;
+            }
+            if self.board_children[idx]
+                .part
+                .interact_wheel(child_local, delta)
+            {
+                self.last_interacted_child = Some(idx);
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl Stampable for Subcircuit {
@@ -460,13 +660,42 @@ impl Stampable for Subcircuit {
 }
 
 impl super::drawable::Drawable for Subcircuit {
-    fn paint(
-        &self,
-        d: &mut dyn crate::canvas::draw::Draw,
-        ctx: &crate::canvas::draw::PaintCtx,
-    ) -> bool {
+    fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
         let w = self.package.body_w().max(8.0);
         let h = self.package.body_h().max(8.0);
+        if !self.board_children.is_empty() && !self.logic_symbol {
+            let fill = if self.package.custom_color && !self.package.bckgndcolor.is_empty() {
+                parse_hex(&self.package.bckgndcolor)
+            } else {
+                let (r, g, b, a) = ColorTheme::get_rgba(ColorId::ChipBody, false);
+                Color::rgba(r, g, b, a)
+            };
+            d.fill_round_rect(0.0, 0.0, w, h, 2.0, fill);
+            d.stroke_round_rect(0.0, 0.0, w, h, 2.0, ctx.pal.border, COMPONENT_BORDER_WIDTH);
+            if ctx.is_active() {
+                d.fill_round_rect(4.0, 4.0, 4.0, 4.0, 2.0, ctx.pal.exposed_highlight);
+                d.stroke_round_rect(4.0, 4.0, 4.0, 4.0, 2.0, ctx.pal.border, 0.5);
+            }
+            for child in &self.board_children {
+                let sim_id = self.child_sim_id(ctx.item_id, &child.inner_id);
+                let child_ctx = PaintCtx {
+                    canvas: ctx.canvas,
+                    pal: ctx.pal,
+                    scale: ctx.scale,
+                    item_id: &sim_id,
+                };
+                d.push(
+                    child.placement.x,
+                    child.placement.y,
+                    child.placement.rotation,
+                    child.placement.hflip as f64,
+                    child.placement.vflip as f64,
+                );
+                child.part.paint(d, &child_ctx);
+                d.pop();
+            }
+            return true;
+        }
         let clean_pkg = crate::package::clean_chip_label(&self.package.name);
         let label = if !clean_pkg.is_empty() {
             clean_pkg
@@ -576,6 +805,9 @@ mod tests {
             program: String::new(),
             firmware_dir: None,
             logic: LogicOverride::default(),
+            board_children: Vec::new(),
+            active_board_child: None,
+            last_interacted_child: None,
         };
         match sub.to_element_kind() {
             Kind::Subcircuit {

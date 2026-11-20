@@ -26,6 +26,12 @@ int as_host_call_void0(AsHost* host, const char* decl);
 /* Execute `decl` with one uint argument (e.g. "void byteReceived( uint d )"). */
 int as_host_call_void1u(AsHost* host, const char* decl, unsigned arg);
 
+/* Execute `decl` with (double, int) arguments (e.g. "void setLinkedValue(double, int)"). */
+int as_host_call_void_di(AsHost* host, const char* decl, double val, int idx);
+
+/* Execute `decl` with (string, int) arguments (e.g. "void setLinkedString(string, int)"). */
+int as_host_call_void_si(AsHost* host, const char* decl, const char* str, int idx);
+
 /* 1 if the compiled module has `decl`, else 0. */
 int as_host_has_function(AsHost* host, const char* decl);
 

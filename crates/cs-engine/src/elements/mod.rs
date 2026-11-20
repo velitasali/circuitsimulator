@@ -408,6 +408,8 @@ pub enum Kind {
     Ldr {
         resistance: f64,
         lux: f64,
+        r_dark: f64,
+        r_light: f64,
     },
     Thermistor {
         resistance: f64,

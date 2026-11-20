@@ -79,7 +79,7 @@ impl Canvas {
 
     pub(crate) fn snapshot(&self) -> Snapshot {
         Snapshot {
-            sim1: self.scene.to_sim1(),
+            sim1: self.to_sim1(),
             selected_items: self
                 .scene
                 .items()
@@ -110,6 +110,14 @@ impl Canvas {
                 self.drag = Drag::None;
                 self.banding = false;
                 self.pending = None;
+                if let Some(mode) = &self.link_mode {
+                    if self.scene.item_by_id(mode.source_uid()).is_none() {
+                        self.link_mode = None;
+                    }
+                }
+                if self.board_layout.is_some() {
+                    self.reapply_board_layout_after_restore();
+                }
                 self.dirty.mark_full();
                 let w = self.scene.settings().width as f64;
                 let h = self.scene.settings().height as f64;

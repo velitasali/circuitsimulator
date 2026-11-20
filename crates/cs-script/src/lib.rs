@@ -23,6 +23,13 @@ unsafe extern "C" {
     fn as_host_call_int0(host: *mut AsHost, decl: *const c_char, out: *mut c_int) -> c_int;
     fn as_host_call_void0(host: *mut AsHost, decl: *const c_char) -> c_int;
     fn as_host_call_void1u(host: *mut AsHost, decl: *const c_char, arg: u32) -> c_int;
+    fn as_host_call_void_di(host: *mut AsHost, decl: *const c_char, val: f64, idx: c_int) -> c_int;
+    fn as_host_call_void_si(
+        host: *mut AsHost,
+        decl: *const c_char,
+        str: *const c_char,
+        idx: c_int,
+    ) -> c_int;
     fn as_host_has_function(host: *mut AsHost, decl: *const c_char) -> c_int;
     fn as_host_last_error(host: *const AsHost) -> *const c_char;
     fn as_host_library_version() -> *const c_char;
@@ -108,6 +115,28 @@ impl Engine {
     pub fn call_void1u(&mut self, decl: &str, arg: u32) -> Result<(), Error> {
         let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;
         let r = unsafe { as_host_call_void1u(self.ptr, decl.as_ptr(), arg) };
+        if r < 0 {
+            return Err(self.last_error());
+        }
+        Ok(())
+    }
+
+    /// Execute `decl` with `(double, int)` arguments (e.g. `"void setLinkedValue(double, int)"`).
+    pub fn call_void_di(&mut self, decl: &str, val: f64, idx: i32) -> Result<(), Error> {
+        let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;
+        let r = unsafe { as_host_call_void_di(self.ptr, decl.as_ptr(), val, idx as c_int) };
+        if r < 0 {
+            return Err(self.last_error());
+        }
+        Ok(())
+    }
+
+    /// Execute `decl` with `(string, int)` arguments (e.g. `"void setLinkedString(string, int)"`).
+    pub fn call_void_si(&mut self, decl: &str, text: &str, idx: i32) -> Result<(), Error> {
+        let decl = CString::new(decl).map_err(|_| Error("decl contains NUL".into()))?;
+        let text = CString::new(text).map_err(|_| Error("text contains NUL".into()))?;
+        let r =
+            unsafe { as_host_call_void_si(self.ptr, decl.as_ptr(), text.as_ptr(), idx as c_int) };
         if r < 0 {
             return Err(self.last_error());
         }

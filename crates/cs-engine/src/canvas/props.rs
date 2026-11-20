@@ -1,9 +1,11 @@
 //! Canvas component property editing, package pin geometry, linker and monitors.
 
-use crate::canvas::events::Change;
+use crate::canvas::drag::Drag;
+use crate::canvas::events::{Change, CursorKind};
 use crate::canvas::scene::Part;
-use crate::canvas::{Canvas, Rect};
+use crate::canvas::{Canvas, LinkMode, Rect};
 use crate::components::ComponentChange;
+use crate::subcircuit;
 
 fn item_monitor_names(it: &crate::canvas::scene::Item) -> Vec<String> {
     match &it.kind {
@@ -178,9 +180,54 @@ impl Canvas {
     }
 
     pub fn set_prop_text_for(&mut self, uid: &str, name: String, text: String) -> Change {
-        self.apply_property_result(uid, |it| {
-            it.kind.set_prop_text(&name, &text).map_err(|_| ())
-        })
+        if let Some(rest) = name.strip_prefix("exposed:") {
+            if let Some((inner_id, prop_name)) = rest.split_once(':') {
+                let Some(updated_src) = self.scene.item_by_id(uid).and_then(|it| match &it.kind {
+                    Part::Subcircuit(subc) => subcircuit::set_exposed_item_prop(
+                        &subc.nested_src,
+                        inner_id,
+                        prop_name,
+                        &text,
+                    ),
+                    _ => None,
+                }) else {
+                    return Change::default();
+                };
+                self.push_undo();
+                if let Some(it) = self.scene.item_by_id_mut(uid) {
+                    if let Part::Subcircuit(subc) = &mut it.kind {
+                        subc.nested_src = updated_src;
+                        if prop_name.eq_ignore_ascii_case("Program") {
+                            subc.program = text.clone();
+                        }
+                        subc.refresh_board_children();
+                    }
+                }
+                let mut c = self.finish_component_change(ComponentChange::structural(uid));
+                c.props = true;
+                return c;
+            }
+        }
+        let mut c = self.apply_property_result(uid, |it| {
+            let res = it.kind.set_prop_text(&name, &text).map_err(|_| ());
+            if res.is_ok() {
+                if let Part::Mcu(mcu) = &it.kind {
+                    if name.replace('_', "").eq_ignore_ascii_case("MainComp") {
+                        it.main_comp = mcu.is_main_comp;
+                    }
+                }
+            }
+            res
+        });
+        // If simulation is running and we edited a Dial/linker property, ensure linked targets sync.
+        if self.sim_running {
+            if let Some(it) = self.scene.item_by_id(uid) {
+                if !it.links.is_empty() {
+                    c.merge(self.refresh_sim_component(uid));
+                }
+            }
+        }
+        c
     }
 
     pub fn set_prop_text(&mut self, name: String, text: String) -> Change {
@@ -516,39 +563,125 @@ impl Canvas {
         Vec::new()
     }
 
+    pub fn link_mode(&self) -> Option<&LinkMode> {
+        self.link_mode.as_ref()
+    }
+
     pub fn linking_from(&self) -> Option<&str> {
-        self.linking_from.as_deref()
+        self.link_mode.as_ref().map(LinkMode::source_uid)
     }
 
-    pub fn start_linking(&mut self, uid: &str) {
-        self.linking_from = Some(uid.to_string());
+    pub fn is_linking_exposed(&self) -> bool {
+        matches!(self.link_mode, Some(LinkMode::Exposed(_)))
     }
 
-    pub fn stop_linking(&mut self) {
-        self.linking_from = None;
-    }
-
-    /// Toggle a link from `linking_from` to `target`. Empty target or same uid ends linking.
-    pub fn complete_link(&mut self, target: &str) -> Change {
-        let Some(from) = self.linking_from.clone() else {
+    pub fn start_linking(&mut self, uid: &str) -> Change {
+        if self.board_layout.is_some() {
+            self.exit_board_layout();
+        }
+        let Some(item) = self.scene.item_by_id(uid) else {
             return Change::default();
         };
-        if target.is_empty() || target == from {
-            self.linking_from = None;
-            return Change {
-                cursor: true,
-                ..Change::default()
-            };
-        }
-        let entry = self.linked.entry(from).or_default();
-        if let Some(i) = entry.iter().position(|id| id == target) {
-            entry.remove(i);
+        let mode = if matches!(item.kind, Part::SubPackage(_)) {
+            LinkMode::Exposed(uid.to_string())
         } else {
-            entry.push(target.to_string());
+            LinkMode::Component(uid.to_string())
+        };
+        if self.scene.drawing() {
+            self.cancel_wire();
         }
-        Change {
+        self.drag = Drag::None;
+        self.banding = false;
+        self.pending = None;
+        self.link_mode = Some(mode);
+        self.dirty.mark_full();
+        let mut c = Change {
             items: true,
             ..Change::default()
+        };
+        c.merge(self.set_cursor(CursorKind::Cross));
+        c
+    }
+
+    pub fn stop_linking(&mut self) -> Change {
+        if self.link_mode.take().is_none() {
+            return Change::default();
+        }
+        self.dirty.mark_full();
+        let mut c = Change {
+            items: true,
+            ..Change::default()
+        };
+        c.merge(self.update_hover(self.last_scene, 0));
+        c
+    }
+
+    /// Toggle a link from `link_mode` to `target` (or exposed flag for `SubPackage`).
+    /// Empty target or clicking the source component itself exits linking mode.
+    pub fn complete_link(&mut self, target: &str) -> Change {
+        let Some(mode) = self.link_mode.clone() else {
+            return Change::default();
+        };
+        if target.is_empty() || target == mode.source_uid() {
+            return self.stop_linking();
+        }
+        let Some(target_item) = self.scene.item_by_id(target) else {
+            return self.stop_linking();
+        };
+        if target_item.is_node() {
+            return Change::default();
+        }
+        match mode {
+            LinkMode::Exposed(_) => {
+                if matches!(target_item.kind, Part::SubPackage(_)) {
+                    return Change::default();
+                }
+                self.push_undo();
+                if let Some(it) = self.scene.item_by_id_mut(target) {
+                    it.main_comp = !it.main_comp;
+                    if let Part::Mcu(ref mut mcu) = it.kind {
+                        mcu.is_main_comp = it.main_comp;
+                    }
+                }
+                self.dirty.mark_full();
+                let mut c = Change {
+                    items: true,
+                    history: true,
+                    props: true,
+                    ..Change::default()
+                };
+                c.merge(self.refresh_props());
+                c
+            }
+            LinkMode::Component(from) => {
+                self.push_undo();
+                let new_links = if let Some(src) = self.scene.item_by_id_mut(&from) {
+                    if let Some(pos) = src.links.iter().position(|id| id == target) {
+                        src.links.remove(pos);
+                    } else {
+                        src.links.push(target.to_string());
+                    }
+                    Some(src.links.clone())
+                } else {
+                    None
+                };
+                self.dirty.mark_full();
+                let mut c = Change {
+                    items: true,
+                    history: true,
+                    ..Change::default()
+                };
+                if self.sim_running {
+                    if let Some(links) = new_links {
+                        if let Some(circuit) = self.running.as_mut() {
+                            circuit.set_links(&from, links);
+                            let r = circuit.re_solve();
+                            c.merge(self.publish_solution(r));
+                        }
+                    }
+                }
+                c
+            }
         }
     }
 

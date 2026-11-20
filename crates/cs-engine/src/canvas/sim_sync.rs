@@ -1,16 +1,27 @@
 //! Simulation synchronization, runtime stepping loop, MCU cosimulation, and instruments.
 
+use std::collections::HashMap;
+
+use crate::Circuit;
+use crate::canvas::dirty;
 use crate::canvas::events::Change;
 use crate::canvas::scene::Part;
 use crate::canvas::{Canvas, Point, with_pin_id, with_pin_id_idx};
+use crate::components::{ShapeKind, Subcircuit};
 use crate::debug::DebugSession;
+use crate::elements::Kind;
 use crate::elements::pins::{
     PIN_IN0, PIN_IN1, PIN_IN2, PIN_IN3, PIN_IN4, PIN_IN5, PIN_INPIN, PIN_LEFT, PIN_RGB_B,
     PIN_RGB_G, PIN_RGB_R, PIN_RIGHT,
 };
+use crate::overload::{self, ItemOverloadState};
+use crate::subcircuit;
 
 impl Canvas {
     pub fn power_on(&mut self) -> Change {
+        if self.board_layout.is_some() {
+            self.exit_board_layout();
+        }
         self.sim_running = true;
         self.sim_paused = false;
         let mut circuit = self.scene.to_circuit();
@@ -113,22 +124,7 @@ impl Canvas {
             }
         }
         for it in self.scene.items_mut() {
-            match &mut it.kind {
-                Part::DcMotor(motor) => {
-                    motor.speed = 0.0;
-                }
-                Part::TftDisplay(tft) => {
-                    tft.fb.clear();
-                    tft.last_sync_seq = 0;
-                    tft.image_cache = None;
-                }
-                Part::Pcf8833(pcf) => {
-                    pcf.fb.clear();
-                    pcf.last_sync_seq = 0;
-                    pcf.image_cache = None;
-                }
-                _ => {}
-            }
+            reset_part_visual_state(&mut it.kind);
         }
         self.sim_running = false;
         self.sim_paused = false;
@@ -180,8 +176,18 @@ impl Canvas {
         if self.sim_tick % 3 == 0 && !self.overload_states.is_empty() {
             c.anim = true;
             let ids: Vec<String> = self.overload_states.keys().cloned().collect();
-            for id in ids {
-                self.dirty.mark_item(&id);
+            for id in &ids {
+                self.dirty.mark_item(id);
+            }
+            for it in self.scene.items() {
+                if let Part::Subcircuit(subc) = &it.kind {
+                    if subc.board_children.iter().any(|ch| {
+                        self.overload_states
+                            .contains_key(&subc.child_sim_id(&it.id, &ch.inner_id))
+                    }) {
+                        self.dirty.mark_item(&it.id);
+                    }
+                }
             }
         }
         let fps = crate::settings::get().fps.clamp(1, 100);
@@ -278,6 +284,19 @@ impl Canvas {
         }
         if let Some(circuit) = self.running.as_mut() {
             if let Some(item) = self.scene.item_by_id(id) {
+                if let Part::Subcircuit(subc) = &item.kind {
+                    if let Some(ci) = subc.last_interacted_child {
+                        if let Some(ch) = subc.board_children.get(ci) {
+                            let sim_id = subc.child_sim_id(id, &ch.inner_id);
+                            if let Some(kind) = ch.part.to_element_kind() {
+                                if circuit.update_component_kind(&sim_id, &kind) {
+                                    let r = circuit.re_solve();
+                                    return self.publish_solution(r);
+                                }
+                            }
+                        }
+                    }
+                }
                 if let Some(kind) = item.to_element_kind() {
                     if matches!(kind, crate::elements::Kind::AudioOut { .. })
                         && circuit.has_audio_out()
@@ -343,92 +362,16 @@ impl Canvas {
                                 new_pullups.insert(p.id.clone());
                             }
                         }
-                        if let Part::DcMotor(ref mut motor) = it.kind {
-                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
-                            {
-                                if let crate::elements::Kind::DcMotor {
-                                    speed: s, angle: a, ..
-                                } = comp.kind
-                                {
-                                    if (motor.speed - s).abs() > 1e-6
-                                        || (motor.angle - a).abs() > 1e-4
-                                    {
-                                        motor.speed = s;
-                                        motor.angle = a;
-                                        motor_anim = true;
-                                    }
-                                }
-                            }
-                        } else if let Part::Relay(ref mut relay) = it.kind {
-                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
-                            {
-                                if let crate::elements::Kind::Relay { active: a, .. } = comp.kind {
-                                    if relay.active != a {
-                                        relay.active = a;
-                                        self.dirty.mark_item(&it.id);
-                                    }
-                                }
-                            }
-                        } else if let Part::Servo(ref mut servo) = it.kind {
-                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
-                            {
-                                if let crate::elements::Kind::Servo { pos: p, .. } = comp.kind {
-                                    if (servo.pos - p).abs() > 1e-3 {
-                                        servo.pos = p;
-                                        self.dirty.mark_item(&it.id);
-                                        motor_anim = true;
-                                    }
-                                }
-                            }
-                        } else if let Part::Stepper(ref mut motor) = it.kind {
-                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
-                            {
-                                if let crate::elements::Kind::Stepper { angle: a, .. } = comp.kind {
-                                    if (motor.angle - a).abs() > 1e-4 {
-                                        motor.angle = a;
-                                        self.dirty.mark_item(&it.id);
-                                        motor_anim = true;
-                                    }
-                                }
-                            }
-                        } else if let Part::TftDisplay(ref mut tft_part) = it.kind {
-                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
-                            {
-                                if let crate::elements::Kind::TftDisplay { tft, .. } = &comp.kind {
-                                    if tft_part.last_sync_seq != tft.dirty_seq {
-                                        tft_part.last_sync_seq = tft.dirty_seq;
-                                        let active_fb = if tft.display_on && !tft.sleep {
-                                            &tft.fb[..]
-                                        } else {
-                                            &[][..]
-                                        };
-                                        tft_part.fb.clear();
-                                        tft_part.fb.extend_from_slice(active_fb);
-                                        tft_part.update_image_cache();
-                                        self.dirty.mark_item(&it.id);
-                                    }
-                                }
-                            }
-                        } else if let Part::Pcf8833(ref mut pcf_part) = it.kind {
-                            if let Some(comp) = circuit.components().iter().find(|c| c.id == it.id)
-                            {
-                                if let crate::elements::Kind::Pcf8833Display { pcf, .. } =
-                                    &comp.kind
-                                {
-                                    if pcf_part.last_sync_seq != pcf.tft.dirty_seq {
-                                        pcf_part.last_sync_seq = pcf.tft.dirty_seq;
-                                        let active_fb = if pcf.tft.display_on && !pcf.tft.sleep {
-                                            &pcf.tft.fb[..]
-                                        } else {
-                                            &[][..]
-                                        };
-                                        pcf_part.fb.clear();
-                                        pcf_part.fb.extend_from_slice(active_fb);
-                                        pcf_part.update_image_cache();
-                                        self.dirty.mark_item(&it.id);
-                                    }
-                                }
-                            }
+                        if let Part::Subcircuit(ref subc) = it.kind {
+                            collect_board_child_volts(subc, &it.id, circuit, &mut new_volts);
+                        }
+                        let (part_dirty, part_anim) =
+                            sync_part_from_circuit(&mut it.kind, &it.id, circuit);
+                        if part_dirty {
+                            self.dirty.mark_item(&it.id);
+                        }
+                        if part_anim {
+                            motor_anim = true;
                         }
                     }
                     new_currents = compute_wire_currents(&self.scene, circuit);
@@ -473,6 +416,18 @@ impl Canvas {
                             if self.analog_visual.get(&it.id) != Some(&bucket) {
                                 item_dirty = true;
                                 self.analog_visual.insert(it.id.clone(), bucket);
+                            }
+                        }
+                        if let Part::Subcircuit(subc) = &it.kind {
+                            if board_children_dirty(
+                                subc,
+                                &it.id,
+                                circuit,
+                                &self.pin_volts,
+                                &new_volts,
+                                &mut self.analog_visual,
+                            ) {
+                                item_dirty = true;
                             }
                         }
                     }
@@ -586,79 +541,7 @@ impl Canvas {
                 .get(&it.id)
                 .cloned()
                 .unwrap_or_default();
-            let new_state = match &it.kind {
-                Part::ElCapacitor(_) => {
-                    let v_pos = self.item_pin_voltage(&it.id, PIN_LEFT).unwrap_or(0.0);
-                    let v_neg = self.item_pin_voltage(&it.id, PIN_RIGHT).unwrap_or(0.0);
-                    crate::overload::eval_el_capacitor(v_pos, v_neg)
-                }
-                Part::Led(p) => {
-                    let current = self.item_pin_current(&it.id, PIN_LEFT).unwrap_or(0.0).abs();
-                    crate::overload::eval_led(
-                        current,
-                        p.max_current,
-                        prev_state.warning,
-                        prev_state.crashed,
-                    )
-                }
-                Part::RgbLed(_) => {
-                    let r_cur = self
-                        .item_pin_current(&it.id, PIN_RGB_R)
-                        .unwrap_or(0.0)
-                        .abs();
-                    let g_cur = self
-                        .item_pin_current(&it.id, PIN_RGB_G)
-                        .unwrap_or(0.0)
-                        .abs();
-                    let b_cur = self
-                        .item_pin_current(&it.id, PIN_RGB_B)
-                        .unwrap_or(0.0)
-                        .abs();
-                    crate::overload::eval_rgb_led(
-                        [r_cur, g_cur, b_cur],
-                        0.03,
-                        prev_state.warning,
-                        prev_state.crashed,
-                    )
-                }
-                Part::Lamp(p) => {
-                    let current = self.item_pin_current(&it.id, PIN_LEFT).unwrap_or(0.0).abs();
-                    let max_cur = if p.voltage > 1e-6 {
-                        p.power / p.voltage
-                    } else {
-                        1.0
-                    };
-                    crate::overload::eval_lamp(
-                        current,
-                        max_cur,
-                        prev_state.warning,
-                        prev_state.crashed,
-                    )
-                }
-                Part::Diode(p) => {
-                    let current = self.item_pin_current(&it.id, PIN_LEFT).unwrap_or(0.0).abs();
-                    crate::overload::eval_diode(
-                        current,
-                        p.max_current,
-                        prev_state.warning,
-                        prev_state.crashed,
-                    )
-                }
-                Part::Voltmeter(_) | Part::Ammeter(_) => {
-                    let meter_val = self
-                        .running
-                        .as_ref()
-                        .and_then(|c| c.instruments.meters.get(&it.id))
-                        .map(|s| s.value)
-                        .unwrap_or_else(|| {
-                            let v_pos = self.item_pin_voltage(&it.id, PIN_LEFT).unwrap_or(0.0);
-                            let v_neg = self.item_pin_voltage(&it.id, PIN_RIGHT).unwrap_or(0.0);
-                            v_pos - v_neg
-                        });
-                    crate::overload::eval_meter(meter_val.abs())
-                }
-                _ => crate::overload::ItemOverloadState::default(),
-            };
+            let new_state = eval_part_overload(self, &it.kind, &it.id, &prev_state);
 
             let was_active = prev_state.warning || prev_state.crashed;
             let is_active = new_state.warning || new_state.crashed;
@@ -675,6 +558,32 @@ impl Canvas {
             }
             if is_active {
                 new_states.insert(it.id.clone(), new_state);
+            }
+
+            if let Part::Subcircuit(subc) = &it.kind {
+                for ch in &subc.board_children {
+                    let sim_id = subc.child_sim_id(&it.id, &ch.inner_id);
+                    let prev_ch = self
+                        .overload_states
+                        .get(&sim_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let new_ch = eval_part_overload(self, &ch.part, &sim_id, &prev_ch);
+                    let ch_was = prev_ch.warning || prev_ch.crashed;
+                    let ch_is = new_ch.warning || new_ch.crashed;
+                    let ch_worse = new_ch.crashed && !prev_ch.crashed;
+                    if ch_is && (!ch_was || ch_worse) {
+                        let text = format!("{}/{}: {}", it.id, ch.inner_id, new_ch.reason);
+                        to_log.push((sim_id.clone(), text, new_ch.crashed));
+                    }
+                    if new_ch != prev_ch {
+                        any_changed = true;
+                        self.dirty.mark_item(&it.id);
+                    }
+                    if ch_is {
+                        new_states.insert(sim_id, new_ch);
+                    }
+                }
             }
         }
 
@@ -2009,4 +1918,401 @@ fn solve_linear(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
         x[i] = sum / mat[i][i];
     }
     Some(x)
+}
+
+fn reset_part_visual_state(part: &mut Part) {
+    match part {
+        Part::DcMotor(motor) => {
+            motor.speed = 0.0;
+        }
+        Part::TftDisplay(tft) => {
+            tft.fb.clear();
+            tft.last_sync_seq = 0;
+            tft.image_cache = None;
+        }
+        Part::Pcf8833(pcf) => {
+            pcf.fb.clear();
+            pcf.last_sync_seq = 0;
+            pcf.image_cache = None;
+        }
+        Part::Subcircuit(subc) => {
+            for ch in &mut subc.board_children {
+                reset_part_visual_state(&mut ch.part);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_board_child_volts(
+    subc: &Subcircuit,
+    instance_id: &str,
+    circuit: &Circuit,
+    new_volts: &mut HashMap<String, f64>,
+) {
+    for ch in &subc.board_children {
+        let sim_id = subc.child_sim_id(instance_id, &ch.inner_id);
+        for pin_id in subcircuit::part_pin_ids(&sim_id, &ch.part) {
+            if let Some(v) = circuit.pin_voltage(&pin_id) {
+                new_volts.insert(pin_id, v);
+            }
+        }
+        if let Part::Subcircuit(nested) = ch.part.as_ref() {
+            collect_board_child_volts(nested, &sim_id, circuit, new_volts);
+        }
+    }
+}
+
+fn sync_part_from_circuit(part: &mut Part, sim_id: &str, circuit: &Circuit) -> (bool, bool) {
+    let mut dirty = false;
+    let mut anim = false;
+    match part {
+        Part::DcMotor(motor) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::DcMotor {
+                    speed: s, angle: a, ..
+                } = comp.kind
+                {
+                    if (motor.speed - s).abs() > 1e-6 || (motor.angle - a).abs() > 1e-4 {
+                        motor.speed = s;
+                        motor.angle = a;
+                        anim = true;
+                        dirty = true;
+                    }
+                }
+            }
+        }
+        Part::Relay(relay) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::Relay { active: a, .. } = comp.kind {
+                    if relay.active != a {
+                        relay.active = a;
+                        dirty = true;
+                    }
+                }
+            }
+        }
+        Part::Servo(servo) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::Servo { pos: p, .. } = comp.kind {
+                    if (servo.pos - p).abs() > 1e-3 {
+                        servo.pos = p;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::Stepper(motor) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::Stepper { angle: a, .. } = comp.kind {
+                    if (motor.angle - a).abs() > 1e-4 {
+                        motor.angle = a;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::TftDisplay(tft_part) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::TftDisplay { tft, .. } = &comp.kind {
+                    if tft_part.last_sync_seq != tft.dirty_seq {
+                        tft_part.last_sync_seq = tft.dirty_seq;
+                        let active_fb = if tft.display_on && !tft.sleep {
+                            &tft.fb[..]
+                        } else {
+                            &[][..]
+                        };
+                        tft_part.fb.clear();
+                        tft_part.fb.extend_from_slice(active_fb);
+                        tft_part.update_image_cache();
+                        dirty = true;
+                    }
+                }
+            }
+        }
+        Part::Pcf8833(pcf_part) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::Pcf8833Display { pcf, .. } = &comp.kind {
+                    if pcf_part.last_sync_seq != pcf.tft.dirty_seq {
+                        pcf_part.last_sync_seq = pcf.tft.dirty_seq;
+                        let active_fb = if pcf.tft.display_on && !pcf.tft.sleep {
+                            &pcf.tft.fb[..]
+                        } else {
+                            &[][..]
+                        };
+                        pcf_part.fb.clear();
+                        pcf_part.fb.extend_from_slice(active_fb);
+                        pcf_part.update_image_cache();
+                        dirty = true;
+                    }
+                }
+            }
+        }
+        Part::Potentiometer(pot) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::Potentiometer { resistance, wiper } = comp.kind {
+                    if (pot.wiper - wiper).abs() > 1e-6
+                        || (pot.resistance - resistance).abs() > 1e-6
+                    {
+                        pot.wiper = wiper;
+                        pot.resistance = resistance;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::VarResistor(vr) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::VarResistor { resistance } = comp.kind {
+                    if (vr.resistance - resistance).abs() > 1e-6 {
+                        vr.resistance = resistance;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::VarCapacitor(vc) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::VarCapacitor { capacitance, .. } = comp.kind {
+                    if (vc.capacitance - capacitance).abs() > 1e-15 {
+                        vc.capacitance = capacitance;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::VarInductor(vl) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::VarInductor { inductance, .. } = comp.kind {
+                    if (vl.inductance - inductance).abs() > 1e-15 {
+                        vl.inductance = inductance;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::Ldr(ldr) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::Ldr { lux, .. } = comp.kind {
+                    if (ldr.lux - lux).abs() > 1e-6 {
+                        ldr.lux = lux;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::Csource(cs) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::Csource {
+                    control_pins,
+                    curr_source,
+                    volt,
+                    current,
+                    ..
+                } = comp.kind
+                {
+                    if !control_pins {
+                        if curr_source && (cs.current - current).abs() > 1e-6 {
+                            cs.current = current;
+                            dirty = true;
+                            anim = true;
+                        } else if !curr_source && (cs.volt - volt).abs() > 1e-6 {
+                            cs.volt = volt;
+                            dirty = true;
+                            anim = true;
+                        }
+                    }
+                }
+            }
+        }
+        Part::VoltSource(vs) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::VoltSource { value, .. } = comp.kind {
+                    if (vs.value - value).abs() > 1e-6 {
+                        vs.value = value;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::CurrSource(cs) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::CurrSource { value, .. } = comp.kind {
+                    if (cs.value - value).abs() > 1e-6 {
+                        cs.value = value;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::Dial(dial) => {
+            if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                if let Kind::Dial { value, .. } = comp.kind {
+                    if (dial.value - value).abs() > 1e-6 {
+                        dial.value = value;
+                        dirty = true;
+                        anim = true;
+                    }
+                }
+            }
+        }
+        Part::Shape(shape) => {
+            if shape.shape_kind == ShapeKind::Text {
+                if let Some(comp) = circuit.components().iter().find(|c| c.id == sim_id) {
+                    if let Kind::Shape { ref text, .. } = comp.kind {
+                        if shape.text != *text {
+                            shape.text = text.clone();
+                            dirty = true;
+                            anim = true;
+                        }
+                    }
+                }
+            }
+        }
+        Part::Subcircuit(subc) => {
+            let num_id = subcircuit::instance_num_id(sim_id, &subc.device);
+            for ch in &mut subc.board_children {
+                let ch_sim_id = format!("{num_id}@{}", ch.inner_id);
+                let (cd, ca) = sync_part_from_circuit(&mut ch.part, &ch_sim_id, circuit);
+                dirty |= cd;
+                anim |= ca;
+            }
+        }
+        _ => {}
+    }
+    (dirty, anim)
+}
+
+fn board_children_dirty(
+    subc: &Subcircuit,
+    instance_id: &str,
+    circuit: &Circuit,
+    old_volts: &HashMap<String, f64>,
+    new_volts: &HashMap<String, f64>,
+    analog_visual: &mut HashMap<String, i32>,
+) -> bool {
+    let mut dirty = false;
+    for ch in &subc.board_children {
+        let sim_id = subc.child_sim_id(instance_id, &ch.inner_id);
+        for pin_id in subcircuit::part_pin_ids(&sim_id, &ch.part) {
+            let old_high = old_volts.get(&pin_id).map(|v| dirty::pin_logic_high(*v));
+            let new_high = new_volts.get(&pin_id).map(|v| dirty::pin_logic_high(*v));
+            if old_high != new_high {
+                dirty = true;
+            }
+        }
+        if let Some(bucket) = dirty::analog_visual_bucket_for_part(&ch.part, &sim_id, circuit) {
+            if analog_visual.get(&sim_id) != Some(&bucket) {
+                dirty = true;
+                analog_visual.insert(sim_id.clone(), bucket);
+            }
+        }
+        if let Part::Subcircuit(nested) = ch.part.as_ref() {
+            if board_children_dirty(
+                nested,
+                &sim_id,
+                circuit,
+                old_volts,
+                new_volts,
+                analog_visual,
+            ) {
+                dirty = true;
+            }
+        }
+    }
+    dirty
+}
+
+fn eval_part_overload(
+    canvas: &Canvas,
+    part: &Part,
+    sim_id: &str,
+    prev_state: &ItemOverloadState,
+) -> ItemOverloadState {
+    match part {
+        Part::ElCapacitor(_) => {
+            let v_pos = canvas.item_pin_voltage(sim_id, PIN_LEFT).unwrap_or(0.0);
+            let v_neg = canvas.item_pin_voltage(sim_id, PIN_RIGHT).unwrap_or(0.0);
+            overload::eval_el_capacitor(v_pos, v_neg)
+        }
+        Part::Led(p) => {
+            let current = canvas
+                .item_pin_current(sim_id, PIN_LEFT)
+                .unwrap_or(0.0)
+                .abs();
+            overload::eval_led(
+                current,
+                p.max_current,
+                prev_state.warning,
+                prev_state.crashed,
+            )
+        }
+        Part::RgbLed(_) => {
+            let r_cur = canvas
+                .item_pin_current(sim_id, PIN_RGB_R)
+                .unwrap_or(0.0)
+                .abs();
+            let g_cur = canvas
+                .item_pin_current(sim_id, PIN_RGB_G)
+                .unwrap_or(0.0)
+                .abs();
+            let b_cur = canvas
+                .item_pin_current(sim_id, PIN_RGB_B)
+                .unwrap_or(0.0)
+                .abs();
+            overload::eval_rgb_led(
+                [r_cur, g_cur, b_cur],
+                0.03,
+                prev_state.warning,
+                prev_state.crashed,
+            )
+        }
+        Part::Lamp(p) => {
+            let current = canvas
+                .item_pin_current(sim_id, PIN_LEFT)
+                .unwrap_or(0.0)
+                .abs();
+            let max_cur = if p.voltage > 1e-6 {
+                p.power / p.voltage
+            } else {
+                1.0
+            };
+            overload::eval_lamp(current, max_cur, prev_state.warning, prev_state.crashed)
+        }
+        Part::Diode(p) => {
+            let current = canvas
+                .item_pin_current(sim_id, PIN_LEFT)
+                .unwrap_or(0.0)
+                .abs();
+            overload::eval_diode(
+                current,
+                p.max_current,
+                prev_state.warning,
+                prev_state.crashed,
+            )
+        }
+        Part::Voltmeter(_) | Part::Ammeter(_) => {
+            let meter_val = canvas
+                .running
+                .as_ref()
+                .and_then(|c| c.instruments.meters.get(sim_id))
+                .map(|s| s.value)
+                .unwrap_or_else(|| {
+                    let v_pos = canvas.item_pin_voltage(sim_id, PIN_LEFT).unwrap_or(0.0);
+                    let v_neg = canvas.item_pin_voltage(sim_id, PIN_RIGHT).unwrap_or(0.0);
+                    v_pos - v_neg
+                });
+            overload::eval_meter(meter_val.abs())
+        }
+        _ => ItemOverloadState::default(),
+    }
 }

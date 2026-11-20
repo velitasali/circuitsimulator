@@ -9,8 +9,19 @@ use qtbridge::qobject;
 use serde_json::{Value, json};
 
 use crate::actions::{self, Conflict};
-use crate::pending;
 use crate::ui_icon::UiIcon;
+use crate::{path_util, pending};
+
+fn build_command_lib(circuit_path: &str, project_dir: &str) -> Library {
+    let mut lib = Library::new();
+    let local = catalog::local_subcircuits(
+        (!circuit_path.is_empty()).then_some(circuit_path),
+        (!project_dir.is_empty()).then_some(project_dir),
+    );
+    lib.add_catalog_mcus(&local);
+    lib.add_catalog_mcus(&catalog::standard());
+    lib
+}
 
 pub struct CommandCenter {
     search_text: String,
@@ -20,6 +31,7 @@ pub struct CommandCenter {
     visible: bool,
     recording_shortcut: bool,
     project_dir: String,
+    circuit_path: String,
     editor_focused: bool,
     lib: Library,
 }
@@ -34,8 +46,7 @@ impl Default for CommandCenter {
                 .or_else(|| s.recent_projects.first().cloned())
                 .unwrap_or_default()
         };
-        let mut lib = Library::new();
-        lib.add_catalog_mcus(&catalog::standard());
+        let lib = build_command_lib("", &proj);
         Self {
             search_text: String::new(),
             current_row: 0,
@@ -44,6 +55,7 @@ impl Default for CommandCenter {
             visible: false,
             recording_shortcut: false,
             project_dir: proj,
+            circuit_path: String::new(),
             editor_focused: false,
             lib,
         }
@@ -154,8 +166,21 @@ impl CommandCenter {
     fn set_project_dir(&mut self, dir: String) {
         if self.project_dir != dir {
             self.project_dir = dir;
+            self.lib = build_command_lib(&self.circuit_path, &self.project_dir);
             self.project_dir_changed();
-            if self.visible && !self.search_text.starts_with('>') {
+            if self.visible {
+                self.repopulate();
+            }
+        }
+    }
+
+    #[qslot]
+    fn set_circuit_path(&mut self, path: String) {
+        let clean = path_util::strip_file_url(&path);
+        if self.circuit_path != clean {
+            self.circuit_path = clean;
+            self.lib = build_command_lib(&self.circuit_path, &self.project_dir);
+            if self.visible {
                 self.repopulate();
             }
         }

@@ -1232,6 +1232,9 @@ impl Circuit {
                         self.events
                             .add(self.circ_time.saturating_add(ps), EventTarget::Device(i));
                     }
+                    if self.propagate_links() {
+                        changed = true;
+                    }
                     return Ok(changed);
                 }
                 if let Some(c) = self.components.get_mut(i) {
@@ -1338,6 +1341,9 @@ impl Circuit {
                         self.events
                             .add(self.circ_time.saturating_add(ps), EventTarget::Device(i));
                     }
+                    if self.propagate_links() {
+                        changed = true;
+                    }
                     return Ok(changed);
                 }
                 let t = self.circ_time;
@@ -1377,6 +1383,9 @@ impl Circuit {
                     if let Some(ps) = next_ps {
                         self.events
                             .add(self.circ_time.saturating_add(ps), EventTarget::Device(i));
+                    }
+                    if self.propagate_links() {
+                        changed = true;
                     }
                     return Ok(changed);
                 }

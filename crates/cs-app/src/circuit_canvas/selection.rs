@@ -1,6 +1,6 @@
 //! Selection state queries, hit testing predicates, and selection transformations.
 
-use cs_engine::canvas::Canvas;
+use cs_engine::canvas::{Canvas, Part};
 use cs_engine::components::ShapeKind;
 
 pub(super) fn selected_item_uid(canvas: &Canvas) -> String {
@@ -61,15 +61,11 @@ pub(super) fn selected_has_image_data(canvas: &Canvas) -> bool {
 }
 
 pub(super) fn hit_pin_is_package(canvas: &Canvas) -> bool {
-    let pin = canvas.hit_pin_id().unwrap_or("");
-    if pin.is_empty() {
-        return false;
-    }
-    let Some(item_id) = pin.rsplit_once('-').map(|(id, _)| id) else {
+    let Some(item_id) = canvas.hit_pin_item_id() else {
         return false;
     };
     canvas
         .scene()
         .item_by_id(item_id)
-        .is_some_and(|it| matches!(&it.kind, cs_engine::canvas::Part::SubPackage(_)))
+        .is_some_and(|it| matches!(&it.kind, Part::SubPackage(_)))
 }

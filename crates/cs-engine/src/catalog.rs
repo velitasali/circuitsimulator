@@ -7,12 +7,15 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{installer, settings};
+use crate::{installer, package, settings};
 
 use quick_xml::Reader;
 use quick_xml::events::Event;
 
-/// One `<item>` from an itemlib XML file.
+/// Category name used for project/circuit-local custom subcircuits.
+pub const LOCAL_SUBCIRCUIT_CATEGORY: &str = "Custom";
+
+/// One `<item>` from an itemlib XML file or a locally discovered subcircuit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CatalogItem {
     pub name: String,
@@ -25,6 +28,8 @@ pub struct CatalogItem {
     pub package: Option<String>,
     pub data: Option<String>,
     pub info: Option<String>,
+    /// True for project-local or circuit-local custom components.
+    pub is_custom: bool,
 }
 
 impl CatalogItem {
@@ -173,7 +178,118 @@ impl Catalog {
                 package: None,
                 data: None,
                 info: None,
+                is_custom: false,
             });
+        }
+    }
+
+    /// Scan a local circuit/project directory (non-recursively, plus immediate
+    /// `{name}/{name}.{circ1,sim2,sim1}` subcircuit folders and `*.xml` itemlibs)
+    /// for custom subcircuits.
+    pub fn load_local_subcircuits(&mut self, dir: &Path, exclude_file: Option<&Path>) {
+        if !dir.is_dir() {
+            return;
+        }
+        // 1. Local itemlib XML files in this directory.
+        let Ok(rd) = fs::read_dir(dir) else {
+            return;
+        };
+        let mut xmls = Vec::new();
+        let mut subdirs: Vec<(String, PathBuf)> = Vec::new();
+        let mut direct_files: Vec<(String, u8, PathBuf)> = Vec::new();
+        for entry in rd.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                if !name.eq_ignore_ascii_case("data") {
+                    subdirs.push((name, path));
+                }
+            } else if path.is_file() {
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                match ext.as_str() {
+                    "xml" => xmls.push(path),
+                    "circ1" | "sim2" | "sim1" => {
+                        let prio = ext_priority(&ext);
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            if !stem.is_empty() {
+                                direct_files.push((stem.to_string(), prio, path));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        xmls.sort();
+        for p in xmls {
+            if let Ok(src) = fs::read_to_string(&p) {
+                for mut item in parse_itemlib(&src, &p) {
+                    item.is_custom = true;
+                    self.insert(item);
+                }
+            }
+        }
+
+        // 2. Subcircuit folders: `{dir}/{name}/{name}.{circ1,sim2,sim1}`.
+        subdirs.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, sub) in subdirs {
+            for ext in ["circ1", "sim2", "sim1"] {
+                let cand = sub.join(format!("{name}.{ext}"));
+                if !cand.is_file() {
+                    continue;
+                }
+                if exclude_file.is_some_and(|ex| same_path(&cand, ex)) {
+                    break;
+                }
+                if has_subcircuit_package(&cand, &name) {
+                    self.insert(CatalogItem {
+                        name: name.clone(),
+                        typ: "Subcircuit".into(),
+                        category: LOCAL_SUBCIRCUIT_CATEGORY.into(),
+                        folder: String::new(),
+                        xml_file: dir.join("local.xml"),
+                        package: None,
+                        data: None,
+                        info: None,
+                        is_custom: true,
+                    });
+                }
+                break;
+            }
+        }
+
+        // 3. Direct subcircuit files in `dir`: `{dir}/{name}.{circ1,sim2,sim1}`.
+        direct_files.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        let mut last_stem = String::new();
+        for (stem, _prio, cand) in direct_files {
+            if stem == last_stem {
+                continue;
+            }
+            last_stem = stem.clone();
+            if exclude_file.is_some_and(|ex| same_path(&cand, ex)) {
+                continue;
+            }
+            if has_subcircuit_package(&cand, &stem) {
+                self.insert(CatalogItem {
+                    name: stem,
+                    typ: "Subcircuit".into(),
+                    category: LOCAL_SUBCIRCUIT_CATEGORY.into(),
+                    folder: String::new(),
+                    xml_file: dir.join("local.xml"),
+                    package: None,
+                    data: None,
+                    info: None,
+                    is_custom: true,
+                });
+            }
         }
     }
 
@@ -216,6 +332,90 @@ pub fn reload_standard() -> Catalog {
         *guard = Some(c.clone());
     }
     c
+}
+
+/// Discover custom/local subcircuits in the active circuit directory, its `data/`
+/// subfolder, and the open project directory (and its `data/` subfolder).
+pub fn local_subcircuits(circuit_path: Option<&str>, project_dir: Option<&str>) -> Catalog {
+    let mut c = Catalog::new();
+    let exclude = circuit_path
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(Path::new);
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut push_unique = |dir: PathBuf| {
+        if dir.is_dir() && !dirs.iter().any(|d| same_path(d, &dir)) {
+            dirs.push(dir);
+        }
+    };
+    if let Some(circ) = exclude {
+        if let Some(parent) = circ.parent() {
+            push_unique(parent.to_path_buf());
+            push_unique(parent.join("data"));
+        }
+    }
+    if let Some(proj) = project_dir.map(str::trim).filter(|s| !s.is_empty()) {
+        let p = PathBuf::from(proj);
+        push_unique(p.clone());
+        push_unique(p.join("data"));
+    }
+    for dir in dirs {
+        c.load_local_subcircuits(&dir, exclude);
+    }
+    c
+}
+
+fn ext_priority(ext: &str) -> u8 {
+    match ext {
+        "circ1" => 0,
+        "sim2" => 1,
+        "sim1" => 2,
+        _ => 3,
+    }
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => {
+            let sa = a.to_string_lossy().replace('\\', "/");
+            let sb = b.to_string_lossy().replace('\\', "/");
+            if cfg!(windows) {
+                sa.eq_ignore_ascii_case(&sb)
+            } else {
+                sa == sb
+            }
+        }
+    }
+}
+
+fn has_subcircuit_package(circuit_file: &Path, device: &str) -> bool {
+    if let Some(dir) = circuit_file.parent() {
+        for suffix in [".package", "_LS.package"] {
+            let p = dir.join(format!("{device}{suffix}"));
+            if p.is_file() {
+                if let Ok(text) = fs::read_to_string(&p) {
+                    if text.contains("<package") {
+                        let (_, pkg) = package::convert_package(&text);
+                        if !pkg.pins.is_empty() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let Ok(src) = fs::read_to_string(circuit_file) else {
+        return false;
+    };
+    if !src.contains("Package") {
+        return false;
+    }
+    let (pkgs, _) = package::packages_from_sim1(&src);
+    !pkgs.is_empty()
 }
 
 fn push_dir_with_children(dirs: &mut Vec<PathBuf>, dir: PathBuf) {
@@ -353,6 +553,7 @@ fn parse_itemlib(src: &str, xml_file: &Path) -> Vec<CatalogItem> {
                             package: attrs.get("package").cloned().filter(|s| !s.is_empty()),
                             data: attrs.get("data").cloned().filter(|s| !s.is_empty()),
                             info: attrs.get("info").cloned().filter(|s| !s.is_empty()),
+                            is_custom: false,
                         });
                     }
                     _ => {}
@@ -457,5 +658,71 @@ mod tests {
         assert_eq!(t.typ, "MCU");
         assert_eq!(t.category, "test");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn local_subcircuits_discovers_project_and_data_folders() {
+        let dir = env::temp_dir().join(format!("cs-local-subc-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("LED_PKG")).unwrap();
+        fs::create_dir_all(dir.join("TESTPKG")).unwrap();
+        fs::create_dir_all(dir.join("esp32_led")).unwrap();
+        fs::create_dir_all(dir.join("data").join("CUSTOM_GATE")).unwrap();
+
+        let led_pkg = r#"<circuit version="1.0.0" >
+<item itemtype="Led" CircId="Led-1" Color="Yellow" mainComp="true" />
+<item itemtype="Tunnel" CircId="Tunnel-2" Name="anode" />
+<item itemtype="Tunnel" CircId="Tunnel-3" Name="cathode" />
+<item itemtype="SubPackage" CircId="SubPackage-2" Name="LS" Width="6" Height="5" SubcType="Logic" LogicSymbol="true" Pins="Pin; type=; xpos=-8; ypos=8; angle=180; length=8; space=0; id=anode; label=an&#xa;Pin; type=; xpos=56; ypos=8; angle=0; length=8; space=0; id=cathode; label=ca&#xa;" />
+</circuit>"#;
+        let test_pkg = r#"<circuit version="2.0.0" >
+<item itemtype="Package" CircId="Package-1" label="Package-1" Width="4" Height="8" SubcType="Board" Logic_Symbol="true" Pins="Pin; type=; xpos=-8; ypos=12; angle=180; length=8; space=0; id=trm1; label=TRM1&#xa;" />
+<item itemtype="Tunnel" CircId="Tunnel-1" Name="trm1" />
+</circuit>"#;
+        let regular_circ = r#"<circuit version="1.0.0" >
+<item itemtype="Capacitor" CircId="Capacitor-1" />
+</circuit>"#;
+
+        fs::write(dir.join("LED_PKG").join("LED_PKG.circ1"), led_pkg).unwrap();
+        fs::write(dir.join("TESTPKG").join("TESTPKG.sim2"), test_pkg).unwrap();
+        fs::write(
+            dir.join("esp32_led").join("esp32_led.ino"),
+            "void setup(){}",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("data")
+                .join("CUSTOM_GATE")
+                .join("CUSTOM_GATE.circ1"),
+            led_pkg,
+        )
+        .unwrap();
+        let root_circ = dir.join("capacitor.circ1");
+        fs::write(&root_circ, regular_circ).unwrap();
+
+        // Opening root circuit finds LED_PKG, TESTPKG, and data/CUSTOM_GATE, ignoring regular circuits & sketch dirs.
+        let cat = local_subcircuits(root_circ.to_str(), dir.to_str());
+        assert!(
+            cat.get("LED_PKG")
+                .is_some_and(|i| i.is_custom && i.typ == "Subcircuit")
+        );
+        assert!(
+            cat.get("TESTPKG")
+                .is_some_and(|i| i.is_custom && i.typ == "Subcircuit")
+        );
+        assert!(
+            cat.get("CUSTOM_GATE")
+                .is_some_and(|i| i.is_custom && i.typ == "Subcircuit")
+        );
+        assert!(cat.get("capacitor").is_none());
+        assert!(cat.get("esp32_led").is_none());
+
+        // Opening LED_PKG.circ1 directly excludes LED_PKG itself, while keeping sibling project subcircuits.
+        let led_path = dir.join("LED_PKG").join("LED_PKG.circ1");
+        let cat_inside = local_subcircuits(led_path.to_str(), dir.to_str());
+        assert!(cat_inside.get("LED_PKG").is_none());
+        assert!(cat_inside.get("TESTPKG").is_some());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -191,24 +191,43 @@ fn record_scene(
         scale: zoom,
         item_id: "",
     };
-    let connected = circuit.connected_pins_set();
-    for wire in circuit.wires() {
-        if wire.points.len() >= 2 && cull.intersects(&wire.bounding_rect()) {
-            paint::paint_wire(&mut draw, &ctx, wire);
-        }
-    }
-    for item in circuit.items() {
-        if cull.intersects(&item.total_bounding_rect()) {
-            paint::paint_item(&mut draw, &ctx, circuit, item, &connected);
-            if canvas.show_component_rect() {
-                paint::paint_component_rect(&mut draw, &ctx, item);
+    if let Some(pkg_uid) = canvas.board_layout_pkg() {
+        let connected = rustc_hash::FxHashSet::default();
+        if let Some(pkg) = circuit.item_by_id(pkg_uid) {
+            if cull.intersects(&pkg.total_bounding_rect()) {
+                paint::paint_item(&mut draw, &ctx, circuit, pkg, &connected);
             }
         }
-    }
-    for wire in circuit.wires() {
-        if wire.points.len() >= 2 && cull.intersects(&wire.bounding_rect()) {
-            paint::paint_wire_chevrons(&mut draw, &ctx, wire);
+        for item in circuit.items() {
+            if item.id == pkg_uid || !canvas.is_item_visible_in_board_layout(item) {
+                continue;
+            }
+            if cull.intersects(&item.total_bounding_rect()) {
+                paint::paint_item(&mut draw, &ctx, circuit, item, &connected);
+            }
         }
+        paint::paint_board_layout_overlay(&mut draw, &ctx, circuit);
+    } else {
+        let connected = circuit.connected_pins_set();
+        for wire in circuit.wires() {
+            if wire.points.len() >= 2 && cull.intersects(&wire.bounding_rect()) {
+                paint::paint_wire(&mut draw, &ctx, wire);
+            }
+        }
+        for item in circuit.items() {
+            if cull.intersects(&item.total_bounding_rect()) {
+                paint::paint_item(&mut draw, &ctx, circuit, item, &connected);
+                if canvas.show_component_rect() {
+                    paint::paint_component_rect(&mut draw, &ctx, item);
+                }
+            }
+        }
+        for wire in circuit.wires() {
+            if wire.points.len() >= 2 && cull.intersects(&wire.bounding_rect()) {
+                paint::paint_wire_chevrons(&mut draw, &ctx, wire);
+            }
+        }
+        paint::paint_linking_overlay(&mut draw, &ctx, circuit);
     }
     while let Some(open) = draw.clips.pop() {
         if open {

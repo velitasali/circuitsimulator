@@ -84,6 +84,8 @@ impl Ldr {
         Kind::Ldr {
             resistance: self.resistance(),
             lux: self.lux,
+            r_dark: self.r_dark,
+            r_light: self.r_light,
         }
     }
 

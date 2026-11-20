@@ -1396,6 +1396,9 @@ impl Part {
                     for (a, b) in inst.connectors {
                         c.connect(a, b);
                     }
+                    for (from, targets) in inst.links {
+                        c.set_links(from, targets);
+                    }
                 }
             }
             Self::Mcu(p) => {

@@ -1051,6 +1051,12 @@ impl Circuit {
         let max_nl_steps = parsed.max_nl_steps;
         let ps_per_sec = parsed.circ.ps_per_sec();
         let expanded = expand_parsed(parsed, search, 0, None)?;
+        let mut comp_links = FxHashMap::default();
+        for (from, targets) in expanded.links {
+            if !targets.is_empty() {
+                comp_links.insert(from, targets);
+            }
+        }
         Ok(Self {
             components: expanded.components,
             connectors: expanded.connectors,
@@ -1084,6 +1090,9 @@ impl Circuit {
             frame_deadline: None,
             step_horizon: u64::MAX,
             yield_frame: false,
+            comp_links,
+            resolved_links: Vec::new(),
+            last_linked_sent: FxHashMap::default(),
         })
     }
 

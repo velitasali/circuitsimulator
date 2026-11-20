@@ -766,6 +766,7 @@ impl QemuComp {
             }
         }
         if let Err(e) = self.start_live() {
+            crate::logging::log_sim_err(format!("[QEMU] {e}"));
             self.last_error = Some(e);
         }
     }
@@ -1098,6 +1099,7 @@ impl QemuComp {
                 continue;
             }
             if !self.is_process_running() {
+                crate::logging::log_sim_err("[QEMU] Emulator process exited unexpectedly");
                 self.stop_live();
                 return Vec::new();
             }
@@ -1229,6 +1231,7 @@ impl QemuComp {
             self.stop_live();
         } else if !self.is_live() && !self.firmware.is_empty() && self.last_error.is_none() {
             if let Err(e) = self.start_live() {
+                crate::logging::log_sim_err(format!("[QEMU] {e}"));
                 self.last_error = Some(e);
             }
         }
@@ -1987,6 +1990,10 @@ impl QemuComp {
                 args.push(arg.to_string());
             }
         }
+        if !has_display_arg(&args) {
+            args.push("-display".into());
+            args.push("none".into());
+        }
         args.push("-M".into());
         args.push(format!("esp32-cs,cosim-shm={shm_key}"));
         args.push("-L".into());
@@ -2023,6 +2030,10 @@ impl QemuComp {
                 args.push(arg.to_string());
             }
         }
+        if !has_display_arg(&args) {
+            args.push("-display".into());
+            args.push("none".into());
+        }
         args.push("-M".into());
         args.push("stm32-f10xx".into());
         args.push("-drive".into());
@@ -2031,6 +2042,14 @@ impl QemuComp {
         args.push("shift=0,align=off,sleep=off".into());
         args
     }
+}
+
+fn has_display_arg(args: &[String]) -> bool {
+    args.iter().any(|a| {
+        matches!(a.as_str(), "-display" | "-nographic" | "-vnc")
+            || a.starts_with("-display=")
+            || a.starts_with("-vnc=")
+    })
 }
 
 fn qemu_exe_name(family: QemuFamily) -> &'static str {
@@ -2058,16 +2077,20 @@ fn find_data_path(rel: &str) -> Option<PathBuf> {
 }
 
 fn qemu_rom_dir() -> Option<PathBuf> {
-    find_data_path("esp32/rom/bin")
-        .or_else(|| find_data_path("esp32"))
-        .or_else(|| {
-            for dir in cs_qemu::qemu_search_dirs() {
-                if dir.join("esp32-v3-rom.bin").is_file() {
-                    return Some(dir);
-                }
+    let dirs = cs_qemu::qemu_search_dirs();
+    for suffix in ["esp32/rom/bin", "esp32", ""] {
+        for dir in &dirs {
+            let candidate = if suffix.is_empty() {
+                dir.clone()
+            } else {
+                dir.join(suffix)
+            };
+            if candidate.join("esp32-v3-rom.bin").is_file() {
+                return Some(candidate);
             }
-            None
-        })
+        }
+    }
+    None
 }
 
 /// C++ uses `{firmware}.efuse` or `data/bin/esp32/esp32.efuse`. A blank 1 KiB
@@ -2310,6 +2333,25 @@ mod tests {
         assert!(args.contains(&"-icount".to_string()));
         assert!(args.iter().any(|a| a.contains("if=mtd")));
         assert!(args.iter().any(|a| a.contains("wdt_disable")));
+        assert!(
+            args.windows(2).any(|w| w == ["-display", "none"]),
+            "esp32 should default to headless display: {args:?}"
+        );
+    }
+
+    #[test]
+    fn esp32_args_respect_custom_display_in_extra_args() {
+        let mut q = QemuComp::esp32("Esp32-1");
+        q.extra_args = "-vnc,:0".into();
+        let args = q.esp32_args("/tmp/app.bin", "/123Esp32-1", "/rom", "/efuse");
+        assert!(
+            !args.windows(2).any(|w| w == ["-display", "none"]),
+            "explicit -vnc should suppress -display none: {args:?}"
+        );
+
+        q.extra_args = "-nographic".into();
+        let args = q.esp32_args("/tmp/app.bin", "/123Esp32-1", "/rom", "/efuse");
+        assert!(!args.windows(2).any(|w| w == ["-display", "none"]));
     }
 
     #[test]
@@ -2319,6 +2361,7 @@ mod tests {
         assert_eq!(args[0], "/pidSTM32-1");
         assert_eq!(args[1], "qemu-system-arm");
         assert!(args.contains(&"stm32-f10xx".to_string()));
+        assert!(args.windows(2).any(|w| w == ["-display", "none"]));
     }
 
     #[test]

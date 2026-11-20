@@ -1124,8 +1124,8 @@ fn test_show_button_property_aliases() {
 
 #[test]
 fn test_push_button_momentary_and_norm_close() {
-    use cs_engine::canvas::Canvas;
-    use cs_engine::canvas::scene::Item;
+    use cs_engine::canvas::scene::{Item, Scene};
+    use cs_engine::canvas::{Canvas, MOD_SHIFT, Point};
 
     let mut push = Item::push("PB-1", 0.0, 0.0, false, 1);
     assert!(!push.pressed());
@@ -1149,13 +1149,15 @@ fn test_push_button_momentary_and_norm_close() {
     assert!(!canvas.scene().items()[idx].pressed());
 
     // Canvas mouse press and release
-    let p = canvas
-        .viewport()
-        .map_from_circuit(cs_engine::canvas::Point::zero());
+    let p = canvas.viewport().map_from_circuit(Point::zero());
     canvas.mouse_press(1, p.x, p.y, 0);
     assert!(
         canvas.scene().items()[idx].pressed(),
         "Mouse press must activate push button"
+    );
+    assert!(
+        canvas.scene().items()[idx].selected,
+        "Mouse press must select standalone push button"
     );
     canvas.mouse_release(1, p.x, p.y, 0);
     assert!(
@@ -1163,9 +1165,44 @@ fn test_push_button_momentary_and_norm_close() {
         "Mouse release must release push button"
     );
 
+    // Grabbing and dragging a standalone push button cancels the press and moves it
+    let dest = canvas.viewport().map_from_circuit(Point::new(32.0, 16.0));
+    canvas.mouse_press(1, p.x, p.y, 0);
+    assert!(canvas.scene().items()[idx].pressed());
+    canvas.mouse_move(dest.x, dest.y, 1, 0);
+    assert!(
+        !canvas.scene().items()[idx].pressed(),
+        "Dragging push button must cancel the momentary press"
+    );
+    assert_eq!(
+        canvas.scene().items()[idx].position(),
+        Point::new(32.0, 16.0),
+        "Dragging push button must move it to the target grid point"
+    );
+    canvas.mouse_release(1, dest.x, dest.y, 0);
+    assert!(!canvas.scene().items()[idx].pressed());
+    assert_eq!(
+        canvas.scene().items()[idx].position(),
+        Point::new(32.0, 16.0)
+    );
+    assert!(canvas.can_undo(), "Moving push button must be undoable");
+
+    // Shift+click toggles selection without pressing
+    let moved_pt = canvas.viewport().map_from_circuit(Point::new(32.0, 16.0));
+    canvas.mouse_press(1, moved_pt.x, moved_pt.y, MOD_SHIFT);
+    assert!(
+        !canvas.scene().items()[idx].pressed(),
+        "Shift+click must not activate push button"
+    );
+    assert!(
+        !canvas.scene().items()[idx].selected,
+        "Shift+click must deselect already-selected push button"
+    );
+    canvas.mouse_release(1, moved_pt.x, moved_pt.y, MOD_SHIFT);
+
     // Sim1 with Checked="true" must not load as pressed
     let sim1 = "<circuit>\n<item itemtype=\"Push\" CircId=\"Push-1\" Poles=\"1\" Norm_Close=\"false\" Checked=\"true\" Pos=\"0,0\" />\n</circuit>";
-    let s = cs_engine::canvas::scene::Scene::from_sim1(sim1).expect("sim1 parse");
+    let s = Scene::from_sim1(sim1).expect("sim1 parse");
     let loaded_push = s.item_by_id("Push-1").expect("Push-1 must exist");
     assert!(
         !loaded_push.pressed(),

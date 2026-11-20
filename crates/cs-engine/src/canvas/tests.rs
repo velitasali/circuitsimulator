@@ -2100,6 +2100,7 @@ fn test_node_drawing_and_color_matching() {
         pal: &pal,
         scale: 1.0,
         item_id: &nid,
+        on_board: false,
     };
 
     let mut md = MockDraw { circles: vec![] };

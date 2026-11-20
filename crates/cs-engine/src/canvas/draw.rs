@@ -261,6 +261,7 @@ pub struct PaintCtx<'a> {
     pub pal: &'a Palette,
     pub scale: f64,
     pub item_id: &'a str,
+    pub on_board: bool,
 }
 
 impl<'a> PaintCtx<'a> {

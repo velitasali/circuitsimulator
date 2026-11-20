@@ -1,6 +1,6 @@
 //! Tests for switches, relays, motors, and digital/analog sensors.
 
-use super::recorder::{DrawOp, record_part_paint};
+use super::recorder::{DrawOp, record_part_paint, record_part_paint_on_board};
 use crate::components::switch_dip::SwitchDip;
 use crate::components::*;
 
@@ -35,7 +35,7 @@ fn test_switch_and_push_button() {
 
     let mut shown = Push::default();
     shown.show_button = true;
-    let rec_shown = record_part_paint(&Part::Push(shown));
+    let rec_shown = record_part_paint(&Part::Push(shown.clone()));
     assert!(rec_shown.is_all_finite());
     assert!(
         rec_shown
@@ -48,8 +48,59 @@ fn test_switch_and_push_button() {
         rec_shown
             .ops
             .iter()
-            .any(|op| matches!(op, DrawOp::FillRoundRect { .. })),
-        "shown button still draws the button body"
+            .all(|op| !matches!(op, DrawOp::FillCircle { cx, .. } if cx.abs() > 9.5)),
+        "shown button must not leave side contact dots at x = ±10"
+    );
+    assert!(
+        rec_shown.ops.iter().any(|op| matches!(
+            op,
+            DrawOp::FillRoundRect { x, w, .. } if (*x - (-10.0)).abs() < 1e-6 && (*w - 20.0).abs() < 1e-6
+        )),
+        "tactile housing spans x = -10..+10 flush with pins"
+    );
+    assert!(
+        rec_shown.ops.iter().any(|op| matches!(
+            op,
+            DrawOp::TextBold { y, text, .. } if text == "PUSH" && y.abs() < 1e-6
+        )),
+        "released button text must be vertically centered at y = 0"
+    );
+
+    // Pressed tactile button shifts label with depressed cap
+    shown.pressed = true;
+    let rec_pressed = record_part_paint(&Part::Push(shown));
+    assert!(rec_pressed.is_all_finite());
+    assert!(
+        rec_pressed.ops.iter().any(|op| matches!(
+            op,
+            DrawOp::TextBold { y, text, .. } if text == "PUSH" && (*y - 0.4).abs() < 1e-6
+        )),
+        "pressed button text must be centered inside the depressed cap"
+    );
+
+    // Board-mounted push always renders as a physical button without side dots
+    let rec_board = record_part_paint_on_board(&Part::Push(Push::default()));
+    assert!(rec_board.is_all_finite());
+    assert!(
+        rec_board
+            .ops
+            .iter()
+            .all(|op| !matches!(op, DrawOp::Line { .. })),
+        "board-mounted push hides schematic contact plate even when ShowButton is false"
+    );
+    assert!(
+        rec_board
+            .ops
+            .iter()
+            .all(|op| !matches!(op, DrawOp::FillCircle { cx, .. } if cx.abs() > 9.5)),
+        "board-mounted push must not draw side contact dots at x = ±10"
+    );
+    assert!(
+        rec_board
+            .ops
+            .iter()
+            .any(|op| matches!(op, DrawOp::TextBold { text, .. } if text == "PUSH")),
+        "board-mounted push renders the physical button graphic"
     );
 }
 

@@ -65,6 +65,7 @@ pub fn svg_string(canvas: &Canvas, palette: &Palette) -> String {
             pal: palette,
             scale: 1.0,
             item_id: "",
+            on_board: false,
         },
     );
     svg.finish()

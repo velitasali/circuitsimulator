@@ -130,6 +130,7 @@ fn test_oscope_reticle_zoom_invariant_width() {
             pal: &pal,
             scale: zoom,
             item_id: "test-item",
+            on_board: false,
         };
         let mut rec = super::recorder::DrawRecorder::new();
         // Route through the Oscope Drawable so PaintCtx::scale (viewport zoom)

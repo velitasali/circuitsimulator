@@ -405,16 +405,17 @@ pub fn paint_item(
     if it.selected {
         item_pal.border = ctx.pal.band;
     }
+    let hide_pins_in_board_layout = ctx
+        .canvas
+        .board_layout_pkg()
+        .is_some_and(|pkg_uid| pkg_uid != it.id);
     let item_ctx = PaintCtx {
         canvas: ctx.canvas,
         pal: &item_pal,
         scale: ctx.scale,
         item_id: &it.id,
+        on_board: ctx.on_board || hide_pins_in_board_layout,
     };
-    let hide_pins_in_board_layout = ctx
-        .canvas
-        .board_layout_pkg()
-        .is_some_and(|pkg_uid| pkg_uid != it.id);
     let pins = if it.is_node() || hide_pins_in_board_layout {
         Vec::new()
     } else {

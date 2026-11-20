@@ -258,19 +258,111 @@ use crate::theme::COMPONENT_BORDER_WIDTH;
 impl Drawable for Push {
     fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
         let p = self.poles.max(1);
+        let show_as_button = self.show_button || ctx.on_board || !self.key.is_empty();
+
+        if show_as_button {
+            let outer_top = -16.0 * (p - 1) as f64 - 7.5;
+            let outer_bot = 7.5;
+            let outer_h = outer_bot - outer_top;
+            let center_y = (outer_top + outer_bot) * 0.5;
+
+            // Outer tactile switch housing: spans x = -10..+10 to meet pin stems
+            // cleanly on schematics with zero gap and no stray side dots on boards.
+            d.fill_round_rect(-10.0, outer_top, 20.0, outer_h, 2.4, ctx.pal.body);
+            d.fill_round_rect(
+                -10.0,
+                outer_top,
+                20.0,
+                outer_h,
+                2.4,
+                ctx.pal.border.fade(0.08),
+            );
+            d.stroke_round_rect(
+                -10.0,
+                outer_top,
+                20.0,
+                outer_h,
+                2.4,
+                ctx.pal.border,
+                COMPONENT_BORDER_WIDTH,
+            );
+
+            // Subtle corner mounting posts inside the tactile switch bezel.
+            let rivet_col = ctx.pal.border.fade(0.38);
+            for (rx, ry) in [
+                (-8.3, outer_top + 1.8),
+                (8.3, outer_top + 1.8),
+                (-8.3, outer_bot - 1.8),
+                (8.3, outer_bot - 1.8),
+            ] {
+                d.fill_circle(rx, ry, 0.65, rivet_col);
+            }
+
+            let txt = if !self.key.is_empty() {
+                self.key.as_str()
+            } else {
+                "PUSH"
+            };
+            let char_count = txt.chars().count();
+            let font_size = match char_count {
+                0 | 1 => 6.4,
+                2 => 5.6,
+                3 => 5.0,
+                4 => 4.6,
+                _ => (12.0 / (char_count as f64 * 0.65)).clamp(3.2, 4.4),
+            };
+
+            if self.pressed {
+                // Recessed well + depressed plunger cap
+                d.fill_round_rect(
+                    -7.4,
+                    center_y - 5.0,
+                    14.8,
+                    10.0,
+                    2.0,
+                    ctx.pal.border.fade(0.18),
+                );
+                d.fill_round_rect(-7.0, center_y - 4.2, 14.0, 9.2, 1.6, ctx.pal.border);
+                d.text_bold(
+                    0.0,
+                    center_y + 0.4,
+                    txt,
+                    font_size,
+                    ctx.pal.body,
+                    Align::Center,
+                );
+            } else {
+                // Raised plunger cap with bottom 3D lip shadow
+                d.fill_round_rect(
+                    -7.2,
+                    center_y - 3.8,
+                    14.4,
+                    9.6,
+                    1.8,
+                    ctx.pal.border.fade(0.26),
+                );
+                d.fill_round_rect(-7.2, center_y - 4.8, 14.4, 9.6, 1.8, ctx.pal.body);
+                d.stroke_round_rect(-7.2, center_y - 4.8, 14.4, 9.6, 1.8, ctx.pal.border, 0.75);
+                d.text_bold(0.0, center_y, txt, font_size, ctx.pal.border, Align::Center);
+            }
+            return true;
+        }
+
+        // Bare schematic push-button symbol (ShowButton = false, off-board, no key).
         for i in 0..p {
             let y = -16.0 * i as f64;
-            d.fill_circle(-10.0, y, 1.2, ctx.pal.border);
-            d.fill_circle(10.0, y, 1.2, ctx.pal.border);
-            if self.show_button {
-                continue;
-            }
-            let plate_y = if self.norm_close {
-                if self.pressed { y + 6.0 } else { y - 1.2 }
+            d.fill_circle(-10.0, y, 1.3, ctx.pal.border);
+            d.fill_circle(10.0, y, 1.3, ctx.pal.border);
+            let (plate_y, cap_y) = if self.norm_close {
+                if self.pressed {
+                    (y + 5.0, y - 2.5)
+                } else {
+                    (y + 1.2, y - 5.5)
+                }
             } else if self.pressed {
-                y - 1.2
+                (y - 1.2, y - 5.0)
             } else {
-                y - 6.0
+                (y - 4.5, y - 8.0)
             };
             d.line(
                 -10.0,
@@ -284,55 +376,26 @@ impl Drawable for Push {
                 0.0,
                 plate_y,
                 0.0,
-                plate_y - 5.0,
+                cap_y,
                 ctx.pal.border,
                 COMPONENT_BORDER_WIDTH,
             );
             d.line(
                 -4.0,
-                plate_y - 5.0,
+                cap_y,
                 4.0,
-                plate_y - 5.0,
+                cap_y,
                 ctx.pal.border,
                 COMPONENT_BORDER_WIDTH,
             );
         }
-        if self.poles > 1 && !self.show_button {
+        if p > 1 {
             d.polyline(
-                &[[0.0, 4.0], [0.0, -16.0 * (p - 1) as f64 - 4.0]],
+                &[[0.0, 2.0], [0.0, -16.0 * (p - 1) as f64 - 4.0]],
                 ctx.pal.border,
                 1.0,
                 true,
             );
-        }
-        if self.show_button || !self.key.is_empty() {
-            let center_y = -16.0 * (p - 1) as f64 / 2.0;
-            let bg = if self.pressed {
-                ctx.pal.border
-            } else {
-                ctx.pal.body.fade(0.85)
-            };
-            let fg = if self.pressed {
-                ctx.pal.body
-            } else {
-                ctx.pal.border
-            };
-            d.fill_round_rect(-8.0, center_y - 6.0, 16.0, 12.0, 2.0, bg);
-            d.stroke_round_rect(
-                -8.0,
-                center_y - 6.0,
-                16.0,
-                12.0,
-                2.0,
-                ctx.pal.border,
-                COMPONENT_BORDER_WIDTH,
-            );
-            let txt = if !self.key.is_empty() {
-                &self.key
-            } else {
-                "PUSH"
-            };
-            d.text(0.0, center_y - 1.0, txt, 6.0, fg, Align::Center);
         }
         true
     }

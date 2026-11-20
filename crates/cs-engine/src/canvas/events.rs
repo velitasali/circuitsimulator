@@ -169,17 +169,20 @@ impl Canvas {
         let mut c = Change::default();
         let local = self.scene.items()[idx].map_scene(scene);
         let uid = self.scene.items()[idx].id.clone();
-        if self.scene.items_mut()[idx].kind.interact_press(local) {
+        if !matches!(self.scene.items()[idx].kind, Part::Push(_))
+            && self.scene.items_mut()[idx].kind.interact_press(local)
+        {
             self.dirty_item_now(&uid);
             self.drag = Drag::Interact { index: idx };
             self.merge_sim_raster(&mut c, &uid);
             return c;
         }
         if let Part::Push(_) = &self.scene.items()[idx].kind {
-            let uid = self.scene.items()[idx].id.clone();
-            self.set_push_down(&uid, true);
-            self.pressed_push_id = Some(uid.clone());
-            self.merge_sim_raster(&mut c, &uid);
+            if !shift {
+                self.set_push_down(&uid, true);
+                self.pressed_push_id = Some(uid.clone());
+                self.merge_sim_raster(&mut c, &uid);
+            }
         }
         if shift {
             c.items = self.toggle_selected(idx);

@@ -253,6 +253,7 @@ fn board_layout_authoring_roundtrip_and_live_led_rendering() {
             pal: &pal,
             scale: 1.0,
             item_id: "",
+            on_board: false,
         },
     );
     assert!(
@@ -283,6 +284,7 @@ fn board_layout_authoring_roundtrip_and_live_led_rendering() {
             pal: &pal,
             scale: 1.0,
             item_id: "",
+            on_board: false,
         },
     );
     assert!(
@@ -309,6 +311,7 @@ fn board_layout_authoring_roundtrip_and_live_led_rendering() {
             pal: &pal,
             scale: 1.0,
             item_id: "",
+            on_board: false,
         },
     );
     assert!(
@@ -388,6 +391,25 @@ fn interactive_board_mounted_push_and_switch_drive_inner_led_live() {
     assert!(
         v_off < 0.5,
         "LED should turn off when board-mounted Push is released (v={v_off})"
+    );
+
+    // 4. Board-mounted Push renders as a tactile physical button (with "PUSH" label)
+    //    even though ShowButton was left at default (false).
+    let pal = Palette::light();
+    let mut rec = PaintRecorder::default();
+    paint_scene(
+        &mut rec,
+        &PaintCtx {
+            canvas: &canvas,
+            pal: &pal,
+            scale: 1.0,
+            item_id: "",
+            on_board: false,
+        },
+    );
+    assert!(
+        rec.texts.iter().any(|t| t == "PUSH"),
+        "board-mounted Push should render physical PUSH button even when ShowButton=false"
     );
 }
 

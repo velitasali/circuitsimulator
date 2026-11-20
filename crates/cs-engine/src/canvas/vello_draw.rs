@@ -190,6 +190,7 @@ fn record_scene(
         pal: palette,
         scale: zoom,
         item_id: "",
+        on_board: false,
     };
     if let Some(pkg_uid) = canvas.board_layout_pkg() {
         let connected = rustc_hash::FxHashSet::default();

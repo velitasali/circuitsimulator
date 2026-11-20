@@ -109,6 +109,7 @@ pub struct CircuitCanvas {
     pub(crate) last_warnings_count: usize,
     pub(crate) last_warnings_crashed: bool,
     pub(crate) dpr: f64,
+    pub(crate) unsaved_root_snapshot: Option<(String, bool)>,
 }
 
 impl Default for CircuitCanvas {
@@ -201,6 +202,7 @@ impl Default for CircuitCanvas {
             hover_y: 0.0,
             project_path: String::new(),
             initial_loaded: false,
+            unsaved_root_snapshot: None,
         };
         s.apply_palette();
         s
@@ -228,6 +230,7 @@ impl CircuitCanvas {
     }
 
     fn replace_with_new(&mut self) {
+        self.unsaved_root_snapshot = None;
         let c = files::replace_with_new(&mut self.inner, &self.project_path);
         self.apply(c);
         self.file_path_changed();
@@ -249,6 +252,7 @@ impl CircuitCanvas {
         };
         match self.inner.load_sim1(ex.sim1, None) {
             Ok(c) => {
+                self.unsaved_root_snapshot = None;
                 cs_engine::project::update_session(&self.project_path, |s| {
                     s.circuit_file = None;
                 });
@@ -274,6 +278,7 @@ impl CircuitCanvas {
     fn load_path_now(&mut self, path: &str) {
         match files::load_path_now(&mut self.inner, &self.project_path, path) {
             Ok(c) => {
+                self.unsaved_root_snapshot = None;
                 self.apply(c);
                 self.file_path_changed();
                 self.canvas_overflow_changed();
@@ -292,9 +297,11 @@ impl CircuitCanvas {
     fn apply_circuit_draft(&mut self, draft: backup::CircuitDraft) {
         match files::apply_circuit_draft(&mut self.inner, &self.project_path, draft) {
             Ok(Some(c)) => {
+                self.unsaved_root_snapshot = None;
                 self.apply(c);
                 self.file_path_changed();
                 self.flush_sim_logs();
+                self.root_circuit_loaded();
             }
             Ok(None) => {}
             Err(_) => {
@@ -378,6 +385,9 @@ impl CircuitCanvas {
         }
         if c.props {
             self.props_changed();
+        }
+        if c.items || c.props {
+            self.subcircuits_changed();
         }
         if c.open_props {
             self.open_prop_dialogs_changed();
@@ -755,7 +765,7 @@ impl CircuitCanvas {
     qproperty!(
         "subcircuitTree",
         Read = subcircuit_tree,
-        Notify = file_path_changed
+        Notify = subcircuits_changed
     );
     qproperty!(
         "programmableDevices",
@@ -1289,6 +1299,8 @@ impl CircuitCanvas {
     #[qsignal]
     fn root_circuit_loaded(&mut self);
     #[qsignal]
+    fn subcircuits_changed(&mut self);
+    #[qsignal]
     fn open_subcircuit_requested(&mut self, path: String, label: String);
 
     fn subcircuit_tree(&self) -> Value {
@@ -1563,11 +1575,13 @@ impl CircuitCanvas {
 
         if !is_first {
             self.flush_draft();
+            self.unsaved_root_snapshot = None;
             let defaults = cs_engine::settings::get().to_circ();
             let c = self.inner.new_circuit_with(defaults);
             self.apply(c);
             self.file_path_changed();
             self.circ_settings_changed();
+            self.root_circuit_loaded();
         }
 
         let from_cli = crate::pending::OPEN_CIRCUIT.get().is_some() && is_first;
@@ -3236,10 +3250,31 @@ impl CircuitCanvas {
     #[qslot]
     fn load_subcircuit(&mut self, url: String) {
         let path = strip_file_url(&url);
-        if path.is_empty() {
-            return;
+        if self.inner.file_path().is_some() {
+            self.persist_circuit_draft_now();
+        } else if !path.is_empty() && self.unsaved_root_snapshot.is_none() {
+            self.unsaved_root_snapshot = Some((self.inner.to_sim1(), self.inner.is_modified()));
         }
-        match files::load_path_now(&mut self.inner, &self.project_path, &path) {
+
+        let loaded = if path.is_empty() {
+            let Some((snapshot, was_modified)) = self.unsaved_root_snapshot.take() else {
+                return;
+            };
+            let res = if was_modified {
+                self.inner.load_recovered(&snapshot, None, "")
+            } else {
+                self.inner.load_sim1(&snapshot, None)
+            };
+            res.map_err(|e| {
+                let prefix = cs_engine::i18n::tr("Error loading circuit:");
+                cs_engine::logging::log_sim(format!("{prefix} {e}"));
+                e.to_string()
+            })
+        } else {
+            files::load_subcircuit_now(&mut self.inner, &self.project_path, &path)
+        };
+
+        match loaded {
             Ok(c) => {
                 self.apply(c);
                 self.file_path_changed();
@@ -3257,15 +3292,20 @@ impl CircuitCanvas {
 
     #[qslot]
     fn save_path(&mut self, url: String) {
+        let was_unsaved = self.inner.file_path().is_none();
         let raw_path = strip_file_url(&url);
         match files::save_path(&mut self.inner, &self.project_path, &raw_path) {
             Ok(path) => {
                 if path.is_empty() {
                     return;
                 }
+                if was_unsaved {
+                    self.unsaved_root_snapshot = None;
+                }
                 self.flush_sim_logs();
                 self.file_path_changed();
                 self.history_changed();
+                self.subcircuits_changed();
                 if !matches!(self.pending_replace, PendingReplace::None) {
                     self.finish_pending_replace();
                 }

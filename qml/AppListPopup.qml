@@ -90,8 +90,9 @@ Popup {
                 TapHandler {
                     onTapped: {
                         var popup = root
-                        popup.activated(rowRect.index)
+                        var idx = rowRect.index
                         popup.close()
+                        popup.activated(idx)
                     }
                 }
             }

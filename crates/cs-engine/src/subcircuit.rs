@@ -3,12 +3,12 @@
 //!
 //! Matches C++ `SubCircuit::construct` / `loadSubCircuit` / `addPin`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::canvas::{Point, Rect, map_rect};
 use crate::catalog::Catalog;
-use crate::circ1::BoardPlacement;
+use crate::circ1::{self, BoardPlacement};
 use crate::components::Part;
 use crate::digital::LogicOverride;
 use crate::elements::{Comp, Kind};
@@ -16,7 +16,7 @@ use crate::package::{
     Package, SubcType, convert_package, logic_symbol_for_package_name, packages_from_sim1,
     select_package, select_package_key,
 };
-use crate::sim1::{ParsedCircuit, parse_sim1, parse_xml_props, prop};
+use crate::sim1::{self, ParsedCircuit, parse_sim1, parse_xml_props, prop};
 use crate::{Error, Result};
 
 const MAX_NEST: u32 = 16;
@@ -100,9 +100,16 @@ impl SubcSearch {
     }
 
     pub fn child_for(&self, file: &Path) -> Self {
+        let child_dir = file.parent().map(|d| d.to_path_buf());
+        let mut data_dirs = self.data_dirs.clone();
+        if let Some(parent_dir) = &self.circuit_dir {
+            if child_dir.as_ref() != Some(parent_dir) && !data_dirs.contains(parent_dir) {
+                data_dirs.push(parent_dir.clone());
+            }
+        }
         Self {
-            circuit_dir: file.parent().map(|d| d.to_path_buf()),
-            data_dirs: self.data_dirs.clone(),
+            circuit_dir: child_dir,
+            data_dirs,
             memory: self.memory.clone(),
             memory_pkg: self.memory_pkg.clone(),
             memory_mcu: self.memory_mcu.clone(),
@@ -132,9 +139,15 @@ pub fn resolve_subc(device: &str, search: &SubcSearch) -> Option<ResolvedSubc> {
     if let Some(d) = &search.circuit_dir {
         dirs.push(d.clone());
     }
-    dirs.extend(search.data_dirs.iter().cloned());
+    for d in &search.data_dirs {
+        if !dirs.contains(d) {
+            dirs.push(d.clone());
+        }
+    }
     if let Some(dir) = search.catalog.file_dir(device) {
-        dirs.push(dir);
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
     }
     for dir in dirs {
         for cand in candidate_files(&dir, device) {
@@ -994,21 +1007,70 @@ pub struct SubcTreeNode {
     pub children: Vec<SubcTreeNode>,
 }
 
-/// Snapshot subcircuit tree from parsed circuit items.
-pub fn snapshot_subcircuits_from_parsed(
-    parsed: &ParsedCircuit,
+pub(crate) fn subc_visit_key(file_path: &str, device: &str) -> String {
+    if !file_path.is_empty() {
+        let norm = file_path.replace('\\', "/");
+        #[cfg(windows)]
+        {
+            norm.to_ascii_lowercase()
+        }
+        #[cfg(not(windows))]
+        {
+            norm
+        }
+    } else {
+        format!("device:{device}")
+    }
+}
+
+/// Snapshot subcircuit tree from `.circ1` or legacy `.sim1`/`.sim2` source text.
+pub fn snapshot_subcircuits_from_src(src: &str, search: &SubcSearch) -> Vec<SubcTreeNode> {
+    let mut visited = HashSet::new();
+    snapshot_subcircuits_from_src_inner(src, search, 0, &mut visited)
+}
+
+pub(crate) fn snapshot_subcircuits_from_src_with_visited(
+    src: &str,
     search: &SubcSearch,
+    depth: u32,
+    visited: &mut HashSet<String>,
 ) -> Vec<SubcTreeNode> {
+    snapshot_subcircuits_from_src_inner(src, search, depth, visited)
+}
+
+fn snapshot_subcircuits_from_src_inner(
+    src: &str,
+    search: &SubcSearch,
+    depth: u32,
+    visited: &mut HashSet<String>,
+) -> Vec<SubcTreeNode> {
+    if depth >= MAX_NEST {
+        return Vec::new();
+    }
+    let Ok(parsed) = circ1::parse_circ1(src).or_else(|_| sim1::parse_legacy_to_circ1(src)) else {
+        return Vec::new();
+    };
     let mut result = Vec::new();
     for it in &parsed.items {
-        if let crate::elements::Kind::Subcircuit { device, .. } = &it.comp.kind {
+        if let Part::Subcircuit(subc) = &it.part {
+            let dev = if !subc.device.is_empty() {
+                subc.device.clone()
+            } else {
+                device_from_id(&it.circ_id)
+            };
             let label = it
+                .graphic
                 .label
-                .as_ref()
+                .as_deref()
                 .filter(|l| !l.is_empty())
-                .unwrap_or(&it.comp.id)
-                .clone();
-            let dev = device_from_id(device);
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    if !it.circ_id.is_empty() {
+                        it.circ_id.clone()
+                    } else {
+                        dev.clone()
+                    }
+                });
             let resolved = resolve_subc(&dev, search);
             let file_path = resolved
                 .as_ref()
@@ -1016,14 +1078,85 @@ pub fn snapshot_subcircuits_from_parsed(
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default();
 
+            let key = subc_visit_key(&file_path, &dev);
             let children = if let Some(r) = resolved {
-                if let Ok(p) = parse_sim1(&r.src) {
+                if visited.insert(key.clone()) {
                     let child_search = if !file_path.is_empty() {
                         search.child_for(Path::new(&file_path))
                     } else {
                         search.clone()
                     };
-                    snapshot_subcircuits_from_parsed(&p, &child_search)
+                    let kids = snapshot_subcircuits_from_src_inner(
+                        &r.src,
+                        &child_search,
+                        depth + 1,
+                        visited,
+                    );
+                    visited.remove(&key);
+                    kids
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            result.push(SubcTreeNode {
+                label,
+                file_path,
+                children,
+            });
+        }
+    }
+    result.sort_by(|a, b| a.label.cmp(&b.label));
+    result
+}
+
+/// Snapshot subcircuit tree from parsed circuit items.
+pub fn snapshot_subcircuits_from_parsed(
+    parsed: &ParsedCircuit,
+    search: &SubcSearch,
+) -> Vec<SubcTreeNode> {
+    let mut visited = HashSet::new();
+    let mut result = Vec::new();
+    for it in &parsed.items {
+        if let Kind::Subcircuit { device, .. } = &it.comp.kind {
+            let dev = if !device.is_empty() {
+                device.clone()
+            } else {
+                device_from_id(&it.comp.id)
+            };
+            let label = it
+                .label
+                .as_ref()
+                .filter(|l| !l.is_empty())
+                .cloned()
+                .unwrap_or_else(|| {
+                    if !it.comp.id.is_empty() {
+                        it.comp.id.clone()
+                    } else {
+                        dev.clone()
+                    }
+                });
+            let resolved = resolve_subc(&dev, search);
+            let file_path = resolved
+                .as_ref()
+                .and_then(|r| r.path.as_ref())
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+
+            let key = subc_visit_key(&file_path, &dev);
+            let children = if let Some(r) = resolved {
+                if visited.insert(key.clone()) {
+                    let child_search = if !file_path.is_empty() {
+                        search.child_for(Path::new(&file_path))
+                    } else {
+                        search.clone()
+                    };
+                    let kids =
+                        snapshot_subcircuits_from_src_inner(&r.src, &child_search, 1, &mut visited);
+                    visited.remove(&key);
+                    kids
                 } else {
                     Vec::new()
                 }

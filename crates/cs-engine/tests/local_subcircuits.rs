@@ -80,3 +80,53 @@ fn local_circ1_subcircuit_loads_in_library_and_canvas() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn nested_local_circ1_subcircuit_tree_resolves_project_siblings_and_hyphens() {
+    let root = env::temp_dir().join(format!("cs-local-nested-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("led-driver")).unwrap();
+    fs::create_dir_all(root.join("BoardA")).unwrap();
+
+    fs::write(
+        root.join("led-driver").join("led-driver.circ1"),
+        LED_PKG_CIRC1,
+    )
+    .unwrap();
+
+    let board_a_circ1 = r##"<circuit version="1.0.0" rev="0" width="3200" height="2400" >
+<item itemtype="Subcircuit" CircId="led-driver-1" Device="led-driver" Pos="0,0" />
+<item itemtype="SubPackage" CircId="SubPackage-1" Name="BoardA" Width="6" Height="4" SubcType="Board" LogicSymbol="false" Pins="Pin; type=; xpos=-8; ypos=8; angle=180; length=8; space=0; id=in; label=IN&#xa;" Pos="0,0" />
+</circuit>"##;
+    fs::write(root.join("BoardA").join("BoardA.circ1"), board_a_circ1).unwrap();
+
+    let main_circ1 = r##"<circuit version="1.0.0" rev="0" width="3200" height="2400" >
+<item itemtype="Subcircuit" CircId="BoardA-1" Device="BoardA" Pos="0,0" />
+</circuit>"##;
+    let main_path = root.join("main.circ1");
+    fs::write(&main_path, main_circ1).unwrap();
+
+    let mut canvas = Canvas::empty();
+    canvas.set_project_dir(root.to_str().map(str::to_string));
+    canvas
+        .load_sim1(main_circ1, main_path.to_str().map(str::to_string))
+        .unwrap();
+
+    let tree = canvas.snapshot_subcircuits();
+    assert_eq!(tree.len(), 1);
+    assert_eq!(tree[0].label, "BoardA-1");
+    assert!(tree[0].file_path.ends_with("BoardA.circ1"));
+    assert_eq!(
+        tree[0].children.len(),
+        1,
+        "nested sibling subcircuit with hyphenated name must appear in hierarchy"
+    );
+    assert_eq!(tree[0].children[0].label, "led-driver-1");
+    assert!(
+        tree[0].children[0].file_path.ends_with("led-driver.circ1"),
+        "nested sibling subcircuit must resolve file_path from project dir, got: {:?}",
+        tree[0].children[0].file_path
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}

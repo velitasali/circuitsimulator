@@ -1172,6 +1172,9 @@ Item {
             CircuitPanel.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
             CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )
         }
+        function onSubcircuitsChanged(): void {
+            CircuitPanel.syncSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
+        }
         function onFilePathChanged(): void {
             CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )
         }

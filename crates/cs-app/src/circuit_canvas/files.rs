@@ -59,10 +59,11 @@ pub(super) fn replace_with_new(canvas: &mut Canvas, project_path: &str) -> Chang
     canvas.new_circuit_with(defaults)
 }
 
-pub(super) fn load_path_now(
+fn load_circuit_file(
     canvas: &mut Canvas,
     project_path: &str,
     path: &str,
+    record_session: bool,
 ) -> Result<Change, String> {
     match std::fs::read_to_string(path) {
         Ok(src) => {
@@ -75,12 +76,14 @@ pub(super) fn load_path_now(
             };
             match loaded {
                 Ok(c) => {
-                    let mut st = cs_engine::settings::get().clone();
-                    st.push_recent_circuit(path.to_string());
-                    st.save();
-                    cs_engine::project::update_session(project_path, |s| {
-                        s.circuit_file = Some(path.to_string());
-                    });
+                    if record_session {
+                        let mut st = cs_engine::settings::get().clone();
+                        st.push_recent_circuit(path.to_string());
+                        st.save();
+                        cs_engine::project::update_session(project_path, |s| {
+                            s.circuit_file = Some(path.to_string());
+                        });
+                    }
                     let loaded_prefix = cs_engine::i18n::tr("Loaded circuit:");
                     cs_engine::logging::log_sim(format!("{loaded_prefix} {path}"));
                     Ok(c)
@@ -99,6 +102,22 @@ pub(super) fn load_path_now(
             Err(e.to_string())
         }
     }
+}
+
+pub(super) fn load_path_now(
+    canvas: &mut Canvas,
+    project_path: &str,
+    path: &str,
+) -> Result<Change, String> {
+    load_circuit_file(canvas, project_path, path, true)
+}
+
+pub(super) fn load_subcircuit_now(
+    canvas: &mut Canvas,
+    project_path: &str,
+    path: &str,
+) -> Result<Change, String> {
+    load_circuit_file(canvas, project_path, path, false)
 }
 
 pub(super) fn apply_circuit_draft(

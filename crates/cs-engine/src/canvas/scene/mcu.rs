@@ -1,10 +1,13 @@
 //! MCU and firmware management, snapshotting, device discovery, and live synchronization.
 
+use std::collections::HashSet;
+use std::path::Path;
+
 use super::Scene;
 use super::item::{Item, ProgrammableDevice};
 use crate::Circuit;
 use crate::components::Part;
-use crate::subcircuit;
+use crate::subcircuit::{self, SubcSearch, SubcTreeNode};
 
 impl Scene {
     pub fn hidden_mcu_snap(&self) -> crate::mcu::McuSnap {
@@ -46,10 +49,7 @@ impl Scene {
     }
 
     /// Snapshot subcircuit tree hierarchy from the scene items.
-    pub fn snapshot_subcircuits(
-        &self,
-        search: &crate::subcircuit::SubcSearch,
-    ) -> Vec<crate::subcircuit::SubcTreeNode> {
+    pub fn snapshot_subcircuits(&self, search: &SubcSearch) -> Vec<SubcTreeNode> {
         let mut result = Vec::new();
         for it in &self.items {
             if let Part::Subcircuit(subc) = &it.kind {
@@ -63,36 +63,46 @@ impl Scene {
                 } else {
                     it.id.clone()
                 };
+                let resolved = if nested_path.is_none() || nested_src.is_empty() {
+                    subcircuit::resolve_subc(device, search)
+                } else {
+                    None
+                };
                 let file_path = nested_path
                     .clone()
                     .or_else(|| {
-                        crate::subcircuit::resolve_subc(device, search)
-                            .and_then(|r| r.path.map(|p| p.to_string_lossy().into_owned()))
+                        resolved
+                            .as_ref()
+                            .and_then(|r| r.path.as_ref())
+                            .map(|p| p.to_string_lossy().into_owned())
                     })
                     .unwrap_or_default();
 
                 let src = if !nested_src.is_empty() {
                     Some(nested_src.clone())
                 } else {
-                    crate::subcircuit::resolve_subc(device, search).map(|r| r.src)
+                    resolved.map(|r| r.src)
                 };
 
                 let children = if let Some(inner_src) = src {
-                    if let Ok(parsed) = crate::sim1::parse_sim1(&inner_src) {
-                        let child_search = if !file_path.is_empty() {
-                            search.child_for(std::path::Path::new(&file_path))
-                        } else {
-                            search.clone()
-                        };
-                        crate::subcircuit::snapshot_subcircuits_from_parsed(&parsed, &child_search)
+                    let child_search = if !file_path.is_empty() {
+                        search.child_for(Path::new(&file_path))
                     } else {
-                        Vec::new()
-                    }
+                        search.clone()
+                    };
+                    let mut visited = HashSet::new();
+                    visited.insert(subcircuit::subc_visit_key(&file_path, device));
+                    subcircuit::snapshot_subcircuits_from_src_with_visited(
+                        &inner_src,
+                        &child_search,
+                        1,
+                        &mut visited,
+                    )
                 } else {
                     Vec::new()
                 };
 
-                result.push(crate::subcircuit::SubcTreeNode {
+                result.push(SubcTreeNode {
                     label,
                     file_path,
                     children,

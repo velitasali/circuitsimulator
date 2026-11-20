@@ -26,6 +26,97 @@ struct FlattenedNavRow {
     label_chain: Vec<String>,
 }
 
+fn normalize_nav_path(path: &str) -> String {
+    if path.is_empty() {
+        return String::new();
+    }
+    let mut s = path.replace('\\', "/");
+    while let Some(idx) = s.get(1..).and_then(|rest| rest.find("//")) {
+        s.replace_range(idx + 1..idx + 3, "/");
+    }
+    #[cfg(windows)]
+    {
+        s = s.to_ascii_lowercase();
+    }
+    s
+}
+
+fn nav_paths_equal(a: &str, b: &str) -> bool {
+    if a.is_empty() && b.is_empty() {
+        return true;
+    }
+    normalize_nav_path(a) == normalize_nav_path(b)
+}
+
+fn nav_chains_equal(a: &[String], b: &[String]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| nav_paths_equal(x, y))
+}
+
+fn display_circuit_label(path: &str, label: &str) -> String {
+    if !label.is_empty() {
+        return label.to_string();
+    }
+    let default_name = cs_engine::i18n::tr("New Circuit");
+    if path.is_empty() {
+        return default_name;
+    }
+    Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or(&default_name)
+        .to_string()
+}
+
+fn find_subc_child_idx(nodes: &[SubcTreeNode], path: &str, label: &str) -> Option<usize> {
+    if !label.is_empty() {
+        if let Some(i) = nodes
+            .iter()
+            .position(|n| nav_paths_equal(&n.file_path, path) && n.label == label)
+        {
+            return Some(i);
+        }
+    }
+    nodes
+        .iter()
+        .position(|n| !n.file_path.is_empty() && nav_paths_equal(&n.file_path, path))
+}
+
+fn children_at_stack<'a>(
+    roots: &'a [SubcTreeNode],
+    stack_tail: &[NavEntry],
+) -> Option<&'a [SubcTreeNode]> {
+    let mut cur = roots;
+    for entry in stack_tail {
+        let idx = find_subc_child_idx(cur, &entry.file_path, &entry.label)?;
+        cur = &cur[idx].children;
+    }
+    Some(cur)
+}
+
+fn ensure_stack_in_tree<'a>(
+    roots: &'a mut Vec<SubcTreeNode>,
+    stack_tail: &[NavEntry],
+) -> Option<&'a mut SubcTreeNode> {
+    let (head, rest) = stack_tail.split_first()?;
+    let idx = match find_subc_child_idx(roots, &head.file_path, &head.label) {
+        Some(i) => i,
+        None => {
+            roots.push(SubcTreeNode {
+                label: head.label.clone(),
+                file_path: head.file_path.clone(),
+                children: Vec::new(),
+            });
+            roots.len() - 1
+        }
+    };
+    if rest.is_empty() {
+        Some(&mut roots[idx])
+    } else {
+        ensure_stack_in_tree(&mut roots[idx].children, rest)
+    }
+}
+
 pub struct CircuitPanel {
     overlays: Overlays,
     coords_x: i32,
@@ -152,8 +243,8 @@ impl CircuitPanel {
         Notify = info_visible_changed
     );
     qproperty!("gripIcon", Read = grip_icon, Constant);
-    qproperty!("subcNav", Read = subc_nav, Notify = toolbar_changed);
-    qproperty!("deviceSel", Read = device_sel, Notify = toolbar_changed);
+    qproperty!("subcNav", Read = subc_nav, Notify = subc_nav_changed);
+    qproperty!("deviceSel", Read = device_sel, Notify = device_sel_changed);
     qproperty!("simRunning", Read = sim_running, Notify = toolbar_changed);
     qproperty!("simPaused", Read = sim_paused, Notify = toolbar_changed);
 
@@ -161,6 +252,10 @@ impl CircuitPanel {
     fn overlay_layout_changed(&mut self);
     #[qsignal]
     fn toolbar_changed(&mut self);
+    #[qsignal]
+    fn subc_nav_changed(&mut self);
+    #[qsignal]
+    fn device_sel_changed(&mut self);
     #[qsignal]
     fn coords_changed(&mut self);
     #[qsignal]
@@ -291,13 +386,15 @@ impl CircuitPanel {
             .iter()
             .map(|e| e.file_path.clone())
             .collect();
+        let current_label_chain: Vec<String> =
+            self.subc_stack.iter().map(|e| e.label.clone()).collect();
         let root_file_chain = vec![root_entry.file_path.clone()];
         let root_label_chain = vec![root_entry.label.clone()];
 
         rows.push(FlattenedNavRow {
             text: root_entry.label.clone(),
             depth: 0,
-            current: self.subc_stack.len() == 1,
+            current: self.subc_stack.len() <= 1,
             file_chain: root_file_chain.clone(),
             label_chain: root_label_chain.clone(),
         });
@@ -307,9 +404,50 @@ impl CircuitPanel {
             1,
             &root_file_chain,
             &root_label_chain,
-            &current_file_chain,
             &mut rows,
         );
+
+        if self.subc_stack.len() > 1 {
+            let exact_idx = rows.iter().position(|r| {
+                nav_chains_equal(&r.file_chain, &current_file_chain)
+                    && r.label_chain == current_label_chain
+            });
+            let matched_idx = exact_idx.or_else(|| {
+                rows.iter()
+                    .position(|r| nav_chains_equal(&r.file_chain, &current_file_chain))
+            });
+            if let Some(idx) = matched_idx {
+                rows[idx].current = true;
+            } else {
+                // Defensive fallback: splice any active stack entries missing from the tree
+                // so the current hierarchy is always visible and navigable in the dropdown.
+                let mut prefix_len = 1usize;
+                let mut insert_after = 0usize;
+                for len in (1..self.subc_stack.len()).rev() {
+                    if let Some(pos) = rows
+                        .iter()
+                        .position(|r| nav_chains_equal(&r.file_chain, &current_file_chain[..len]))
+                    {
+                        prefix_len = len;
+                        insert_after = pos;
+                        break;
+                    }
+                }
+                let mut extra = Vec::new();
+                for len in (prefix_len + 1)..=self.subc_stack.len() {
+                    let entry = &self.subc_stack[len - 1];
+                    extra.push(FlattenedNavRow {
+                        text: entry.label.clone(),
+                        depth: (len - 1) as i32,
+                        current: len == self.subc_stack.len(),
+                        file_chain: current_file_chain[..len].to_vec(),
+                        label_chain: current_label_chain[..len].to_vec(),
+                    });
+                }
+                let insert_pos = insert_after + 1;
+                rows.splice(insert_pos..insert_pos, extra);
+            }
+        }
 
         rows
     }
@@ -320,7 +458,6 @@ impl CircuitPanel {
         depth: i32,
         file_chain: &[String],
         label_chain: &[String],
-        current_file_chain: &[String],
         out: &mut Vec<FlattenedNavRow>,
     ) {
         for node in nodes {
@@ -329,11 +466,10 @@ impl CircuitPanel {
             let mut child_label_chain = label_chain.to_vec();
             child_label_chain.push(node.label.clone());
 
-            let is_current = child_file_chain == current_file_chain;
             out.push(FlattenedNavRow {
                 text: node.label.clone(),
                 depth,
-                current: is_current,
+                current: false,
                 file_chain: child_file_chain.clone(),
                 label_chain: child_label_chain.clone(),
             });
@@ -343,7 +479,6 @@ impl CircuitPanel {
                 depth + 1,
                 &child_file_chain,
                 &child_label_chain,
-                &current_file_chain,
                 out,
             );
         }
@@ -824,6 +959,8 @@ impl CircuitPanel {
             self.message_color = ColorTheme::get_hex(text_id, dark);
         }
         self.toolbar_changed();
+        self.subc_nav_changed();
+        self.device_sel_changed();
     }
 
     fn sync_sim_state_data(&mut self, running: bool, paused: bool) -> bool {
@@ -895,6 +1032,15 @@ impl CircuitPanel {
         let rows = self.build_subc_rows();
         let row = rows.get(index)?;
         let target = row.file_chain.last()?.clone();
+        // A non-root row with no resolved file path cannot be opened; keep current context.
+        if row.depth > 0 && target.is_empty() {
+            self.subc_popup_open = false;
+            return None;
+        }
+        if row.current {
+            self.subc_popup_open = false;
+            return None;
+        }
         self.subc_stack = row
             .file_chain
             .iter()
@@ -910,9 +1056,13 @@ impl CircuitPanel {
 
     #[qslot]
     fn activate_subc_nav(&mut self, index: i32) {
+        let was_vis = self.subc_nav_visible();
         if let Some(target) = self.select_subc_index(index as usize) {
             self.load_circuit_requested(target);
-            self.toolbar_changed();
+            self.subc_nav_changed();
+            if self.subc_nav_visible() != was_vis {
+                self.toolbar_changed();
+            }
         }
     }
 
@@ -932,41 +1082,22 @@ impl CircuitPanel {
             d.is_active = d.id == id || d.uid == id;
         }
         self.active_device_changed(id);
-        self.toolbar_changed();
+        self.device_sel_changed();
     }
 
     #[qslot]
     fn set_subc_popup_open(&mut self, open: bool) {
-        if self.subc_popup_open != open {
-            self.subc_popup_open = open;
-            self.toolbar_changed();
-        }
+        self.subc_popup_open = open;
     }
 
     #[qslot]
     fn set_device_popup_open(&mut self, open: bool) {
-        if self.device_popup_open != open {
-            self.device_popup_open = open;
-            self.toolbar_changed();
-        }
+        self.device_popup_open = open;
     }
 
     fn reset_subcircuits_data(&mut self, root_path: String, root_label: String, tree: Value) {
         let children: Vec<SubcTreeNode> = serde_json::from_value(tree).unwrap_or_default();
-        let display_label = if root_label.is_empty() {
-            if root_path.is_empty() {
-                cs_engine::i18n::tr("New Circuit")
-            } else {
-                let default_name = cs_engine::i18n::tr("New Circuit");
-                Path::new(&root_path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(&default_name)
-                    .to_string()
-            }
-        } else {
-            root_label
-        };
+        let display_label = display_circuit_label(&root_path, &root_label);
         self.subc_stack = vec![NavEntry {
             file_path: root_path,
             label: display_label,
@@ -976,50 +1107,119 @@ impl CircuitPanel {
 
     #[qslot]
     fn reset_subcircuits(&mut self, root_path: String, root_label: String, tree: Value) {
+        let was_vis = self.subc_nav_visible();
         self.reset_subcircuits_data(root_path, root_label, tree);
-        self.toolbar_changed();
+        self.subc_nav_changed();
+        if self.subc_nav_visible() != was_vis {
+            self.toolbar_changed();
+        }
+    }
+
+    fn sync_subcircuits_data(
+        &mut self,
+        current_path: String,
+        current_label: String,
+        tree: Value,
+    ) -> (bool, bool) {
+        let was_vis = self.subc_nav_visible();
+        let children: Vec<SubcTreeNode> = serde_json::from_value(tree).unwrap_or_default();
+        let changed = if self.subc_stack.len() <= 1 {
+            let display_label = display_circuit_label(&current_path, &current_label);
+            let next_root = NavEntry {
+                file_path: current_path,
+                label: display_label,
+            };
+            let root_changed = self.subc_stack.first() != Some(&next_root);
+            let tree_changed = self.root_subc_children != children;
+            if root_changed {
+                self.subc_stack = vec![next_root];
+            }
+            if tree_changed {
+                self.root_subc_children = children;
+            }
+            root_changed || tree_changed
+        } else if let Some(node) =
+            ensure_stack_in_tree(&mut self.root_subc_children, &self.subc_stack[1..])
+        {
+            if node.children != children {
+                node.children = children;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        let vis_changed = self.subc_nav_visible() != was_vis;
+        (changed, vis_changed)
+    }
+
+    #[qslot]
+    fn sync_subcircuits(&mut self, current_path: String, current_label: String, tree: Value) {
+        let (changed, vis_changed) = self.sync_subcircuits_data(current_path, current_label, tree);
+        if changed {
+            self.subc_nav_changed();
+        }
+        if vis_changed {
+            self.toolbar_changed();
+        }
     }
 
     fn navigate_into_subcircuit_data(&mut self, path: String, label: String) {
-        let rows = self.build_subc_rows();
-        if let Some(row) = rows.iter().find(|r| r.file_chain.last() == Some(&path)) {
-            self.subc_stack = row
-                .file_chain
-                .iter()
-                .zip(&row.label_chain)
-                .map(|(f, l)| NavEntry {
-                    file_path: f.clone(),
-                    label: l.clone(),
-                })
-                .collect();
+        let entry_label = if label.is_empty() {
+            Path::new(&path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|n| !n.is_empty())
+                .unwrap_or("Subcircuit")
+                .to_string()
         } else {
-            let entry_label = if label.is_empty() {
-                Path::new(&path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("Subcircuit")
-                    .to_string()
-            } else {
-                label
-            };
-            if self.subc_stack.is_empty() {
-                self.subc_stack.push(NavEntry {
-                    file_path: path,
-                    label: entry_label,
-                });
-            } else if self.subc_stack.last().map(|e| &e.file_path) != Some(&path) {
-                self.subc_stack.push(NavEntry {
-                    file_path: path,
-                    label: entry_label,
-                });
-            }
+            label
+        };
+
+        if self.subc_stack.is_empty() {
+            self.subc_stack.push(NavEntry {
+                file_path: path,
+                label: entry_label,
+            });
+            return;
         }
+        if self
+            .subc_stack
+            .last()
+            .is_some_and(|e| nav_paths_equal(&e.file_path, &path))
+        {
+            return;
+        }
+
+        // Prefer matching a direct child of the current stack position so navigating
+        // deeper never jumps out of the current ancestor chain.
+        let matched_child = children_at_stack(&self.root_subc_children, &self.subc_stack[1..])
+            .and_then(|children| {
+                let idx = find_subc_child_idx(children, &path, &entry_label)?;
+                let child = &children[idx];
+                Some(NavEntry {
+                    file_path: child.file_path.clone(),
+                    label: child.label.clone(),
+                })
+            });
+
+        let next_entry = matched_child.unwrap_or(NavEntry {
+            file_path: path,
+            label: entry_label,
+        });
+        self.subc_stack.push(next_entry);
+        ensure_stack_in_tree(&mut self.root_subc_children, &self.subc_stack[1..]);
     }
 
     #[qslot]
     fn navigate_into_subcircuit(&mut self, path: String, label: String) {
+        let was_vis = self.subc_nav_visible();
         self.navigate_into_subcircuit_data(path, label);
-        self.toolbar_changed();
+        self.subc_nav_changed();
+        if self.subc_nav_visible() != was_vis {
+            self.toolbar_changed();
+        }
     }
 
     #[qslot]
@@ -1030,6 +1230,7 @@ impl CircuitPanel {
     #[qslot]
     fn update_devices(&mut self, devices_val: Value) {
         if let Ok(mut devs) = serde_json::from_value::<Vec<ProgrammableDevice>>(devices_val) {
+            let was_vis = self.device_sel_visible();
             if let Some(aid) = &self.active_device_id {
                 for d in &mut devs {
                     d.is_active = d.id == *aid || d.uid == *aid;
@@ -1040,7 +1241,10 @@ impl CircuitPanel {
                 self.active_device_id = Some(devs[0].id.clone());
             }
             self.devices = devs;
-            self.toolbar_changed();
+            self.device_sel_changed();
+            if self.device_sel_visible() != was_vis {
+                self.toolbar_changed();
+            }
         }
     }
 
@@ -1228,6 +1432,121 @@ mod tests {
         assert_eq!(rows[0].current, true);
         assert_eq!(rows[1].current, false);
         assert_eq!(rows[2].current, false);
+    }
+
+    #[test]
+    fn subcircuit_sync_updates_tree_without_losing_navigation_context() {
+        let mut panel = CircuitPanel::default();
+
+        // 1. Start with an unsaved empty circuit -> dropdown hidden.
+        panel.reset_subcircuits_data(String::new(), String::new(), json!([]));
+        assert!(!panel.subc_nav_visible());
+
+        // 2. Place a subcircuit on root -> sync_subcircuits reveals the dropdown with hierarchy.
+        let root_tree = json!([
+            {
+                "label": "BoardA",
+                "file_path": "C:/proj/BoardA/BoardA.circ1",
+                "children": [
+                    {
+                        "label": "LED_PKG",
+                        "file_path": "C:/proj/LED_PKG/LED_PKG.circ1",
+                        "children": []
+                    }
+                ]
+            },
+            {
+                "label": "LED_PKG",
+                "file_path": "C:/proj/LED_PKG/LED_PKG.circ1",
+                "children": []
+            }
+        ]);
+        let (changed, vis_changed) =
+            panel.sync_subcircuits_data(String::new(), String::new(), root_tree.clone());
+        assert!(changed);
+        assert!(vis_changed);
+        assert!(panel.subc_nav_visible());
+        assert_eq!(panel.build_subc_rows().len(), 4);
+
+        // 3. Save the unsaved root circuit -> root path & label update cleanly.
+        panel.sync_subcircuits_data("C:/proj/main.circ1".into(), "main.circ1".into(), root_tree);
+        assert_eq!(panel.build_subc_rows()[0].text, "main.circ1");
+        assert_eq!(
+            panel.build_subc_rows()[0].file_chain,
+            vec!["C:/proj/main.circ1"]
+        );
+
+        // 4. Navigate into BoardA using Windows backslash path variant.
+        panel.navigate_into_subcircuit_data(r"C:\proj\BoardA\BoardA.circ1".into(), "BoardA".into());
+        let nav = panel.subc_nav();
+        assert_eq!(nav["buttonTooltip"], "main.circ1 / BoardA");
+        let rows = panel.build_subc_rows();
+        assert!(!rows[0].current);
+        assert!(rows[1].current);
+
+        // 5. Open LED_PKG from inside BoardA -> must stay under BoardA, NOT jump to top-level LED_PKG!
+        panel.navigate_into_subcircuit_data(
+            r"C:\proj\LED_PKG\LED_PKG.circ1".into(),
+            "LED_PKG".into(),
+        );
+        let nav = panel.subc_nav();
+        assert_eq!(nav["buttonTooltip"], "main.circ1 / BoardA / LED_PKG");
+        let rows = panel.build_subc_rows();
+        assert!(rows[2].current, "nested BoardA/LED_PKG must be current");
+        assert!(!rows[3].current, "top-level LED_PKG must not be current");
+
+        // 6. Syncing while inside LED_PKG preserves stack and updates LED_PKG's children.
+        let inner_tree = json!([
+            {
+                "label": "DiodeCore",
+                "file_path": "C:/proj/DiodeCore/DiodeCore.circ1",
+                "children": []
+            }
+        ]);
+        panel.sync_subcircuits_data(
+            "C:/proj/LED_PKG/LED_PKG.circ1".into(),
+            "LED_PKG.circ1".into(),
+            inner_tree,
+        );
+        let nav = panel.subc_nav();
+        assert_eq!(nav["buttonTooltip"], "main.circ1 / BoardA / LED_PKG");
+        let rows = panel.build_subc_rows();
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[3].text, "DiodeCore");
+        assert_eq!(rows[3].depth, 3);
+        assert!(rows[2].current);
+    }
+
+    #[test]
+    fn subcircuit_navigation_shows_dynamic_hops_and_guards_unresolved_rows() {
+        let mut panel = CircuitPanel::default();
+        panel.reset_subcircuits_data("/proj/main.circ1".into(), "main.circ1".into(), json!([]));
+
+        // Navigating into a subcircuit before root_subc_children was populated still lists hierarchy.
+        panel.navigate_into_subcircuit_data("/proj/sub_a.circ1".into(), "SubA".into());
+        panel.navigate_into_subcircuit_data("/proj/sub_b.circ1".into(), "SubB".into());
+        let rows = panel.build_subc_rows();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].text, "main.circ1");
+        assert_eq!(rows[0].depth, 0);
+        assert_eq!(rows[1].text, "SubA");
+        assert_eq!(rows[1].depth, 1);
+        assert_eq!(rows[2].text, "SubB");
+        assert_eq!(rows[2].depth, 2);
+        assert!(rows[2].current);
+
+        // Clicking an already-current row returns None (no redundant reload).
+        assert_eq!(panel.select_subc_index(2), None);
+
+        // Unresolved non-root subcircuit (empty file_path) must not corrupt stack.
+        panel.reset_subcircuits_data(
+            "/proj/main.circ1".into(),
+            "main.circ1".into(),
+            json!([{ "label": "MissingSub", "file_path": "", "children": [] }]),
+        );
+        assert_eq!(panel.select_subc_index(1), None);
+        assert_eq!(panel.subc_stack.len(), 1);
+        assert_eq!(panel.subc_stack[0].file_path, "/proj/main.circ1");
     }
 
     #[test]

@@ -964,7 +964,7 @@ impl Canvas {
     fn search_for_path(&self, path: Option<&str>) -> crate::subcircuit::SubcSearch {
         let mut s = crate::subcircuit::SubcSearch::from_circuit_path(path);
         if let Some(proj) = &self.project_dir {
-            if s.circuit_dir.as_ref() != Some(proj) {
+            if !s.data_dirs.contains(proj) {
                 s.data_dirs.push(proj.clone());
             }
         }

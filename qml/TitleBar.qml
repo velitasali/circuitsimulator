@@ -56,6 +56,9 @@ Item {
     readonly property int pillGap: 8
     // 2px padding on each side + two 22px icon buttons + 2px spacing.
     readonly property int historyPillWidth: 50
+    // 2px padding on each side + one 22px icon button.
+    readonly property int commandCenterPillWidth: 26
+    readonly property int leftUtilityWidth: bar.historyPillWidth + bar.pillGap + bar.commandCenterPillWidth
     // icon 16 + row spacing 4 + pill padding 14. The row drops a hidden MenuBar,
     // so the fit check cannot read menuPill.implicitWidth.
     readonly property int menuPillChrome: 34
@@ -72,7 +75,7 @@ Item {
     }
     readonly property bool menuBarVisible: !App.nativeMenus
         && menuBar.implicitWidth > 0
-        && (bar.usableWidth - bar.menuPillWidth - bar.pillGap - bar.historyPillWidth - bar.pillGap >= bar.titleContentMinWidth)
+        && (bar.usableWidth - bar.menuPillWidth - bar.pillGap - bar.leftUtilityWidth - bar.pillGap >= bar.titleContentMinWidth)
 
     function actionTooltip(label: string, actionId: string): string {
         var sc = UiUtils.shortcutFor(actionId)
@@ -744,18 +747,69 @@ Item {
         }
     }
 
+    // Compact Command Center button right after Undo / Redo.
+    Rectangle {
+        id: commandCenterPill
+        property bool titleBarInteractive: true
+        anchors.verticalCenter: parent.verticalCenter
+        x: historyPill.x + historyPill.width + bar.pillGap
+        width: bar.commandCenterPillWidth
+        height: 26
+        visible: historyPill.visible
+            && (bar.usableWidth - bar.historyPillWidth - bar.pillGap - width - bar.pillGap >= bar.titleContentMinWidth)
+        radius: height / 2
+        color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
+        opacity: bar.windowActive ? 1.0 : 0.7
+
+        // Absorb presses on pill padding so they do not drag the window.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+        }
+
+        AppToolButton {
+            id: commandCenterBtn
+            property bool titleBarInteractive: true
+            anchors.centerIn: parent
+            width: 22
+            height: 22
+            padding: 0
+            focusPolicy: Qt.NoFocus
+            checked: CommandCenter.visible
+            ToolTip.visible: hovered && !CommandCenter.visible
+            ToolTip.text: bar.actionTooltip(I18n.tr("Command Center"), "view.cmdPalette")
+            onClicked: {
+                bar.closeAllMenus()
+                AppMenuBar.triggerAction("view.cmdPalette")
+            }
+
+            contentItem: Item {
+                implicitWidth: 16
+                implicitHeight: 16
+                AppIcon {
+                    anchors.centerIn: parent
+                    icon: "search"
+                    size: 16
+                    color: commandCenterBtn.isCheckedActive ? appTheme.highlight : appTheme.windowText
+                }
+            }
+        }
+    }
+
     // Active file title pill: live simulation state badge, project badge & active file title
     // (plus app icon when the inline menu bar is not shown). Centers in the titlebar and
-    // clamps between the left controls (menu bar / traffic lights / history pill) and right
-    // caption buttons, expanding to fit directory and file names and truncating with ellipsis
-    // only when constrained.
+    // clamps between the left controls (menu bar / traffic lights / history & command center pills)
+    // and right caption buttons, expanding to fit directory and file names and truncating with
+    // ellipsis only when constrained.
     Rectangle {
         id: leftPill
         anchors.verticalCenter: parent.verticalCenter
         height: 26
-        readonly property int minLeftX: historyPill.visible
-            ? (historyPill.x + historyPill.width + bar.pillGap)
-            : (bar.menuBarVisible ? (bar.leftEdge + menuContainer.width + bar.pillGap) : bar.leftEdge)
+        readonly property int minLeftX: commandCenterPill.visible
+            ? (commandCenterPill.x + commandCenterPill.width + bar.pillGap)
+            : historyPill.visible
+                ? (historyPill.x + historyPill.width + bar.pillGap)
+                : (bar.menuBarVisible ? (bar.leftEdge + menuContainer.width + bar.pillGap) : bar.leftEdge)
         readonly property int maxRightX: Math.max(minLeftX, bar.width - bar.rightEdge)
         readonly property int maxWidth: Math.max(0, maxRightX - minLeftX)
         width: Math.min(Math.ceil(leftGroup.implicitWidth) + 12, maxWidth)

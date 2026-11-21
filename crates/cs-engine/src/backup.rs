@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::compat::simulide;
 use crate::settings;
 
 const FILES_DIR: &str = "files";
@@ -36,7 +37,8 @@ struct DraftMeta {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct HistorySnap {
-    pub sim1: String,
+    #[serde(alias = "sim1")]
+    pub circ1: String,
     #[serde(default)]
     pub selected_items: Vec<String>,
     #[serde(default)]
@@ -226,7 +228,7 @@ impl RecoveryStore {
         let meta = read_meta(&meta_path)?;
         let mut snapshot_path = dir.join(SNAPSHOT_FILE);
         if !snapshot_path.exists() {
-            let legacy_path = dir.join("snapshot.sim2");
+            let legacy_path = dir.join(simulide::LEGACY_BACKUP_SNAPSHOT_FILE);
             if legacy_path.exists() {
                 snapshot_path = legacy_path;
             } else {

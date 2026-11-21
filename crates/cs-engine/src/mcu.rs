@@ -12,7 +12,7 @@ use crate::package::{Package, PkgPin, convert_package, select_package};
 use crate::script::ScriptCpu;
 use crate::subcircuit::SubcSearch;
 
-/// `.sim1` MCU properties before `{device}.mcu` is resolved.
+/// `.circ1` MCU properties before `{device}.mcu` is resolved.
 #[derive(Clone, Debug, Default)]
 pub struct McuItemSpec {
     pub device: String,
@@ -838,7 +838,7 @@ pub fn firmware_source(firmware: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Build a netlist MCU from a `.sim1` `McuItem` (C++ `Mcu::construct` + props).
+/// Build a netlist MCU from a `.circ1` `McuItem` (C++ `Mcu::construct` + props).
 /// Scripted cores become [`InstantiatedMcu::Script`].
 pub fn instantiate_any(
     id: &str,

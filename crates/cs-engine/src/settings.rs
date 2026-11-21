@@ -339,7 +339,7 @@ pub fn edit(f: impl FnOnce(&mut AppSettings)) {
     g.save();
 }
 
-/// Per-circuit values stored in the `.sim1` header. C++ `Circuit` + `Simulator`.
+/// Per-circuit values stored in the `.circ1` header. C++ `Circuit` + `Simulator`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CircSettings {
     pub width: i32,

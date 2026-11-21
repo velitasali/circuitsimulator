@@ -1,4 +1,4 @@
-//! Chip package layout: `.sim1` Package items and `.package` XML.
+//! Chip package layout: `.circ1` Package items and `.package` XML.
 //!
 //! Matches C++ `Chip::getPackages` / `Chip::convertPackage` / `Chip::initPackage`
 //! and `SubPackage` package designer functionality.
@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::sim1::{parse_props, parse_xml_props};
+use crate::xml_util::{parse_props, parse_xml_props};
 
 /// One pin on a package (C++ `Chip::setPinStr` / `PackagePin`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -172,10 +172,10 @@ pub fn clean_pin_name(name: &str) -> String {
         .replace("&lt;", "<")
 }
 
-/// Extract `Package` / `SubPackage` items from a `.sim1`, `.sim2`, or `.circ1`.
+/// Extract `Package` / `SubPackage` items from a `.circ1` (or legacy SimulIDE) document.
 /// Scans the full document (`.circ1` writes items in scene order, not package-first).
 /// Key is the package `label` / `Name` (falling back to `CircId` when unnamed).
-pub fn packages_from_sim1(src: &str) -> (BTreeMap<String, Package>, String) {
+pub fn packages_from_circ1(src: &str) -> (BTreeMap<String, Package>, String) {
     let mut list = BTreeMap::new();
     let mut subc_type = SubcType::None;
     for raw in src.lines() {
@@ -427,8 +427,8 @@ pub fn load_package_file(path: &Path) -> std::io::Result<Package> {
     Ok(pkg)
 }
 
-/// Convert a list of pins to `.sim1` `Pins` property format.
-pub fn package_pins_to_sim1_prop(pins: &[PkgPin]) -> String {
+/// Convert a list of pins to `.circ1` `Pins` property format.
+pub fn package_pins_to_prop(pins: &[PkgPin]) -> String {
     let mut out = String::new();
     for pin in pins {
         let ptype = if pin.unused() {
@@ -452,8 +452,8 @@ pub fn package_pins_to_sim1_prop(pins: &[PkgPin]) -> String {
     out
 }
 
-/// Parse `.sim1` `Pins` property format to a `Vec<PkgPin>`.
-pub fn parse_sim1_package_pins(pins_str: &str) -> Vec<PkgPin> {
+/// Parse `.circ1` `Pins` property format to a `Vec<PkgPin>`.
+pub fn parse_package_pins(pins_str: &str) -> Vec<PkgPin> {
     let mut pins = Vec::new();
     for part in pins_str.split("&#xa;") {
         let trimmed = part.trim();
@@ -878,8 +878,8 @@ mod tests {
 "#;
 
     #[test]
-    fn packages_from_sim1_stops_at_resistor() {
-        let (list, typ) = packages_from_sim1(PKG_ITEM);
+    fn packages_from_circ1_stops_at_resistor() {
+        let (list, typ) = packages_from_circ1(PKG_ITEM);
         assert_eq!(typ, "None");
         let pkg = list.get("DIP").expect("DIP");
         assert_eq!(pkg.width, 4);
@@ -901,7 +901,7 @@ mod tests {
 <item itemtype="SubPackage" CircId="SubPackage-2" Name="LS" Width="6" Height="5" SubcType="Logic" LogicSymbol="true" CustomColor="false" BckGndColor="#ebf0ff" Border="true" Background="" PackageFile="LS_LS.package" Pins="Pin; type=; xpos=-8; ypos=8; angle=180; length=8; space=0; id=anode; label=an&#xa;Pin; type=; xpos=56; ypos=8; angle=0; length=8; space=0; id=cathode; label=ca&#xa;" Pos="-116,12" ShowProp="SubcType" />
 <item itemtype="Connector" CircId="Connector-1" startpinid="Tunnel-2-pin" endpinid="Led-1-lPin" pointList="-156,-36,-140,-36" />
 </circuit>"##;
-        let (list, typ) = packages_from_sim1(circ1);
+        let (list, typ) = packages_from_circ1(circ1);
         assert_eq!(typ, "Logic");
         let pkg = list.get("LS").expect("LS package");
         assert_eq!(pkg.width, 6);

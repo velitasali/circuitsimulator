@@ -3,7 +3,7 @@ use cs_engine::canvas::export::{Palette, svg_string};
 use cs_engine::canvas::scene::Scene;
 use cs_engine::package::{
     Package, PkgPin, convert_package, generate_dip_footprint, generate_ls_footprint, generate_pins,
-    package_pins_to_sim1_prop, package_to_xml, parse_sim1_package_pins,
+    package_pins_to_prop, package_to_xml, parse_package_pins,
 };
 
 #[test]
@@ -182,7 +182,7 @@ fn test_sim1_package_pins_prop_format() {
         PkgPin::new("NC", "NC", "nc", 16, 40, 270),
     ];
 
-    let prop_str = package_pins_to_sim1_prop(&pins);
+    let prop_str = package_pins_to_prop(&pins);
     assert!(
         prop_str.contains(
             "Pin; type=; xpos=-8; ypos=8; angle=180; length=8; space=0; id=IN1; label=IN1"
@@ -197,7 +197,7 @@ fn test_sim1_package_pins_prop_format() {
         )
     );
 
-    let parsed = parse_sim1_package_pins(&prop_str);
+    let parsed = parse_package_pins(&prop_str);
     assert_eq!(parsed.len(), 3);
     assert_eq!(parsed[0].id, "IN1");
     assert!(parsed[1].inverted());
@@ -246,7 +246,7 @@ fn test_scene_subpackage_manipulation_and_sim1_serialization() {
     assert_eq!(item.prop_bool("CustomColor"), Some(true));
 
     // Serialize to .sim1
-    let sim1_str = scene.to_sim1();
+    let sim1_str = scene.to_circ1();
     assert!(sim1_str.contains("itemtype=\"SubPackage\""));
     assert!(sim1_str.contains("Name=\"CustomChip\""));
     assert!(sim1_str.contains("Width=\"6\""));
@@ -256,7 +256,7 @@ fn test_scene_subpackage_manipulation_and_sim1_serialization() {
     assert!(sim1_str.contains("Pins=\""));
 
     // Roundtrip load from .sim1
-    let loaded_scene = Scene::from_sim1(&sim1_str).expect("load sim1");
+    let loaded_scene = Scene::from_circ1(&sim1_str).expect("load sim1");
     assert_eq!(loaded_scene.items().len(), 1);
     let loaded_item = &loaded_scene.items()[0];
     assert_eq!(loaded_item.pkg_name(), "CustomChip");

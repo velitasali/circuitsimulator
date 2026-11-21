@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use cs_engine::compat::simulide;
 use cs_engine::library::{self, Library};
 use cs_engine::{catalog, i18n, settings};
 use qtbridge::qobject;
@@ -554,14 +555,17 @@ impl CommandCenter {
                             .and_then(|e| e.to_str())
                             .unwrap_or("")
                             .to_lowercase();
-                        let icon = match ext.as_str() {
-                            "circ1" | "sim1" | "sim2" | "circ" => UiIcon::Schema,
-                            "c" | "cpp" | "cc" | "h" | "hpp" | "rs" | "ino" | "py" | "asm"
-                            | "s" => UiIcon::Code,
-                            "txt" | "md" | "json" | "xml" | "csv" | "hex" | "bin" => {
-                                UiIcon::Description
+                        let icon = if simulide::is_circuit_extension(&ext) {
+                            UiIcon::Schema
+                        } else {
+                            match ext.as_str() {
+                                "c" | "cpp" | "cc" | "h" | "hpp" | "rs" | "ino" | "py" | "asm"
+                                | "s" => UiIcon::Code,
+                                "txt" | "md" | "json" | "xml" | "csv" | "hex" | "bin" => {
+                                    UiIcon::Description
+                                }
+                                _ => UiIcon::Draft,
                             }
-                            _ => UiIcon::Draft,
                         };
 
                         self.items.push(json!({

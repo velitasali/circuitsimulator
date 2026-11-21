@@ -404,8 +404,10 @@ fn test_avr_usart_udrie_interrupt_driven_tx() {
     let _guard = SERIAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut canvas = Canvas::empty();
     assert!(canvas.scene_add_component_spec("mega328,MCU", Point::zero()));
-    let renamed = canvas.to_sim1().replace("mega328-1", "mega328-udrie-1");
-    canvas.load_sim1(&renamed, None).expect("rename MCU CircId");
+    let renamed = canvas.to_circ1().replace("mega328-1", "mega328-udrie-1");
+    canvas
+        .load_circ1(&renamed, None)
+        .expect("rename MCU CircId");
 
     // Word addresses for ATmega328 (`megaxx8_int.xml` uses `USART_U` vector 0x0026):
     // - 0x0000: RJMP 0x0034 (+0x33)
@@ -488,8 +490,10 @@ fn test_subcircuit_saved_sim1_relative_firmware_serial() {
         canvas.scene_add_component_spec("Uno,Subcircuit", Point::zero()),
         "Uno,Subcircuit must be placeable from standard catalog"
     );
-    let renamed = canvas.to_sim1().replace("Uno-1", "Uno-rel-1");
-    canvas.load_sim1(&renamed, None).expect("rename Uno CircId");
+    let renamed = canvas.to_circ1().replace("Uno-1", "Uno-rel-1");
+    canvas
+        .load_circ1(&renamed, None)
+        .expect("rename Uno CircId");
     canvas.scene_mut().select_only(0);
 
     let nested_uid = canvas
@@ -518,10 +522,10 @@ fn test_subcircuit_saved_sim1_relative_firmware_serial() {
     let hex_str = hex_path.to_string_lossy().into_owned();
     assert!(canvas.load_firmware_path(&nested_uid, &hex_str).items);
 
-    let saved_sim1 = canvas.to_sim1();
+    let saved_sim1 = canvas.to_circ1();
     let mut reloaded = Canvas::empty();
     reloaded
-        .load_sim1(&saved_sim1, Some(sim1_str))
+        .load_circ1(&saved_sim1, Some(sim1_str))
         .expect("load_sim1 with relative subcircuit Program");
 
     let canonical_port = format!("{nested_uid}:USART0");

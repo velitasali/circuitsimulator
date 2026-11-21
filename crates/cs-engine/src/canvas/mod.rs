@@ -185,7 +185,7 @@ pub struct Canvas {
     pub(crate) prop_open: bool,
     pub(crate) open_prop_uids: Vec<String>,
     pub(crate) last_opened_prop_uid: Option<String>,
-    pub(crate) saved_sim1: String,
+    pub(crate) saved_circ1: String,
     /// Override for tests; empty means `catalog::standard()` at lookup time.
     pub(crate) catalog: crate::catalog::Catalog,
     pub(crate) audio_sink: Option<std::sync::Arc<std::sync::Mutex<dyn crate::audio::AudioSink>>>,
@@ -229,13 +229,13 @@ impl Canvas {
     pub fn with_demo_divider() -> Self {
         let mut c = Self::empty();
         c.scene.add_demo_divider();
-        c.saved_sim1 = c.scene.to_sim1();
+        c.saved_circ1 = c.scene.to_circ1();
         c
     }
 
     pub fn empty() -> Self {
         let scene = Scene::new();
-        let saved_sim1 = scene.to_sim1();
+        let saved_circ1 = scene.to_circ1();
         Self {
             viewport: Vp::default(),
             scene,
@@ -292,7 +292,7 @@ impl Canvas {
             prop_open: false,
             open_prop_uids: Vec::new(),
             last_opened_prop_uid: None,
-            saved_sim1,
+            saved_circ1,
             catalog: crate::catalog::Catalog::new(),
             audio_sink: None,
             hit_label_info: None,
@@ -715,11 +715,11 @@ impl Canvas {
     }
 
     pub fn is_modified(&self) -> bool {
-        self.scene.to_sim1() != self.saved_sim1
+        self.scene.to_circ1() != self.saved_circ1
     }
 
     pub fn mark_saved(&mut self) {
-        self.saved_sim1 = self.scene.to_sim1();
+        self.saved_circ1 = self.scene.to_circ1();
     }
 
     pub fn is_idle(&self) -> bool {

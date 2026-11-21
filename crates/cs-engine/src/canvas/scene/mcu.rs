@@ -7,9 +7,9 @@ use std::path::Path;
 use super::Scene;
 use super::item::{Item, ProgrammableDevice};
 use crate::Circuit;
+use crate::circ1;
 use crate::components::Part;
 use crate::elements::Kind;
-use crate::sim1;
 use crate::subcircuit::{self, SubcSearch, SubcTreeNode};
 
 impl Scene {
@@ -192,7 +192,7 @@ impl Scene {
                 };
                 if let Some(inner_src) = src
                     && subcircuit::may_contain_programmable_device(&inner_src)
-                    && let Ok(parsed) = sim1::parse_sim1(&inner_src)
+                    && let Ok(parsed) = circ1::load_circ1(&inner_src).map(circ1::to_parsed_circuit)
                 {
                     let has_exposed_mcu = parsed.items.iter().any(|inner_it| {
                         inner_it.main_comp

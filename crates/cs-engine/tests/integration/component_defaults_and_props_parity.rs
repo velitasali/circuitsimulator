@@ -312,7 +312,7 @@ fn test_sim1_parser_component_defaults() {
         <item itemtype="Triac" CircId="Triac-1" />
     </circuit>"#;
 
-    let scene = Scene::from_sim1(xml).expect("Scene::from_sim1 should succeed");
+    let scene = Scene::from_circ1(xml).expect("Scene::from_sim1 should succeed");
     assert_eq!(scene.items().len(), 12);
 }
 
@@ -514,8 +514,8 @@ fn test_test_unit_defaults_and_property_mutations() {
     assert_eq!(comp.id, id);
 
     // 4. sim1 XML serialization & deserialization roundtrip preserves properties
-    let sim1_xml = scene.to_sim1();
-    let roundtrip_scene = Scene::from_sim1(&sim1_xml).expect("XML reload failed");
+    let sim1_xml = scene.to_circ1();
+    let roundtrip_scene = Scene::from_circ1(&sim1_xml).expect("XML reload failed");
     let rt_item = roundtrip_scene.item_by_id(&id).unwrap();
     assert_eq!(rt_item.prop_text("Inputs"), Some("A,B".into()));
     assert_eq!(rt_item.prop_text("Outputs"), Some("Y".into()));

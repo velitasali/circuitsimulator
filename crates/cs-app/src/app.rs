@@ -731,6 +731,15 @@ impl App {
             s
         }
     }
+
+    #[qslot]
+    fn is_circuit_path(&self, path: String) -> bool {
+        let p = strip_file_url(&path);
+        std::path::Path::new(&p)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(cs_engine::compat::simulide::is_circuit_extension)
+    }
 }
 
 fn path_to_folder_url(path: &std::path::Path) -> String {

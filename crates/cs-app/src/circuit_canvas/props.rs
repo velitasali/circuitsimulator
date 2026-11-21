@@ -74,7 +74,7 @@ pub(super) fn build_prop_groups_json(it: &cs_engine::canvas::Item) -> Value {
             let mut rows = Vec::new();
             for group in exposed.part.prop_groups() {
                 for row in group.rows {
-                    if !row.visible {
+                    if !row.visible || !exposed.part.is_prop_persisted_or_updating(row.name) {
                         continue;
                     }
                     let is_num = row.kind == "double"

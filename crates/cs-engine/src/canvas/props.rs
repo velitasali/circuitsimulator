@@ -182,8 +182,8 @@ impl Canvas {
     pub fn set_prop_text_for(&mut self, uid: &str, name: String, text: String) -> Change {
         if let Some(rest) = name.strip_prefix("exposed:") {
             if let Some((inner_id, prop_name)) = rest.split_once(':') {
-                let Some(updated_src) = self.scene.item_by_id(uid).and_then(|it| match &it.kind {
-                    Part::Subcircuit(subc) => subcircuit::set_exposed_item_prop(
+                let Some(update) = self.scene.item_by_id(uid).and_then(|it| match &it.kind {
+                    Part::Subcircuit(subc) => subcircuit::apply_exposed_item_prop(
                         &subc.nested_src,
                         inner_id,
                         prop_name,
@@ -196,7 +196,10 @@ impl Canvas {
                 self.push_undo();
                 if let Some(it) = self.scene.item_by_id_mut(uid) {
                     if let Part::Subcircuit(subc) = &mut it.kind {
-                        subc.nested_src = updated_src;
+                        subc.nested_src = update.updated_src;
+                        for (k, v) in update.persisted_changes {
+                            subc.exposed_overrides.insert((inner_id.to_string(), k), v);
+                        }
                         if prop_name.eq_ignore_ascii_case("Program") {
                             subc.program = text.clone();
                         }

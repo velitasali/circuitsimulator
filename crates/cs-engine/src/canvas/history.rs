@@ -7,7 +7,7 @@ use crate::components::ComponentChange;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Snapshot {
-    pub(crate) sim1: String,
+    pub(crate) circ1: String,
     pub(crate) selected_items: Vec<String>,
     pub(crate) selected_wires: Vec<String>,
 }
@@ -20,7 +20,7 @@ pub(crate) struct History {
 
 fn snap_to_backup(s: &Snapshot) -> crate::backup::HistorySnap {
     crate::backup::HistorySnap {
-        sim1: s.sim1.clone(),
+        circ1: s.circ1.clone(),
         selected_items: s.selected_items.clone(),
         selected_wires: s.selected_wires.clone(),
     }
@@ -28,7 +28,7 @@ fn snap_to_backup(s: &Snapshot) -> crate::backup::HistorySnap {
 
 fn snap_from_backup(s: crate::backup::HistorySnap) -> Snapshot {
     Snapshot {
-        sim1: s.sim1,
+        circ1: s.circ1,
         selected_items: s.selected_items,
         selected_wires: s.selected_wires,
     }
@@ -79,7 +79,7 @@ impl Canvas {
 
     pub(crate) fn snapshot(&self) -> Snapshot {
         Snapshot {
-            sim1: self.to_sim1(),
+            circ1: self.to_circ1(),
             selected_items: self
                 .scene
                 .items()
@@ -98,7 +98,7 @@ impl Canvas {
     }
 
     pub(crate) fn restore_snapshot(&mut self, snap: Snapshot) -> Change {
-        match Scene::from_sim1_with(&snap.sim1, &self.search()) {
+        match Scene::from_circ1_with(&snap.circ1, &self.search()) {
             Ok(mut scene) => {
                 for it in scene.items_mut() {
                     it.selected = snap.selected_items.iter().any(|id| id == &it.id);
@@ -241,7 +241,7 @@ impl Canvas {
         let Some(pending) = self.pending.take() else {
             return false;
         };
-        if pending.sim1 == self.scene.to_sim1() {
+        if pending.circ1 == self.scene.to_circ1() {
             return false;
         }
         self.history.undo.push(pending);

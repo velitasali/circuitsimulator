@@ -1,8 +1,8 @@
 use cs_engine::Circuit;
 use cs_engine::canvas::scene::{Item, Scene};
 use cs_engine::elements::{Comp, Kind};
-use cs_engine::parse_sim1;
 use cs_engine::wav::WavData;
+use cs_engine::{load_circ1, to_parsed_circuit};
 
 #[test]
 fn test_wavegen_sine_unipolar_simulation() {
@@ -223,13 +223,13 @@ fn test_wavegen_scene_properties_and_pins() {
     scene.add_saved_item(wg);
 
     // Test XML export & re-import
-    let xml = scene.to_sim1();
+    let xml = scene.to_circ1();
     assert!(xml.contains("itemtype=\"WaveGen\""));
     assert!(xml.contains("WaveType=\"Random\"") || xml.contains("Wave_Type=\"Random\""));
     assert!(xml.contains("Bipolar=\"true\""));
     assert!(xml.contains("Floating=\"true\""));
 
-    let parsed = parse_sim1(&xml).expect("XML parse should succeed");
+    let parsed = to_parsed_circuit(load_circ1(&xml).expect("XML parse should succeed"));
     assert_eq!(parsed.items.len(), 1);
     match &parsed.items[0].comp.kind {
         Kind::WaveGen {

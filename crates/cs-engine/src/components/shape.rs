@@ -13,10 +13,21 @@ use crate::canvas::Rect;
 use crate::canvas::draw::{Align, Draw, PaintCtx, parse_hex};
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
-use crate::sim1::*;
 
+const PROP_H_SIZE: &str = "H_size";
+const PROP_V_SIZE: &str = "V_size";
+const PROP_BORDER: &str = "Border";
+const PROP_COLOR: &str = "Color";
+const PROP_OPACITY: &str = "Opacity";
+const PROP_MARGIN: &str = "Margin";
+const PROP_FONT: &str = "Font";
 const PROP_FONT_COLOR: &str = "FontColor";
 const PROP_FONT_SIZE: &str = "FontSize";
+const PROP_FIXED_WIDTH: &str = "Fixed_Width";
+const PROP_TEXT: &str = "Text";
+const PROP_EMBEED_BCK: &str = "Embeed_bck";
+const PROP_IMAGE_FILE: &str = "Image_File";
+const PROP_BCKGND_DATA: &str = "BckGndData";
 
 const MIN_SIZE: f64 = 1.0;
 const MAX_SIZE: f64 = 10000.0;

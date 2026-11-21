@@ -36,7 +36,7 @@ impl ViewUpdate {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComponentChange {
     pub uid: String,
-    /// Persisted field changed → document dirty (`to_sim1` vs `saved_sim1`).
+    /// Persisted field changed → document dirty (`to_circ1` vs `saved_circ1`).
     pub saved: bool,
     /// Pin count / package / poles — drop wires to missing pins, full restamp.
     pub structural: bool,

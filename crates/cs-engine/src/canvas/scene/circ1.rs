@@ -1,4 +1,4 @@
-//! SIM1 file format import/export, clipboard serialization, circuit lowering, and ID allocation.
+//! CIRC1 file format import/export, clipboard serialization, circuit lowering, and ID allocation.
 
 use super::Scene;
 use super::item::Item;
@@ -19,7 +19,7 @@ fn remap_pin(pin: &str, map: &std::collections::HashMap<String, String>) -> Stri
     pin.to_string()
 }
 
-fn hidden_mcu_sim1(id: &str, m: &crate::mcu::McuComp) -> String {
+fn hidden_mcu_circ1(id: &str, m: &crate::mcu::McuComp) -> String {
     let mut attrs = String::new();
     if m.device.freq > 0.0 {
         attrs.push_str(&format!(
@@ -55,7 +55,7 @@ fn hidden_mcu_sim1(id: &str, m: &crate::mcu::McuComp) -> String {
 }
 
 impl Scene {
-    pub fn selection_to_sim1(&self) -> Option<String> {
+    pub fn selection_to_circ1(&self) -> Option<String> {
         if !self.any_selected() {
             return None;
         }
@@ -74,20 +74,20 @@ impl Scene {
         if s.items.is_empty() && s.wires.is_empty() {
             return None;
         }
-        Some(s.to_sim1())
+        Some(s.to_circ1())
     }
 
-    pub fn paste_sim1(&mut self, src: &str, delta: Point) -> crate::Result<bool> {
-        self.paste_sim1_with(src, delta, &crate::subcircuit::SubcSearch::default())
+    pub fn paste_circ1(&mut self, src: &str, delta: Point) -> crate::Result<bool> {
+        self.paste_circ1_with(src, delta, &crate::subcircuit::SubcSearch::default())
     }
 
-    pub fn paste_sim1_with(
+    pub fn paste_circ1_with(
         &mut self,
         src: &str,
         delta: Point,
         search: &crate::subcircuit::SubcSearch,
     ) -> crate::Result<bool> {
-        let incoming = Scene::from_sim1_with(src, search)?;
+        let incoming = Scene::from_circ1_with(src, search)?;
         if incoming.items.is_empty() && incoming.wires.is_empty() {
             return Ok(false);
         }
@@ -215,16 +215,15 @@ impl Scene {
         c
     }
 
-    pub fn from_sim1(src: &str) -> crate::Result<Self> {
-        Self::from_sim1_with(src, &crate::subcircuit::SubcSearch::default())
+    pub fn from_circ1(src: &str) -> crate::Result<Self> {
+        Self::from_circ1_with(src, &crate::subcircuit::SubcSearch::default())
     }
 
-    pub fn from_sim1_with(
+    pub fn from_circ1_with(
         src: &str,
         search: &crate::subcircuit::SubcSearch,
     ) -> crate::Result<Self> {
-        let parsed =
-            circ1::parse_circ1(src).or_else(|_| crate::sim1::parse_legacy_to_circ1(src))?;
+        let parsed = circ1::load_circ1(src)?;
         let mut s = Scene::new();
         s.settings = parsed.circ.clone();
 
@@ -355,6 +354,12 @@ impl Scene {
                             &subc.program,
                         );
                     }
+                    if !subc.exposed_overrides.is_empty() && !subc.nested_src.is_empty() {
+                        subc.nested_src = subcircuit::apply_exposed_overrides(
+                            &subc.nested_src,
+                            &subc.exposed_overrides,
+                        );
+                    }
                     subc.refresh_board_children();
                 }
                 Part::WaveGen(wg) => {
@@ -416,7 +421,7 @@ impl Scene {
         Ok(s)
     }
 
-    pub fn to_sim1(&self) -> String {
+    pub fn to_circ1(&self) -> String {
         let mut item_lines = Vec::with_capacity(self.items.len());
         for it in &self.items {
             let graphic = it.graphic_attrs();
@@ -424,14 +429,14 @@ impl Scene {
         }
         for h in &self.hidden {
             if let crate::elements::Kind::Mcu(m) = &h.kind {
-                item_lines.push(hidden_mcu_sim1(&h.id, m));
+                item_lines.push(hidden_mcu_circ1(&h.id, m));
             }
         }
 
         let mut connectors = Vec::with_capacity(self.wires.len());
         for w in &self.wires {
             if let Some(end) = &w.end_pin {
-                connectors.push(crate::sim1::ParsedConnector {
+                connectors.push(circ1::ParsedConnector {
                     id: w.id.clone(),
                     start: w.start_pin.clone(),
                     end: end.clone(),

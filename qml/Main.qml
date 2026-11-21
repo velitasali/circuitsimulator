@@ -826,8 +826,7 @@ ApplicationWindow {
     }
 
     function isCircuitPath(path: string): bool {
-        var p = ("" + path).toLowerCase()
-        return p.endsWith(".circ1") || p.endsWith(".sim1") || p.endsWith(".sim2")
+        return App.isCircuitPath("" + path)
     }
 
     function openSelectedPath(url: var): void {
@@ -857,7 +856,7 @@ ApplicationWindow {
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
         defaultSuffix: "circ1"
-        nameFilters: [ App.translate("Circuits (*.circ1 *.sim2 *.sim1)"), App.translate("All files (*)") ]
+        nameFilters: [ App.translate("Circuits (*.circ1)"), App.translate("All files (*)") ]
         currentFile: CircuitCanvas.filePath ? App.suggestFileUrl(CircuitCanvas.filePath) : ""
         onAccepted: {
             CircuitCanvas.savePath("" + saveCircDialog.selectedFile)
@@ -1463,7 +1462,7 @@ ApplicationWindow {
             } else if (typ === "jump_comp") {
                 CircuitCanvas.focusComponent(data)
             } else if (typ === "jump_file") {
-                if (data.endsWith(".circ1") || data.endsWith(".sim1") || data.endsWith(".sim2")) {
+                if (win.isCircuitPath(data)) {
                     CircuitCanvas.loadPath(data)
                 } else {
                     CircuitPanel.showEditor()

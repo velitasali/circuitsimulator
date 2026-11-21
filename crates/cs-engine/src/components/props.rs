@@ -263,6 +263,10 @@ impl<T> PropDef<T> {
         }
     }
 
+    pub const fn has_updates(&self) -> bool {
+        !self.updates.is_empty()
+    }
+
     pub const fn with_info(mut self, info: &'static str) -> Self {
         self.info = info;
         self

@@ -104,7 +104,7 @@ fn test_touchpad_canvas_and_sim1_roundtrip() {
     assert_eq!(item3.y_pos(), -1);
 
     // Sim1 serialization & export
-    let sim1 = canvas.scene().to_sim1();
+    let sim1 = canvas.scene().to_circ1();
     assert!(sim1.contains("itemtype=\"TouchPad\""));
     assert!(sim1.contains("CircId=\"TouchPad-1\""));
 

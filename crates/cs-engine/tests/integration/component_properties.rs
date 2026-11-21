@@ -217,7 +217,7 @@ fn test_sim1_serialization_and_deserialization_roundtrip() {
         .unwrap()
         .set_prop_text("Resistance", "0.2 Ω");
 
-    let xml = scene.to_sim1();
+    let xml = scene.to_circ1();
     assert!(xml.contains(r#"itemtype="Bjt""#));
     assert!(xml.contains(r#"Gain="320""#));
     assert!(xml.contains(r#"itemtype="Mosfet""#));
@@ -240,7 +240,7 @@ fn test_sim1_serialization_and_deserialization_roundtrip() {
     assert!(xml.contains(r#"MaxCurrent="3 A""#));
 
     // Reload from XML
-    let scene2 = Scene::from_sim1(&xml).expect("XML reload failed");
+    let scene2 = Scene::from_circ1(&xml).expect("XML reload failed");
 
     let bjt2 = scene2
         .item_by_id(&bjt_id)
@@ -314,9 +314,9 @@ fn led_grounded_hides_cathode_and_stamps_to_gnd() {
         assert!(pins[0].id.ends_with("-lPin"));
     }
 
-    let xml = scene.to_sim1();
+    let xml = scene.to_circ1();
     assert!(xml.contains(r#"Grounded="true""#));
-    let loaded = Scene::from_sim1(&xml).expect("reload grounded LED");
+    let loaded = Scene::from_circ1(&xml).expect("reload grounded LED");
     let led2 = loaded.item_by_id(&led_id).expect("LED present");
     assert_eq!(led2.prop_bool("Grounded"), Some(true));
     assert_eq!(led2.pins().len(), 1);

@@ -1,4 +1,4 @@
-//! Analog + digital engine: modified nodal analysis, primitive parts, `.sim1`
+//! Analog + digital engine: modified nodal analysis, primitive parts, `.circ1`
 //! load, the Qt-free circuit canvas, overlay layout, the component catalog,
 //! live instruments, plot sample buffers, the event-driven logic engine,
 //! TestUnit batch tests, host serial (`serialport`) and audio (`cpal`),
@@ -19,6 +19,7 @@ pub mod components;
 pub mod simulation;
 pub use simulation as circuit;
 pub mod circ1;
+pub mod compat;
 pub mod debug;
 pub mod digital;
 pub mod editor;
@@ -44,7 +45,6 @@ pub mod qemu;
 pub mod script;
 pub mod serial;
 pub mod settings;
-pub mod sim1;
 pub mod spectrum;
 pub use logging as log;
 pub mod sim_log;
@@ -52,12 +52,15 @@ pub mod subcircuit;
 pub mod theme;
 pub mod units;
 pub mod wav;
+pub mod xml_util;
 
 pub use logging::{LogCategory, log_compiler, log_default, log_sim};
 
 pub use canvas::PinDirection;
 pub use catalog::{Catalog, CatalogItem};
-pub use circ1::{ParsedCirc1, parse_circ1, write_circ1};
+pub use circ1::{
+    ParsedCirc1, ParsedCircuit, load_circ1, parse_circ1, to_parsed_circuit, write_circ1,
+};
 pub use circuit::Circuit;
 pub use digital::TestResult;
 pub use elements::pins::*;
@@ -74,10 +77,9 @@ pub use instruments::{
 };
 pub use matrix::CircMatrix;
 pub use mcu::{McuPoke, McuSnap, monitor_snap, publish_monitor};
-pub use package::{Package, PkgPin, packages_from_sim1};
+pub use package::{Package, PkgPin, packages_from_circ1};
 pub use project::ProjectSession;
 pub use settings::{AppSettings, CircSettings};
-pub use sim1::{ParsedCircuit, parse_legacy_to_circ1, parse_sim1};
 pub use subcircuit::{SubcSearch, device_from_id, instantiate};
 pub use units::{format_si, join_time, parse_si, si_multiplier, split_time};
 pub use wav::WavData;

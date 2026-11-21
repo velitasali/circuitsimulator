@@ -49,6 +49,9 @@ pub struct Subcircuit {
     pub active_board_child: Option<usize>,
     /// Index of the most recently interacted board child (used for live simulation sync).
     pub last_interacted_child: Option<usize>,
+    /// Per-instance property overrides for exposed (`mainComp="true"`) inner components,
+    /// keyed by `(inner_circ_id, prop_id)`. Persisted on the parent `Subcircuit` item.
+    pub exposed_overrides: BTreeMap<(String, String), String>,
 }
 
 impl Item {
@@ -81,6 +84,7 @@ impl Item {
                 board_children,
                 active_board_child: None,
                 last_interacted_child: None,
+                exposed_overrides: BTreeMap::new(),
             },
         )
     }
@@ -101,6 +105,7 @@ impl Default for Subcircuit {
             board_children: Vec::new(),
             active_board_child: None,
             last_interacted_child: None,
+            exposed_overrides: BTreeMap::new(),
         }
     }
 }
@@ -163,6 +168,7 @@ impl Subcircuit {
             } else {
                 Some(self.package.name.clone())
             },
+            exposed_overrides: self.exposed_overrides.clone(),
         }
     }
 
@@ -212,6 +218,22 @@ impl Subcircuit {
         self.program = s.clone();
         if !self.nested_src.is_empty() {
             self.nested_src = subcircuit::set_nested_mcu_program(&self.nested_src, None, &s);
+        }
+        Ok(())
+    }
+
+    fn get_exposed_props(&self) -> PropValue {
+        PropValue::String(subcircuit::encode_exposed_overrides(
+            &self.exposed_overrides,
+        ))
+    }
+    fn set_exposed_props(&mut self, v: PropValue) -> Result<(), PropError> {
+        let s = expect_string("ExposedProps", v)?;
+        self.exposed_overrides = subcircuit::decode_exposed_overrides(&s);
+        if !self.nested_src.is_empty() && !self.exposed_overrides.is_empty() {
+            self.nested_src =
+                subcircuit::apply_exposed_overrides(&self.nested_src, &self.exposed_overrides);
+            self.refresh_board_children();
         }
         Ok(())
     }
@@ -365,9 +387,21 @@ impl Component for Subcircuit {
             p.structural = true;
             p
         };
+        const EXPOSED_PROPS: PropDef<Subcircuit> = {
+            let mut p = PropDef::string(
+                "ExposedProps",
+                "Exposed Properties",
+                Subcircuit::get_exposed_props,
+                Subcircuit::set_exposed_props,
+            )
+            .with_info("Per-instance property overrides for exposed inner components.");
+            p.show_by_default = false;
+            p
+        };
         static PROPS: &[PropDef<Subcircuit>] = &[
             LS,
             PKG,
+            EXPOSED_PROPS,
             PropDef::string(
                 "Device",
                 "Device",
@@ -481,6 +515,8 @@ impl Component for Subcircuit {
             self.is_logic()
         } else if id == "Program" {
             !self.program.is_empty()
+        } else if id == "ExposedProps" {
+            !self.exposed_overrides.is_empty()
         } else {
             true
         }
@@ -846,16 +882,19 @@ mod tests {
             board_children: Vec::new(),
             active_board_child: None,
             last_interacted_child: None,
+            exposed_overrides: BTreeMap::new(),
         };
         match sub.to_element_kind() {
             Kind::Subcircuit {
                 device,
                 logic_symbol,
                 package_name,
+                exposed_overrides,
             } => {
                 assert_eq!(device, "74HC00");
                 assert_eq!(logic_symbol, true);
                 assert_eq!(package_name, Some("DIP8".into()));
+                assert!(exposed_overrides.is_empty());
             }
             other => panic!("expected Kind::Subcircuit, got {other:?}"),
         }

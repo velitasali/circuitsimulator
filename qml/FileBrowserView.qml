@@ -88,8 +88,8 @@ Item {
 
     function fileIconForName( name: string, isDir: bool, expanded: bool ): string {
         if ( isDir ) return expanded ? "folder_open" : "folder"
+        if ( App.isCircuitPath( name || "" ) ) return "memory"
         const ext = ( name || "" ).split( "." ).pop().toLowerCase()
-        if ( ext === "circ1" || ext === "circ" || ext === "sim" || ext === "sim2" || ext === "sim1" ) return "memory"
         if ( ext === "c" || ext === "cpp" || ext === "h" || ext === "hpp" ) return "code"
         if ( ext === "asm" || ext === "s" || ext === "inc" ) return "terminal"
         if ( ext === "hex" || ext === "bin" ) return "data_object"
@@ -482,7 +482,7 @@ Item {
                     }
 
                     Repeater {
-                        model: [ ".circ1", ".sim2", ".c", ".h", ".txt" ]
+                        model: [ ".circ1", ".c", ".h", ".txt" ]
                         delegate: Rectangle {
                             id: extChip
                             required property string modelData

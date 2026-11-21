@@ -1,7 +1,7 @@
 //! Built-in circuits the File menu can open without a path on disk.
 //!
 //! Loading one of these leaves the canvas unsaved. The strings are ordinary
-//! `.sim1` documents.
+//! `.circ1` documents.
 
 /// One catalog circuit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,7 +9,7 @@ pub struct Example {
     pub id: &'static str,
     pub title: &'static str,
     pub summary: &'static str,
-    pub sim1: &'static str,
+    pub circ1: &'static str,
 }
 
 macro_rules! circuit {
@@ -297,73 +297,73 @@ const EXAMPLES: &[Example] = &[
         id: "led-switch",
         title: "LED and switch",
         summary: "A closed switch lights an LED through 330 Ω from 5 V. Open the switch to turn it off.",
-        sim1: LED_SWITCH,
+        circ1: LED_SWITCH,
     },
     Example {
         id: "voltage-divider",
         title: "Voltage divider",
         summary: "Two equal resistors split a 5 V source. The meter on the middle node reads 2.5 V.",
-        sim1: DIVIDER,
+        circ1: DIVIDER,
     },
     Example {
         id: "rc-lowpass",
         title: "RC low-pass",
         summary: "1 kΩ and 1 µF low-pass a 1 kHz sine. The corner is about 159 Hz, so the scope shows a smaller output.",
-        sim1: RC_LOWPASS,
+        circ1: RC_LOWPASS,
     },
     Example {
         id: "opamp-gain",
         title: "Op-amp gain of 2",
         summary: "Non-inverting amplifier. A 1 V sine becomes a 2 V sine on the scope.",
-        sim1: OPAMP_GAIN,
+        circ1: OPAMP_GAIN,
     },
     Example {
         id: "half-wave",
         title: "Half-wave rectifier",
         summary: "A diode keeps the positive half of a 5 V sine. The scope shows the source and the load.",
-        sim1: HALF_WAVE,
+        circ1: HALF_WAVE,
     },
     Example {
         id: "volt-reg",
         title: "5 V regulator",
         summary: "A linear regulator drops 9 V to 5 V. The meters read the input and the output.",
-        sim1: VOLT_REG,
+        circ1: VOLT_REG,
     },
     Example {
         id: "ldr-divider",
         title: "LDR divider",
         summary: "An LDR and 1 kΩ divide 5 V. Turn the LDR dial and the meter moves.",
-        sim1: LDR_DIVIDER,
+        circ1: LDR_DIVIDER,
     },
     Example {
         id: "npn-switch",
         title: "NPN LED switch",
         summary: "A 2 Hz clock drives an NPN that switches an LED on the collector.",
-        sim1: NPN_SWITCH,
+        circ1: NPN_SWITCH,
     },
     Example {
         id: "astable-555",
         title: "555 LED blink",
         summary: "A 555 astable blinks an LED at about 5 Hz.",
-        sim1: ASTABLE_555,
+        circ1: ASTABLE_555,
     },
     Example {
         id: "digital-and",
         title: "Digital AND gate and LED",
         summary: "A 2 Hz clock and a steady 5 V drive a 2-input AND gate. The LED blinks with the clock.",
-        sim1: DIGITAL_AND,
+        circ1: DIGITAL_AND,
     },
     Example {
         id: "bcd-display",
         title: "Counter and 7-segment",
         summary: "A 1 Hz clock steps a decade counter. The decoder shows the count on a 7-segment display.",
-        sim1: BCD_DISPLAY,
+        circ1: BCD_DISPLAY,
     },
     Example {
         id: "pot-motor",
         title: "Potentiometer motor speed",
         summary: "A potentiometer sets the voltage on a DC motor. Turn the dial to change the speed.",
-        sim1: POT_MOTOR,
+        circ1: POT_MOTOR,
     },
 ];
 
@@ -385,7 +385,7 @@ mod tests {
 
     fn loaded(id: &str) -> Circuit {
         let ex = get(id).unwrap_or_else(|| panic!("missing {id}"));
-        let scene = Scene::from_sim1(ex.sim1).unwrap_or_else(|e| panic!("{id}: {e}"));
+        let scene = Scene::from_circ1(ex.circ1).unwrap_or_else(|e| panic!("{id}: {e}"));
         for w in scene.wires() {
             let end = w.end_pin.as_deref().unwrap_or("");
             let start = pin_world(&scene, &w.start_pin);
@@ -435,7 +435,7 @@ mod tests {
         assert!(get("missing").is_none());
         assert_eq!(all().len(), 12);
         for ex in all() {
-            let mut direct = Circuit::from_sim1(ex.sim1).expect(ex.id);
+            let mut direct = Circuit::from_circ1(ex.circ1).expect(ex.id);
             direct.solve().expect(ex.id);
             let _ = loaded(ex.id);
         }
@@ -494,7 +494,7 @@ mod tests {
 
         let mut canvas = crate::canvas::Canvas::empty();
         canvas
-            .load_sim1(get("bcd-display").unwrap().sim1, None)
+            .load_circ1(get("bcd-display").unwrap().circ1, None)
             .unwrap();
         canvas.power_on();
         let start = canvas
@@ -527,7 +527,7 @@ mod tests {
         assert!(advanced, "display stayed on {start}");
 
         // 2 Hz clock: low for 0.25 s, high for 0.25 s. The LED must follow both halves.
-        let mut and = Scene::from_sim1(get("digital-and").unwrap().sim1)
+        let mut and = Scene::from_circ1(get("digital-and").unwrap().circ1)
             .unwrap()
             .to_circuit();
         and.solve().unwrap();

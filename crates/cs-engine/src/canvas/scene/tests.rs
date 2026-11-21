@@ -259,7 +259,7 @@ fn delete_item_drops_wires() {
 #[test]
 fn load_divider_infers_positions_and_solves() {
     let src = include_str!("../../../tests/fixtures/divider.sim1");
-    let s = Scene::from_sim1(src).unwrap();
+    let s = Scene::from_circ1(src).unwrap();
     assert_eq!(s.items().len(), 5);
     assert_eq!(s.wires().len(), 4);
     assert!(s.items().iter().any(|i| i.kind.type_name() == "Node"));
@@ -268,8 +268,8 @@ fn load_divider_infers_positions_and_solves() {
     let mut c = s.to_circuit();
     c.solve().unwrap();
     assert!((c.pin_voltage("Node-5-0").unwrap() - 2.5).abs() < 1e-6);
-    let round = s.to_sim1();
-    let s2 = Scene::from_sim1(&round).unwrap();
+    let round = s.to_circ1();
+    let s2 = Scene::from_circ1(&round).unwrap();
     assert_eq!(s2.items().len(), 5);
     assert_eq!(s2.wires().len(), 4);
     let mut c2 = s2.to_circuit();
@@ -350,11 +350,11 @@ fn qemu_esp32_canvas_lifecycle() {
     assert!(pins.iter().any(|p| p.id == "Esp32-1-Rst"));
 
     // Round-trip to sim1
-    let sim1 = s.to_sim1();
+    let sim1 = s.to_circ1();
     assert!(sim1.contains("itemtype=\"QemuDevice\""));
     assert!(sim1.contains("CircId=\"Esp32-1\""));
 
-    let loaded = Scene::from_sim1(&sim1).expect("parse sim1");
+    let loaded = Scene::from_circ1(&sim1).expect("parse sim1");
     let it2 = loaded
         .items()
         .iter()
@@ -401,13 +401,13 @@ fn mcu_canvas_lifecycle_and_relaunch_roundtrip() {
     assert!(initial_pins_len > 0);
 
     // Round-trip to sim1
-    let sim1 = s.to_sim1();
+    let sim1 = s.to_circ1();
     assert!(sim1.contains("itemtype=\"Mcu\"") || sim1.contains("itemtype=\"MCU\""));
     assert!(sim1.contains("CircId=\"mega328-1\""));
     assert!(sim1.contains("Device=\"mega328\""));
     assert!(!sim1.contains("Device=\"mega328-1\""));
 
-    let loaded = Scene::from_sim1_with(&sim1, &search).expect("parse sim1");
+    let loaded = Scene::from_circ1_with(&sim1, &search).expect("parse sim1");
     let it2 = loaded
         .items()
         .iter()
@@ -423,7 +423,7 @@ fn mcu_canvas_lifecycle_and_relaunch_roundtrip() {
     let legacy_sim1 = r#"<circuit version="1.0.0">
 <item itemtype="Mcu" CircId="mega328-1" Device="mega328-1" Pos="100,100" />
 </circuit>"#;
-    let legacy_loaded = Scene::from_sim1_with(legacy_sim1, &search).expect("parse legacy sim1");
+    let legacy_loaded = Scene::from_circ1_with(legacy_sim1, &search).expect("parse legacy sim1");
     let it_legacy = legacy_loaded
         .items()
         .iter()

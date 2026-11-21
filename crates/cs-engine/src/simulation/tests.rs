@@ -1175,7 +1175,7 @@ const VDIV_PARENT: &str = r#"<circuit version="2.0.0" >
 #[test]
 fn subcircuit_divider_from_memory() {
     let search = crate::subcircuit::SubcSearch::default().with_memory("vdiv", VDIV_SRC);
-    let mut c = Circuit::from_sim1_with(VDIV_PARENT, &search).unwrap();
+    let mut c = Circuit::from_circ1_with(VDIV_PARENT, &search).unwrap();
     assert!(
         !c.skipped().iter().any(|s| s.starts_with("Subcircuit")),
         "skipped {:?}",
@@ -1677,7 +1677,7 @@ fn sim1_scripted_mcu_xml_usart_spi_twi() {
 <item itemtype="Connector" uid="c2" startpinid="Resistor-1-rPin" endpinid="Ground-1-Gnd" />
 </circuit>
 "#;
-    let mut c = Circuit::from_sim1_with(src, &search).unwrap();
+    let mut c = Circuit::from_circ1_with(src, &search).unwrap();
     assert!(
         c.skipped().is_empty(),
         "scripted MCU skipped: {:?}",
@@ -1714,7 +1714,7 @@ fn sim1_mcu_from_memory_pgm() {
 <item itemtype="Connector" uid="c2" startpinid="Resistor-1-rPin" endpinid="Ground-1-Gnd" />
 </circuit>
 "#;
-    let mut c = Circuit::from_sim1_with(src, &search).unwrap();
+    let mut c = Circuit::from_circ1_with(src, &search).unwrap();
     assert!(
         !c.skipped().iter().any(|s| s.starts_with("MCU")),
         "skipped {:?}",
@@ -1743,7 +1743,7 @@ fn sim1_mcu_missing_is_skipped() {
 <item itemtype="MCU" CircId="nope-1" />
 </circuit>
 "#;
-    let c = Circuit::from_sim1(src).unwrap();
+    let c = Circuit::from_circ1(src).unwrap();
     assert!(
         c.skipped().iter().any(|s| s.starts_with("MCU:nope-1")),
         "skipped {:?}",
@@ -1770,7 +1770,7 @@ fn sim1_mcu_hex_from_circuit_dir() {
 "#;
     let path = dir.join("porta.sim1");
     std::fs::write(&path, sim1).unwrap();
-    let mut c = Circuit::load_sim1_path(&path).unwrap();
+    let mut c = Circuit::load_circuit_path(&path).unwrap();
     assert!(
         !c.skipped().iter().any(|s| s.starts_with("MCU")),
         "skipped {:?}",
@@ -1808,7 +1808,7 @@ fn sim1_mcu_from_catalog_xml() {
 </circuit>
 "#;
     let search = SubcSearch::default().with_catalog(catalog);
-    let c = Circuit::from_sim1_with(src, &search).unwrap();
+    let c = Circuit::from_circ1_with(src, &search).unwrap();
     assert!(
         !c.skipped().iter().any(|s| s.starts_with("MCU")),
         "skipped {:?}",

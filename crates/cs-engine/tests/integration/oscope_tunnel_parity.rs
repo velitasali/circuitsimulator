@@ -49,7 +49,7 @@ fn test_oscope_properties_and_prop_groups() {
     assert_eq!(it.prop_bool("DoTest"), Some(true));
 
     // Serialize to sim1 and reload
-    let xml = scene.to_sim1();
+    let xml = scene.to_circ1();
     assert!(xml.contains(r#"Basic_X="200""#));
     assert!(xml.contains(r#"Basic_Y="150""#));
     assert!(xml.contains(r#"BufferSize="300000""#));
@@ -59,7 +59,7 @@ fn test_oscope_properties_and_prop_groups() {
     assert!(xml.contains(r#"TestTime="500 ns""#));
     assert!(xml.contains(r#"DoTest="true""#));
 
-    let scene2 = Scene::from_sim1(&xml).expect("XML reload failed");
+    let scene2 = Scene::from_circ1(&xml).expect("XML reload failed");
     let it2 = scene2.item_by_id(&osc_id).expect("osc item reloaded");
     assert_eq!(it2.prop_text("Basic_X").as_deref(), Some("200"));
     assert_eq!(it2.prop_text("Basic_Y").as_deref(), Some("150"));
@@ -96,12 +96,12 @@ fn test_lanalizer_properties_and_prop_groups() {
     assert_eq!(it.prop_bool("AutoExport"), Some(true));
     assert_eq!(it.prop_text("Tunnel8").as_deref(), Some("sig8"));
 
-    let xml = scene.to_sim1();
+    let xml = scene.to_circ1();
     assert!(xml.contains(r#"TimeStep="500""#));
     assert!(xml.contains(r#"AutoExport="true""#));
     assert!(xml.contains(r#"Tunnel8="sig8""#));
 
-    let scene2 = Scene::from_sim1(&xml).expect("XML reload failed");
+    let scene2 = Scene::from_circ1(&xml).expect("XML reload failed");
     let it2 = scene2.item_by_id(&la_id).expect("la item reloaded");
     assert_eq!(it2.prop_text("TimeStep").as_deref(), Some("500"));
     assert_eq!(it2.prop_bool("AutoExport"), Some(true));
@@ -225,7 +225,7 @@ fn test_unseeded_tunnel_groups_connectivity() {
 </circuit>"#;
 
     let mut canvas = Canvas::new();
-    canvas.load_sim1(src, None).expect("load sim1");
+    canvas.load_circ1(src, None).expect("load sim1");
     canvas.power_on();
 
     // Step simulation

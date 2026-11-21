@@ -172,7 +172,7 @@ fn board_layout_authoring_roundtrip_and_live_led_rendering() {
     assert_eq!(mounted_led.rotation, 90.0);
 
     // Saving while STILL in board layout mode preserves schematic Pos and writes boardPos/boardRot.
-    let saved_mid_mode = sub_canvas.to_sim1();
+    let saved_mid_mode = sub_canvas.to_circ1();
     assert!(
         saved_mid_mode.contains("Pos=\"216,40\""),
         "{saved_mid_mode}"
@@ -214,7 +214,7 @@ fn board_layout_authoring_roundtrip_and_live_led_rendering() {
     assert_eq!(after_wire_pts, orig_wire_pts);
 
     // 3. Place the saved board subcircuit in a parent Canvas and power it up!
-    let subc_src = sub_canvas.to_sim1();
+    let subc_src = sub_canvas.to_circ1();
     let search = SubcSearch::empty().with_memory("LED_MOD", subc_src);
     let mut parent = Canvas::empty();
     parent.set_view_size(800.0, 600.0);
@@ -519,7 +519,7 @@ fn board_subpackage_named_ls_still_renders_board_children_even_with_stale_logic_
     let consumer = r#"<circuit version="1.0.0">
 <item itemtype="Subcircuit" CircId="LED_PKG-1" Device="LED_PKG" LogicSymbol="true" Package="LS" Pos="80,80" />
 </circuit>"#;
-    let reloaded = Scene::from_sim1_with(consumer, &search).unwrap();
+    let reloaded = Scene::from_circ1_with(consumer, &search).unwrap();
     let Part::Subcircuit(subc2) = &reloaded.item_by_id("LED_PKG-1").unwrap().kind else {
         panic!("expected Subcircuit");
     };

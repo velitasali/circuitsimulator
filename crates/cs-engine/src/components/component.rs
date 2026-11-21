@@ -263,6 +263,18 @@ pub trait Component: Sized + 'static {
         Ok(def.change())
     }
 
+    fn persisted_props(&self) -> Vec<(&'static str, String)> {
+        Self::props()
+            .iter()
+            .filter(|d| d.persist && self.saves_prop(d.id))
+            .map(|d| (d.id, d.format(&(d.get)(self))))
+            .collect()
+    }
+
+    fn is_prop_persisted_or_updating(&self, id: &str) -> bool {
+        find_prop_def::<Self>(id).is_some_and(|d| d.persist || d.has_updates())
+    }
+
     fn prop_rows(&self) -> Vec<PropRow> {
         Self::props()
             .iter()

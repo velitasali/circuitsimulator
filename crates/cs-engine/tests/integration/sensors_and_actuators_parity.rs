@@ -143,7 +143,7 @@ fn test_sensors_and_actuators_canvas_and_sim1_roundtrip() {
     assert_eq!(canvas.scene().items().len(), 12);
 
     // Test XML export & re-import
-    let xml = canvas.scene().to_sim1();
+    let xml = canvas.scene().to_circ1();
     assert!(xml.contains("itemtype=\"KY023\""));
     assert!(xml.contains("itemtype=\"KY040\""));
     assert!(xml.contains("itemtype=\"SR04\""));
@@ -158,7 +158,7 @@ fn test_sensors_and_actuators_canvas_and_sim1_roundtrip() {
     assert!(xml.contains("itemtype=\"Esp01\""));
 
     let mut canvas2 = Canvas::new();
-    canvas2.import_sim1(&xml);
+    canvas2.import_circ1(&xml);
     assert_eq!(canvas2.scene().items().len(), 12);
 }
 
@@ -219,7 +219,7 @@ fn test_dcmotor_canvas_simulation_tick() {
 </circuit>"#;
 
     let mut canvas = Canvas::new();
-    canvas.load_sim1(sim1_xml, None).unwrap();
+    canvas.load_circ1(sim1_xml, None).unwrap();
 
     // Power on simulation
     canvas.power_on();
@@ -271,7 +271,7 @@ fn test_ky040_quadrature_gray_code_and_joystick_normalized() {
 </circuit>"#;
 
     let mut canvas = Canvas::new();
-    canvas.load_sim1(sim1_xml, None).unwrap();
+    canvas.load_circ1(sim1_xml, None).unwrap();
 
     canvas.power_on();
 
@@ -349,7 +349,7 @@ fn test_joystick_and_encoder_canvas_mouse_interactions() {
 </circuit>"#;
 
     let mut canvas = Canvas::new();
-    canvas.load_sim1(sim1_xml, None).unwrap();
+    canvas.load_circ1(sim1_xml, None).unwrap();
     canvas.power_on();
 
     // 1. Initial State
@@ -503,7 +503,7 @@ fn test_servo_motor_canvas_sync() {
 </circuit>
 "#;
     let mut canvas = Canvas::new();
-    canvas.load_sim1(sim1, None).unwrap();
+    canvas.load_circ1(sim1, None).unwrap();
 
     let ch_on = canvas.power_on();
     assert!(ch_on.sim);

@@ -62,7 +62,7 @@ fn test_graphic_and_character_displays_canvas_and_sim1_roundtrip() {
     assert_eq!(oled.prop_text("Color").as_deref(), Some("White"));
 
     // Test XML export & re-import
-    let xml = canvas.scene().to_sim1();
+    let xml = canvas.scene().to_circ1();
     assert!(xml.contains("itemtype=\"TftDisplay\""));
     assert!(xml.contains("itemtype=\"Pcd8544\""));
     assert!(xml.contains("itemtype=\"Sh1107\""));
@@ -72,7 +72,7 @@ fn test_graphic_and_character_displays_canvas_and_sim1_roundtrip() {
     assert!(xml.contains("itemtype=\"Ssd1306\""));
 
     let mut canvas2 = Canvas::new();
-    canvas2.import_sim1(&xml);
+    canvas2.import_circ1(&xml);
     assert_eq!(canvas2.scene().items().len(), 10);
 }
 
@@ -144,7 +144,7 @@ fn test_ssd1306_canvas_properties_and_sim_sync() {
     }
 
     // Roundtrip through SIM1 XML
-    let xml = canvas.scene().to_sim1();
+    let xml = canvas.scene().to_circ1();
     assert!(xml.contains("itemtype=\"Ssd1306\""));
     assert!(xml.contains("Color=\"Blue\""));
     assert!(xml.contains("Width=\"64\""));
@@ -153,7 +153,7 @@ fn test_ssd1306_canvas_properties_and_sim_sync() {
     assert!(xml.contains("Control_Code=\"61\""));
 
     let mut canvas2 = Canvas::new();
-    canvas2.import_sim1(&xml);
+    canvas2.import_circ1(&xml);
     let loaded = canvas2.scene().item_by_id(&ssd_id).unwrap();
     assert_eq!(loaded.prop_text("Color").as_deref(), Some("Blue"));
     assert_eq!(loaded.disp_width(), 64);

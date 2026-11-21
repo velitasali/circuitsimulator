@@ -1085,6 +1085,14 @@ impl Part {
         })
     }
 
+    pub fn persisted_props(&self) -> Vec<(&'static str, String)> {
+        each_migrated!(self, |p| p.persisted_props())
+    }
+
+    pub fn is_prop_persisted_or_updating(&self, id: &str) -> bool {
+        each_migrated!(self, |p| p.is_prop_persisted_or_updating(id))
+    }
+
     pub fn write_item(&self, circ_id: &str, graphic: &GraphicAttrs) -> String {
         each_migrated!(self, |p| write_component_item(circ_id, p, graphic))
     }
@@ -1320,8 +1328,10 @@ impl Part {
                 c.add_mosfet_with(id, p.p_channel, p.depletion, p.rdson, p.threshold);
             }
             Self::OpAmp(p) => {
-                c.add_opamp(id);
-                c.configure_opamp(id, p.gain, p.out_imp, p.volt_pos, p.volt_neg, p.power_pins);
+                c.add_comp(crate::elements::Comp {
+                    id: id.to_string(),
+                    kind: p.to_element_kind(),
+                });
             }
             Self::Jfet(p) => {
                 c.add_jfet(id);
@@ -1396,11 +1406,16 @@ impl Part {
                     let num_id = subc_lookup::instance_num_id(id, &p.device);
                     let pfx = format!("{num_id}@");
                     for mut comp in inst.components {
+                        let inner_id = comp.id.strip_prefix(&pfx).unwrap_or(&comp.id);
+                        let has_exposed_program =
+                            p.exposed_overrides.iter().any(|((cid, prop), _)| {
+                                cid == inner_id && prop.eq_ignore_ascii_case("Program")
+                            });
                         rebind_nested_firmware(
                             &mut comp,
                             id,
                             &pfx,
-                            &p.program,
+                            if has_exposed_program { "" } else { &p.program },
                             p.firmware_dir.as_deref(),
                         );
                         c.add_comp(comp);

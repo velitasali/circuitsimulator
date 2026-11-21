@@ -1,4 +1,4 @@
-//! Circuit persistence (SIM1 load/save), firmware uploads, data files, and subcircuits.
+//! Circuit persistence (CIRC1 load/save), firmware uploads, data files, and subcircuits.
 
 use crate::canvas::drag::Drag;
 use crate::canvas::events::Change;
@@ -932,7 +932,7 @@ impl Canvas {
         self.prop_open = false;
         self.open_prop_uids.clear();
         self.last_opened_prop_uid = None;
-        self.saved_sim1 = self.scene.to_sim1();
+        self.saved_circ1 = self.scene.to_circ1();
         self.overload_states.clear();
         self.overload_log.clear();
         self.overload_escalated = false;
@@ -997,11 +997,11 @@ impl Canvas {
         self.scene.snapshot_subcircuits(&self.search())
     }
 
-    pub fn load_sim1(&mut self, src: &str, path: Option<String>) -> crate::Result<Change> {
-        self.load_sim1_as(src, path, true)
+    pub fn load_circ1(&mut self, src: &str, path: Option<String>) -> crate::Result<Change> {
+        self.load_circ1_as(src, path, true)
     }
 
-    /// Load recovered content while keeping `saved_sim1` as the on-disk baseline
+    /// Load recovered content while keeping `saved_circ1` as the on-disk baseline
     /// so `is_modified()` stays true until the user saves.
     pub fn load_recovered(
         &mut self,
@@ -1013,16 +1013,16 @@ impl Canvas {
         let saved = if disk.is_empty() {
             String::new()
         } else {
-            Scene::from_sim1_with(disk, &search)
-                .map(|sc| sc.to_sim1())
+            Scene::from_circ1_with(disk, &search)
+                .map(|sc| sc.to_circ1())
                 .unwrap_or_else(|_| disk.to_string())
         };
-        let c = self.load_sim1_as(src, path, false)?;
-        self.saved_sim1 = saved;
+        let c = self.load_circ1_as(src, path, false)?;
+        self.saved_circ1 = saved;
         Ok(c)
     }
 
-    pub(crate) fn load_sim1_as(
+    pub(crate) fn load_circ1_as(
         &mut self,
         src: &str,
         path: Option<String>,
@@ -1031,7 +1031,7 @@ impl Canvas {
         let search = self.search_for_path(path.as_deref());
         // Parse before stopping. A bad file must leave the running circuit alone,
         // including live MCU and memory state that power_off writes back.
-        let scene = Scene::from_sim1_with(src, &search)?;
+        let scene = Scene::from_circ1_with(src, &search)?;
         let off_c = self.power_off();
         self.scene = scene;
         let s = self.scene.settings();
@@ -1051,7 +1051,7 @@ impl Canvas {
         self.open_prop_uids.clear();
         self.last_opened_prop_uid = None;
         if mark_saved {
-            self.saved_sim1 = self.scene.to_sim1();
+            self.saved_circ1 = self.scene.to_circ1();
         }
         let mut c = Change {
             items: true,
@@ -1071,11 +1071,11 @@ impl Canvas {
         Ok(c)
     }
 
-    pub fn to_sim1(&self) -> String {
+    pub fn to_circ1(&self) -> String {
         if self.board_layout.is_some() {
-            self.board_layout_scene_snapshot().to_sim1()
+            self.board_layout_scene_snapshot().to_circ1()
         } else {
-            self.scene.to_sim1()
+            self.scene.to_circ1()
         }
     }
 
@@ -1109,12 +1109,12 @@ impl Canvas {
         export::save_image(self, path.as_ref(), palette)
     }
 
-    /// Overlay another `.sim1` at its original coordinates (canvas Import).
-    pub fn import_sim1(&mut self, src: &str) -> Change {
+    /// Overlay another circuit at its original coordinates (canvas Import).
+    pub fn import_circ1(&mut self, src: &str) -> Change {
         self.push_undo();
         match self
             .scene
-            .paste_sim1_with(src, Point::zero(), &self.search())
+            .paste_circ1_with(src, Point::zero(), &self.search())
         {
             Ok(true) => {
                 let mut c = Change::edit();

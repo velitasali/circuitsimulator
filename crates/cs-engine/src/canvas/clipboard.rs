@@ -8,7 +8,7 @@ use crate::components::ComponentChange;
 
 impl Canvas {
     pub fn copy_selection(&mut self) -> bool {
-        let Some(src) = self.scene.selection_to_sim1() else {
+        let Some(src) = self.scene.selection_to_circ1() else {
             return false;
         };
         let origin = {
@@ -36,7 +36,7 @@ impl Canvas {
         };
         let delta = snap_point(at).sub(origin);
         self.push_undo();
-        match self.scene.paste_sim1_with(&src, delta, &self.search()) {
+        match self.scene.paste_circ1_with(&src, delta, &self.search()) {
             Ok(true) => {
                 self.dirty_selected_now();
                 let mut c = Change::edit();

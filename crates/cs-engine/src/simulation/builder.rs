@@ -1,14 +1,14 @@
-//! Component builder methods, configuration, SIM1 loading, and test batch runner.
+//! Component builder methods, configuration, CIRC1 loading, and test batch runner.
 
 use rustc_hash::FxHashMap;
 use std::path::Path;
 
 use crate::Result;
+use crate::circ1;
 use crate::digital::{EventQueue, EventTarget, FlipFlopState, GateState, LatchState};
 use crate::elements::{Comp, Kind};
 use crate::instruments::InstrumentState;
 use crate::matrix::CircMatrix;
-use crate::sim1::parse_sim1;
 use crate::subcircuit::{SubcSearch, expand_parsed};
 
 use super::Circuit;
@@ -1041,12 +1041,12 @@ impl Circuit {
         self
     }
 
-    pub fn from_sim1(src: &str) -> Result<Self> {
-        Self::from_sim1_with(src, &SubcSearch::default())
+    pub fn from_circ1(src: &str) -> Result<Self> {
+        Self::from_circ1_with(src, &SubcSearch::default())
     }
 
-    pub fn from_sim1_with(src: &str, search: &SubcSearch) -> Result<Self> {
-        let parsed = parse_sim1(src)?;
+    pub fn from_circ1_with(src: &str, search: &SubcSearch) -> Result<Self> {
+        let parsed = circ1::to_parsed_circuit(circ1::load_circ1(src)?);
         let dt = parsed.analog_dt;
         let max_nl_steps = parsed.max_nl_steps;
         let ps_per_sec = parsed.circ.ps_per_sec();
@@ -1096,11 +1096,11 @@ impl Circuit {
         })
     }
 
-    pub fn load_sim1_path(path: impl AsRef<Path>) -> Result<Self> {
+    pub fn load_circuit_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let src = std::fs::read_to_string(path)?;
         let search = SubcSearch::from_circuit_path(path.to_str()).with_standard_catalog();
-        Self::from_sim1_with(&src, &search)
+        Self::from_circ1_with(&src, &search)
     }
 
     pub fn skipped(&self) -> &[String] {

@@ -2,6 +2,7 @@
 //! for a QML overlay (`Text.RichText`); qt-bridge cannot host
 //! `QSyntaxHighlighter`.
 
+use crate::compat::simulide;
 use crate::theme::{ColorId, ColorTheme};
 use regex::Regex;
 use std::collections::HashMap;
@@ -119,11 +120,12 @@ pub fn syntax_for_path(path: &str) -> Option<&'static str> {
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
+    if simulide::is_circuit_extension(&ext) {
+        return Some("xml.syntax");
+    }
     match ext.as_str() {
         "cpp" | "c" | "h" | "hpp" | "cc" | "hh" | "ino" | "as" => Some("cpp.syntax"),
-        "xml" | "html" | "package" | "mcu" | "circ1" | "sim1" | "sim2" | "simu" => {
-            Some("xml.syntax")
-        }
+        "xml" | "html" | "package" | "mcu" | "simu" => Some("xml.syntax"),
         "js" => Some("js.syntax"),
         "hex" | "ihx" => Some("hex.syntax"),
         "gcb" => Some("gcbasic.syntax"),

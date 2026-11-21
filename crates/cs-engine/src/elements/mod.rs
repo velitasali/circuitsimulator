@@ -13,6 +13,7 @@ use crate::mcu::{McuComp, McuItemSpec};
 use crate::net::ENode;
 use crate::qemu::QemuComp;
 use crate::script::ScriptCpu;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub use comparator::{
@@ -204,6 +205,7 @@ pub enum Kind {
         device: String,
         logic_symbol: bool,
         package_name: Option<String>,
+        exposed_overrides: BTreeMap<(String, String), String>,
     },
     Clock {
         voltage: f64,

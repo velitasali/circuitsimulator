@@ -251,7 +251,7 @@ impl CircuitCanvas {
             self.sim_changed();
             return;
         };
-        match self.inner.load_sim1(ex.sim1, None) {
+        match self.inner.load_circ1(ex.circ1, None) {
             Ok(c) => {
                 self.unsaved_root_snapshot = None;
                 cs_engine::project::update_session(&self.project_path, |s| {
@@ -3292,7 +3292,7 @@ impl CircuitCanvas {
         if self.inner.file_path().is_some() {
             self.persist_circuit_draft_now();
         } else if !path.is_empty() && self.unsaved_root_snapshot.is_none() {
-            self.unsaved_root_snapshot = Some((self.inner.to_sim1(), self.inner.is_modified()));
+            self.unsaved_root_snapshot = Some((self.inner.to_circ1(), self.inner.is_modified()));
         }
 
         let loaded = if path.is_empty() {
@@ -3302,7 +3302,7 @@ impl CircuitCanvas {
             let res = if was_modified {
                 self.inner.load_recovered(&snapshot, None, "")
             } else {
-                self.inner.load_sim1(&snapshot, None)
+                self.inner.load_circ1(&snapshot, None)
             };
             res.map_err(|e| {
                 let prefix = cs_engine::i18n::tr("Error loading circuit:");
@@ -3832,7 +3832,7 @@ impl CircuitCanvas {
         let path = strip_file_url(&url);
         match std::fs::read_to_string(&path) {
             Ok(src) => {
-                let c = self.inner.import_sim1(&src);
+                let c = self.inner.import_circ1(&src);
                 self.apply(c);
             }
             Err(e) => eprintln!("import circuit: {e}"),
@@ -4283,7 +4283,7 @@ mod tests {
         assert!(cc.cull_max_x() - cc.cull_min_x() > vr_w);
         assert!(cc.cull_max_y() - cc.cull_min_y() > vr_h);
 
-        let _ = cc.inner.load_sim1(
+        let _ = cc.inner.load_circ1(
             r#"<circuit version="1.0.0">
   <item itemtype="Resistor" CircId="R1" Pos="50,100" Resistance="1000 Ω"/>
   <item itemtype="Connector" CircId="c1" startpinid="R1-lPin" endpinid="R1-rPin" pointList="50,100,150,100"/>

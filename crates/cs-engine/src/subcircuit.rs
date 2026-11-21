@@ -1,22 +1,24 @@
-//! Instantiate a SubCircuit as one chip: load nested `.sim1`, remap CircIds,
+//! Instantiate a SubCircuit as one chip: load nested `.circ1`, remap CircIds,
 //! and join package pins to inner Tunnels by name.
 //!
 //! Matches C++ `SubCircuit::construct` / `loadSubCircuit` / `addPin`.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::canvas::{Point, Rect, map_rect};
 use crate::catalog::Catalog;
-use crate::circ1::{self, BoardPlacement};
+use crate::circ1::{self, BoardPlacement, ParsedCircuit};
+use crate::compat::simulide;
 use crate::components::Part;
 use crate::digital::LogicOverride;
 use crate::elements::{Comp, Kind};
 use crate::package::{
-    Package, SubcType, convert_package, logic_symbol_for_package_name, packages_from_sim1,
+    Package, SubcType, convert_package, logic_symbol_for_package_name, packages_from_circ1,
     select_package, select_package_key,
 };
-use crate::sim1::{self, ParsedCircuit, parse_sim1, parse_xml_props, prop};
+use crate::xml_util::{parse_bool, parse_xml_props, prop};
 use crate::{Error, Result};
 
 const MAX_NEST: u32 = 16;
@@ -38,16 +40,16 @@ fn resolve_qemu_firmware(q: &mut crate::qemu::QemuComp, search: &SubcSearch) {
     }
 }
 
-/// Where to look for `{device}.sim1` / `{device}.package`.
+/// Where to look for `{device}.circ1` / `{device}.package` (or legacy SimulIDE files).
 #[derive(Clone, Debug, Default)]
 pub struct SubcSearch {
     /// Directory of the parent circuit file.
     pub circuit_dir: Option<PathBuf>,
     /// Extra roots (user data folders).
     pub data_dirs: Vec<PathBuf>,
-    /// Tests: device name → nested `.sim1` source.
+    /// Tests: device name → nested circuit source.
     pub memory: HashMap<String, String>,
-    /// Tests: device name → `.package` XML (used when the sim1 has no Package items).
+    /// Tests: device name → `.package` XML (used when the circuit has no Package items).
     pub memory_pkg: HashMap<String, String>,
     /// Tests: device name → `.mcu` XML.
     pub memory_mcu: HashMap<String, String>,
@@ -132,7 +134,7 @@ pub fn resolve_subc(device: &str, search: &SubcSearch) -> Option<ResolvedSubc> {
             path: search
                 .circuit_dir
                 .as_ref()
-                .map(|d| d.join(format!("{device}.sim1"))),
+                .map(|d| d.join(format!("{device}.circ1"))),
         });
     }
     let mut dirs = Vec::new();
@@ -166,22 +168,20 @@ pub fn resolve_subc(device: &str, search: &SubcSearch) -> Option<ResolvedSubc> {
 
 fn candidate_files(dir: &Path, device: &str) -> Vec<PathBuf> {
     let nested = dir.join(device);
-    vec![
-        dir.join(format!("{device}.circ1")),
-        nested.join(format!("{device}.circ1")),
-        dir.join(format!("{device}.sim2")),
-        nested.join(format!("{device}.sim2")),
-        dir.join(format!("{device}.sim1")),
-        nested.join(format!("{device}.sim1")),
-        dir.join("data").join(format!("{device}.circ1")),
-        dir.join("data")
-            .join(device)
-            .join(format!("{device}.circ1")),
-        dir.join("data").join(format!("{device}.sim2")),
-        dir.join("data").join(device).join(format!("{device}.sim2")),
-        dir.join("data").join(format!("{device}.sim1")),
-        dir.join("data").join(device).join(format!("{device}.sim1")),
-    ]
+    let data = dir.join("data");
+    let data_nested = data.join(device);
+    let mut out = Vec::with_capacity(simulide::CIRCUIT_EXTENSIONS.len() * 4);
+    for ext in simulide::CIRCUIT_EXTENSIONS {
+        let file = format!("{device}.{ext}");
+        out.push(dir.join(&file));
+        out.push(nested.join(&file));
+    }
+    for ext in simulide::CIRCUIT_EXTENSIONS {
+        let file = format!("{device}.{ext}");
+        out.push(data.join(&file));
+        out.push(data_nested.join(&file));
+    }
+    out
 }
 
 fn sibling_package_files(dir: &Path, device: &str) -> Vec<(String, PathBuf)> {
@@ -229,7 +229,7 @@ fn load_packages(
     search: &SubcSearch,
     file: Option<&Path>,
 ) -> BTreeMap<String, Package> {
-    let (mut list, _) = packages_from_sim1(src);
+    let (mut list, _) = packages_from_circ1(src);
     if !list.is_empty() {
         return list;
     }
@@ -321,7 +321,7 @@ fn instantiate_resolved(
 
     let num_id = instance_num_id(instance_id, device);
     let prefixed = prefix_nested_doc(nested_src, &num_id, instance_id);
-    let parsed = parse_sim1(&prefixed)?;
+    let parsed = circ1::to_parsed_circuit(circ1::load_circ1(&prefixed)?);
     let child_search = nested_path
         .map(|p| search.child_for(p))
         .unwrap_or_else(|| search.clone());
@@ -403,15 +403,21 @@ pub fn expand_parsed(
                 ref device,
                 logic_symbol,
                 ref package_name,
+                ref exposed_overrides,
             } => {
                 let Some(resolved) = resolve_subc(device, search) else {
                     skipped.push(format!("Subcircuit:{device}"));
                     continue;
                 };
+                let nested_src: Cow<'_, str> = if exposed_overrides.is_empty() {
+                    Cow::Borrowed(&resolved.src)
+                } else {
+                    Cow::Owned(apply_exposed_overrides(&resolved.src, exposed_overrides))
+                };
                 match instantiate_resolved(
                     &item.comp.id,
                     device,
-                    &resolved.src,
+                    &nested_src,
                     resolved.path.as_deref(),
                     search,
                     logic_symbol,
@@ -570,7 +576,7 @@ fn prefix_item_line(line: &str, num_id: &str, instance_id: &str) -> String {
     } else {
         return line.to_string();
     };
-    if typ == "Package" {
+    if typ == "Package" || typ == "SubPackage" {
         return line.to_string();
     }
     let prefix_val = |v: &str| {
@@ -587,8 +593,9 @@ fn prefix_item_line(line: &str, num_id: &str, instance_id: &str) -> String {
             }
         }
     } else {
+        let has_circ_id = properties.iter().any(|(k, _)| k == "CircId");
         for (k, v) in properties.iter_mut() {
-            if k == "CircId" {
+            if k == "CircId" || (!has_circ_id && k == "uid") {
                 *v = prefix_val(v);
             }
             if k == "Links" && !v.is_empty() {
@@ -654,7 +661,7 @@ pub fn has_nested_mcu(src: &str) -> bool {
 fn is_exposed_attr(properties: &[(String, String)]) -> bool {
     prop(properties, "mainComp")
         .or_else(|| prop(properties, "MainComp"))
-        .map(crate::sim1::parse_bool)
+        .map(parse_bool)
         .unwrap_or(false)
 }
 
@@ -808,9 +815,7 @@ pub fn board_children(src: &str, package: &Package, logic_symbol: bool) -> Vec<B
     {
         return Vec::new();
     }
-    let parsed =
-        crate::circ1::parse_circ1(src).or_else(|_| crate::sim1::parse_legacy_to_circ1(src));
-    let Ok(parsed) = parsed else {
+    let Ok(parsed) = circ1::load_circ1(src) else {
         return Vec::new();
     };
     let pkg_rect = Rect::new(0.0, 0.0, package.body_w(), package.body_h());
@@ -865,14 +870,12 @@ pub fn part_pin_ids(sim_id: &str, part: &Part) -> Vec<String> {
         .collect()
 }
 
-/// Parse all components flagged `mainComp="true"` inside a subcircuit `.circ1`/`.sim1` source.
+/// Parse all components flagged `mainComp="true"` inside a subcircuit `.circ1` source.
 pub fn exposed_items(src: &str) -> Vec<ExposedItem> {
     if src.is_empty() {
         return Vec::new();
     }
-    let parsed =
-        crate::circ1::parse_circ1(src).or_else(|_| crate::sim1::parse_legacy_to_circ1(src));
-    let Ok(parsed) = parsed else {
+    let Ok(parsed) = circ1::load_circ1(src) else {
         return Vec::new();
     };
     parsed
@@ -896,27 +899,181 @@ pub fn exposed_items(src: &str) -> Vec<ExposedItem> {
         .collect()
 }
 
-/// Update a property on a specific inner item (by `CircId`) inside a subcircuit `.circ1`/`.sim1` source.
-/// Returns the updated document string if the item and property were successfully updated.
-pub fn set_exposed_item_prop(
+/// Result of applying a single exposed-component property edit to a subcircuit document.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExposedPropUpdate {
+    /// Updated nested `.circ1` document text.
+    pub updated_src: String,
+    /// Persisted `(prop_id, formatted_value)` entries modified by this edit (including
+    /// any coupled `PropUpdate` targets such as `Diode::Threshold -> SatCurrent`).
+    pub persisted_changes: Vec<(String, String)>,
+}
+
+fn escape_override_token(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            '"' => out.push_str("%22"),
+            '\n' => out.push_str("%0A"),
+            '\r' => out.push_str("%0D"),
+            ';' => out.push_str("%3B"),
+            '=' => out.push_str("%3D"),
+            '&' => out.push_str("%26"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn unescape_override_token(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3]) {
+                if let Ok(b) = u8::from_str_radix(hex, 16) {
+                    out.push(b);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
+}
+
+/// Encode per-instance exposed-component property overrides into a single XML-safe attribute value.
+pub fn encode_exposed_overrides(overrides: &BTreeMap<(String, String), String>) -> String {
+    overrides
+        .iter()
+        .map(|((inner_id, prop_name), val)| {
+            format!(
+                "{};{}={}",
+                escape_override_token(inner_id),
+                escape_override_token(prop_name),
+                escape_override_token(val),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("&#xa;")
+}
+
+/// Decode per-instance exposed-component property overrides from the `ExposedProps` attribute.
+pub fn decode_exposed_overrides(raw: &str) -> BTreeMap<(String, String), String> {
+    let mut out = BTreeMap::new();
+    for entry in raw.split("&#xa;") {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let Some((lhs, val)) = entry.split_once('=') else {
+            continue;
+        };
+        let Some((inner_id, prop_name)) = lhs.split_once(';') else {
+            continue;
+        };
+        let inner_id = unescape_override_token(inner_id);
+        let prop_name = unescape_override_token(prop_name);
+        let val = unescape_override_token(val);
+        if !inner_id.is_empty() && !prop_name.is_empty() {
+            out.insert((inner_id, prop_name), val);
+        }
+    }
+    out
+}
+
+/// Re-apply all saved per-instance exposed-component property overrides onto a subcircuit source.
+/// Entries whose target item or property no longer exists are ignored gracefully.
+pub fn apply_exposed_overrides(
+    src: &str,
+    overrides: &BTreeMap<(String, String), String>,
+) -> String {
+    if src.is_empty() || overrides.is_empty() {
+        return src.to_string();
+    }
+    let mut out = src.to_string();
+    for ((inner_id, prop_name), val) in overrides {
+        if let Some(updated) = apply_exposed_item_prop(&out, inner_id, prop_name, val) {
+            out = updated.updated_src;
+        }
+    }
+    out
+}
+
+fn escape_xml_attr(s: &str) -> String {
+    s.replace('\r', "")
+        .replace('\n', "&#xa;")
+        .replace('"', "&quot;")
+}
+
+fn attr_matches_prop(attr_key: &str, prop_name: &str) -> bool {
+    if attr_key == prop_name || attr_key.eq_ignore_ascii_case(prop_name) {
+        return true;
+    }
+    let clean_prop = prop_name.replace('_', "");
+    if attr_key.replace('_', "").eq_ignore_ascii_case(&clean_prop) {
+        return true;
+    }
+    matches!(
+        (attr_key, prop_name),
+        ("Freq", "Frequency")
+            | ("Inverted", "InvertOutputs")
+            | ("DT", "DoubleThrow")
+            | ("Size", "Segments")
+    )
+}
+
+/// Update a property on a specific inner item (by `CircId` or legacy `uid`) inside a subcircuit
+/// `.circ1` source. Returns both the updated document and the persisted property changes.
+pub fn apply_exposed_item_prop(
     src: &str,
     target_inner_id: &str,
     prop_name: &str,
     value_text: &str,
-) -> Option<String> {
-    // Parse with circ1/legacy parser to validate & normalize the formatted value via the component's own PropDef.
-    let parsed = crate::circ1::parse_circ1(src)
-        .or_else(|_| crate::sim1::parse_legacy_to_circ1(src))
-        .ok()?;
+) -> Option<ExposedPropUpdate> {
+    // Parse with circ1 (or SimulIDE compat converter) to validate & normalize via the component's own PropDef.
+    let parsed = circ1::load_circ1(src).ok()?;
     let mut item = parsed
         .items
         .into_iter()
         .find(|it| it.circ_id == target_inner_id)?;
+
+    let before: HashMap<&'static str, String> = item.part.persisted_props().into_iter().collect();
     item.part.set_prop_text(prop_name, value_text).ok()?;
-    let formatted = item
-        .part
-        .get_prop_text(prop_name)
-        .unwrap_or_else(|| value_text.to_string());
+    let after = item.part.persisted_props();
+
+    let clean_prop = prop_name.replace('_', "");
+    let mut persisted_changes: Vec<(String, String)> = Vec::new();
+    for (k, v) in &after {
+        if before.get(k) != Some(v) {
+            persisted_changes.push(((*k).to_string(), v.clone()));
+        }
+    }
+    // Ensure explicitly-set persisted properties are always recorded even if equal to current value
+    // (e.g. when re-applying overrides or explicitly pinning a value).
+    if let Some((k, v)) = after.iter().find(|(k, _)| {
+        *k == prop_name
+            || k.eq_ignore_ascii_case(prop_name)
+            || k.replace('_', "").eq_ignore_ascii_case(&clean_prop)
+    }) {
+        if !persisted_changes.iter().any(|(ck, _)| ck == k) {
+            persisted_changes.push(((*k).to_string(), v.clone()));
+        }
+    }
+
+    let patches: Vec<(String, String)> = if !persisted_changes.is_empty() {
+        persisted_changes.clone()
+    } else {
+        let formatted = item
+            .part
+            .get_prop_text(prop_name)
+            .unwrap_or_else(|| value_text.to_string());
+        vec![(prop_name.to_string(), formatted)]
+    };
 
     let mut updated = false;
     let out = src
@@ -930,25 +1087,41 @@ pub fn set_exposed_item_prop(
                 return line.to_string();
             }
             let mut properties = parse_xml_props(trimmed);
-            if prop(&properties, "CircId") != Some(target_inner_id) {
+            let line_id = prop(&properties, "CircId").or_else(|| prop(&properties, "uid"));
+            if line_id != Some(target_inner_id) {
                 return line.to_string();
             }
-            let clean_prop = prop_name.replace('_', "");
-            if let Some((_, val)) = properties.iter_mut().find(|(k, _)| {
-                k == prop_name
-                    || k.eq_ignore_ascii_case(prop_name)
-                    || k.replace('_', "").eq_ignore_ascii_case(&clean_prop)
-            }) {
-                *val = formatted.clone();
-            } else {
-                properties.push((prop_name.to_string(), formatted.clone()));
+            for (k, v) in &patches {
+                let escaped = escape_xml_attr(v);
+                if let Some((_, val)) = properties
+                    .iter_mut()
+                    .find(|(ak, _)| attr_matches_prop(ak, k))
+                {
+                    *val = escaped;
+                } else {
+                    properties.push((k.clone(), escaped));
+                }
             }
             updated = true;
             rebuild_item(&properties)
         })
         .collect::<Vec<_>>()
         .join("\n");
-    updated.then_some(out)
+    updated.then_some(ExposedPropUpdate {
+        updated_src: out,
+        persisted_changes,
+    })
+}
+
+/// Update a property on a specific inner item (by `CircId` or legacy `uid`) inside a subcircuit `.circ1` source.
+/// Returns the updated document string if the item and property were successfully updated.
+pub fn set_exposed_item_prop(
+    src: &str,
+    target_inner_id: &str,
+    prop_name: &str,
+    value_text: &str,
+) -> Option<String> {
+    apply_exposed_item_prop(src, target_inner_id, prop_name, value_text).map(|u| u.updated_src)
 }
 
 /// Layout used by the canvas chip, plus nested source for later flatten.
@@ -1023,7 +1196,7 @@ pub(crate) fn subc_visit_key(file_path: &str, device: &str) -> String {
     }
 }
 
-/// Snapshot subcircuit tree from `.circ1` or legacy `.sim1`/`.sim2` source text.
+/// Snapshot subcircuit tree from circuit source text.
 pub fn snapshot_subcircuits_from_src(src: &str, search: &SubcSearch) -> Vec<SubcTreeNode> {
     let mut visited = HashSet::new();
     snapshot_subcircuits_from_src_inner(src, search, 0, &mut visited)
@@ -1071,7 +1244,7 @@ fn snapshot_subcircuits_from_src_inner(
     if depth >= MAX_NEST || !may_contain_subcircuit(src) {
         return Vec::new();
     }
-    let Ok(parsed) = circ1::parse_circ1(src).or_else(|_| sim1::parse_legacy_to_circ1(src)) else {
+    let Ok(parsed) = circ1::load_circ1(src) else {
         return Vec::new();
     };
     let mut result = Vec::new();
@@ -1282,7 +1455,7 @@ mod tests {
             .memory
             .insert("sub_c".to_string(), sub_c_src.to_string());
 
-        let parsed = crate::sim1::parse_sim1(root_sim1).unwrap();
+        let parsed = circ1::to_parsed_circuit(circ1::load_circ1(root_sim1).unwrap());
         let tree = snapshot_subcircuits_from_parsed(&parsed, &search);
 
         assert_eq!(tree.len(), 2);

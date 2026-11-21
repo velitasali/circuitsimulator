@@ -1,11 +1,17 @@
 //! Native `.circ1` format parser, serializer, and component factory map.
 
+use std::cell::Cell;
+
 use crate::components::{Component, Part, PropError};
+use crate::elements::{Comp, Kind};
+use crate::mcu::{self, McuItemSpec};
+use crate::qemu::QemuComp;
 use crate::settings::CircSettings;
-use crate::sim1::{
-    ParsedConnector, fmt_pos, parse_bool, parse_point, parse_point_list, parse_xml_props, prop,
+use crate::subcircuit;
+use crate::xml_util::{
+    self, fmt_point_list, fmt_pos, parse_bool, parse_point, parse_point_list, parse_xml_props, prop,
 };
-use crate::{Error, Result};
+use crate::{Circuit, Error, Result};
 
 /// Native .circ1 format version.
 pub const FORMAT_VERSION: &str = "1.0.0";
@@ -15,6 +21,44 @@ pub type ParsedV3 = ParsedCirc1;
 pub type ParsedV3Item = ParsedCirc1Item;
 pub use parse_circ1 as parse_circuit_v3;
 pub use write_circ1 as write_circuit_v3;
+
+#[derive(Clone, Debug)]
+pub struct ParsedItem {
+    pub comp: Comp,
+    /// Scene position from `Pos="x,y"`, if present.
+    pub pos: Option<(f64, f64)>,
+    pub rotation: f64,
+    pub hflip: i32,
+    pub vflip: i32,
+    pub label: Option<String>,
+    pub show_id: bool,
+    pub label_pos: Option<(f64, f64)>,
+    pub label_rot: Option<i32>,
+    pub show_val: bool,
+    pub show_prop: Option<String>,
+    pub val_pos: Option<(f64, f64)>,
+    pub val_rot: Option<i32>,
+    pub main_comp: bool,
+    pub links: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ParsedConnector {
+    pub id: String,
+    pub start: String,
+    pub end: String,
+    pub points: Vec<(f64, f64)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ParsedCircuit {
+    pub items: Vec<ParsedItem>,
+    pub connectors: Vec<ParsedConnector>,
+    pub skipped: Vec<String>,
+    pub analog_dt: f64,
+    pub max_nl_steps: u32,
+    pub circ: CircSettings,
+}
 
 /// Placement of a component on a Board/Shield `SubPackage` face, relative to the package's `(0, 0)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1199,11 +1243,35 @@ pub fn registered_itemtypes() -> impl Iterator<Item = &'static str> {
     FACTORY.iter().map(|e| e.itemtype)
 }
 
+thread_local! {
+    static ALLOW_MISSING_REQUIRED: Cell<bool> = const { Cell::new(false) };
+}
+
+struct LenientGuard(bool);
+
+impl Drop for LenientGuard {
+    fn drop(&mut self) {
+        ALLOW_MISSING_REQUIRED.with(|c| c.set(self.0));
+    }
+}
+
 pub fn create_part(itemtype: &str, circ_id: String, attrs: &[(String, String)]) -> Result<Part> {
     match lookup_factory(itemtype) {
         Some(create) => create(circ_id, attrs),
         None => Err(Error::Parse(format!("unknown itemtype '{itemtype}'"))),
     }
+}
+
+/// Like [`create_part`], but allows missing `required` attributes to fall back to `Default`.
+/// Used exclusively by the SimulIDE legacy compatibility converter.
+pub(crate) fn create_part_lenient(
+    itemtype: &str,
+    circ_id: String,
+    attrs: &[(String, String)],
+) -> Result<Part> {
+    let prev = ALLOW_MISSING_REQUIRED.with(|c| c.replace(true));
+    let _guard = LenientGuard(prev);
+    create_part(itemtype, circ_id, attrs)
 }
 
 pub fn write_circuit_header(circ: &CircSettings) -> String {
@@ -1251,7 +1319,7 @@ pub fn write_connector(c: &ParsedConnector) -> String {
         c.id,
         c.start,
         c.end,
-        crate::sim1::fmt_point_list(&c.points),
+        fmt_point_list(&c.points),
     )
 }
 
@@ -1313,7 +1381,7 @@ pub fn apply_item_attrs<T: Component>(part: &mut T, attrs: &[(String, String)]) 
             Some((_, v)) => {
                 part.set_prop_text(def.id, v).map_err(prop_err)?;
             }
-            None if def.required => {
+            None if def.required && !ALLOW_MISSING_REQUIRED.with(Cell::get) => {
                 return Err(Error::Parse(format!(
                     "missing required attribute '{}'",
                     def.id
@@ -1344,6 +1412,210 @@ pub struct ParsedCirc1 {
     pub circ: CircSettings,
     pub items: Vec<ParsedCirc1Item>,
     pub connectors: Vec<ParsedConnector>,
+    pub skipped: Vec<String>,
+}
+
+/// Load a circuit document into canonical [`ParsedCirc1`].
+///
+/// Parses native `.circ1` first; falls back to the SimulIDE compatibility resolver
+/// (`compat::simulide`) for legacy `.sim1` / `.sim2` files.
+pub fn load_circ1(src: &str) -> Result<ParsedCirc1> {
+    parse_circ1(src).or_else(|_| crate::compat::simulide::parse_to_circ1(src))
+}
+
+/// Lower a canonical [`ParsedCirc1`] into simulation [`ParsedCircuit`] items.
+pub fn to_parsed_circuit(parsed: ParsedCirc1) -> ParsedCircuit {
+    let mut items = Vec::with_capacity(parsed.items.len());
+    for it in parsed.items {
+        let comp = match &it.part {
+            Part::SubPackage(_) => continue,
+            Part::Mcu(m) => {
+                let dev_prop = if !m.device.is_empty() && m.device != it.circ_id {
+                    m.device.clone()
+                } else {
+                    subcircuit::device_from_id(&it.circ_id)
+                };
+                let has_freq = it.attrs.iter().any(|(k, _)| {
+                    k.eq_ignore_ascii_case("Frequency") || k.eq_ignore_ascii_case("MHz")
+                });
+                let frequency = if has_freq && m.mcu.device.freq > 0.0 {
+                    Some(m.mcu.device.freq)
+                } else {
+                    prop(&it.attrs, "MHz")
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .map(|mhz| mhz * 1e6)
+                };
+                let spec = McuItemSpec {
+                    device: mcu::canonicalize_device(&dev_prop),
+                    frequency,
+                    force_freq: m.mcu.force_freq,
+                    program: m.mcu.firmware.clone(),
+                    auto_load: m.mcu.auto_load,
+                    save_pgm: m.mcu.save_pgm,
+                    pgm: (!m.pgm.is_empty()).then(|| m.pgm.clone()),
+                    logic_symbol: m.logic_symbol,
+                    package_name: (!m.package.name.is_empty()).then(|| m.package.name.clone()),
+                };
+                Comp::mcu_item(it.circ_id.clone(), spec)
+            }
+            Part::QemuDevice(qemu) => {
+                let device = if !qemu.qemu.device.is_empty() {
+                    qemu.qemu.device.clone()
+                } else {
+                    subcircuit::device_from_id(&it.circ_id)
+                };
+                let mut q = if device.to_ascii_uppercase().starts_with("STM32") {
+                    QemuComp::stm32(&it.circ_id, 5)
+                } else {
+                    QemuComp::esp32(&it.circ_id)
+                };
+                if !device.is_empty() {
+                    q.device = device;
+                }
+                q.firmware = qemu.qemu.firmware.clone();
+                q.extra_args = qemu.qemu.extra_args.clone();
+                Comp {
+                    id: it.circ_id.clone(),
+                    kind: Kind::QemuDevice(q),
+                }
+            }
+            Part::Subcircuit(subc) => Comp {
+                id: it.circ_id.clone(),
+                kind: subc.to_element_kind(),
+            },
+            other => {
+                let mut tmp = Circuit::new();
+                other.add_to_circuit(&it.circ_id, &mut tmp);
+                let Some(mut comp) = tmp.components().first().cloned() else {
+                    continue;
+                };
+                apply_attrs_family_props(&mut comp, &it.attrs);
+                comp
+            }
+        };
+
+        let main_comp = it.graphic.main_comp || matches!(&it.part, Part::Mcu(m) if m.is_main_comp);
+        items.push(ParsedItem {
+            comp,
+            pos: it.graphic.pos,
+            rotation: it.graphic.rotation,
+            hflip: it.graphic.hflip,
+            vflip: it.graphic.vflip,
+            label: it.graphic.label,
+            show_id: it.graphic.show_id,
+            label_pos: it.graphic.label_pos,
+            label_rot: Some(it.graphic.label_rot),
+            show_val: it.graphic.show_val,
+            show_prop: it.graphic.show_prop,
+            val_pos: it.graphic.val_pos,
+            val_rot: Some(it.graphic.val_rot),
+            main_comp,
+            links: it.graphic.links,
+        });
+    }
+
+    ParsedCircuit {
+        analog_dt: parsed.circ.analog_dt(),
+        max_nl_steps: parsed.circ.nl_steps,
+        circ: parsed.circ,
+        items,
+        connectors: parsed.connectors,
+        skipped: parsed.skipped,
+    }
+}
+
+fn apply_attrs_family_props(comp: &mut Comp, attrs: &[(String, String)]) {
+    match &mut comp.kind {
+        Kind::Gate(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::FlipFlop(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Latch(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Comparator { state } => {
+            xml_util::apply_family_props(attrs, &mut state.family);
+            state.apply_electric();
+        }
+        Kind::TestUnit(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Mux(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Demux(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::BcdToDec(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::DecToBcd(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::BcdTo7S(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::I2CToParallel(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Adc(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Dac(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Counter(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::BinCounter(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::FullAdder(s) | Kind::HalfAdder(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::MagnitudeComp(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::ShiftReg(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Function(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::Memory(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::DynamicMemory(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        Kind::I2CRam(s) => {
+            xml_util::apply_family_props(attrs, &mut s.family);
+            s.apply_family();
+        }
+        _ => {}
+    }
 }
 
 /// Parse a 1.x `.circ1` circuit. Any non-1.x `version` is refused.
@@ -1405,6 +1677,7 @@ pub fn parse_circ1(src: &str) -> Result<ParsedCirc1> {
         circ,
         items,
         connectors,
+        skipped: Vec::new(),
     })
 }
 

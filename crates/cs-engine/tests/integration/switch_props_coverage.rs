@@ -358,7 +358,7 @@ fn test_switch_canvas_scene_mutations_and_sim1_roundtrip() {
     assert_eq!(it.pins().len(), 9, "3 poles * 3 pins per pole = 9 pins");
 
     // Export to SIM1 XML
-    let sim1_xml = scene.to_sim1();
+    let sim1_xml = scene.to_circ1();
     assert!(sim1_xml.contains("Poles=\"3\""));
     assert!(sim1_xml.contains("DoubleThrow=\"true\"") || sim1_xml.contains("DT=\"true\""));
     assert!(sim1_xml.contains("NormClose=\"true\"") || sim1_xml.contains("Norm_Close=\"true\""));
@@ -367,7 +367,7 @@ fn test_switch_canvas_scene_mutations_and_sim1_roundtrip() {
     assert!(sim1_xml.contains("Checked=\"false\""));
 
     // Reload from SIM1 XML
-    let scene2 = Scene::from_sim1(&sim1_xml).expect("SIM1 deserialize success");
+    let scene2 = Scene::from_circ1(&sim1_xml).expect("SIM1 deserialize success");
     let it2 = scene2.item_by_id(&sw_id).expect("Switch loaded from SIM1");
     assert_eq!(it2.poles(), 3);
     assert!(it2.double_throw());

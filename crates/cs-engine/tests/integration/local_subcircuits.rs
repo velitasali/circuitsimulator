@@ -61,10 +61,10 @@ fn local_circ1_subcircuit_loads_in_library_and_canvas() {
     assert!(exposed.iter().any(|e| e.circ_id == "Led-1"));
 
     // 3. Reloading a saved circuit in the project root restores LED_PKG cleanly.
-    let saved = canvas.to_sim1();
+    let saved = canvas.to_circ1();
     let mut canvas2 = Canvas::empty();
     canvas2
-        .load_sim1(&saved, root_circ.to_str().map(str::to_string))
+        .load_circ1(&saved, root_circ.to_str().map(str::to_string))
         .unwrap();
     let reloaded = canvas2
         .scene()
@@ -109,7 +109,7 @@ fn nested_local_circ1_subcircuit_tree_resolves_project_siblings_and_hyphens() {
     let mut canvas = Canvas::empty();
     canvas.set_project_dir(root.to_str().map(str::to_string));
     canvas
-        .load_sim1(main_circ1, main_path.to_str().map(str::to_string))
+        .load_circ1(main_circ1, main_path.to_str().map(str::to_string))
         .unwrap();
 
     let tree = canvas.snapshot_subcircuits();

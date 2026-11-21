@@ -1,8 +1,9 @@
-//! File I/O, SIM1/SIM2 loading and saving, backups, drafts, and path handling.
+//! File I/O, circuit loading and saving, backups, drafts, and path handling.
 
 use crate::path_util::strip_file_url;
 use cs_engine::backup;
 use cs_engine::canvas::{Canvas, Change};
+use cs_engine::compat::simulide;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) enum PendingReplace {
@@ -13,23 +14,22 @@ pub(crate) enum PendingReplace {
     Example(String),
 }
 
-/// Migration to native .circ1 format:
-/// - If path ends with .sim1 or .sim2, replace with .circ1
-/// - Otherwise if it does not end with .circ1, append .circ1
+/// Migration to native `.circ1` format:
+/// - If path ends with a legacy SimulIDE extension, replace it with `.circ1`
+/// - Otherwise if it does not end with `.circ1`, append `.circ1`
 pub fn ensure_circ1_path(path: &str) -> String {
     let p = path.trim();
     if p.is_empty() {
         return String::new();
     }
-    let mut out = p.to_string();
-    if out.ends_with(".sim1") {
-        out.replace_range(out.len() - 5.., ".circ1");
-    } else if out.ends_with(".sim2") {
-        out.replace_range(out.len() - 5.., ".circ1");
-    } else if !out.ends_with(".circ1") {
-        out.push_str(".circ1");
+    if let Some(stem) = simulide::strip_legacy_extension(p) {
+        return format!("{stem}.circ1");
     }
-    out
+    if p.ends_with(".circ1") {
+        p.to_string()
+    } else {
+        format!("{p}.circ1")
+    }
 }
 
 pub(super) fn suggest_image_url(p: &str) -> String {
@@ -72,7 +72,7 @@ fn load_circuit_file(
             let loaded = if let Some(ref draft) = draft {
                 canvas.load_recovered(&draft.snapshot, Some(path.to_string()), &src)
             } else {
-                canvas.load_sim1(&src, Some(path.to_string()))
+                canvas.load_circ1(&src, Some(path.to_string()))
             };
             match loaded {
                 Ok(c) => {
@@ -165,7 +165,7 @@ pub(super) fn persist_circuit_draft_now(canvas: &Canvas, project_path: &str) {
         backup::clear_circuit_for(&path, project_path);
         return;
     }
-    let snapshot = canvas.to_sim1();
+    let snapshot = canvas.to_circ1();
     backup::put_circuit(&path, project_path, &snapshot);
 }
 
@@ -182,7 +182,7 @@ pub(super) fn save_path(
         .file_path()
         .map(|s| s.to_string())
         .unwrap_or_default();
-    let src = canvas.to_sim1();
+    let src = canvas.to_circ1();
     if let Err(e) = std::fs::write(&path, src) {
         let err_prefix = cs_engine::i18n::tr("Error saving circuit:");
         cs_engine::logging::log_sim(format!("{err_prefix} {e}"));

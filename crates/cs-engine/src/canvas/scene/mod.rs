@@ -1,10 +1,10 @@
 //! Circuit items, wires, hit-test, and selection.
 
+pub mod circ1;
 pub mod item;
 pub mod item_props;
 pub mod mcu;
 pub mod selection;
-pub mod sim1;
 #[cfg(test)]
 mod tests;
 pub mod wires;

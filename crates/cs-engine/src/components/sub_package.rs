@@ -5,7 +5,7 @@ use super::{CompPin, Component, Stampable};
 use crate::canvas::Rect;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
-use crate::package::{Package, package_pins_to_sim1_prop, parse_sim1_package_pins};
+use crate::package::{Package, package_pins_to_prop, parse_package_pins};
 
 const MIN_DIM: i64 = 1;
 const MAX_DIM: i64 = 128;
@@ -127,11 +127,11 @@ impl SubPackage {
     }
 
     fn get_pins(&self) -> PropValue {
-        PropValue::String(package_pins_to_sim1_prop(&self.package.pins))
+        PropValue::String(package_pins_to_prop(&self.package.pins))
     }
     fn set_pins(&mut self, v: PropValue) -> Result<(), PropError> {
         let s = expect_string("Pins", v)?;
-        self.package.pins = parse_sim1_package_pins(&s);
+        self.package.pins = parse_package_pins(&s);
         Ok(())
     }
 }

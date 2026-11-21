@@ -3,6 +3,7 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use crate::compat::simulide;
 use crate::{Circuit, Error, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,9 +102,9 @@ fn parse_rest(args: &[String]) -> Cli {
     if nogui {
         return match open {
             Some(OpenKind::Circuit(path)) => Cli::RunCirc { path },
-            Some(OpenKind::Editor(_)) => Cli::Error(
-                "-nogui needs a .circ1 / .sim1 / .sim2 circuit (or -runcirc / -test)".into(),
-            ),
+            Some(OpenKind::Editor(_)) => {
+                Cli::Error("-nogui needs a circuit file (or -runcirc / -test)".into())
+            }
             None => {
                 Cli::Error("-nogui needs -runcirc <file>, -test <folder>, or a circuit file".into())
             }
@@ -124,20 +125,16 @@ Usage:
 Options:
   -nogui              Run without the QML shell
   -runcirc <file>     Load a circuit, power on, run until interrupted
-  -test <folder>      Batch-test every .circ1 / .sim1 / .sim2 under folder
+  -test <folder>      Batch-test every circuit file under folder
   -noproject          Ignored (no last-project restore yet)
   -h, --help          Show this help
 "
 }
 
 fn is_circuit(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|e| e.to_str())
-            .map(|s| s.to_ascii_lowercase())
-            .as_deref(),
-        Some("circ1") | Some("sim1") | Some("sim2")
-    )
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(simulide::is_circuit_extension)
 }
 
 /// C++ `main.cpp` file:// / %20 / Windows leading-slash strip.
@@ -165,7 +162,7 @@ pub fn run_circ(path: &Path, mut keep_going: impl FnMut(&Circuit) -> bool) -> Re
         )));
     }
     crate::logging::log_default(format!("[runcirc] loading {}", path.display()));
-    let mut c = Circuit::load_sim1_path(path)?;
+    let mut c = Circuit::load_circuit_path(path)?;
     c.solve()?;
     crate::logging::log_default("[runcirc] running");
     while keep_going(&c) {
@@ -225,7 +222,7 @@ pub fn run_batch_folder(folder: &Path) -> Result<BatchReport> {
 pub fn print_batch_report(report: &BatchReport, mut out: impl Write) -> io::Result<()> {
     if report.ok() {
         if report.tested == 0 {
-            writeln!(out, "No .circ1 / .sim1 / .sim2 files found")?;
+            writeln!(out, "No circuit files found")?;
         } else {
             writeln!(out, "All tests passed")?;
         }
@@ -248,7 +245,7 @@ enum TestFile {
 }
 
 fn run_one_test(path: &Path) -> Result<TestFile> {
-    let mut c = Circuit::load_sim1_path(path)?;
+    let mut c = Circuit::load_circuit_path(path)?;
     let results = c.run_batch()?;
     if results.is_empty() {
         return Ok(TestFile::Skipped("no TestUnit".into()));

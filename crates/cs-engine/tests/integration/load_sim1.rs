@@ -8,7 +8,7 @@ fn approx(a: f64, b: f64) {
 
 #[test]
 fn load_and_solve_divider_sim1() {
-    let mut c = Circuit::from_sim1(DIVIDER).unwrap();
+    let mut c = Circuit::from_circ1(DIVIDER).unwrap();
     assert!(c.skipped().is_empty());
     c.solve().unwrap();
 
@@ -21,7 +21,7 @@ fn load_and_solve_divider_sim1() {
 
 #[test]
 fn profile_divider_run_ps() {
-    let mut c = Circuit::from_sim1(DIVIDER).unwrap();
+    let mut c = Circuit::from_circ1(DIVIDER).unwrap();
     c.solve().unwrap();
     let start = std::time::Instant::now();
     // 33.33ms of simulation time (1 frame at 100% speed)
@@ -47,7 +47,7 @@ fn profile_rc_circuit_run_ps() {
 <item itemtype="Connector" uid="c2" startpinid="Resistor-1-rPin" endpinid="Capacitor-1-lPin" />
 <item itemtype="Connector" uid="c3" startpinid="Capacitor-1-rPin" endpinid="Ground-1-Gnd" />
 </circuit>"#;
-    let mut c = Circuit::from_sim1(sim1).unwrap();
+    let mut c = Circuit::from_circ1(sim1).unwrap();
     c.solve().unwrap();
     assert!(c.has_reactive());
     let start = std::time::Instant::now();
@@ -68,7 +68,7 @@ fn profile_rc_circuit_run_ps() {
 #[test]
 fn load_from_path() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/divider.sim1");
-    let mut c = Circuit::load_sim1_path(path).unwrap();
+    let mut c = Circuit::load_circuit_path(path).unwrap();
     c.solve().unwrap();
     approx(c.pin_voltage("Node-5-0").unwrap(), 2.5);
 }
@@ -77,7 +77,7 @@ fn load_from_path() {
 fn load_subcircuit_divider_from_path() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/packages/parent.sim1");
-    let mut c = Circuit::load_sim1_path(path).unwrap();
+    let mut c = Circuit::load_circuit_path(path).unwrap();
     assert!(
         !c.skipped().iter().any(|s| s.starts_with("Subcircuit")),
         "skipped {:?}",
@@ -160,7 +160,7 @@ fn load_mcu_sim1_from_path() {
 "#;
     let path = dir.join("porta.sim1");
     std::fs::write(&path, sim1).unwrap();
-    let mut c = Circuit::load_sim1_path(&path).unwrap();
+    let mut c = Circuit::load_circuit_path(&path).unwrap();
     assert!(
         !c.skipped().iter().any(|s| s.starts_with("MCU")),
         "skipped {:?}",
@@ -192,7 +192,7 @@ fn load_esp32_display_sim2_and_simulate_hd44780() {
 <item itemtype="Connector" uid="Connector-24" startpinid="Hd44780-5-dataPin7" endpinid="Esp32-2-G04" pointList="32,-44,32,144,-16,144,-16,140" />
 </circuit>"#;
 
-    let scene = cs_engine::canvas::Scene::from_sim1(sim2_content).unwrap();
+    let scene = cs_engine::canvas::Scene::from_circ1(sim2_content).unwrap();
     assert_eq!(scene.items().len(), 5);
     assert_eq!(scene.wires().len(), 9);
 
@@ -237,7 +237,7 @@ fn test_mega_display_sim2_live_run() {
     if !path.exists() {
         return;
     }
-    let mut c = Circuit::load_sim1_path(&path).unwrap();
+    let mut c = Circuit::load_circuit_path(&path).unwrap();
     c.solve().unwrap();
 
     let ssd_idx = c
@@ -284,7 +284,7 @@ fn test_mega_display_canvas_gui_ticks() {
     let src = std::fs::read_to_string(&path).unwrap();
     let mut canvas = cs_engine::canvas::Canvas::new();
     canvas
-        .load_sim1(&src, Some(path.to_str().unwrap().to_string()))
+        .load_circ1(&src, Some(path.to_str().unwrap().to_string()))
         .unwrap();
 
     canvas.power_on();
@@ -329,7 +329,7 @@ fn test_programmable_devices_collection() {
     search
         .memory_mcu
         .insert("atmega328p".to_string(), mcu_xml.to_string());
-    let scene = cs_engine::canvas::scene::Scene::from_sim1_with(sim1, &search).unwrap();
+    let scene = cs_engine::canvas::scene::Scene::from_circ1_with(sim1, &search).unwrap();
     let devices = scene.collect_programmable_devices(&search, None);
     eprintln!("Collected devices: {:#?}", devices);
 

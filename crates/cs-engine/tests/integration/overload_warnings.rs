@@ -18,7 +18,7 @@ fn test_el_capacitor_reverse_polarity_overload() {
 <item itemtype="Connector" uid="conn-2" startpinid="Ground-1-Gnd" endpinid="elCapacitor-1-lPin" pointList="200,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_cap.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_cap.sim1".into()))
         .unwrap();
     c.power_on();
     assert!(c.sim_running(), "Sim must be running");
@@ -95,7 +95,7 @@ fn test_led_overcurrent_overload() {
 <item itemtype="Connector" uid="conn-2" startpinid="Ground-1-Gnd" endpinid="Led-1-rPin" pointList="200,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_led.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_led.sim1".into()))
         .unwrap();
     c.power_on();
     assert!(c.sim_running(), "Sim must be running");
@@ -145,7 +145,7 @@ fn test_voltmeter_overflow_overload() {
 <item itemtype="Connector" uid="conn-2" startpinid="Ground-1-Gnd" endpinid="Voltimeter-1-rPin" pointList="200,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_voltmeter.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_voltmeter.sim1".into()))
         .unwrap();
     c.power_on();
 
@@ -181,7 +181,7 @@ fn test_lamp_overcurrent_overload() {
 <item itemtype="Connector" uid="conn-2" startpinid="Ground-1-Gnd" endpinid="Lamp-1-rPin" pointList="200,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_lamp.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_lamp.sim1".into()))
         .unwrap();
     c.power_on();
 
@@ -217,7 +217,7 @@ fn test_rgb_led_overcurrent_overload() {
 <item itemtype="Connector" uid="conn-2" startpinid="Ground-1-Gnd" endpinid="RgbLed-1-cPin" pointList="200,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_rgb_led.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_rgb_led.sim1".into()))
         .unwrap();
     c.power_on();
 
@@ -258,7 +258,7 @@ fn test_led_visual_glow_and_overload_rendering() {
 <item itemtype="Connector" uid="conn-3" startpinid="Ground-1-Gnd" endpinid="Led-1-rPin" pointList="150,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_led_lit.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_led_lit.sim1".into()))
         .unwrap();
 
     let pal = Palette::dark();
@@ -276,7 +276,7 @@ fn test_led_visual_glow_and_overload_rendering() {
     c_unpowered.set_view_size(200.0, 200.0);
     c_unpowered.set_center(100.0, 0.0);
     c_unpowered
-        .load_sim1(sim1_unpowered, Some("/tmp/test_led_unpowered.sim1".into()))
+        .load_circ1(sim1_unpowered, Some("/tmp/test_led_unpowered.sim1".into()))
         .unwrap();
     c_unpowered.power_on();
     for _ in 0..10 {
@@ -310,7 +310,7 @@ fn test_led_visual_glow_and_overload_rendering() {
     c_overload.set_view_size(200.0, 200.0);
     c_overload.set_center(100.0, 0.0);
     c_overload
-        .load_sim1(sim1_overload, Some("/tmp/test_led_overload.sim1".into()))
+        .load_circ1(sim1_overload, Some("/tmp/test_led_overload.sim1".into()))
         .unwrap();
     c_overload.power_on();
     for _ in 0..10 {
@@ -350,7 +350,7 @@ fn test_lamp_visual_glow_and_overload_rendering() {
 <item itemtype="Connector" uid="conn-2" startpinid="Ground-1-Gnd" endpinid="Lamp-1-rPin" pointList="150,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_lamp_lit.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_lamp_lit.sim1".into()))
         .unwrap();
 
     let pal = Palette::dark();
@@ -384,7 +384,7 @@ fn test_led_floating_cathode_no_overcurrent() {
 <item itemtype="Connector" uid="conn-1" startpinid="Fixed Voltage-1-outnod" endpinid="Led-1-lPin" pointList="0,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_led_floating.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_led_floating.sim1".into()))
         .unwrap();
     c.power_on();
     assert!(c.sim_running(), "Sim must be running");
@@ -419,7 +419,7 @@ fn test_diode_floating_cathode_no_current() {
 <item itemtype="Connector" uid="conn-1" startpinid="Fixed Voltage-1-outnod" endpinid="Diode-1-lPin" pointList="0,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_diode_floating.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_diode_floating.sim1".into()))
         .unwrap();
     c.power_on();
     assert!(c.sim_running(), "Sim must be running");
@@ -457,7 +457,7 @@ fn test_rgb_led_visual_glow_and_overload_rendering() {
 <item itemtype="Connector" uid="conn-3" startpinid="Ground-1-Gnd" endpinid="RGBLed-1-cPin" pointList="150,0,100,0" />
 </circuit>"#;
 
-    c.load_sim1(sim1, Some("/tmp/test_rgb_led_lit.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_rgb_led_lit.sim1".into()))
         .unwrap();
 
     let pal = Palette::dark();

@@ -132,7 +132,7 @@ impl Change {
     }
 
     /// Map a component mutation onto canvas flags. `history` notifies QML
-    /// `CircuitCanvas.modified` (`to_sim1` vs `saved_sim1` remains the bool).
+    /// `CircuitCanvas.modified` (`to_circ1` vs `saved_circ1` remains the bool).
     /// `items` is the QML items JSON model, not DirtySet raster.
     pub fn from_component(cc: &ComponentChange) -> Self {
         Self {
@@ -1123,7 +1123,7 @@ impl Canvas {
             return Change::default();
         }
         let needs_undo = specs.iter().any(|s| s.undo);
-        if needs_undo && before.sim1 != self.scene.to_sim1() {
+        if needs_undo && before.circ1 != self.scene.to_circ1() {
             self.history.undo.push(before);
             let cap = self.max_undo();
             while self.history.undo.len() > cap {

@@ -1448,12 +1448,23 @@ impl Comp {
         logic_symbol: bool,
         package_name: Option<String>,
     ) -> Self {
+        Self::subcircuit_with_overrides(id, device, logic_symbol, package_name, BTreeMap::new())
+    }
+
+    pub fn subcircuit_with_overrides(
+        id: impl Into<String>,
+        device: impl Into<String>,
+        logic_symbol: bool,
+        package_name: Option<String>,
+        exposed_overrides: BTreeMap<(String, String), String>,
+    ) -> Self {
         Self {
             id: id.into(),
             kind: Kind::Subcircuit {
                 device: device.into(),
                 logic_symbol,
                 package_name,
+                exposed_overrides,
             },
         }
     }

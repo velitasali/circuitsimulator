@@ -307,7 +307,7 @@ fn test_wire_current_from_start_or_end_pin() {
 <item itemtype="Connector" CircId="Wire-1" startpinid="Fixed Voltage-1-outnod" endpinid="Resistor-1-lPin" pointList="0,0,80,0" />
 <item itemtype="Connector" CircId="Wire-2" startpinid="Resistor-1-rPin" endpinid="Ground-1-Gnd" pointList="80,0,160,0" />
 </circuit>"#;
-    let scene = Scene::from_sim1(sim1).expect("valid sim1");
+    let scene = Scene::from_circ1(sim1).expect("valid sim1");
     let mut c = Canvas::empty();
     c.scene = scene;
     c.power_on();
@@ -333,7 +333,7 @@ fn test_wire_current_various_sources() {
 <item itemtype="Connector" CircId="Wire-1" startpinid="Rail-1-outnod" endpinid="Resistor-1-lPin" pointList="0,0,80,0" />
 <item itemtype="Connector" CircId="Wire-2" startpinid="Resistor-1-rPin" endpinid="Ground-1-Gnd" pointList="80,0,160,0" />
 </circuit>"#;
-    let scene = Scene::from_sim1(sim1).expect("valid sim1");
+    let scene = Scene::from_circ1(sim1).expect("valid sim1");
     let mut c = Canvas::empty();
     c.scene = scene;
     c.power_on();
@@ -439,7 +439,7 @@ fn load_sim1_stops_running_simulation() {
     c.power_on();
     assert!(c.sim_running());
     let empty_sim1 = "<circuit version=\"1.0.0\"/>";
-    let change = c.load_sim1(empty_sim1, None).unwrap();
+    let change = c.load_circ1(empty_sim1, None).unwrap();
     assert!(!c.sim_running());
     assert!(change.sim);
 }
@@ -449,16 +449,16 @@ fn failed_load_leaves_running_simulation() {
     let mut c = Canvas::with_demo_divider();
     c.power_on();
     c.pause_sim();
-    let snapshot = c.to_sim1();
+    let snapshot = c.to_circ1();
     let mid = c.pin_voltage("Resistor-1-rPin");
     assert!(mid.is_some());
 
-    let err = c.load_sim1("not a circuit", None);
+    let err = c.load_circ1("not a circuit", None);
     assert!(err.is_err());
     assert!(c.sim_running());
     assert!(c.sim_paused());
     assert_eq!(c.pin_voltage("Resistor-1-rPin"), mid);
-    assert_eq!(c.to_sim1(), snapshot);
+    assert_eq!(c.to_circ1(), snapshot);
 }
 
 #[test]
@@ -496,13 +496,13 @@ fn place_and_roundtrip_instruments() {
     c.add_component_at("Oscope", Point::new(160.0, 0.0));
     c.add_component_at("LogicAnalyzer", Point::new(400.0, 0.0));
     assert_eq!(c.scene.items().len(), 5);
-    let src = c.scene.to_sim1();
+    let src = c.scene.to_circ1();
     assert!(src.contains("itemtype=\"Probe\""));
     assert!(src.contains("itemtype=\"Voltmeter\""));
     assert!(src.contains("itemtype=\"Ammeter\""));
     assert!(src.contains("itemtype=\"Oscope\""));
     assert!(src.contains("itemtype=\"LogicAnalyzer\""));
-    let loaded = crate::canvas::Scene::from_sim1(&src).unwrap();
+    let loaded = crate::canvas::Scene::from_circ1(&src).unwrap();
     assert_eq!(loaded.items().len(), 5);
 }
 
@@ -562,13 +562,13 @@ fn load_sim1_divider_onto_canvas() {
     let src = include_str!("../../tests/fixtures/divider.sim1");
     let mut c = Canvas::empty();
     c.set_view_size(800.0, 600.0);
-    c.load_sim1(src, Some("/tmp/divider.sim1".into())).unwrap();
+    c.load_circ1(src, Some("/tmp/divider.sim1".into())).unwrap();
     assert_eq!(c.scene.items().len(), 5);
     c.power_on();
     assert!(c.sim_error().is_none(), "{:?}", c.sim_error());
     assert!((c.pin_voltage("Node-5-0").unwrap() - 2.5).abs() < 1e-6);
     assert!(c.wire_current(&c.scene.wires()[0].id).abs() > 1e-4);
-    let saved = c.to_sim1();
+    let saved = c.to_circ1();
     assert!(saved.contains("itemtype=\"Resistor\""));
     assert!(saved.contains("pointList="));
 }
@@ -584,7 +584,7 @@ fn load_recovered_keeps_modified_against_disk() {
     assert!(!c.can_undo());
     let hist = crate::backup::CircuitHistory {
         undo: vec![crate::backup::HistorySnap {
-            sim1: String::new(),
+            circ1: String::new(),
             selected_items: vec![],
             selected_wires: vec![],
         }],
@@ -602,7 +602,7 @@ fn load_subcircuit_divider_onto_canvas() {
     let src = std::fs::read_to_string(&path).unwrap();
     let mut c = Canvas::empty();
     c.set_view_size(800.0, 600.0);
-    c.load_sim1(&src, Some(path.to_string_lossy().into_owned()))
+    c.load_circ1(&src, Some(path.to_string_lossy().into_owned()))
         .unwrap();
     assert_eq!(c.scene.items().len(), 3);
     let sub = c
@@ -618,7 +618,7 @@ fn load_subcircuit_divider_onto_canvas() {
     c.power_on();
     assert!(c.sim_error().is_none(), "{:?}", c.sim_error());
     assert!((c.pin_voltage("vdiv-1-out").unwrap() - 2.5).abs() < 1e-6);
-    let saved = c.to_sim1();
+    let saved = c.to_circ1();
     assert!(saved.contains("itemtype=\"Subcircuit\""));
     assert!(saved.contains("CircId=\"vdiv-1\""));
     assert!(!saved.contains("itemtype=\"Tunnel\""));
@@ -646,10 +646,10 @@ fn add_bjt_and_mosfet() {
     assert_eq!(c.scene.items()[1].kind.type_name(), "Mosfet");
     assert_eq!(c.scene.items()[0].pins()[0].id, "BJT-1-collector");
     assert_eq!(c.scene.items()[1].pins()[0].id, "Mosfet-1-Dren");
-    let saved = c.scene.to_sim1();
+    let saved = c.scene.to_circ1();
     assert!(saved.contains("itemtype=\"Bjt\""));
     assert!(saved.contains("itemtype=\"Mosfet\""));
-    let s2 = Scene::from_sim1(&saved).unwrap();
+    let s2 = Scene::from_circ1(&saved).unwrap();
     assert_eq!(s2.items().len(), 2);
 }
 
@@ -662,9 +662,9 @@ fn add_opamp() {
     assert_eq!(c.scene.items()[0].pins()[0].id, "opAmp-1-inputNinv");
     assert_eq!(c.scene.items()[0].pins()[2].id, "opAmp-1-output");
     assert_eq!(c.scene.items()[0].pins().len(), 3);
-    let saved = c.scene.to_sim1();
+    let saved = c.scene.to_circ1();
     assert!(saved.contains("itemtype=\"OpAmp\""));
-    let s2 = Scene::from_sim1(&saved).unwrap();
+    let s2 = Scene::from_circ1(&saved).unwrap();
     assert_eq!(s2.items().len(), 1);
     assert_eq!(s2.items()[0].kind.type_name(), "OpAmp");
 }
@@ -678,10 +678,10 @@ fn add_jfet() {
     assert_eq!(c.scene.items()[0].pins()[0].id, "Jfet-1-Dren");
     assert_eq!(c.scene.items()[0].pins()[1].id, "Jfet-1-Sour");
     assert_eq!(c.scene.items()[0].pins()[2].id, "Jfet-1-Gate");
-    let saved = c.scene.to_sim1();
+    let saved = c.scene.to_circ1();
     assert!(saved.contains("itemtype=\"Jfet\""));
     assert!(saved.contains("LambdaInv="));
-    let s2 = Scene::from_sim1(&saved).unwrap();
+    let s2 = Scene::from_circ1(&saved).unwrap();
     assert_eq!(s2.items().len(), 1);
     assert_eq!(s2.items()[0].kind.type_name(), "Jfet");
 }
@@ -695,9 +695,9 @@ fn add_comparator() {
     assert_eq!(c.scene.items()[0].pins()[0].id, "Comparator-1-in0");
     assert_eq!(c.scene.items()[0].pins()[1].id, "Comparator-1-in1");
     assert_eq!(c.scene.items()[0].pins()[2].id, "Comparator-1-out");
-    let saved = c.scene.to_sim1();
+    let saved = c.scene.to_circ1();
     assert!(saved.contains("itemtype=\"Comparator\""));
-    let s2 = Scene::from_sim1(&saved).unwrap();
+    let s2 = Scene::from_circ1(&saved).unwrap();
     assert_eq!(s2.items().len(), 1);
     assert_eq!(s2.items()[0].kind.type_name(), "Comparator");
 }
@@ -711,10 +711,10 @@ fn add_volt_reg() {
     assert_eq!(c.scene.items()[0].pins()[0].id, "VoltReg-1-input");
     assert_eq!(c.scene.items()[0].pins()[1].id, "VoltReg-1-output");
     assert_eq!(c.scene.items()[0].pins()[2].id, "VoltReg-1-ref");
-    let saved = c.scene.to_sim1();
+    let saved = c.scene.to_circ1();
     assert!(saved.contains("itemtype=\"VoltReg\""));
     assert!(saved.contains("Voltage="));
-    let s2 = Scene::from_sim1(&saved).unwrap();
+    let s2 = Scene::from_circ1(&saved).unwrap();
     assert_eq!(s2.items().len(), 1);
     assert_eq!(s2.items()[0].kind.type_name(), "VoltReg");
 }
@@ -738,9 +738,9 @@ fn rotate_moves_pin_and_undoes() {
     assert!(left.y.abs() < 1e-6);
     c.redo();
     assert!((c.scene.items()[0].rotation - 90.0).abs() < 1e-9);
-    let saved = c.scene.to_sim1();
+    let saved = c.scene.to_circ1();
     assert!(saved.contains("rotation=\"90\""));
-    let s2 = Scene::from_sim1(&saved).unwrap();
+    let s2 = Scene::from_circ1(&saved).unwrap();
     assert!((s2.items()[0].rotation - 90.0).abs() < 1e-9);
 }
 
@@ -912,7 +912,7 @@ fn circuit_header_roundtrip() {
         s.nl_steps = 42;
         s.react_step_ps = 2000;
     });
-    let src = c.to_sim1();
+    let src = c.to_circ1();
     assert!(src.contains("width=\"1600\""));
     assert!(src.contains("height=\"900\""));
     assert!(src.contains("animate=\"1\""));
@@ -921,7 +921,7 @@ fn circuit_header_roundtrip() {
     assert!(src.contains("NLsteps=\"42\""));
     assert!(src.contains("reaStep=\"2000\""));
     let mut loaded = Canvas::empty();
-    loaded.load_sim1(&src, None).unwrap();
+    loaded.load_circ1(&src, None).unwrap();
     let s = loaded.circ_settings();
     assert_eq!(s.width, 1600);
     assert_eq!(s.height, 900);
@@ -979,7 +979,7 @@ fn load_mcu_onto_canvas_feeds_monitor() {
     std::fs::write(&path, sim1).unwrap();
     let mut c = Canvas::empty();
     c.set_view_size(800.0, 600.0);
-    c.load_sim1(sim1, Some(path.to_string_lossy().into_owned()))
+    c.load_circ1(sim1, Some(path.to_string_lossy().into_owned()))
         .unwrap();
     assert!(c.scene.hidden().is_empty(), "MCU is a canvas chip");
     let mcu = c
@@ -1000,7 +1000,7 @@ fn load_mcu_onto_canvas_feeds_monitor() {
             .iter()
             .any(|it| it.kind.type_name() == "Resistor")
     );
-    let saved = c.to_sim1();
+    let saved = c.to_circ1();
     assert!(saved.contains("itemtype=\"Mcu\""), "{saved}");
     assert!(saved.contains("CircId=\"pic14test-1\""), "{saved}");
     assert!(saved.contains("Pos="), "{saved}");
@@ -1043,7 +1043,7 @@ fn load_mcu_package_places_gpio_pins() {
 "#;
     let mut c = Canvas::empty();
     c.set_view_size(800.0, 600.0);
-    c.load_sim1(
+    c.load_circ1(
         sim1,
         Some(dir.join("x.sim1").to_string_lossy().into_owned()),
     )
@@ -1104,7 +1104,7 @@ fn place_mcu_from_catalog_xml() {
         "GPIO pins {:?}",
         mcu.pins().iter().map(|p| p.id.clone()).collect::<Vec<_>>()
     );
-    let saved = c.to_sim1();
+    let saved = c.to_circ1();
     assert!(saved.contains("itemtype=\"Mcu\""), "{saved}");
     assert!(saved.contains("CircId=\"tiny13-1\""), "{saved}");
     let ch = c.add_component_at("Mcu", Point::zero());
@@ -1139,7 +1139,7 @@ fn load_sim1_mcu_via_catalog_not_circuit_dir() {
     let mut c = Canvas::empty();
     c.set_catalog(catalog);
     c.set_view_size(800.0, 600.0);
-    c.load_sim1(
+    c.load_circ1(
         sim1,
         Some(circ.join("x.sim1").to_string_lossy().into_owned()),
     )
@@ -1739,7 +1739,7 @@ fn test_canvas_firmware_source_resolution() {
 
     let mut canvas = Canvas::empty();
     canvas
-        .load_sim1(sim1, Some(path.to_string_lossy().into_owned()))
+        .load_circ1(sim1, Some(path.to_string_lossy().into_owned()))
         .unwrap();
 
     // Path and source lookup by explicit UID
@@ -1771,7 +1771,7 @@ fn test_canvas_tick_respects_fps_setting() {
     // Test with 20 FPS
     crate::settings::edit(|s| s.fps = 20);
     let mut c = Canvas::empty();
-    c.scene = Scene::from_sim1(sim1).unwrap();
+    c.scene = Scene::from_circ1(sim1).unwrap();
     let ps_per_sec = c.scene().settings().ps_per_sec();
     c.power_on();
     c.tick();
@@ -1781,7 +1781,7 @@ fn test_canvas_tick_respects_fps_setting() {
     // Test with 50 FPS
     crate::settings::edit(|s| s.fps = 50);
     let mut c2 = Canvas::empty();
-    c2.scene = Scene::from_sim1(sim1).unwrap();
+    c2.scene = Scene::from_circ1(sim1).unwrap();
     c2.power_on();
     c2.tick();
     let time_at_50fps = c2.circ_time();
@@ -1842,7 +1842,7 @@ fn pot_wiper_through_bus_marks_modified() {
     let change = c.set_pot_wiper(&id, 0.75);
     assert!(!change.items, "wiper must not rebuild the QML items model");
     assert!(c.is_modified());
-    assert!(c.to_sim1().contains("Wiper=\"0.75\""), "{}", c.to_sim1());
+    assert!(c.to_circ1().contains("Wiper=\"0.75\""), "{}", c.to_circ1());
 }
 
 #[test]
@@ -1958,7 +1958,7 @@ fn test_drag_node_moves_connected_wires() {
     let src = include_str!("../../tests/fixtures/divider.sim1");
     let mut c = Canvas::empty();
     c.set_view_size(800.0, 600.0);
-    c.load_sim1(src, Some("/tmp/divider.sim1".into())).unwrap();
+    c.load_circ1(src, Some("/tmp/divider.sim1".into())).unwrap();
 
     let node = c
         .scene
@@ -2004,7 +2004,7 @@ fn test_node_hover_cursor_and_alt_start_wire() {
     let src = include_str!("../../tests/fixtures/divider.sim1");
     let mut c = Canvas::empty();
     c.set_view_size(800.0, 600.0);
-    c.load_sim1(src, Some("/tmp/divider.sim1".into())).unwrap();
+    c.load_circ1(src, Some("/tmp/divider.sim1".into())).unwrap();
 
     let node = c
         .scene
@@ -2121,7 +2121,7 @@ fn test_audio_out_power_cycle_lifecycle() {
 <item itemtype="AudioOut" CircId="AudioOut-1" Pos="80,0" Impedance="8 Ω" Volume="100" />
 <item itemtype="Connector" CircId="Wire-1" startpinid="WaveGen-1-outnod" endpinid="AudioOut-1-lPin" pointList="0,0,80,0" />
 </circuit>"#;
-    let scene = Scene::from_sim1(sim1).expect("valid sim1");
+    let scene = Scene::from_circ1(sim1).expect("valid sim1");
     let mut c = Canvas::empty();
     c.scene = scene;
 
@@ -2331,7 +2331,7 @@ fn led_region_raster_updates_glow_outside_body() {
     let mut c = Canvas::empty();
     c.set_view_size(200.0, 200.0);
     c.set_center(100.0, 0.0);
-    c.load_sim1(sim1, Some("/tmp/test_led_glow_dirty.sim1".into()))
+    c.load_circ1(sim1, Some("/tmp/test_led_glow_dirty.sim1".into()))
         .unwrap();
     c.set_view_size(200.0, 200.0);
     c.zoom_one();

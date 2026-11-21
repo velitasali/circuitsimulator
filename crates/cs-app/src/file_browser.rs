@@ -2,6 +2,7 @@
 
 use crate::path_util::strip_file_url;
 use crate::ui_icon::UiIcon;
+use cs_engine::compat::simulide;
 use cs_engine::{i18n, project, settings};
 use qtbridge::qobject;
 use serde_json::{Value, json};
@@ -416,12 +417,9 @@ const MAX_PROJECT_CIRCUITS: usize = 200;
 const MAX_SCAN_DEPTH: usize = 8;
 
 fn is_circuit_path(path: &Path) -> bool {
-    let ext = path
-        .extension()
+    path.extension()
         .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    matches!(ext.as_str(), "circ1" | "circ" | "sim" | "sim1" | "sim2")
+        .is_some_and(simulide::is_circuit_extension)
 }
 
 fn path_key(normalized: &str) -> String {

@@ -1202,7 +1202,7 @@ fn test_push_button_momentary_and_norm_close() {
 
     // Sim1 with Checked="true" must not load as pressed
     let sim1 = "<circuit>\n<item itemtype=\"Push\" CircId=\"Push-1\" Poles=\"1\" Norm_Close=\"false\" Checked=\"true\" Pos=\"0,0\" />\n</circuit>";
-    let s = Scene::from_sim1(sim1).expect("sim1 parse");
+    let s = Scene::from_circ1(sim1).expect("sim1 parse");
     let loaded_push = s.item_by_id("Push-1").expect("Push-1 must exist");
     assert!(
         !loaded_push.pressed(),

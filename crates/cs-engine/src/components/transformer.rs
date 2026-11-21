@@ -649,7 +649,7 @@ mod tests {
 <item itemtype="Connector" CircId="Connector-837" startpinid="Node-285-2" endpinid="Tunnel-238-pin" pointList="-224,72,-224,80" />
 <item itemtype="Connector" CircId="Connector-838" startpinid="Transformer-79-p2" endpinid="Ground-81-Gnd" pointList="-200,96,-208,96,-208,112" />
 </circuit>"#;
-        let mut circ = Circuit::from_sim1(xml).unwrap();
+        let mut circ = Circuit::from_circ1(xml).unwrap();
         circ.dt = 10e-6; // 10 us steps
         for _ in 0..500 {
             circ.step().unwrap();

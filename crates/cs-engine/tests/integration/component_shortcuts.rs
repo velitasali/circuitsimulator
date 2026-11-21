@@ -303,7 +303,7 @@ fn potentiometer_and_var_resistor_have_no_key_prop_and_ignore_legacy_key_attr() 
 <item itemtype="Potentiometer" CircId="Potentiometer-1" Resistance="10 kΩ" Wiper="0.5" Key="A" DialStep="5 %" Pos="0,0" />
 <item itemtype="VarResistor" CircId="VarResistor-1" Resistance="500 Ω" MinResistance="0 Ω" MaxResistance="1 kΩ" Key="B" DialStep="10 Ω" Pos="64,0" />
 </circuit>"#;
-    let scene = Scene::from_sim1(legacy).expect("legacy Key attribute should be ignored");
+    let scene = Scene::from_circ1(legacy).expect("legacy Key attribute should be ignored");
     assert!(matches!(
         scene.item_by_id("Potentiometer-1").unwrap().kind,
         Part::Potentiometer(_)

@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::compat::simulide;
 use crate::{installer, package, settings};
 
 use quick_xml::Reader;
@@ -194,7 +195,7 @@ impl Catalog {
     }
 
     /// Scan a local circuit/project directory (non-recursively, plus immediate
-    /// `{name}/{name}.{circ1,sim2,sim1}` subcircuit folders and `*.xml` itemlibs)
+    /// `{name}/{name}.<ext>` subcircuit folders and `*.xml` itemlibs)
     /// for custom subcircuits.
     pub fn load_local_subcircuits(&mut self, dir: &Path, exclude_file: Option<&Path>) {
         if !dir.is_dir() {
@@ -223,17 +224,15 @@ impl Catalog {
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_ascii_lowercase();
-                match ext.as_str() {
-                    "xml" => xmls.push(path),
-                    "circ1" | "sim2" | "sim1" => {
-                        let prio = ext_priority(&ext);
-                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                            if !stem.is_empty() {
-                                direct_files.push((stem.to_string(), prio, path));
-                            }
+                if ext == "xml" {
+                    xmls.push(path);
+                } else if simulide::is_circuit_extension(&ext) {
+                    let prio = simulide::extension_priority(&ext);
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        if !stem.is_empty() {
+                            direct_files.push((stem.to_string(), prio, path));
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -248,10 +247,10 @@ impl Catalog {
             }
         }
 
-        // 2. Subcircuit folders: `{dir}/{name}/{name}.{circ1,sim2,sim1}`.
+        // 2. Subcircuit folders: `{dir}/{name}/{name}.<ext>`.
         subdirs.sort_by(|a, b| a.0.cmp(&b.0));
         for (name, sub) in subdirs {
-            for ext in ["circ1", "sim2", "sim1"] {
+            for ext in simulide::CIRCUIT_EXTENSIONS {
                 let cand = sub.join(format!("{name}.{ext}"));
                 if !cand.is_file() {
                     continue;
@@ -276,7 +275,7 @@ impl Catalog {
             }
         }
 
-        // 3. Direct subcircuit files in `dir`: `{dir}/{name}.{circ1,sim2,sim1}`.
+        // 3. Direct subcircuit files in `dir`: `{dir}/{name}.<ext>`.
         direct_files.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
         let mut last_stem = String::new();
         for (stem, _prio, cand) in direct_files {
@@ -375,15 +374,6 @@ pub fn local_subcircuits(circuit_path: Option<&str>, project_dir: Option<&str>) 
     c
 }
 
-fn ext_priority(ext: &str) -> u8 {
-    match ext {
-        "circ1" => 0,
-        "sim2" => 1,
-        "sim1" => 2,
-        _ => 3,
-    }
-}
-
 fn same_path(a: &Path, b: &Path) -> bool {
     if a == b {
         return true;
@@ -424,7 +414,7 @@ fn has_subcircuit_package(circuit_file: &Path, device: &str) -> bool {
     if !src.contains("Package") {
         return false;
     }
-    let (pkgs, _) = package::packages_from_sim1(&src);
+    let (pkgs, _) = package::packages_from_circ1(&src);
     !pkgs.is_empty()
 }
 

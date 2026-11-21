@@ -289,7 +289,7 @@ fn test_scene_digital_ic_roundtrip() {
     assert_eq!(scene.items().len(), 19);
 
     // Serialize to XML (to_sim1)
-    let xml = scene.to_sim1();
+    let xml = scene.to_circ1();
     assert!(xml.contains("itemtype=\"Mux\""));
     assert!(xml.contains("itemtype=\"Demux\""));
     assert!(xml.contains("itemtype=\"BcdToDec\""));
@@ -315,7 +315,7 @@ fn test_scene_digital_ic_roundtrip() {
     assert_eq!(circuit.components().len(), 19);
 
     // Deserialize from XML (from_sim1) and verify all 19 ICs load faithfully
-    let loaded = Scene::from_sim1(&xml).expect("parse sim1 containing digital ICs");
+    let loaded = Scene::from_circ1(&xml).expect("parse sim1 containing digital ICs");
     assert_eq!(loaded.items().len(), 19);
     assert!(
         loaded

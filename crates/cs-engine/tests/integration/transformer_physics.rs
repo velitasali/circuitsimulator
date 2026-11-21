@@ -423,7 +423,7 @@ fn test_transformer_props_and_sim1_roundtrip() {
     let xml = r#"<circuit version="1.0.0" width="800" height="600">
 <item itemtype="Transformer" CircId="TR-1" Inductance1="2.5 H" Inductance2="10 H" Coupling="0.98" Rcoil1="0.5 Ω" Rcoil2="1.2 Ω" Rcore="50 kΩ" Isat="1.5 A" Hysteresis="200 mA" CenterTap="true" AuxSecondary="true" Inductance3="5 H" Rcoil3="0.8 Ω" Pos="100,100" />
 </circuit>"#;
-    let circ = Circuit::from_sim1(xml).unwrap();
+    let circ = Circuit::from_circ1(xml).unwrap();
     let comp = circ.components().iter().find(|c| c.id == "TR-1").unwrap();
     if let Kind::Transformer { state } = &comp.kind {
         assert_eq!(state.inductance1, 2.5);

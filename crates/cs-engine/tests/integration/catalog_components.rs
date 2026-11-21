@@ -202,14 +202,14 @@ fn test_scene_catalog_roundtrip() {
     s.add_shape("Rectangle", 500.0, 500.0);
 
     let count_before = s.items().len();
-    let sim1 = s.to_sim1();
+    let sim1 = s.to_circ1();
     assert!(sim1.contains("Clock"));
     assert!(sim1.contains("Rail"));
     assert!(sim1.contains("Potentiometer"));
     assert!(sim1.contains("Relay"));
     assert!(sim1.contains("AndGate"));
 
-    let loaded = Scene::from_sim1(&sim1).unwrap();
+    let loaded = Scene::from_circ1(&sim1).unwrap();
     assert_eq!(loaded.items().len(), count_before);
     let kp = loaded
         .items()

@@ -499,6 +499,7 @@ fn compile_resources() {
     let qml_files = [
         "Main.qml",
         "TitleBar.qml",
+        "WindowCaptionButtons.qml",
         "WindowResizeHandles.qml",
         "AppWindow.qml",
         "about.qml",

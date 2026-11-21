@@ -1,6 +1,10 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Window
 import QtQuick.Controls
+import QtQuick.Effects
+import QtQuick.Layouts
+import QtQuick.Window
 import cs_app
 
 /* The window every ported panel lives in.
@@ -45,16 +49,35 @@ ApplicationWindow {
     // Internal staging state.
     property bool _completed: false
     property bool _preparingOpen: false
+    property bool _chromeSizeApplied: false
     property int _openedX: 0
     property int _openedY: 0
+
+    // Linux custom CSD chrome matching Main.qml (frameless window, rounded frame,
+    // client-side drop shadow, compact titlebar, and resize handles).
+    readonly property bool linuxCustomChrome: Qt.platform.os === "linux" && App.customTitlebar
+    readonly property bool linuxMaximized: appWindow.visibility === Window.Maximized || appWindow.visibility === Window.FullScreen
+    property int linuxBaseShadowMargin: linuxCustomChrome ? 20 : 0
+    readonly property int linuxShadowMargin: (linuxCustomChrome && !linuxMaximized) ? linuxBaseShadowMargin : 0
+    readonly property bool linuxMarginsIncluded: linuxCustomChrome
+    readonly property int linuxResizeOverhang: resizable ? 3 : 0
+    readonly property int linuxResizeThickness: 5
+    readonly property int linuxTitleBarHeight: linuxCustomChrome ? 34 : 0
 
     signal aboutToShow()
 
     visible: false
 
-    flags: maximizable
+    flags: appWindow.linuxCustomChrome
+           ? ((appWindow.maximizable ? Qt.Window : Qt.Dialog) | Qt.FramelessWindowHint)
+           : appWindow.maximizable
            ? Qt.Window
            : (Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
+
+    topPadding: 0
+    leftPadding: 0
+    rightPadding: 0
+    bottomPadding: 0
 
     // The declaring ApplicationWindow tracks us and closes us with itself.
     property bool closeWithOwner: true
@@ -65,7 +88,8 @@ ApplicationWindow {
     property bool closeOnEscape: true
 
     font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
-    color: appTheme.window
+    color: appWindow.linuxCustomChrome ? "transparent" : appTheme.window
+    background: null
     palette.window: appTheme.window
     palette.windowText: appTheme.windowText
     palette.button: appTheme.button
@@ -78,11 +102,171 @@ ApplicationWindow {
     palette.base: appTheme.base
     transientParent: ownerWindow
 
-    Loader {
-        id: loader
+    Binding {
+        target: appWindow
+        property: "minimumWidth"
+        when: !appWindow.sizeToContent
+              && (!appWindow.linuxCustomChrome || appWindow._chromeSizeApplied)
+              && (appWindow.contentMinWidth > 0 || appWindow.linuxCustomChrome)
+        value: (appWindow.contentMinWidth > 0 ? appWindow.contentMinWidth : 200) + appWindow.linuxShadowMargin * 2
+    }
+
+    Binding {
+        target: appWindow
+        property: "minimumHeight"
+        when: !appWindow.sizeToContent
+              && (!appWindow.linuxCustomChrome || appWindow._chromeSizeApplied)
+              && (appWindow.contentMinHeight > 0 || appWindow.linuxCustomChrome)
+        value: (appWindow.contentMinHeight > 0 ? appWindow.contentMinHeight : 80) + appWindow.linuxTitleBarHeight + appWindow.linuxShadowMargin * 2
+    }
+
+    Item {
+        id: windowMask
+        anchors.fill: windowFrame
+        visible: false
+        layer.enabled: appWindow.linuxShadowMargin > 0
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 14
+        }
+    }
+
+    RectangularShadow {
+        anchors.fill: windowFrame
+        visible: appWindow.linuxShadowMargin > 0
+        radius: 14
+        blur: 14
+        offset: Qt.vector2d(0, 3)
+        color: appWindow.active ? App.windowShadow : App.windowShadowInactive
+    }
+
+    Rectangle {
+        id: windowFrame
         anchors.fill: parent
-        focus: true
-        onLoaded: if (appWindow.sizeToContent) appWindow.adoptContentSize()
+        anchors.margins: appWindow.linuxShadowMargin
+        radius: appWindow.linuxShadowMargin > 0 ? 14 : 0
+        color: appTheme.window
+        layer.enabled: appWindow.linuxShadowMargin > 0
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: windowMask
+        }
+
+        Item {
+            id: childTitleBar
+            visible: appWindow.linuxCustomChrome
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: visible ? appWindow.linuxTitleBarHeight : 0
+            z: 10
+
+            Item {
+                anchors.fill: parent
+                anchors.rightMargin: captionButtons.width
+
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    enabled: appWindow.maximizable
+                    onDoubleTapped: {
+                        if (appWindow.linuxMaximized)
+                            appWindow.showNormal()
+                        else
+                            appWindow.showMaximized()
+                    }
+                }
+
+                DragHandler {
+                    target: null
+                    acceptedButtons: Qt.LeftButton
+                    onActiveChanged: {
+                        if (active)
+                            appWindow.startSystemMove()
+                    }
+                }
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: captionButtons.width + 8
+                spacing: 8
+
+                Image {
+                    source: "qrc:/icons/circuitsimulator.png"
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    Layout.alignment: Qt.AlignVCenter
+                    sourceSize.width: 32
+                    sourceSize.height: 32
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    opacity: appWindow.active ? 1.0 : 0.65
+                }
+
+                AppText {
+                    text: appWindow.title
+                    font.pixelSize: App.fontSmall
+                    color: appTheme.windowText
+                    opacity: appWindow.active ? 1.0 : 0.65
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                    verticalAlignment: Text.AlignVCenter
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                }
+            }
+
+            WindowCaptionButtons {
+                id: captionButtons
+                anchors.top: parent.top
+                anchors.right: parent.right
+                height: parent.height
+                window: appWindow
+                showMinimize: appWindow.maximizable
+                showMaximize: appWindow.maximizable
+                windowActive: appWindow.active
+                topRightRadius: appWindow.linuxShadowMargin > 0 ? 14 : 0
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: appTheme.mid
+                opacity: 0.4
+            }
+        }
+
+        Loader {
+            id: loader
+            anchors.top: childTitleBar.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            focus: true
+            onLoaded: if (appWindow.sizeToContent) appWindow.adoptContentSize()
+        }
+    }
+
+    Rectangle {
+        anchors.fill: windowFrame
+        z: 20
+        visible: appWindow.linuxShadowMargin > 0
+        radius: 14
+        color: "transparent"
+        border.color: appTheme.mid
+        border.width: 1
+    }
+
+    WindowResizeHandles {
+        targetWindow: appWindow
+        targetItem: windowFrame
+        overhang: appWindow.linuxResizeOverhang
+        handleThickness: appWindow.linuxResizeThickness
+        visible: appWindow.linuxShadowMargin > 0 && appWindow.resizable
     }
 
     Connections {
@@ -97,8 +281,9 @@ ApplicationWindow {
         const rawW = item.implicitWidth > 0 ? item.implicitWidth : item.width
         const rawH = item.implicitHeight > 0 ? item.implicitHeight : item.height
         if (rawW <= 0 || rawH <= 0) return
-        const w = Math.max(appWindow.contentMinWidth, Math.ceil(rawW))
-        const h = Math.max(appWindow.contentMinHeight, Math.ceil(rawH))
+        const shadowPad = appWindow.linuxShadowMargin * 2
+        const w = Math.max(appWindow.contentMinWidth, Math.ceil(rawW)) + shadowPad
+        const h = Math.max(appWindow.contentMinHeight, Math.ceil(rawH)) + appWindow.linuxTitleBarHeight + shadowPad
         const targetMaxW = appWindow.resizable ? 16777215 : w
         const targetMaxH = appWindow.resizable ? 16777215 : h
         if (appWindow.width === w
@@ -144,12 +329,13 @@ ApplicationWindow {
     function _clampToScreen(px: int, py: int, w: int, h: int, scr: var): var {
         if (!scr || scr.width <= 0 || scr.height <= 0)
             return { x: px, y: py }
-        const minX = scr.virtualX
-        const maxX = Math.max(minX, scr.virtualX + scr.width - w)
-        // Reserve top clearance so the native title bar always stays reachable.
-        const topInset = 32
-        const minY = scr.virtualY + topInset
-        const maxY = Math.max(minY, scr.virtualY + scr.height - h)
+        const margin = appWindow.linuxShadowMargin
+        const minX = scr.virtualX - margin
+        const maxX = Math.max(minX, scr.virtualX + scr.width - w + margin)
+        // Reserve top clearance on native chrome so the OS title bar stays reachable.
+        const topInset = appWindow.linuxCustomChrome ? 0 : 32
+        const minY = scr.virtualY + topInset - margin
+        const maxY = Math.max(minY, scr.virtualY + scr.height - h + margin)
         return {
             x: Math.max(minX, Math.min(px, maxX)),
             y: Math.max(minY, Math.min(py, maxY))
@@ -157,8 +343,13 @@ ApplicationWindow {
     }
 
     function _positionWindow(): void {
-        const w = appWindow.width > 0 ? appWindow.width : Math.max(appWindow.minimumWidth, appWindow.contentMinWidth)
-        const h = appWindow.height > 0 ? appWindow.height : Math.max(appWindow.minimumHeight, appWindow.contentMinHeight)
+        const shadowPad = appWindow.linuxShadowMargin * 2
+        const w = appWindow.width > 0
+            ? appWindow.width
+            : Math.max(appWindow.minimumWidth, appWindow.contentMinWidth + shadowPad)
+        const h = appWindow.height > 0
+            ? appWindow.height
+            : Math.max(appWindow.minimumHeight, appWindow.contentMinHeight + appWindow.linuxTitleBarHeight + shadowPad)
         let targetX = appWindow.x
         let targetY = appWindow.y
         let scr = ownerWindow ? ownerWindow.screen : appWindow.screen
@@ -211,6 +402,13 @@ ApplicationWindow {
             return
         }
         appWindow._preparingOpen = true
+        if (!appWindow.sizeToContent && appWindow.linuxCustomChrome && !appWindow._chromeSizeApplied) {
+            if (appWindow.width > 0)
+                appWindow.width += appWindow.linuxBaseShadowMargin * 2
+            if (appWindow.height > 0)
+                appWindow.height += appWindow.linuxTitleBarHeight + appWindow.linuxBaseShadowMargin * 2
+            appWindow._chromeSizeApplied = true
+        }
         appWindow._loadPanel()
         if (appWindow.sizeToContent) {
             appWindow.adoptContentSize()

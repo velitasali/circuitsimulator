@@ -438,8 +438,8 @@ ApplicationWindow {
         title: MemoryTable.title || I18n.tr("Memory Table")
         width: 720
         height: 480
-        minimumWidth: 520
-        minimumHeight: 300
+        contentMinWidth: 520
+        contentMinHeight: 300
         panelSource: "MemTablePanel.qml"
         openRequested: MemoryTable.visible
 
@@ -474,8 +474,8 @@ ApplicationWindow {
         maximizable: false
         width: 420
         height: 560
-        minimumWidth: panelItem ? Math.max(360, Math.ceil(panelItem.implicitWidth)) : 360
-        minimumHeight: 380
+        contentMinWidth: panelItem ? Math.max(360, Math.ceil(panelItem.implicitWidth)) : 360
+        contentMinHeight: 380
         panelSource: "circuitdialog.qml"
         openRequested: App.circuitSettingsVisible
 
@@ -493,8 +493,8 @@ ApplicationWindow {
         maximizable: false
         width: 600
         height: 520
-        minimumWidth: 480
-        minimumHeight: 360
+        contentMinWidth: 480
+        contentMinHeight: 360
         panelSource: "installer.qml"
         openRequested: App.installerVisible
 

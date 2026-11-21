@@ -19,8 +19,10 @@
 
 #ifdef Q_OS_LINUX
 #include <QtCore/QMargins>
+#include <QtCore/QRect>
 #include <QtGui/QRegion>
 #if QT_CONFIG(wayland)
+#include <qpa/qplatformwindow.h>
 #include <qpa/qplatformwindow_p.h>
 #endif
 #endif
@@ -311,9 +313,11 @@ static int linux_resize_overhang(QWindow* w)
 
 static void apply_linux_shadow_mask(QWindow* w, int m)
 {
-    if (m > 0 && w->width() > 2 * m && w->height() > 2 * m) {
+    const QSize handleSz = w->handle() ? w->handle()->geometry().size() : QSize();
+    const QSize sz = (handleSz.width() > 0 && handleSz.height() > 0) ? handleSz : w->size();
+    if (m > 0 && sz.width() > 2 * m && sz.height() > 2 * m) {
         const int pad = qMax(0, m - linux_resize_overhang(w) - 1);
-        w->setMask(QRegion(pad, pad, w->width() - 2 * pad, w->height() - 2 * pad));
+        w->setMask(QRegion(pad, pad, sz.width() - 2 * pad, sz.height() - 2 * pad));
     } else {
         w->setMask(QRegion());
     }
@@ -330,7 +334,7 @@ static void update_linux_shadow_mask(QWindow* w)
 }
 #endif
 
-static void apply_linux_shadow_margins(QWindow* w, bool defer)
+static void apply_linux_shadow_margins(QWindow* w, bool defer, bool surfaceCreated = false)
 {
     if (!w)
         return;
@@ -353,19 +357,26 @@ static void apply_linux_shadow_margins(QWindow* w, bool defer)
                     if (!window)
                         return;
                     window->setProperty("_csShadowMarginQueued", false);
-                    apply_linux_shadow_margins(window.data(), false);
+                    apply_linux_shadow_margins(window.data(), false, false);
                 },
                 Qt::QueuedConnection);
         }
         return;
     }
     if (changed) {
+        const bool keepSize = surfaceCreated && w->property("linuxMarginsIncluded").toBool();
+        QRect savedGeom;
+        if (keepSize && w->handle())
+            savedGeom = w->handle()->geometry();
         w->setProperty("_csLastShadowMargin", m);
         waylandWin->setCustomMargins(QMargins(m, m, m, m));
+        if (keepSize && w->handle() && savedGeom.width() > 0 && savedGeom.height() > 0)
+            w->handle()->setGeometry(savedGeom);
     }
     apply_linux_shadow_mask(w, m);
 #else
     (void)defer;
+    (void)surfaceCreated;
     (void)m;
 #endif
 }
@@ -436,10 +447,13 @@ public:
 #elif defined(Q_OS_LINUX)
         if (type == QEvent::PlatformSurface) {
             auto* se = static_cast<QPlatformSurfaceEvent*>(event);
-            if (se->surfaceEventType() == QPlatformSurfaceEvent::SurfaceCreated)
-                apply_linux_shadow_margins(w, false);
+            if (se->surfaceEventType() == QPlatformSurfaceEvent::SurfaceCreated) {
+                apply_linux_shadow_margins(w, false, true);
+            } else if (se->surfaceEventType() == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
+                w->setProperty("_csLastShadowMargin", QVariant());
+            }
         } else if (type == QEvent::Show || type == QEvent::WindowStateChange) {
-            apply_linux_shadow_margins(w, true);
+            apply_linux_shadow_margins(w, true, false);
         } else if (type == QEvent::Resize) {
 #if QT_CONFIG(wayland)
             update_linux_shadow_mask(w);

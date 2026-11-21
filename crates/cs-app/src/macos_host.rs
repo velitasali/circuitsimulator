@@ -7,7 +7,6 @@ use std::ffi::CString;
 #[cfg(not(target_os = "macos"))]
 use std::ffi::c_void;
 use std::os::raw::c_char;
-#[cfg(target_os = "macos")]
 use std::sync::Mutex;
 #[cfg(not(target_os = "macos"))]
 use std::sync::atomic::AtomicPtr;
@@ -18,19 +17,21 @@ use std::ffi::CStr;
 
 #[cfg(windows)]
 use crate::win_chrome;
+use cs_engine::settings;
 use cs_engine::theme::{ColorTheme, QtPaletteColors};
-use qtbridge::QObjectHolder;
-#[cfg(target_os = "macos")]
-use qtbridge::QmlMethodInvoker;
+use qtbridge::{QObjectHolder, QmlMethodInvoker};
 
 static SIM_RUNNING: AtomicBool = AtomicBool::new(false);
 static SIM_PAUSED: AtomicBool = AtomicBool::new(false);
 static CURRENT_THEME_DARK: AtomicI32 = AtomicI32::new(-1);
 static IN_APPLY_THEME: AtomicBool = AtomicBool::new(false);
+static THEME_APPLY_PENDING: AtomicBool = AtomicBool::new(false);
+static APP_THEME_INVOKER: Mutex<Option<QmlMethodInvoker>> = Mutex::new(None);
 
 unsafe extern "C" {
     fn cs_qt_query_system_dark(unset_scheme: i32) -> i32;
     fn cs_qt_apply_palette(scheme_mode: i32, pal: *const QtPaletteColors);
+    fn cs_qt_post_on_main(cb: extern "C" fn());
 }
 
 #[cfg(target_os = "macos")]
@@ -121,36 +122,20 @@ pub fn init_process(name: &str) {
     }
 }
 
-pub fn apply_theme(theme_name: &str) -> bool {
-    if IN_APPLY_THEME.swap(true, Ordering::AcqRel) {
-        return CURRENT_THEME_DARK.load(Ordering::Acquire) > 0;
-    }
-
-    let named_dark = theme_name == "Dark";
-    let named_light = theme_name == "Light";
-    let named_system = theme_name.is_empty() || theme_name == "System";
-
-    let qt_dark = unsafe { cs_qt_query_system_dark(i32::from(named_system)) };
-    if qt_dark == -2 {
-        // No QGuiApplication instance yet (e.g. unit tests).
-        #[cfg(target_os = "macos")]
-        let use_dark = if named_dark {
-            true
-        } else if named_light {
-            false
-        } else {
-            unsafe { cs_macos_system_dark() != 0 }
-        };
-        #[cfg(not(target_os = "macos"))]
-        let use_dark = named_dark;
-
-        IN_APPLY_THEME.store(false, Ordering::Release);
-        return use_dark;
-    }
-
-    let is_system_dark = match qt_dark {
+fn resolve_system_dark(qt_dark: i32) -> bool {
+    match qt_dark {
         1 => true,
         0 => false,
+        -2 => {
+            #[cfg(target_os = "macos")]
+            {
+                unsafe { cs_macos_system_dark() != 0 }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                false
+            }
+        }
         _ => {
             #[cfg(windows)]
             {
@@ -165,7 +150,86 @@ pub fn apply_theme(theme_name: &str) -> bool {
                 false
             }
         }
-    };
+    }
+}
+
+pub fn register_theme_sync<T: QObjectHolder>(obj: &T) {
+    if let Ok(mut guard) = APP_THEME_INVOKER.lock() {
+        if guard.is_none() {
+            *guard = Some(obj.get_qml_method_invoker());
+        }
+    }
+}
+
+/// Returns the last applied dark-theme flag without mutating Qt state.
+pub fn current_theme_dark() -> bool {
+    let cached = CURRENT_THEME_DARK.load(Ordering::Acquire);
+    if cached >= 0 {
+        return cached != 0;
+    }
+    let theme_name = settings::get().theme;
+    if theme_name == "Dark" {
+        true
+    } else if theme_name == "Light" {
+        false
+    } else {
+        let qt_dark = unsafe { cs_qt_query_system_dark(0) };
+        resolve_system_dark(qt_dark)
+    }
+}
+
+/// Schedules theme application onto the Qt main event loop so that
+/// `QStyleHints::setColorScheme`/`unsetColorScheme`, `QGuiApplication::setPalette`,
+/// and native titlebar updates never execute synchronously while a `qtbridge`
+/// `#[qobject]` `RefCell` is borrowed on the call stack.
+pub fn schedule_apply_theme() {
+    if IN_APPLY_THEME.load(Ordering::Acquire) {
+        return;
+    }
+    if THEME_APPLY_PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    unsafe {
+        cs_qt_post_on_main(on_scheduled_theme_apply);
+    }
+}
+
+extern "C" fn on_scheduled_theme_apply() {
+    THEME_APPLY_PENDING.store(false, Ordering::Release);
+    let s = settings::get();
+    let _ = apply_theme(&s.theme);
+    if let Ok(guard) = APP_THEME_INVOKER.lock() {
+        if let Some(inv) = guard.as_ref() {
+            let _ = inv.invoke_method("syncTheme");
+        }
+    }
+}
+
+pub fn apply_theme(theme_name: &str) -> bool {
+    if IN_APPLY_THEME.swap(true, Ordering::AcqRel) {
+        return CURRENT_THEME_DARK.load(Ordering::Acquire) > 0;
+    }
+
+    let named_dark = theme_name == "Dark";
+    let named_light = theme_name == "Light";
+    let named_system = theme_name.is_empty() || theme_name == "System";
+
+    let qt_dark = unsafe { cs_qt_query_system_dark(i32::from(named_system)) };
+    if qt_dark == -2 {
+        // No QGuiApplication instance yet (e.g. unit tests).
+        let use_dark = if named_dark {
+            true
+        } else if named_light {
+            false
+        } else {
+            resolve_system_dark(qt_dark)
+        };
+
+        IN_APPLY_THEME.store(false, Ordering::Release);
+        return use_dark;
+    }
+
+    let is_system_dark = resolve_system_dark(qt_dark);
 
     let use_dark = if named_dark {
         true

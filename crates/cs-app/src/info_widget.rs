@@ -1,5 +1,6 @@
 //! Simulation info card. Colours are hex strings, not `QColor`.
 
+use crate::macos_host;
 use qtbridge::qobject;
 
 pub struct InfoWidget {
@@ -23,8 +24,7 @@ pub struct InfoWidget {
 
 impl Default for InfoWidget {
     fn default() -> Self {
-        let st = cs_engine::settings::get();
-        let dark = crate::macos_host::apply_theme(&st.theme);
+        let dark = macos_host::current_theme_dark();
         let mut s = Self {
             sim_time: "00:00:00 s  000 ms  000 µs  000 ns  000 ps ".into(),
             target_speed: "100.00 %".into(),

@@ -1,6 +1,7 @@
 //! App Settings façade. Layout is QML (`AppDialog.qml`); this is the value
 //! plumbing, matching C++ `AppDialog`.
 
+use crate::macos_host;
 use crate::path_util::strip_file_url;
 use cs_engine::settings::{self, AppSettings, CircSettings, LANGUAGES, TIME_UNITS};
 use qtbridge::qobject;
@@ -349,7 +350,7 @@ impl AppDialog {
         }
         self.s.theme = theme;
         self.persist();
-        crate::macos_host::apply_theme(&self.s.theme);
+        macos_host::schedule_apply_theme();
         self.app_changed();
     }
     fn font_name(&self) -> String {

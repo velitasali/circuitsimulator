@@ -35,7 +35,7 @@ impl Default for App {
     fn default() -> Self {
         let s = cs_engine::settings::get();
         cs_engine::i18n::set_locale(&s.language);
-        let dark = macos_host::apply_theme(&s.theme);
+        let dark = macos_host::current_theme_dark();
         Self {
             window_title: "Circuit Simulator".to_string(),
             native_menus: cfg!(target_os = "macos"),
@@ -587,9 +587,14 @@ impl App {
     }
 
     #[qslot]
-    fn reload_theme(&mut self) {
-        let s = cs_engine::settings::get();
-        let is_dark = macos_host::apply_theme(&s.theme);
+    fn reload_theme(&self) {
+        macos_host::register_theme_sync(self);
+        macos_host::schedule_apply_theme();
+    }
+
+    #[qslot]
+    fn sync_theme(&mut self) {
+        let is_dark = macos_host::current_theme_dark();
         if self.dark_theme != is_dark {
             self.dark_theme = is_dark;
             self.theme_changed();
@@ -692,6 +697,7 @@ impl App {
     // Shared borrow: showing the window re-enters QML property reads.
     #[qslot]
     fn install_native_chrome(&self) {
+        macos_host::register_theme_sync(self);
         macos_host::apply_app_icon();
         macos_host::set_titlebar_dark(self.dark_titlebar);
         macos_host::setup_window();
@@ -827,5 +833,69 @@ mod tests {
     fn test_about_initial_state() {
         let app = App::default();
         assert!(!app.about_visible);
+    }
+
+    #[test]
+    #[ignore = "requires dedicated Qt main-thread process (QT_QPA_PLATFORM=offscreen)"]
+    fn test_system_theme_change_does_not_crash() {
+        use qtbridge::QApp;
+
+        let mut qapp = QApp::new();
+        let target_dark = macos_host::apply_theme(&cs_engine::settings::get().theme);
+        let opposite = if target_dark { "Light" } else { "Dark" };
+        // Start with the opposite palette so reloading triggers ApplicationPaletteChange
+        // while SystemPalette bindings read App.darkTheme.
+        let _ = macos_host::apply_theme(opposite);
+        qapp.register::<App>().load_qml(
+            br#"
+                import QtQuick
+                import cs_app
+                Item {
+                    id: root
+                    SystemPalette { id: appTheme }
+                    property color btnColor: App.darkTheme ? appTheme.midlight : appTheme.mid
+                    property int themeChanges: 0
+                    Connections {
+                        target: App
+                        function onThemeChanged() {
+                            root.themeChanges += 1
+                        }
+                    }
+                    Connections {
+                        target: Application.styleHints
+                        function onColorSchemeChanged() {
+                            App.reloadTheme()
+                        }
+                    }
+                    Timer {
+                        interval: 30
+                        running: true
+                        repeat: false
+                        onTriggered: App.reloadTheme()
+                    }
+                    Timer {
+                        interval: 100
+                        running: true
+                        repeat: false
+                        onTriggered: App.reloadI18n()
+                    }
+                    Timer {
+                        interval: 180
+                        running: true
+                        repeat: false
+                        onTriggered: {
+                            if (root.themeChanges < 1) {
+                                Qt.exit(1)
+                            } else {
+                                Qt.quit()
+                            }
+                        }
+                    }
+                }
+                "#,
+        );
+        let code = qapp.run();
+        assert_eq!(code, 0);
+        assert_eq!(macos_host::current_theme_dark(), target_dark);
     }
 }

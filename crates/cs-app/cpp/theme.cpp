@@ -1,5 +1,7 @@
 #include "theme.h"
 
+#include <QtCore/QCoreApplication>
+#include <QtCore/QMetaObject>
 #include <QtCore/QtGlobal>
 #include <QtGui/QColor>
 #include <QtGui/QGuiApplication>
@@ -7,9 +9,7 @@
 #include <QtGui/QStyleHints>
 
 #ifndef Q_OS_MACOS
-#include <QtCore/QCoreApplication>
 #include <QtCore/QEvent>
-#include <QtCore/QMetaObject>
 #include <QtCore/QPointer>
 #include <QtGui/QIcon>
 #include <QtGui/QKeyEvent>
@@ -613,6 +613,21 @@ void cs_qt_apply_palette(int scheme_mode, const CsQtPalette* pal)
     palette.setColor(QPalette::Dark, from_rgb(pal->dark));
     palette.setColor(QPalette::Light, from_rgb(pal->light));
     QGuiApplication::setPalette(palette);
+}
+
+void cs_qt_post_on_main(void (*cb)())
+{
+    if (!cb)
+        return;
+    QCoreApplication* app = QCoreApplication::instance();
+    if (!app) {
+        cb();
+        return;
+    }
+    QMetaObject::invokeMethod(
+        app,
+        [cb]() { cb(); },
+        Qt::QueuedConnection);
 }
 
 #ifndef Q_OS_MACOS

@@ -38,6 +38,8 @@ typedef struct CsQtPalette {
 int cs_qt_query_system_dark(int unset_scheme);
 /* scheme_mode: 0 = System (leave unset), 1 = Light, 2 = Dark. */
 void cs_qt_apply_palette(int scheme_mode, const CsQtPalette* pal);
+/* Posts `cb` to run on the Qt main event loop (or runs immediately if no QCoreApplication). */
+void cs_qt_post_on_main(void (*cb)());
 
 void cs_apply_app_icon();
 void cs_ensure_theme_filter();

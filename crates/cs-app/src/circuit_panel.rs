@@ -144,7 +144,7 @@ pub struct CircuitPanel {
 
 impl Default for CircuitPanel {
     fn default() -> Self {
-        let dark = crate::macos_host::apply_theme(&cs_engine::settings::get().theme);
+        let dark = macos_host::current_theme_dark();
         Self {
             overlays: Overlays::new(),
             coords_x: 0,
@@ -944,7 +944,7 @@ impl CircuitPanel {
     #[qslot]
     fn reload_i18n(&mut self) {
         if self.running {
-            let dark = crate::macos_host::apply_theme(&cs_engine::settings::get().theme);
+            let dark = macos_host::current_theme_dark();
             self.message_text = if self.paused {
                 cs_engine::i18n::tr("Paused")
             } else {
@@ -976,7 +976,7 @@ impl CircuitPanel {
             self.set_sim_running_state(running);
         }
         self.paused = paused;
-        let dark = crate::macos_host::apply_theme(&cs_engine::settings::get().theme);
+        let dark = macos_host::current_theme_dark();
         if !self.running {
             self.message_text.clear();
         } else if self.paused {

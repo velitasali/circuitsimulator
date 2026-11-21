@@ -458,6 +458,14 @@ fn build_menus(
                 ),
                 item("edit.flipH", &t("Flip Horizontal"), true, false, false, c),
                 item("edit.flipV", &t("Flip Vertical"), true, false, false, c),
+                item(
+                    "edit.properties",
+                    &t("Component Properties..."),
+                    true,
+                    false,
+                    false,
+                    c,
+                ),
                 sep(),
                 item(
                     "circ.addAllComponents",
@@ -1157,6 +1165,7 @@ mod tests {
             ("edit.gotoDefinition", "Ctrl+F12"),
             ("edit.flipH", "Ctrl+L"),
             ("edit.flipV", "Ctrl+Shift+L"),
+            ("edit.properties", "Alt+Return"),
             ("view.zoomIn", "Ctrl++"),
             ("view.zoomOut", "Ctrl+-"),
             ("view.zoomFit", "Ctrl+9"),
@@ -1186,6 +1195,7 @@ mod tests {
         // non-menu shortcuts (Ctrl+N, Ctrl+Alt+D/C) and bare-key menu items (G).
         let mac = qml_shortcuts_for(&menus, true, &empty);
         assert_eq!(shortcut_of(&mac, "file.save"), None);
+        assert_eq!(shortcut_of(&mac, "edit.properties"), None);
         assert_eq!(shortcut_of(&mac, "sim.power"), None);
         assert_eq!(shortcut_of(&mac, "view.sidePanel"), None);
         assert_eq!(shortcut_of(&mac, "view.showGrid").as_deref(), Some("G"));
@@ -1219,6 +1229,10 @@ mod tests {
         assert_eq!(
             find_menu_shortcut("file.settings").as_deref(),
             Some("Ctrl+,")
+        );
+        assert_eq!(
+            find_menu_shortcut("edit.properties").as_deref(),
+            Some("Alt+Return")
         );
         assert_eq!(find_menu_shortcut("sim.power").as_deref(), Some("F8"));
         assert_eq!(find_menu_shortcut("sim.pause").as_deref(), Some("F9"));

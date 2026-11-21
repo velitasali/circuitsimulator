@@ -123,6 +123,7 @@ pub const ACTIONS: &[ActionDef] = &[
     act("edit.rotateCcw", "Rotate Counter-Clockwise", "Ctrl+Shift+R", UiIcon::RotateLeft),
     act("edit.flipH", "Flip Horizontal", "Ctrl+L", UiIcon::Flip),
     act("edit.flipV", "Flip Vertical", "Ctrl+Shift+L", UiIcon::Flip),
+    act("edit.properties", "Component Properties...", "Alt+Return", UiIcon::Settings),
     act("view.zoomIn", "Zoom In", "Ctrl++", UiIcon::ZoomIn),
     act("view.zoomOut", "Zoom Out", "Ctrl+-", UiIcon::ZoomOut),
     act("view.zoomFit", "Fit to View", "Ctrl+9", UiIcon::FitScreen),
@@ -983,6 +984,10 @@ mod tests {
         assert_eq!(
             map.get("edit.delete").and_then(Value::as_str),
             Some("Delete")
+        );
+        assert_eq!(
+            map.get("edit.properties").and_then(Value::as_str),
+            Some("Alt+Return")
         );
         assert_eq!(map.get("sim.power").and_then(Value::as_str), Some("F8"));
     }

@@ -747,6 +747,8 @@ ApplicationWindow {
                 CircuitCanvas.flipH()
             } else if (id === "edit.flipV") {
                 CircuitCanvas.flipV()
+            } else if (id === "edit.properties") {
+                CircuitCanvas.openSelectedProperties()
             } else if (id === "edit.delete") {
                 CircuitCanvas.removeSelection()
             } else if (id === "sim.compile") {
@@ -1405,6 +1407,8 @@ ApplicationWindow {
                 var s = menuShortcutItem.modelData.shortcut || ""
                 if (s === "Ctrl++" || s === "Ctrl+=")
                     return ["Ctrl++", "Ctrl+="]
+                if (s === "Return" || s.endsWith("+Return"))
+                    return [s, s.slice(0, -6) + "Enter"]
                 return s ? [s] : []
             }
             enabled: !!menuShortcutItem.modelData.enabled && !CommandCenter.recordingShortcut

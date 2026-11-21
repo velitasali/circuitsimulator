@@ -707,9 +707,10 @@ Item {
         }
         ContextMenuItem {
             text: I18n.tr("Properties")
+            shortcutText: UiUtils.shortcutFor("edit.properties")
             iconLigature: "settings"
             visible: CircuitCanvas.hasItemSelection
-            onTriggered: CircuitCanvas.openSelectedProperties()
+            onTriggered: AppMenuBar.triggerAction("edit.properties")
         }
 
         ContextMenuSeparator { visible: CircuitCanvas.hasItemSelection }

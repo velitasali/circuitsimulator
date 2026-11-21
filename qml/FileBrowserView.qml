@@ -14,6 +14,9 @@ Item {
 
     property string selectedPath: ""
     property bool selectedIsDir: false
+    readonly property string projectName: FileBrowser.rootPath
+        ? ( FileBrowser.rootPath.replace( /\\/g, "/" ).split( "/" ).filter( Boolean ).pop() || FileBrowser.rootPath )
+        : ""
 
     function syncEntries(): void {
         var arr = FileBrowser.entries
@@ -279,7 +282,8 @@ Item {
             text: I18n.tr( "Show Hidden" )
             checkable: true
             checked: FileBrowser.showHidden
-            onTriggered: FileBrowser.showHidden = !FileBrowser.showHidden
+            onTriggered: FileBrowser.showHidden = checked
+            Binding on checked { value: FileBrowser.showHidden }
         }
     }
 
@@ -1036,211 +1040,378 @@ Item {
         }
     }
 
-    ColumnLayout {
+    Rectangle {
+        id: browserCard
         anchors.fill: parent
-        spacing: 4
+        radius: 10
+        color: appTheme.base
+        border.color: appTheme.mid
+        border.width: 1
+        clip: true
 
-        RowLayout {
-            id: toolbar
-            visible: FileBrowser.hasProject
-            Layout.fillWidth: true
-            Layout.preferredHeight: 28
-            spacing: 0
+        Item {
+            id: emptyState
+            anchors.fill: parent
+            visible: !FileBrowser.hasProject
 
-            AppToolButton {
-                implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { icon: "note_add"; color: appTheme.windowText }
-                ToolTip.text: I18n.tr( "New File" )
-                ToolTip.visible: hovered
-                onClicked: root.openCreateFileDialog()
+            ColumnLayout {
+                anchors.centerIn: parent
+                width: Math.min( parent.width - 40, 260 )
+                spacing: 12
+
+                AppText {
+                    text: I18n.tr( "Open a project folder to load the file explorer." )
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                    color: appTheme.windowText
+                    Layout.fillWidth: true
+                }
+                AppButton {
+                    text: I18n.tr( "Open Folder" )
+                    Layout.alignment: Qt.AlignHCenter
+                    onClicked: folderDialog.open()
+                }
             }
-            AppToolButton {
-                implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { icon: "create_new_folder"; color: appTheme.windowText }
-                ToolTip.text: I18n.tr( "New Folder" )
-                ToolTip.visible: hovered
-                onClicked: root.openCreateFolderDialog()
-            }
-            AppToolButton {
-                implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { icon: "refresh"; color: appTheme.windowText }
-                ToolTip.text: I18n.tr( "Refresh" )
-                ToolTip.visible: hovered
-                onClicked: FileBrowser.reload()
-            }
-            AppToolButton {
-                implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { icon: "expand_more"; color: appTheme.windowText }
-                ToolTip.text: I18n.tr( "Expand All" )
-                ToolTip.visible: hovered
-                onClicked: FileBrowser.expandAll()
-            }
-            AppToolButton {
-                implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { icon: "expand_less"; color: appTheme.windowText }
-                ToolTip.text: I18n.tr( "Collapse All" )
-                ToolTip.visible: hovered
-                onClicked: FileBrowser.collapseAll()
-            }
-            AppToolButton {
-                implicitWidth: 28; implicitHeight: 28
-                contentItem: AppIcon { icon: "folder_open"; color: appTheme.windowText }
-                ToolTip.text: I18n.tr( "Open Project Folder" )
-                ToolTip.visible: hovered
-                onClicked: folderDialog.open()
-            }
-            Item { Layout.fillWidth: true }
         }
 
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            radius: 10
-            color: appTheme.base
-            border.color: appTheme.mid
-            border.width: 1
-            clip: true
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 1
+            spacing: 0
+            visible: FileBrowser.hasProject
 
-            Item {
-                id: emptyState
-                anchors.fill: parent
-                visible: !FileBrowser.hasProject
+            Rectangle {
+                id: headerBar
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+                topLeftRadius: 9
+                topRightRadius: 9
+                color: appTheme.window
 
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    width: Math.min( parent.width - 40, 260 )
-                    spacing: 12
-
-                    AppText {
-                        text: I18n.tr( "Open a project folder to load the file explorer." )
-                        wrapMode: Text.WordWrap
-                        horizontalAlignment: Text.AlignHCenter
-                        color: appTheme.windowText
-                        Layout.fillWidth: true
-                    }
-                    AppButton {
-                        text: I18n.tr( "Open Folder" )
-                        Layout.alignment: Qt.AlignHCenter
-                        onClicked: folderDialog.open()
-                    }
-                }
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                visible: FileBrowser.hasProject
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                onClicked: ( mouse ) => {
-                    root.selectedPath = FileBrowser.rootPath
-                    root.selectedIsDir = true
-                    if ( mouse.button === Qt.RightButton ) {
-                        contextMenu.popup()
-                    }
-                }
-            }
-
-            ListView {
-                id: listView
-                visible: FileBrowser.hasProject
-                anchors.fill: parent
-                anchors.margins: 1
-                model: entryModel
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                ScrollBar.vertical: AppScrollBar {}
-                ScrollBar.horizontal: AppScrollBar {}
-
-                delegate: Item {
-                    id: rowDelegate
-                    required property var model
-                    required property int index
-                    width: listView.width
-                    height: 24
+                RowLayout {
+                    id: toolbar
+                    anchors.fill: parent
+                    anchors.leftMargin: 4
+                    anchors.rightMargin: 4
+                    anchors.bottomMargin: 1
+                    spacing: 1
 
                     Rectangle {
-                        anchors.fill: parent
-                        anchors.leftMargin: 4
-                        anchors.rightMargin: 4
+                        id: projectHeaderBtn
+                        readonly property int naturalWidth: Math.ceil( projectNameLabel.implicitWidth ) + 26
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: naturalWidth
+                        Layout.maximumWidth: naturalWidth
+                        Layout.minimumWidth: Math.min( naturalWidth, 40 )
+                        Layout.preferredHeight: 22
+                        Layout.alignment: Qt.AlignVCenter
                         radius: 6
-                        visible: hoverHandler.hovered || rowDelegate.model.path === root.selectedPath
-                        color: hoverHandler.hovered
-                               ? appTheme.highlight
-                               : Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.22 )
-                    }
+                        color: ( projectBtnMouse.pressed || projectMenu.opened )
+                               ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.18 )
+                               : projectBtnMouse.containsMouse
+                                   ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.10 )
+                                   : "transparent"
 
-                    Row {
-                        anchors.fill: parent
-                        anchors.leftMargin: 6 + rowDelegate.model.depth * 14
-                        anchors.rightMargin: 6
-                        spacing: 6
+                        Behavior on color { ColorAnimation { duration: 90 } }
 
-                        Item {
-                            width: 14
-                            height: rowDelegate.height
-                            anchors.verticalCenter: parent.verticalCenter
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 6
+                            anchors.rightMargin: 2
+                            spacing: 2
+
+                            AppText {
+                                id: projectNameLabel
+                                text: root.projectName
+                                font.bold: true
+                                font.pixelSize: App.fontSmall
+                                color: appTheme.windowText
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                            }
 
                             AppIcon {
-                                anchors.centerIn: parent
-                                visible: rowDelegate.model.isDir
-                                icon: rowDelegate.model.expanded ? "expand_more" : "chevron_right"
+                                icon: "arrow_drop_down"
                                 size: 16
+                                color: appTheme.windowText
+                                opacity: 0.65
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+                        }
+
+                        MouseArea {
+                            id: projectBtnMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if ( projectMenu.opened ) {
+                                    projectMenu.close()
+                                    return
+                                }
+                                projectMenu.recentItems = FileBrowser.recentProjectItems() || []
+                                projectMenu.x = 0
+                                projectMenu.y = projectHeaderBtn.height + 4
+                                projectMenu.open()
+                            }
+                        }
+
+                        ToolTip.text: FileBrowser.rootPath
+                        ToolTip.visible: projectBtnMouse.containsMouse && !projectMenu.opened
+                        ToolTip.delay: 600
+
+                        AppContextMenu {
+                            id: projectMenu
+                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+                            property var recentItems: []
+
+                            Instantiator {
+                                model: projectMenu.recentItems
+                                delegate: ContextMenuItem {
+                                    id: recentProjItem
+                                    required property var modelData
+                                    text: recentProjItem.modelData.name || ""
+                                    iconLigature: recentProjItem.modelData.current ? "check" : "folder"
+                                    onTriggered: {
+                                        if ( !recentProjItem.modelData.current && recentProjItem.modelData.path ) {
+                                            FileBrowser.rootPath = String( recentProjItem.modelData.path )
+                                        }
+                                    }
+                                }
+                                onObjectAdded: ( index, object ) => {
+                                    const item = object as ContextMenuItem
+                                    if ( item ) projectMenu.insertItem( index, item )
+                                }
+                                onObjectRemoved: ( _, object ) => {
+                                    const item = object as ContextMenuItem
+                                    if ( item ) projectMenu.removeItem( item )
+                                }
+                            }
+
+                            ContextMenuSeparator {
+                                visible: projectMenu.recentItems.length > 0
+                            }
+                            ContextMenuItem {
+                                text: I18n.tr( "Open Project Folder..." )
+                                iconLigature: "folder_open"
+                                onTriggered: folderDialog.open()
+                            }
+                            ContextMenuItem {
+                                text: I18n.tr( "Show Hidden" )
+                                checkable: true
+                                checked: FileBrowser.showHidden
+                                onTriggered: FileBrowser.showHidden = checked
+                                Binding on checked { value: FileBrowser.showHidden }
+                            }
+                            ContextMenuSeparator {}
+                            ContextMenuItem {
+                                text: I18n.tr( "Close Project" )
+                                iconLigature: "folder_off"
+                                onTriggered: FileBrowser.closeProject()
+                            }
+                        }
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        Layout.preferredWidth: 0
+                    }
+
+                    AppToolButton {
+                        implicitWidth: 22
+                        implicitHeight: 22
+                        padding: 0
+                        Layout.alignment: Qt.AlignVCenter
+                        contentItem: AppIcon { icon: "note_add"; size: 16; color: appTheme.windowText }
+                        ToolTip.text: I18n.tr( "New File" )
+                        ToolTip.visible: hovered
+                        onClicked: root.openCreateFileDialog()
+                    }
+                    AppToolButton {
+                        implicitWidth: 22
+                        implicitHeight: 22
+                        padding: 0
+                        Layout.alignment: Qt.AlignVCenter
+                        contentItem: AppIcon { icon: "create_new_folder"; size: 16; color: appTheme.windowText }
+                        ToolTip.text: I18n.tr( "New Folder" )
+                        ToolTip.visible: hovered
+                        onClicked: root.openCreateFolderDialog()
+                    }
+
+                    Rectangle {
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.leftMargin: 2
+                        Layout.rightMargin: 2
+                        implicitWidth: 1
+                        implicitHeight: 12
+                        color: appTheme.mid
+                        opacity: 0.45
+                    }
+
+                    AppToolButton {
+                        implicitWidth: 22
+                        implicitHeight: 22
+                        padding: 0
+                        Layout.alignment: Qt.AlignVCenter
+                        contentItem: AppIcon { icon: "refresh"; size: 16; color: appTheme.windowText }
+                        ToolTip.text: I18n.tr( "Refresh" )
+                        ToolTip.visible: hovered
+                        onClicked: FileBrowser.reload()
+                    }
+                    AppToolButton {
+                        implicitWidth: 22
+                        implicitHeight: 22
+                        padding: 0
+                        Layout.alignment: Qt.AlignVCenter
+                        contentItem: AppIcon { icon: "expand_more"; size: 16; color: appTheme.windowText }
+                        ToolTip.text: I18n.tr( "Expand All" )
+                        ToolTip.visible: hovered
+                        onClicked: FileBrowser.expandAll()
+                    }
+                    AppToolButton {
+                        implicitWidth: 22
+                        implicitHeight: 22
+                        padding: 0
+                        Layout.alignment: Qt.AlignVCenter
+                        contentItem: AppIcon { icon: "expand_less"; size: 16; color: appTheme.windowText }
+                        ToolTip.text: I18n.tr( "Collapse All" )
+                        ToolTip.visible: hovered
+                        onClicked: FileBrowser.collapseAll()
+                    }
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: appTheme.mid
+                    opacity: 0.6
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: ( mouse ) => {
+                        root.selectedPath = FileBrowser.rootPath
+                        root.selectedIsDir = true
+                        if ( mouse.button === Qt.RightButton ) {
+                            contextMenu.popup()
+                        }
+                    }
+                }
+
+                ListView {
+                    id: listView
+                    anchors.fill: parent
+                    topMargin: 2
+                    bottomMargin: 2
+                    model: entryModel
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: AppScrollBar {}
+                    ScrollBar.horizontal: AppScrollBar {}
+
+                    delegate: Item {
+                        id: rowDelegate
+                        required property var model
+                        required property int index
+                        width: listView.width
+                        height: 24
+
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.leftMargin: 4
+                            anchors.rightMargin: 4
+                            radius: 6
+                            visible: hoverHandler.hovered || rowDelegate.model.path === root.selectedPath
+                            color: hoverHandler.hovered
+                                   ? appTheme.highlight
+                                   : Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.22 )
+                        }
+
+                        Row {
+                            anchors.fill: parent
+                            anchors.leftMargin: 6 + rowDelegate.model.depth * 14
+                            anchors.rightMargin: 6
+                            spacing: 6
+
+                            Item {
+                                width: 14
+                                height: rowDelegate.height
+                                anchors.verticalCenter: parent.verticalCenter
+
+                                AppIcon {
+                                    anchors.centerIn: parent
+                                    visible: rowDelegate.model.isDir
+                                    icon: rowDelegate.model.expanded ? "expand_more" : "chevron_right"
+                                    size: 16
+                                    color: hoverHandler.hovered
+                                           ? appTheme.highlightedText
+                                           : ( rowDelegate.model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
+                                }
+
+                                TapHandler {
+                                    enabled: rowDelegate.model.isDir
+                                    acceptedButtons: Qt.LeftButton
+                                    onTapped: {
+                                        root.selectedPath = rowDelegate.model.path
+                                        root.selectedIsDir = true
+                                        FileBrowser.toggleExpand( rowDelegate.model.path )
+                                    }
+                                }
+                            }
+
+                            AppIcon {
+                                anchors.verticalCenter: parent.verticalCenter
+                                icon: root.fileIconForName( rowDelegate.model.name, rowDelegate.model.isDir, rowDelegate.model.expanded )
                                 color: hoverHandler.hovered
                                        ? appTheme.highlightedText
                                        : ( rowDelegate.model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
                             }
 
-                            TapHandler {
-                                enabled: rowDelegate.model.isDir
-                                acceptedButtons: Qt.LeftButton
-                                onTapped: {
-                                    root.selectedPath = rowDelegate.model.path
-                                    root.selectedIsDir = true
-                                    FileBrowser.toggleExpand( rowDelegate.model.path )
-                                }
+                            AppText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: rowDelegate.model.name
+                                color: hoverHandler.hovered
+                                       ? appTheme.highlightedText
+                                       : ( rowDelegate.model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
+                                elide: Text.ElideRight
+                                width: Math.max( 0, rowDelegate.width - 48 )
                             }
                         }
 
-                        AppIcon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            icon: root.fileIconForName( rowDelegate.model.name, rowDelegate.model.isDir, rowDelegate.model.expanded )
-                            color: hoverHandler.hovered
-                                   ? appTheme.highlightedText
-                                   : ( rowDelegate.model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
+                        HoverHandler { id: hoverHandler }
+
+                        TapHandler {
+                            acceptedButtons: Qt.LeftButton
+                            onTapped: {
+                                root.selectedPath = rowDelegate.model.path
+                                root.selectedIsDir = rowDelegate.model.isDir
+                            }
+                            onDoubleTapped: {
+                                root.selectedPath = rowDelegate.model.path
+                                root.selectedIsDir = rowDelegate.model.isDir
+                                if ( rowDelegate.model.isDir ) FileBrowser.toggleExpand( rowDelegate.model.path )
+                                else FileBrowser.openPath( rowDelegate.model.path )
+                            }
                         }
 
-                        AppText {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: rowDelegate.model.name
-                            color: hoverHandler.hovered
-                                   ? appTheme.highlightedText
-                                   : ( rowDelegate.model.path === root.selectedPath ? appTheme.highlight : appTheme.windowText )
-                            elide: Text.ElideRight
-                            width: Math.max( 0, rowDelegate.width - 48 )
-                        }
-                    }
-
-                    HoverHandler { id: hoverHandler }
-
-                    TapHandler {
-                        acceptedButtons: Qt.LeftButton
-                        onTapped: {
-                            root.selectedPath = rowDelegate.model.path
-                            root.selectedIsDir = rowDelegate.model.isDir
-                        }
-                        onDoubleTapped: {
-                            root.selectedPath = rowDelegate.model.path
-                            root.selectedIsDir = rowDelegate.model.isDir
-                            if ( rowDelegate.model.isDir ) FileBrowser.toggleExpand( rowDelegate.model.path )
-                            else FileBrowser.openPath( rowDelegate.model.path )
-                        }
-                    }
-
-                    TapHandler {
-                        acceptedButtons: Qt.RightButton
-                        onTapped: {
-                            root.selectedPath = rowDelegate.model.path
-                            root.selectedIsDir = rowDelegate.model.isDir
-                            contextMenu.popup()
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: {
+                                root.selectedPath = rowDelegate.model.path
+                                root.selectedIsDir = rowDelegate.model.isDir
+                                contextMenu.popup()
+                            }
                         }
                     }
                 }

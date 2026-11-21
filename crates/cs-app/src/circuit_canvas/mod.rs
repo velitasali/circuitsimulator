@@ -2456,11 +2456,32 @@ impl CircuitCanvas {
     }
 
     #[qslot]
-    fn handle_key(&mut self, code: i32, mods: i32) {
-        let c = self.inner.key_press(code, mods as u32);
+    fn owns_key_shortcut(&self, code: i32, mods: i32, text: String) -> bool {
+        self.inner.owns_key_shortcut(code, mods as u32, &text)
+    }
+
+    #[qslot]
+    fn handle_key(&mut self, code: i32, mods: i32, text: String, auto_repeat: bool) {
+        let c = self
+            .inner
+            .key_press_with_text(code, mods as u32, &text, auto_repeat);
         if let Some((uid, val, text, wiper)) = self.inner.take_last_wheel_item() {
             self.item_value_changed(uid, val, text, wiper);
         }
+        self.apply(c);
+    }
+
+    #[qslot]
+    fn handle_key_release(&mut self, code: i32, mods: i32, text: String, auto_repeat: bool) {
+        let c = self
+            .inner
+            .key_release(code, mods as u32, &text, auto_repeat);
+        self.apply(c);
+    }
+
+    #[qslot]
+    fn release_all_keys(&mut self) {
+        let c = self.inner.release_all_keys();
         self.apply(c);
     }
 

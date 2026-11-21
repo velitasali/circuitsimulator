@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float, expect_string};
-use super::{CompPin, Component, Stampable};
+use super::{CompPin, Component, ComponentChange, Part, Stampable};
 use crate::canvas::draw::{Color, Draw, PaintCtx, parse_hex};
 use crate::canvas::{Item, Point, Rect, Scene, map_rect, map_scene};
 use crate::digital::{
@@ -304,6 +304,28 @@ impl Subcircuit {
         self.logic.fall_s = expect_float("Tf_ps", v)?.clamp(1e-12, 1e6);
         self.mark(LOGIC_FALL);
         Ok(())
+    }
+
+    fn dispatch_board_key(
+        &mut self,
+        mut f: impl FnMut(&mut Part) -> Option<ComponentChange>,
+    ) -> Option<ComponentChange> {
+        if self.logic_symbol || self.board_children.is_empty() {
+            return None;
+        }
+        let mut changed_count = 0usize;
+        let mut last_idx = None;
+        for (idx, child) in self.board_children.iter_mut().enumerate() {
+            if f(&mut child.part).is_some() {
+                changed_count += 1;
+                last_idx = Some(idx);
+            }
+        }
+        if changed_count == 0 {
+            return None;
+        }
+        self.last_interacted_child = if changed_count == 1 { last_idx } else { None };
+        Some(ComponentChange::live(""))
     }
 }
 
@@ -648,6 +670,22 @@ impl Component for Subcircuit {
             }
         }
         false
+    }
+
+    fn owns_key_shortcut(&self, ch: char) -> bool {
+        !self.logic_symbol
+            && self
+                .board_children
+                .iter()
+                .any(|child| child.part.owns_key_shortcut(ch))
+    }
+
+    fn interact_key_press(&mut self, ch: char) -> Option<ComponentChange> {
+        self.dispatch_board_key(|part| part.interact_key_press(ch))
+    }
+
+    fn interact_key_release(&mut self, ch: char) -> Option<ComponentChange> {
+        self.dispatch_board_key(|part| part.interact_key_release(ch))
     }
 }
 

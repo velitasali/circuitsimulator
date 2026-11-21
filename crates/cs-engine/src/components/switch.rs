@@ -1,6 +1,6 @@
 //! Mechanical switch: poles, double-throw geometry, persisted Checked.
 
-use super::component::stamp_conductance_between;
+use super::component::{self, stamp_conductance_between};
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int, expect_string};
 use super::{CompPin, Component, ComponentChange, Stampable};
 use crate::canvas::Rect;
@@ -210,6 +210,18 @@ impl Component for Switch {
     fn interact_toggle(&mut self, _local: crate::canvas::Point) -> bool {
         self.checked = !self.checked;
         true
+    }
+
+    fn owns_key_shortcut(&self, ch: char) -> bool {
+        component::key_prop_matches(&self.key, ch)
+    }
+
+    fn interact_key_press(&mut self, ch: char) -> Option<ComponentChange> {
+        if self.owns_key_shortcut(ch) {
+            Some(self.toggle())
+        } else {
+            None
+        }
     }
 }
 

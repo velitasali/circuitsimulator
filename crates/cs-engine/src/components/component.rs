@@ -321,6 +321,46 @@ pub trait Component: Sized + 'static {
     fn interact_cancel(&mut self) -> bool {
         false
     }
+
+    /// Whether this component responds to a bare keyboard shortcut character.
+    fn owns_key_shortcut(&self, _ch: char) -> bool {
+        false
+    }
+
+    /// Handle a keyboard shortcut press. Returns `Some(ComponentChange)` if the
+    /// component state changed.
+    fn interact_key_press(&mut self, _ch: char) -> Option<ComponentChange> {
+        None
+    }
+
+    /// Handle a keyboard shortcut release. Returns `Some(ComponentChange)` if
+    /// the component state changed.
+    fn interact_key_release(&mut self, _ch: char) -> Option<ComponentChange> {
+        None
+    }
+}
+
+/// Case-insensitive match between two keyboard shortcut characters.
+pub fn key_char_matches(a: char, b: char) -> bool {
+    a == b || a.to_lowercase().eq(b.to_lowercase())
+}
+
+/// Matches a component `Key` property string against a typed character.
+///
+/// Accepts single-character bindings (case-insensitive for letters) as well as
+/// the named alias `"Space"`.
+pub fn key_prop_matches(prop: &str, ch: char) -> bool {
+    if prop.is_empty() {
+        return false;
+    }
+    if prop.eq_ignore_ascii_case("space") {
+        return ch == ' ';
+    }
+    let mut chars = prop.chars();
+    match (chars.next(), chars.next()) {
+        (Some(configured), None) => key_char_matches(configured, ch),
+        _ => false,
+    }
 }
 
 /// Stamp into the analog matrix. Node indices follow [`Component::pin_geoms`].
@@ -341,19 +381,15 @@ pub trait Dialed {
     }
 }
 
-/// Keyboard shortcut + step for a dialed value.
+/// Dial step configuration for a dialed value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DialState {
-    pub key: String,
     pub step: f64,
 }
 
 impl DialState {
     pub fn new(step: f64) -> Self {
-        Self {
-            key: String::new(),
-            step,
-        }
+        Self { step }
     }
 }
 

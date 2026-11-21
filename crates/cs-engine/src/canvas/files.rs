@@ -920,6 +920,7 @@ impl Canvas {
         self.viewport
             .set_scene_size(settings.width as f64, settings.height as f64);
         self.drag = Drag::None;
+        self.held_shortcut_keys.clear();
         self.banding = false;
         self.link_mode = None;
         self.board_layout = None;
@@ -1037,6 +1038,7 @@ impl Canvas {
         self.viewport
             .set_scene_size(s.width as f64, s.height as f64);
         self.drag = Drag::None;
+        self.held_shortcut_keys.clear();
         self.banding = false;
         self.link_mode = None;
         self.board_layout = None;

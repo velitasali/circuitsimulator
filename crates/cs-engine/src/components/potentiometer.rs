@@ -1,7 +1,7 @@
 //! Potentiometer: two series resistors sharing a wiper pin.
 
 use super::component::{DialState, clamp_positive, resistor_g, stamp_conductance_between};
-use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float, expect_string};
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable};
 use crate::canvas::Rect;
 use crate::elements::Kind;
@@ -19,7 +19,7 @@ impl crate::canvas::Item {
         resistance: f64,
         wiper: f64,
     ) -> Self {
-        Self::potentiometer_with(id, x, y, resistance, wiper, String::new(), 1.0)
+        Self::potentiometer_with(id, x, y, resistance, wiper, 1.0)
     }
 
     pub fn potentiometer_with(
@@ -28,7 +28,6 @@ impl crate::canvas::Item {
         y: f64,
         resistance: f64,
         wiper: f64,
-        key: String,
         dial_step: f64,
     ) -> Self {
         Self::new(
@@ -38,10 +37,7 @@ impl crate::canvas::Item {
             Potentiometer {
                 resistance,
                 wiper,
-                dial: DialState {
-                    key,
-                    step: dial_step,
-                },
+                dial: DialState::new(dial_step),
             },
         )
     }
@@ -93,13 +89,6 @@ impl Potentiometer {
     }
     fn set_wiper(&mut self, v: PropValue) -> Result<(), PropError> {
         self.wiper = expect_float("Wiper", v)?.clamp(0.0, 1.0);
-        Ok(())
-    }
-    fn get_key(&self) -> PropValue {
-        PropValue::String(self.dial.key.clone())
-    }
-    fn set_key(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.dial.key = expect_string("Key", v)?;
         Ok(())
     }
     fn get_dial_step(&self) -> PropValue {
@@ -178,10 +167,6 @@ impl Component for Potentiometer {
                 Potentiometer::set_wiper,
             )
             .with_info("Wiper position fraction from 0.0 to 1.0."),
-            PropDef::string("Key", "Key", Potentiometer::get_key, Potentiometer::set_key)
-                .with_info(
-                    "Character shown in the button.\nCan be activated by keyboard in your PC.",
-                ),
             PropDef::float(
                 "DialStep",
                 "Dial Step",

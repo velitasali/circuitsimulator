@@ -1,6 +1,6 @@
 //! Push button: momentary `Checked` is live, not saved. Resting state is NormClose.
 
-use super::component::stamp_conductance_between;
+use super::component::{self, stamp_conductance_between};
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int, expect_string};
 use super::{CompPin, Component, ComponentChange, Stampable};
 use crate::canvas::{Point, Rect};
@@ -215,6 +215,26 @@ impl Component for Push {
             true
         } else {
             false
+        }
+    }
+
+    fn owns_key_shortcut(&self, ch: char) -> bool {
+        component::key_prop_matches(&self.key, ch)
+    }
+
+    fn interact_key_press(&mut self, ch: char) -> Option<ComponentChange> {
+        if self.owns_key_shortcut(ch) && !self.pressed {
+            Some(self.set_pressed(true))
+        } else {
+            None
+        }
+    }
+
+    fn interact_key_release(&mut self, ch: char) -> Option<ComponentChange> {
+        if self.owns_key_shortcut(ch) && self.pressed {
+            Some(self.set_pressed(false))
+        } else {
+            None
         }
     }
 }

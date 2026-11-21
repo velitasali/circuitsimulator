@@ -396,8 +396,6 @@ impl Item {
             Part::Push(p) => p.key.as_str(),
             Part::Switch(p) => p.key.as_str(),
             Part::KeyPad(p) => p.key_labels_str(),
-            Part::Potentiometer(p) => p.dial.key.as_str(),
-            Part::VarResistor(p) => p.dial.key.as_str(),
             _ => "",
         }
     }

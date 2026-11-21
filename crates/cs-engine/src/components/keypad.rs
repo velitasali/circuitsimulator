@@ -1,6 +1,6 @@
 //! Keypad matrix. Pressed key is live (not saved); Rows/Cols rebuild pins.
 
-use super::component::stamp_conductance_between;
+use super::component::{self, stamp_conductance_between};
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int, expect_string};
 use super::{CompPin, Component, ComponentChange, Stampable};
 use crate::canvas::{Point, Rect};
@@ -105,6 +105,21 @@ impl KeyPad {
     pub fn key_label(&self, row: usize, col: usize) -> Option<char> {
         let pos = row * self.cols + col;
         self.key_labels_str().chars().nth(pos)
+    }
+
+    pub fn key_pos_for_char(&self, ch: char) -> Option<(usize, usize)> {
+        let r = self.rows.max(1);
+        let c = self.cols.max(1);
+        let mut ci_match = None;
+        for (pos, label) in self.key_labels_str().chars().take(r * c).enumerate() {
+            if label == ch {
+                return Some((pos / c, pos % c));
+            }
+            if ci_match.is_none() && component::key_char_matches(label, ch) {
+                ci_match = Some((pos / c, pos % c));
+            }
+        }
+        ci_match
     }
 
     pub fn to_element_kind(&self) -> Kind {
@@ -288,6 +303,28 @@ impl Component for KeyPad {
             true
         } else {
             false
+        }
+    }
+
+    fn owns_key_shortcut(&self, ch: char) -> bool {
+        self.key_pos_for_char(ch).is_some()
+    }
+
+    fn interact_key_press(&mut self, ch: char) -> Option<ComponentChange> {
+        let pos = self.key_pos_for_char(ch)?;
+        if self.pressed != Some(pos) {
+            Some(self.set_pressed(Some(pos)))
+        } else {
+            None
+        }
+    }
+
+    fn interact_key_release(&mut self, ch: char) -> Option<ComponentChange> {
+        let pos = self.key_pos_for_char(ch)?;
+        if self.pressed == Some(pos) {
+            Some(self.set_pressed(None))
+        } else {
+            None
         }
     }
 }

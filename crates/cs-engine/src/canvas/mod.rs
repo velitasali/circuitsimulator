@@ -202,6 +202,7 @@ pub struct Canvas {
     pub(crate) overload_log: Vec<crate::overload::OverloadLogEntry>,
     pub(crate) overload_escalated: bool,
     pub(crate) pressed_push_id: Option<String>,
+    pub(crate) held_shortcut_keys: Vec<(i32, char)>,
     pub(crate) dirty: dirty::DirtySet,
     /// Last quantized analog glow (LED / lamp / RGB) so intensity noise
     /// without a visible step does not dirty the item.
@@ -304,6 +305,7 @@ impl Canvas {
             overload_log: Vec::new(),
             overload_escalated: false,
             pressed_push_id: None,
+            held_shortcut_keys: Vec::new(),
             dirty: dirty::DirtySet::default(),
             analog_visual: std::collections::HashMap::new(),
             curr_speed: 1.0,

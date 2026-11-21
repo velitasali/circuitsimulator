@@ -30,7 +30,6 @@ pub(crate) const CASES: &[Case] = &[
             ("Resistance", "750 Ω", "500 Ω"),
             ("MinResistance", "10 Ω", "50 Ω"),
             ("MaxResistance", "5 kΩ", "10 kΩ"),
-            ("Key", "A", "B"),
             ("DialStep", "10 Ω", "100 Ω"),
         ],
         dial_prop: Some("Resistance"),
@@ -42,7 +41,6 @@ pub(crate) const CASES: &[Case] = &[
         extras: &[
             ("Resistance", "4.7 kΩ", "10 kΩ"),
             ("Wiper", "0.25", "0.75"),
-            ("Key", "A", "B"),
             ("DialStep", "5 %", "2 %"),
         ],
         dial_prop: Some("Wiper"),

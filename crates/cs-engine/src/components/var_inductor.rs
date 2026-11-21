@@ -51,10 +51,7 @@ impl crate::canvas::Item {
                 max_l,
                 resistance,
                 init_curr,
-                dial: DialState {
-                    key: String::new(),
-                    step: dial_step,
-                },
+                dial: DialState::new(dial_step),
             },
         )
     }

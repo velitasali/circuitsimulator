@@ -146,6 +146,7 @@ Item {
     Loader {
         id: canvasLoader
         anchors.fill: parent
+        focus: true
         source: "CircuitView.qml"
     }
 

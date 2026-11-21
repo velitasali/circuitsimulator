@@ -4,7 +4,7 @@ use super::component::{
     DialState, clamp_positive, resistor_g, stamp_two_terminal, two_terminal_pins,
 };
 use super::prop_links;
-use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float, expect_string};
+use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable, TwoTerminal};
 use crate::canvas::Rect;
 use crate::elements::Kind;
@@ -16,16 +16,7 @@ const DEFAULT_MAX_R: f64 = 1_000.0;
 
 impl crate::canvas::Item {
     pub fn var_resistor(id: impl Into<String>, x: f64, y: f64, resistance: f64) -> Self {
-        Self::var_resistor_with(
-            id,
-            x,
-            y,
-            resistance,
-            0.0,
-            resistance * 2.0,
-            String::new(),
-            10.0,
-        )
+        Self::var_resistor_with(id, x, y, resistance, 0.0, resistance * 2.0, 10.0)
     }
 
     pub fn var_resistor_with(
@@ -35,7 +26,6 @@ impl crate::canvas::Item {
         resistance: f64,
         min_r: f64,
         max_r: f64,
-        key: String,
         dial_step: f64,
     ) -> Self {
         Self::new(
@@ -46,10 +36,7 @@ impl crate::canvas::Item {
                 resistance,
                 min_r,
                 max_r,
-                dial: DialState {
-                    key,
-                    step: dial_step,
-                },
+                dial: DialState::new(dial_step),
             },
         )
     }
@@ -127,13 +114,6 @@ impl VarResistor {
     fn max_adjusts(part: &mut Self, _: &PropValue) {
         prop_links::dialed_max(&mut part.max_r, part.min_r, &mut part.resistance);
     }
-    fn get_key(&self) -> PropValue {
-        PropValue::String(self.dial.key.clone())
-    }
-    fn set_key(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.dial.key = expect_string("Key", v)?;
-        Ok(())
-    }
     fn get_dial_step(&self) -> PropValue {
         PropValue::Float(self.dial.step)
     }
@@ -189,9 +169,6 @@ impl Component for VarResistor {
             )
             .updates(MAX_UPDATES)
             .with_info("Resistance with dial at the right end."),
-            PropDef::string("Key", "Key", VarResistor::get_key, VarResistor::set_key).with_info(
-                "Character shown in the button.\nCan be activated by keyboard in your PC.",
-            ),
             PropDef::float(
                 "DialStep",
                 "Dial Step",

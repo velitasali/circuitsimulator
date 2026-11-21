@@ -108,6 +108,7 @@ impl Canvas {
                 }
                 self.scene = scene;
                 self.drag = Drag::None;
+                self.held_shortcut_keys.clear();
                 self.banding = false;
                 self.pending = None;
                 if let Some(mode) = &self.link_mode {

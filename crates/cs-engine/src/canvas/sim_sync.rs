@@ -295,6 +295,18 @@ impl Canvas {
                                 }
                             }
                         }
+                    } else if !subc.board_children.is_empty() {
+                        let mut any = false;
+                        for ch in &subc.board_children {
+                            let sim_id = subc.child_sim_id(id, &ch.inner_id);
+                            if let Some(kind) = ch.part.to_element_kind() {
+                                any |= circuit.update_component_kind(&sim_id, &kind);
+                            }
+                        }
+                        if any {
+                            let r = circuit.re_solve();
+                            return self.publish_solution(r);
+                        }
                     }
                 }
                 if let Some(kind) = item.to_element_kind() {

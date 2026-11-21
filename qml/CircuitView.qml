@@ -1169,13 +1169,28 @@ Item {
         }
     }
 
+    onActiveFocusChanged: {
+        if (!activeFocus)
+            CircuitCanvas.releaseAllKeys()
+    }
+
+    Keys.onShortcutOverride: (ev) => {
+        if (CircuitCanvas.ownsKeyShortcut(ev.key, ev.modifiers, ev.text))
+            ev.accepted = true
+    }
+
     Keys.onPressed: (ev) => {
         if (ev.key === Qt.Key_Escape && CircuitCanvas.linkingFrom) {
             CircuitCanvas.stopLinking()
             ev.accepted = true
             return
         }
-        CircuitCanvas.handleKey(ev.key, ev.modifiers)
+        CircuitCanvas.handleKey(ev.key, ev.modifiers, ev.text, ev.isAutoRepeat)
+        ev.accepted = true
+    }
+
+    Keys.onReleased: (ev) => {
+        CircuitCanvas.handleKeyRelease(ev.key, ev.modifiers, ev.text, ev.isAutoRepeat)
         ev.accepted = true
     }
 

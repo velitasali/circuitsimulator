@@ -1,11 +1,13 @@
 //! Canvas event dispatch: mouse, keyboard, wheel, pinch-zoom, and cursor management.
 
+use std::mem;
+
 use crate::canvas::drag::{Drag, WireEditMode};
 use crate::canvas::geom::to_grid as snap_point;
 use crate::canvas::scene::{HitTarget, Part};
 use crate::canvas::wire::WireHit;
 use crate::canvas::{Canvas, Point, Rect};
-use crate::components::ComponentChange;
+use crate::components::{self, ComponentChange};
 
 pub const BUTTON_LEFT: u32 = 1;
 pub const BUTTON_RIGHT: u32 = 2;
@@ -917,7 +919,30 @@ impl Canvas {
         self.zoom_by(factor, self.last_item)
     }
 
+    pub fn owns_key_shortcut(&self, key: i32, mods: u32, text: &str) -> bool {
+        if self.board_layout.is_some() || self.link_mode.is_some() {
+            return false;
+        }
+        let Some(ch) = shortcut_char(key, mods, text) else {
+            return false;
+        };
+        self.scene
+            .items()
+            .iter()
+            .any(|it| it.kind.owns_key_shortcut(ch))
+    }
+
     pub fn key_press(&mut self, key: i32, mods: u32) -> Change {
+        self.key_press_with_text(key, mods, "", false)
+    }
+
+    pub fn key_press_with_text(
+        &mut self,
+        key: i32,
+        mods: u32,
+        text: &str,
+        auto_repeat: bool,
+    ) -> Change {
         let cmd = Self::cmd(mods);
         let shift = mods & MOD_SHIFT != 0;
         if cmd && key == KEY_A {
@@ -1008,7 +1033,112 @@ impl Canvas {
         if key == KEY_DELETE || key == KEY_BACKSPACE {
             return self.delete_selected();
         }
+        if !auto_repeat && self.board_layout.is_none() && self.link_mode.is_none() {
+            if let Some(ch) = shortcut_char(key, mods, text) {
+                return self.dispatch_component_key_press(key, ch);
+            }
+        }
         Change::default()
+    }
+
+    pub fn key_release(&mut self, key: i32, mods: u32, text: &str, auto_repeat: bool) -> Change {
+        if auto_repeat {
+            return Change::default();
+        }
+        let resolved = shortcut_char(key, mods, text);
+        let mut chars_to_release: Vec<char> = Vec::new();
+        let mut i = 0;
+        while i < self.held_shortcut_keys.len() {
+            let (held_code, held_ch) = self.held_shortcut_keys[i];
+            let matches = held_code == key
+                || resolved.is_some_and(|c| components::key_char_matches(held_ch, c));
+            if matches {
+                self.held_shortcut_keys.remove(i);
+                if !chars_to_release.contains(&held_ch) {
+                    chars_to_release.push(held_ch);
+                }
+            } else {
+                i += 1;
+            }
+        }
+        if let Some(ch) = resolved {
+            if !chars_to_release
+                .iter()
+                .any(|&c| components::key_char_matches(c, ch))
+            {
+                chars_to_release.push(ch);
+            }
+        }
+        let mut c = Change::default();
+        for ch in chars_to_release {
+            c.merge(self.dispatch_component_key_release(ch));
+        }
+        c
+    }
+
+    pub fn release_all_keys(&mut self) -> Change {
+        let held = mem::take(&mut self.held_shortcut_keys);
+        let mut c = Change::default();
+        for (_, ch) in held {
+            c.merge(self.dispatch_component_key_release(ch));
+        }
+        c
+    }
+
+    fn dispatch_component_key_press(&mut self, key: i32, ch: char) -> Change {
+        let any_owns = self
+            .scene
+            .items()
+            .iter()
+            .any(|it| it.kind.owns_key_shortcut(ch));
+        if !any_owns {
+            return Change::default();
+        }
+        if !self
+            .held_shortcut_keys
+            .iter()
+            .any(|&(k, c_h)| k == key && c_h == ch)
+        {
+            self.held_shortcut_keys.push((key, ch));
+        }
+        let before = self.snapshot();
+        let mut specs: Vec<ComponentChange> = Vec::new();
+        for it in self.scene.items_mut() {
+            if let Some(spec) = it.kind.interact_key_press(ch) {
+                specs.push(spec.with_uid(&it.id));
+            }
+        }
+        if specs.is_empty() {
+            return Change::default();
+        }
+        let needs_undo = specs.iter().any(|s| s.undo);
+        if needs_undo && before.sim1 != self.scene.to_sim1() {
+            self.history.undo.push(before);
+            let cap = self.max_undo();
+            while self.history.undo.len() > cap {
+                self.history.undo.remove(0);
+            }
+            self.history.redo.clear();
+        }
+        let mut c = Change::default();
+        for spec in specs {
+            c.merge(self.finish_component_change(spec));
+        }
+        c
+    }
+
+    fn dispatch_component_key_release(&mut self, ch: char) -> Change {
+        let mut specs: Vec<ComponentChange> = Vec::new();
+        for it in self.scene.items_mut() {
+            if let Some(spec) = it.kind.interact_key_release(ch) {
+                specs.push(spec.with_uid(&it.id));
+            }
+        }
+        let mut c = Change::default();
+        for spec in specs {
+            c.merge(self.finish_component_change(spec));
+        }
+        c
     }
 
     pub fn mouse_double_click(
@@ -1168,4 +1298,17 @@ impl Canvas {
         c.merge(self.set_cursor(want));
         c
     }
+}
+
+fn shortcut_char(key: i32, mods: u32, text: &str) -> Option<char> {
+    if mods & (MOD_CTRL | MOD_ALT | MOD_META) != 0 {
+        return None;
+    }
+    if let Some(ch) = text.chars().find(|c| !c.is_control()) {
+        return Some(ch);
+    }
+    u32::try_from(key)
+        .ok()
+        .and_then(char::from_u32)
+        .filter(|c| !c.is_control())
 }

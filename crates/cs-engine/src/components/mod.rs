@@ -152,7 +152,7 @@ pub use clock::Clock;
 pub use comparator::Comparator;
 pub use component::{
     CompPin, Component, DialState, Dialed, PinDirection, PropGroup, PropRow, Stampable,
-    TwoTerminal, group_rows_by, prop_group,
+    TwoTerminal, group_rows_by, key_char_matches, key_prop_matches, prop_group,
 };
 pub use counter::Counter;
 pub use csource::Csource;
@@ -660,6 +660,18 @@ impl Part {
 
     pub fn interact_cancel(&mut self) -> bool {
         each_migrated_mut!(self, |p| p.interact_cancel())
+    }
+
+    pub fn owns_key_shortcut(&self, ch: char) -> bool {
+        each_migrated!(self, |p| p.owns_key_shortcut(ch))
+    }
+
+    pub fn interact_key_press(&mut self, ch: char) -> Option<ComponentChange> {
+        each_migrated_mut!(self, |p| p.interact_key_press(ch))
+    }
+
+    pub fn interact_key_release(&mut self, ch: char) -> Option<ComponentChange> {
+        each_migrated_mut!(self, |p| p.interact_key_release(ch))
     }
 
     pub fn type_id(&self) -> &'static str {

@@ -170,12 +170,16 @@ Dialog {
                 TapHandler {
                     acceptedButtons: Qt.RightButton
                     onTapped: {
-                        if (delegateItem.modelData && delegateItem.modelData.type === "action") {
+                        if (delegateItem.modelData && (delegateItem.modelData.type === "action" || delegateItem.modelData.type === "component")) {
                             CommandCenter.currentRow = delegateItem.index
-                            shortcutDialog.actionId = delegateItem.modelData.data || ""
+                            var isComp = delegateItem.modelData.type === "component"
+                            shortcutDialog.actionId = isComp
+                                ? (delegateItem.modelData.actionId || "")
+                                : (delegateItem.modelData.data || "")
                             shortcutDialog.actionName = delegateItem.modelData.text || ""
                             shortcutDialog.currentShortcut = delegateItem.modelData.shortcut || ""
                             shortcutDialog.defaultShortcut = delegateItem.modelData.defaultShortcut || ""
+                            shortcutDialog.singleKeyOnly = isComp
                             actionContextMenu.popup()
                         }
                     }

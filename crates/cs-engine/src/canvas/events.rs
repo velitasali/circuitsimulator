@@ -932,6 +932,17 @@ impl Canvas {
             .any(|it| it.kind.owns_key_shortcut(ch))
     }
 
+    /// Whether the canvas is in a neutral state where a bare single-key
+    /// component insertion shortcut may fire (no modal mode, wire drawing, or
+    /// active drag, and no interactive component on the canvas owns the key).
+    pub fn can_insert_by_key(&self, key: i32, mods: u32, text: &str) -> bool {
+        self.board_layout.is_none()
+            && self.link_mode.is_none()
+            && !self.scene.drawing()
+            && matches!(self.drag, Drag::None)
+            && !self.owns_key_shortcut(key, mods, text)
+    }
+
     pub fn key_press(&mut self, key: i32, mods: u32) -> Change {
         self.key_press_with_text(key, mods, "", false)
     }

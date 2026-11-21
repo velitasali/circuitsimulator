@@ -315,8 +315,29 @@ impl CommandCenter {
         let custom = settings::with(|s| s.shortcuts.clone());
         let (kind, label) = match actions::check_conflict(&id, &shortcut, &custom) {
             Conflict::None => ("none", String::new()),
+            Conflict::InvalidComponentKey => (
+                "invalid",
+                i18n::tr(
+                    "Component shortcuts must be a single key (A–Z or 0–9) without modifiers.",
+                ),
+            ),
             Conflict::Reserved { reason } => ("reserved", i18n::tr(reason)),
-            Conflict::Action { label, .. } => ("conflict", i18n::tr(label)),
+            Conflict::Action {
+                id: owner_id,
+                label,
+            } => {
+                let display = if let Some(spec) = actions::component_spec_from_id(&owner_id) {
+                    let cap = self
+                        .lib
+                        .find_catalog_item(spec)
+                        .map(|it| it.caption.as_str())
+                        .unwrap_or(&label);
+                    format!("{} {}", i18n::tr("Insert >"), i18n::tr(cap))
+                } else {
+                    i18n::tr(&label)
+                };
+                ("conflict", display)
+            }
         };
         json!({
             "kind": kind,
@@ -407,11 +428,17 @@ impl CommandCenter {
                 }
 
                 if let Some(r) = rank {
+                    let spec = library::canonical_component_spec(label, comp_type);
+                    let action_id = actions::component_action_id(&spec);
+                    let effective = actions::effective_shortcut(&action_id, &custom_shortcuts);
+                    let default_sc = actions::default_shortcut(&action_id);
                     entries.push(RankedEntry {
                         rank: r,
                         item: json!({
                             "text": insert_text,
-                            "shortcut": "",
+                            "shortcut": effective,
+                            "defaultShortcut": default_sc,
+                            "actionId": action_id,
                             "icon": UiIcon::DeveloperBoard.as_str(),
                             "type": "component",
                             "data": label,
@@ -1021,5 +1048,22 @@ mod tests {
                 .any(|i| i["data"] == "sim.run" && i["text"] == "Run"),
             "Circuit palette must list Run"
         );
+    }
+
+    #[test]
+    fn command_palette_exposes_component_action_id_and_default_shortcuts() {
+        let mut cc = CommandCenter::default();
+        cc.populate_command_palette("resistor");
+        let res = cc
+            .items
+            .iter()
+            .find(|i| i["type"] == "component" && i["compType"] == "Resistor")
+            .expect("Resistor component must appear in Command Palette");
+        assert_eq!(res["actionId"], "insert:Resistor");
+        assert_eq!(res["defaultShortcut"], "R");
+
+        let invalid = cc.shortcut_conflict("insert:Resistor".into(), "Ctrl+R".into());
+        assert_eq!(invalid["kind"], "invalid");
+        assert!(!invalid["label"].as_str().unwrap_or_default().is_empty());
     }
 }

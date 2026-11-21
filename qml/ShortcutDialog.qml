@@ -22,6 +22,7 @@ Dialog {
     property string currentShortcut: ""
     property string defaultShortcut: ""
     property string recordedShortcut: ""
+    property bool singleKeyOnly: false
 
     readonly property var conflictInfo: (root.visible && root.actionId)
         ? CommandCenter.shortcutConflict(root.actionId, root.recordedShortcut)
@@ -29,10 +30,12 @@ Dialog {
     readonly property string conflictKind: (conflictInfo && conflictInfo.kind) ? String(conflictInfo.kind) : "none"
     readonly property string conflictLabel: (conflictInfo && conflictInfo.label) ? String(conflictInfo.label) : ""
     readonly property bool isReserved: conflictKind === "reserved"
+    readonly property bool isInvalid: conflictKind === "invalid"
+    readonly property bool hasError: isReserved || isInvalid
     readonly property bool isConflict: conflictKind === "conflict"
 
     function commitShortcut(): void {
-        if (root.isReserved)
+        if (root.hasError)
             return
         if (root.actionId) {
             if (root.recordedShortcut === root.defaultShortcut)
@@ -155,10 +158,10 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
                 color: appTheme.base
-                border.color: root.isReserved
+                border.color: root.hasError
                     ? CircuitCanvas.msgErrorBg
                     : (captureArea.activeFocus ? appTheme.highlight : appTheme.mid)
-                border.width: (captureArea.activeFocus || root.isReserved) ? 2 : 1
+                border.width: (captureArea.activeFocus || root.hasError) ? 2 : 1
                 radius: 10
 
                 focus: true
@@ -178,7 +181,9 @@ Dialog {
                 AppText {
                     anchors.fill: parent
                     anchors.leftMargin: 10
-                    text: I18n.tr("Press a key combination...")
+                    text: root.singleKeyOnly
+                        ? I18n.tr("Press a key (A–Z, 0–9)...")
+                        : I18n.tr("Press a key combination...")
                     color: appTheme.windowText
                     opacity: 0.5
                     verticalAlignment: Text.AlignVCenter
@@ -222,12 +227,14 @@ Dialog {
             }
 
             AppText {
-                visible: root.isReserved || root.isConflict
-                text: root.isReserved
-                    ? I18n.tr("Reserved shortcut (%1). Choose another key combination.").arg(root.conflictLabel)
-                    : I18n.tr("Currently assigned to %1. Saving will clear that binding.").arg(root.conflictLabel)
+                visible: root.hasError || root.isConflict
+                text: root.isInvalid
+                    ? root.conflictLabel
+                    : (root.isReserved
+                        ? I18n.tr("Reserved shortcut (%1). Choose another key combination.").arg(root.conflictLabel)
+                        : I18n.tr("Currently assigned to %1. Saving will clear that binding.").arg(root.conflictLabel))
                 font.pixelSize: App.fontSmall
-                color: root.isReserved ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
+                color: root.hasError ? CircuitCanvas.msgErrorBg : CircuitCanvas.msgWarnBg
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -266,7 +273,7 @@ Dialog {
                     text: I18n.tr("OK")
                     font.bold: true
                     highlighted: true
-                    enabled: !root.isReserved
+                    enabled: !root.hasError
                     onClicked: root.commitShortcut()
                 }
             }

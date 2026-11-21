@@ -13,6 +13,7 @@ pub mod selection;
 
 use std::sync::Mutex;
 
+use crate::actions;
 use crate::path_util::strip_file_url;
 use cs_engine::backup;
 use cs_engine::canvas::{Canvas, Change, DirtySet, Palette};
@@ -1268,6 +1269,8 @@ impl CircuitCanvas {
     fn request_show_terminal(&mut self);
     #[qsignal]
     fn request_open_serial_mon(&mut self, mon_id: String, title: String);
+    #[qsignal]
+    fn request_insert_component(&mut self, spec: String);
     /// Plot buffers changed. Carries no trace data. The scope and logic-analyzer
     /// cursors read the sample under the pointer on this ping.
     #[qsignal]
@@ -2462,13 +2465,28 @@ impl CircuitCanvas {
 
     #[qslot]
     fn handle_key(&mut self, code: i32, mods: i32, text: String, auto_repeat: bool) {
+        let mods_u32 = mods as u32;
+        let can_insert = !auto_repeat && self.inner.can_insert_by_key(code, mods_u32, &text);
         let c = self
             .inner
-            .key_press_with_text(code, mods as u32, &text, auto_repeat);
+            .key_press_with_text(code, mods_u32, &text, auto_repeat);
         if let Some((uid, val, text, wiper)) = self.inner.take_last_wheel_item() {
             self.item_value_changed(uid, val, text, wiper);
         }
         self.apply(c);
+        if can_insert {
+            let custom = settings::with(|s| s.shortcuts.clone());
+            if let Some(spec) = actions::component_for_key(code, mods_u32, &custom) {
+                self.request_insert_component(spec);
+            }
+        }
+    }
+
+    #[qslot]
+    fn insert_component(&mut self, spec: String) {
+        if !spec.trim().is_empty() {
+            self.request_insert_component(spec);
+        }
     }
 
     #[qslot]

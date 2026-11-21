@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import cs_app
 import cs_ui
 
@@ -125,6 +126,10 @@ Item {
                      oldItem.hasChildren !== newItem.hasChildren ||
                      oldItem.itemType !== newItem.itemType ||
                      oldItem.compType !== newItem.compType ||
+                     oldItem.spec !== newItem.spec ||
+                     oldItem.actionId !== newItem.actionId ||
+                     oldItem.shortcut !== newItem.shortcut ||
+                     oldItem.defaultShortcut !== newItem.defaultShortcut ||
                      oldItem.iconUri !== newItem.iconUri ||
                      oldItem.isCustom !== newItem.isCustom ) {
                     rowModel.set( i, newItem )
@@ -178,7 +183,27 @@ Item {
 
     AppContextMenu {
         id: contextMenu
+        property string targetActionId: ""
+        property string targetName: ""
+        property string targetShortcut: ""
+        property string targetDefaultShortcut: ""
         onAboutToShow: root.clearHover()
+        ContextMenuItem {
+            visible: contextMenu.targetActionId.length > 0
+            text: contextMenu.targetShortcut.length > 0
+                ? I18n.tr( "Edit Shortcut..." )
+                : I18n.tr( "Assign Shortcut..." )
+            shortcutText: contextMenu.targetShortcut
+            iconLigature: "keyboard"
+            onTriggered: {
+                compShortcutDialog.actionId = contextMenu.targetActionId
+                compShortcutDialog.actionName = contextMenu.targetName
+                compShortcutDialog.currentShortcut = contextMenu.targetShortcut
+                compShortcutDialog.defaultShortcut = contextMenu.targetDefaultShortcut
+                compShortcutDialog.open()
+            }
+        }
+        ContextMenuSeparator { visible: contextMenu.targetActionId.length > 0 }
         ContextMenuItem {
             text: I18n.tr( "Clear Recently Used" )
             iconLigature: "delete"
@@ -191,10 +216,21 @@ Item {
         }
     }
 
+    ShortcutDialog {
+        id: compShortcutDialog
+        singleKeyOnly: true
+    }
+
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.RightButton
-        onClicked: contextMenu.popup()
+        onClicked: {
+            contextMenu.targetActionId = ""
+            contextMenu.targetName = ""
+            contextMenu.targetShortcut = ""
+            contextMenu.targetDefaultShortcut = ""
+            contextMenu.popup()
+        }
     }
 
     ListView {
@@ -247,16 +283,16 @@ Item {
                 color: appTheme.highlight
             }
 
-            Row {
+            RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 6 + row.model.depth * 14
-                anchors.rightMargin: 6
+                anchors.rightMargin: 8
                 spacing: 6
 
                 AppIcon {
                     visible: row.isCategory
-                    width: 14
-                    anchors.verticalCenter: parent.verticalCenter
+                    Layout.preferredWidth: 14
+                    Layout.alignment: Qt.AlignVCenter
                     icon: row.model.expanded ? "expand_more" : "chevron_right"
                     size: 16
                     color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
@@ -264,9 +300,9 @@ Item {
 
                 ItemDelegate {
                     visible: !row.isCategory
-                    anchors.verticalCenter: parent.verticalCenter
-                    height: parent.height
-                    width: parent.width
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.alignment: Qt.AlignVCenter
                     padding: 0
                     spacing: 6
                     icon.source: row.model.iconUri || ""
@@ -283,14 +319,39 @@ Item {
                     hoverEnabled: false
                 }
 
+                Rectangle {
+                    visible: !row.isCategory && Boolean(row.model.shortcut && row.model.shortcut.length > 0)
+                    Layout.alignment: Qt.AlignVCenter
+                    implicitWidth: Math.max(18, shortcutBadgeLabel.implicitWidth + 8)
+                    implicitHeight: 16
+                    radius: 4
+                    color: hover.hovered
+                        ? Qt.rgba(appTheme.highlightedText.r, appTheme.highlightedText.g, appTheme.highlightedText.b, 0.18)
+                        : Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.08)
+                    border.color: hover.hovered
+                        ? Qt.rgba(appTheme.highlightedText.r, appTheme.highlightedText.g, appTheme.highlightedText.b, 0.35)
+                        : Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.2)
+                    border.width: 1
+
+                    AppText {
+                        id: shortcutBadgeLabel
+                        anchors.centerIn: parent
+                        text: row.model.shortcut || ""
+                        font.pixelSize: App.fontMicro
+                        font.bold: true
+                        color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
+                        opacity: hover.hovered ? 1.0 : 0.72
+                    }
+                }
+
                 AppText {
                     visible: row.isCategory
-                    anchors.verticalCenter: parent.verticalCenter
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
                     text: row.model.display
                     font.bold: true
                     color: hover.hovered ? appTheme.highlightedText : appTheme.windowText
                     elide: Text.ElideRight
-                    width: parent.width - 24
                 }
             }
 
@@ -317,39 +378,28 @@ Item {
                     root.clearHover()
                     if ( row.isCategory )
                         return
-                    var t = row.model.compType
                     var cap = row.model.caption || row.model.display
-                    var spec = (cap === row.model.compType) ? row.model.compType : (cap + "," + row.model.compType)
-                    ComponentList.addRecent( spec )
-                    if ( t === "Oscope" || t === "Oscilloscope" ) {
-                        CircuitCanvas.addComponent( t )
-                        App.showOsc()
-                    } else if ( t === "LAnalizer" ) {
-                        CircuitCanvas.addComponent( t )
-                        App.showLa()
-                    } else if ( t === "MCU" ) {
-                        if ( cap === "MCU" )
-                            App.showMcu()
-                        else
-                            CircuitCanvas.addComponent( cap + "," + t )
-                    } else if ( t === "QemuDevice" ) {
-                        CircuitCanvas.addComponent( cap + "," + t )
-                        App.showMcu()
-                    } else if ( t === "SerialPort" ) {
-                        CircuitCanvas.addComponent( cap + "," + t )
-                        App.showSerialMon()
-                    } else if ( t === "SerialTerm" ) {
-                        CircuitCanvas.addComponent( cap + "," + t )
-                        App.showTerminal()
-                    } else {
-                        CircuitCanvas.addComponent( spec )
-                    }
+                    var fallbackSpec = (cap === row.model.compType) ? row.model.compType : (cap + "," + row.model.compType)
+                    CircuitCanvas.insertComponent( row.model.spec || fallbackSpec )
                 }
             }
 
             TapHandler {
                 acceptedButtons: Qt.RightButton
-                onTapped: contextMenu.popup()
+                onTapped: {
+                    if ( !row.isCategory && row.model.actionId ) {
+                        contextMenu.targetActionId = row.model.actionId
+                        contextMenu.targetName = row.model.display || row.model.caption || ""
+                        contextMenu.targetShortcut = row.model.shortcut || ""
+                        contextMenu.targetDefaultShortcut = row.model.defaultShortcut || ""
+                    } else {
+                        contextMenu.targetActionId = ""
+                        contextMenu.targetName = ""
+                        contextMenu.targetShortcut = ""
+                        contextMenu.targetDefaultShortcut = ""
+                    }
+                    contextMenu.popup()
+                }
             }
 
             DragHandler {

@@ -4,11 +4,42 @@
 //! checks, and platform-specific shortcut collection live here so the menu bar,
 //! Command Center, context menus, and macOS `NSMenu` never drift apart.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
+use cs_engine::canvas::{MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT};
 use serde_json::{Map, Value, json};
 
 use crate::ui_icon::UiIcon;
+
+/// Action-ID prefix for single-key component insertion shortcuts stored in
+/// `AppSettings::shortcuts` (e.g. `"insert:Resistor"`, `"insert:mega328,MCU"`).
+pub const COMPONENT_ACTION_PREFIX: &str = "insert:";
+
+/// Built-in default single-key insertion binding for a library component.
+#[derive(Clone, Copy, Debug)]
+pub struct ComponentShortcutDef {
+    pub spec: &'static str,
+    pub label: &'static str,
+    pub default_shortcut: &'static str,
+}
+
+/// Default single-key component insertion shortcuts (`A–Z`, `0–9`, no modifiers).
+#[rustfmt::skip]
+pub const DEFAULT_COMPONENT_SHORTCUTS: &[ComponentShortcutDef] = &[
+    ComponentShortcutDef { spec: "Resistor", label: "Resistor", default_shortcut: "R" },
+    ComponentShortcutDef { spec: "Capacitor", label: "Capacitor", default_shortcut: "C" },
+    ComponentShortcutDef { spec: "Inductor", label: "Inductor", default_shortcut: "L" },
+    ComponentShortcutDef { spec: "Diode", label: "Diode", default_shortcut: "D" },
+    ComponentShortcutDef { spec: "Led", label: "Led", default_shortcut: "E" },
+    ComponentShortcutDef { spec: "FixedVolt", label: "Fixed Voltage", default_shortcut: "V" },
+    ComponentShortcutDef { spec: "Battery", label: "Battery", default_shortcut: "B" },
+    ComponentShortcutDef { spec: "Switch", label: "Switch", default_shortcut: "S" },
+    ComponentShortcutDef { spec: "Push", label: "Push Button", default_shortcut: "P" },
+    ComponentShortcutDef { spec: "Bjt", label: "BJT", default_shortcut: "Q" },
+    ComponentShortcutDef { spec: "Mosfet", label: "MOSFET", default_shortcut: "M" },
+    ComponentShortcutDef { spec: "OpAmp", label: "OpAmp", default_shortcut: "A" },
+    ComponentShortcutDef { spec: "Ground", label: "Ground (0 V)", default_shortcut: "0" },
+];
 
 /// One application action known to the menu bar and/or Command Center.
 #[derive(Clone, Copy, Debug)]
@@ -207,8 +238,91 @@ pub fn palette_actions() -> impl Iterator<Item = &'static ActionDef> {
     ACTIONS.iter().filter(|a| a.in_palette)
 }
 
+pub fn component_action_id(spec: &str) -> String {
+    format!("{COMPONENT_ACTION_PREFIX}{spec}")
+}
+
+pub fn component_spec_from_id(id: &str) -> Option<&str> {
+    id.strip_prefix(COMPONENT_ACTION_PREFIX)
+        .filter(|s| !s.is_empty())
+}
+
+pub fn is_component_action(id: &str) -> bool {
+    component_spec_from_id(id).is_some()
+}
+
+pub fn default_component_shortcut(spec: &str) -> Option<&'static ComponentShortcutDef> {
+    DEFAULT_COMPONENT_SHORTCUTS.iter().find(|c| c.spec == spec)
+}
+
 pub fn default_shortcut(id: &str) -> &'static str {
-    find(id).map(|a| a.default_shortcut).unwrap_or("")
+    if let Some(action) = find(id) {
+        return action.default_shortcut;
+    }
+    if let Some(spec) = component_spec_from_id(id) {
+        if let Some(def) = default_component_shortcut(spec) {
+            return def.default_shortcut;
+        }
+    }
+    ""
+}
+
+/// Returns whether `raw` is a valid single non-modifier key for component
+/// insertion (`A–Z` or `0–9`, with no `Ctrl`/`Alt`/`Shift`/`Meta` modifiers).
+pub fn is_valid_component_shortcut(raw: &str) -> bool {
+    let Some((ctrl, alt, shift, meta, key)) = parse_chord(raw) else {
+        return false;
+    };
+    if ctrl || alt || shift || meta {
+        return false;
+    }
+    let mut chars = key.chars();
+    matches!(
+        (chars.next(), chars.next()),
+        (Some(c), None) if c.is_ascii_uppercase() || c.is_ascii_digit()
+    )
+}
+
+fn component_label_for_spec(spec: &str) -> &str {
+    if let Some(def) = default_component_shortcut(spec) {
+        return def.label;
+    }
+    spec.split_once(',').map(|(c, _)| c).unwrap_or(spec)
+}
+
+fn all_component_action_ids(custom: &BTreeMap<String, String>) -> Vec<String> {
+    let mut ids = BTreeSet::new();
+    for def in DEFAULT_COMPONENT_SHORTCUTS {
+        ids.insert(component_action_id(def.spec));
+    }
+    for key in custom.keys() {
+        if is_component_action(key) {
+            ids.insert(key.clone());
+        }
+    }
+    ids.into_iter().collect()
+}
+
+/// Resolves a bare single-key press (`A–Z` or `0–9`, no `Ctrl`/`Alt`/`Shift`/`Meta`)
+/// to the canonical component `spec` currently bound to it, if any.
+pub fn component_for_key(key: i32, mods: u32, custom: &BTreeMap<String, String>) -> Option<String> {
+    if mods & (MOD_CTRL | MOD_ALT | MOD_META | MOD_SHIFT) != 0 {
+        return None;
+    }
+    let ch = match key {
+        0x41..=0x5A | 0x30..=0x39 => char::from_u32(key as u32)?,
+        _ => return None,
+    };
+    let mut buf = [0u8; 1];
+    let target: &str = ch.encode_utf8(&mut buf);
+    for id in all_component_action_ids(custom) {
+        if effective_shortcut(&id, custom) == target {
+            if let Some(spec) = component_spec_from_id(&id) {
+                return Some(spec.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Parses a shortcut chord into `(ctrl, alt, shift, meta, key)`.
@@ -377,20 +491,23 @@ pub fn macos_menu_owns_shortcut(shortcut: &str) -> bool {
 
 /// Resolves the active shortcut for `id` against user overrides.
 ///
-/// - Absent key: built-in default from `ACTIONS`.
+/// - Absent key: built-in default from `ACTIONS` or `DEFAULT_COMPONENT_SHORTCUTS`.
 /// - Present empty string `""`: explicitly unbound by the user.
-/// - Present non-empty string: normalized custom binding.
+/// - Present non-empty string: normalized custom binding (component actions
+///   ignore any invalid non-single-key value).
 pub fn effective_shortcut(id: &str, custom: &BTreeMap<String, String>) -> String {
     let cid = canonical_id(id);
-    if let Some(val) = custom.get(cid) {
-        return normalize_shortcut(val);
+    let resolved = if let Some(val) = custom.get(cid) {
+        normalize_shortcut(val)
+    } else if let Some(val) = legacy_aliases(cid).iter().find_map(|a| custom.get(*a)) {
+        normalize_shortcut(val)
+    } else {
+        normalize_shortcut(default_shortcut(cid))
+    };
+    if is_component_action(cid) && !resolved.is_empty() && !is_valid_component_shortcut(&resolved) {
+        return String::new();
     }
-    for alias in legacy_aliases(cid) {
-        if let Some(val) = custom.get(*alias) {
-            return normalize_shortcut(val);
-        }
-    }
-    normalize_shortcut(default_shortcut(cid))
+    resolved
 }
 
 /// Map of every canonical action ID to its effective Qt shortcut string.
@@ -406,17 +523,14 @@ pub fn effective_shortcut_map(custom: &BTreeMap<String, String>) -> Map<String, 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Conflict {
     None,
-    Reserved {
-        reason: &'static str,
-    },
-    Action {
-        id: &'static str,
-        label: &'static str,
-    },
+    InvalidComponentKey,
+    Reserved { reason: &'static str },
+    Action { id: String, label: String },
 }
 
 /// Checks whether assigning `raw_shortcut` to `action_id` conflicts with a
-/// reserved chord or another action's effective binding.
+/// reserved chord, invalid component key, or another action/component's
+/// effective binding.
 pub fn check_conflict(
     action_id: &str,
     raw_shortcut: &str,
@@ -427,6 +541,10 @@ pub fn check_conflict(
         return Conflict::None;
     }
     let cid = canonical_id(action_id);
+
+    if is_component_action(cid) && !is_valid_component_shortcut(&norm) {
+        return Conflict::InvalidComponentKey;
+    }
 
     if let Some((_, owner_label)) = HARDCODED_CHORDS
         .iter()
@@ -450,8 +568,25 @@ pub fn check_conflict(
         let other = effective_shortcut(action.id, custom);
         if chords_equal(&other, &norm) {
             return Conflict::Action {
-                id: action.id,
-                label: action.label,
+                id: action.id.to_string(),
+                label: action.label.to_string(),
+            };
+        }
+    }
+
+    for other_id in all_component_action_ids(custom) {
+        if other_id == cid {
+            continue;
+        }
+        let other = effective_shortcut(&other_id, custom);
+        if chords_equal(&other, &norm) {
+            let label = component_spec_from_id(&other_id)
+                .map(component_label_for_spec)
+                .unwrap_or(&other_id)
+                .to_string();
+            return Conflict::Action {
+                id: other_id,
+                label,
             };
         }
     }
@@ -474,14 +609,21 @@ fn unbind_chord_owners(custom: &mut BTreeMap<String, String>, except_cid: &str, 
     if norm_chord.is_empty() {
         return;
     }
-    let conflicting: Vec<&'static str> = ACTIONS
+    let mut conflicting: Vec<String> = ACTIONS
         .iter()
         .filter(|a| a.id != except_cid)
         .filter(|a| chords_equal(&effective_shortcut(a.id, custom), norm_chord))
-        .map(|a| a.id)
+        .map(|a| a.id.to_string())
         .collect();
+    for other_id in all_component_action_ids(custom) {
+        if other_id != except_cid
+            && chords_equal(&effective_shortcut(&other_id, custom), norm_chord)
+        {
+            conflicting.push(other_id);
+        }
+    }
     for other_id in conflicting {
-        unbind_action(custom, other_id);
+        unbind_action(custom, &other_id);
     }
 }
 
@@ -489,8 +631,8 @@ fn unbind_chord_owners(custom: &mut BTreeMap<String, String>, except_cid: &str, 
 ///
 /// - Passing `""` explicitly unbinds the action (even if it has a default).
 /// - Passing the action's default shortcut removes the custom override.
-/// - Passing a chord already assigned to another action clears the old owner.
-/// - Returns `false` without mutating `custom` if the chord is reserved.
+/// - Passing a chord already assigned to another action or component clears the old owner.
+/// - Returns `false` without mutating `custom` if the chord is reserved or invalid.
 pub fn set_shortcut(
     custom: &mut BTreeMap<String, String>,
     action_id: &str,
@@ -501,7 +643,7 @@ pub fn set_shortcut(
 
     if matches!(
         check_conflict(cid, &norm, custom),
-        Conflict::Reserved { .. }
+        Conflict::Reserved { .. } | Conflict::InvalidComponentKey
     ) {
         return false;
     }
@@ -626,10 +768,14 @@ mod tests {
     #[test]
     fn action_ids_and_default_shortcuts_are_unique() {
         let mut ids = HashSet::new();
-        let mut chords: Vec<(&str, String)> = Vec::new();
+        let mut chords: Vec<(String, String)> = Vec::new();
 
         for a in ACTIONS {
-            assert!(ids.insert(a.id), "duplicate action id '{}'", a.id);
+            assert!(
+                ids.insert(a.id.to_string()),
+                "duplicate action id '{}'",
+                a.id
+            );
             let norm = normalize_shortcut(a.default_shortcut);
             if !norm.is_empty() {
                 if let Some((prev_id, _)) = chords.iter().find(|(_, c)| chords_equal(c, &norm)) {
@@ -638,8 +784,27 @@ mod tests {
                         norm, prev_id, a.id
                     );
                 }
-                chords.push((a.id, norm));
+                chords.push((a.id.to_string(), norm));
             }
+        }
+
+        for c in DEFAULT_COMPONENT_SHORTCUTS {
+            let cid = component_action_id(c.spec);
+            assert!(ids.insert(cid.clone()), "duplicate component id '{}'", cid);
+            assert!(
+                is_valid_component_shortcut(c.default_shortcut),
+                "invalid default component shortcut '{}' on '{}'",
+                c.default_shortcut,
+                cid
+            );
+            let norm = normalize_shortcut(c.default_shortcut);
+            if let Some((prev_id, _)) = chords.iter().find(|(_, ch)| chords_equal(ch, &norm)) {
+                panic!(
+                    "duplicate default shortcut '{}' on '{}' and '{}'",
+                    norm, prev_id, cid
+                );
+            }
+            chords.push((cid, norm));
         }
     }
 
@@ -680,8 +845,8 @@ mod tests {
         assert_eq!(
             check_conflict("file.open", "Ctrl+S", &custom),
             Conflict::Action {
-                id: "file.save",
-                label: "Save"
+                id: "file.save".into(),
+                label: "Save".into(),
             }
         );
 
@@ -820,5 +985,110 @@ mod tests {
             Some("Delete")
         );
         assert_eq!(map.get("sim.power").and_then(Value::as_str), Some("F8"));
+    }
+
+    #[test]
+    fn component_shortcut_validation_only_allows_bare_alphanumeric() {
+        for valid in ["r", "R", "a", "Z", "0", "9"] {
+            assert!(
+                is_valid_component_shortcut(valid),
+                "expected valid: {valid}"
+            );
+        }
+        for invalid in [
+            "", "Ctrl+R", "Shift+R", "Alt+R", "Meta+R", "F1", "Space", "Esc", "Delete", "Left",
+            "+", "-", "=", "/",
+        ] {
+            assert!(
+                !is_valid_component_shortcut(invalid),
+                "expected invalid: {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn component_shortcut_set_clear_reset_and_cross_conflicts() {
+        let mut custom = BTreeMap::new();
+        assert_eq!(effective_shortcut("insert:Resistor", &custom), "R");
+        assert_eq!(effective_shortcut("insert:Ground", &custom), "0");
+        assert_eq!(effective_shortcut("insert:Zener", &custom), "");
+
+        // Modifier chords are rejected for components.
+        assert_eq!(
+            check_conflict("insert:Zener", "Ctrl+Z", &custom),
+            Conflict::InvalidComponentKey
+        );
+        assert_eq!(
+            check_conflict("insert:Zener", "Shift+Z", &custom),
+            Conflict::InvalidComponentKey
+        );
+        assert!(!set_shortcut(&mut custom, "insert:Zener", "Ctrl+W"));
+        assert_eq!(effective_shortcut("insert:Zener", &custom), "");
+
+        // Rebinding G from Toggle Grid to Ground detects conflict and clears Toggle Grid.
+        assert_eq!(
+            check_conflict("insert:Ground", "G", &custom),
+            Conflict::Action {
+                id: "view.showGrid".into(),
+                label: "Toggle Grid".into(),
+            }
+        );
+        assert!(set_shortcut(&mut custom, "insert:Ground", "G"));
+        assert_eq!(effective_shortcut("insert:Ground", &custom), "G");
+        assert_eq!(effective_shortcut("view.showGrid", &custom), "");
+
+        // Rebinding R from Resistor to Zener clears Resistor (storing "" because it has a default).
+        assert_eq!(
+            check_conflict("insert:Zener", "R", &custom),
+            Conflict::Action {
+                id: "insert:Resistor".into(),
+                label: "Resistor".into(),
+            }
+        );
+        assert!(set_shortcut(&mut custom, "insert:Zener", "R"));
+        assert_eq!(effective_shortcut("insert:Zener", &custom), "R");
+        assert_eq!(effective_shortcut("insert:Resistor", &custom), "");
+        assert_eq!(custom.get("insert:Resistor").map(String::as_str), Some(""));
+
+        // Resetting Resistor reclaims R and clears Zener.
+        reset_shortcut(&mut custom, "insert:Resistor");
+        assert_eq!(effective_shortcut("insert:Resistor", &custom), "R");
+        assert_eq!(effective_shortcut("insert:Zener", &custom), "");
+        assert!(!custom.contains_key("insert:Resistor"));
+        assert!(!custom.contains_key("insert:Zener"));
+    }
+
+    #[test]
+    fn component_for_key_matches_bare_alphanumeric_only() {
+        let mut custom = BTreeMap::new();
+        assert_eq!(
+            component_for_key(0x52, 0, &custom).as_deref(),
+            Some("Resistor")
+        );
+        assert_eq!(
+            component_for_key(0x30, 0, &custom).as_deref(),
+            Some("Ground")
+        );
+        // Keypad modifier (numpad 0) is allowed because it's not Ctrl/Alt/Shift/Meta.
+        assert_eq!(
+            component_for_key(0x30, 0x2000_0000, &custom).as_deref(),
+            Some("Ground")
+        );
+        // Any standard modifier prevents matching.
+        assert_eq!(component_for_key(0x52, MOD_SHIFT, &custom), None);
+        assert_eq!(component_for_key(0x52, MOD_CTRL, &custom), None);
+        assert_eq!(component_for_key(0x52, MOD_ALT, &custom), None);
+        assert_eq!(component_for_key(0x52, MOD_META, &custom), None);
+
+        // Clearing Resistor unbinds R.
+        assert!(set_shortcut(&mut custom, "insert:Resistor", ""));
+        assert_eq!(component_for_key(0x52, 0, &custom), None);
+
+        // Assigning custom MCU spec to 1.
+        assert!(set_shortcut(&mut custom, "insert:mega328,MCU", "1"));
+        assert_eq!(
+            component_for_key(0x31, 0, &custom).as_deref(),
+            Some("mega328,MCU")
+        );
     }
 }

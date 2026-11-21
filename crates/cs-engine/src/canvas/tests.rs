@@ -2481,3 +2481,33 @@ fn right_click_subpackage_pin_notifies_items_and_resolves_ids() {
     assert_eq!(c.hit_pin_item_id(), None);
     assert_eq!(c.hit_pin_local_id(), None);
 }
+
+#[test]
+fn can_insert_by_key_yields_to_component_keys_and_modal_modes() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+
+    // Neutral canvas allows bare-key component insertion.
+    assert!(c.can_insert_by_key(KEY_R, 0, "r"));
+
+    // A Push button owning 'r' preempts component insertion for 'r', but not 'c'.
+    let push_id = c.scene.add_push(0.0, 0.0);
+    c.scene
+        .item_by_id_mut(&push_id)
+        .unwrap()
+        .set_prop_text("Key", "r");
+    assert!(!c.can_insert_by_key(KEY_R, 0, "r"));
+    assert!(c.can_insert_by_key(KEY_C, 0, "c"));
+
+    // Wire drawing blocks component insertion for any key.
+    let r_id = c.scene.add_default_resistor(80.0, 0.0);
+    let pin_id = format!("{r_id}-lPin");
+    let pin_scene = c.scene.pin_scene(&pin_id).unwrap();
+    let pin_item = item_of(&c, pin_scene);
+    c.mouse_press(BUTTON_LEFT, pin_item.x, pin_item.y, 0);
+    assert!(c.scene.drawing());
+    assert!(!c.can_insert_by_key(KEY_C, 0, "c"));
+    c.key_press(KEY_ESCAPE, 0);
+    assert!(!c.scene.drawing());
+    assert!(c.can_insert_by_key(KEY_C, 0, "c"));
+}

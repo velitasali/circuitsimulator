@@ -27,6 +27,7 @@ Item {
     readonly property string descText: (root.info && root.info.description) ? ("" + root.info.description) : ""
     readonly property string categoryText: (root.info && root.info.category) ? ("" + root.info.category) : ""
     readonly property string iconSource: (root.info && root.info.iconUri) ? ("" + root.info.iconUri) : ""
+    readonly property string shortcutText: (root.info && root.info.shortcut) ? ("" + root.info.shortcut) : ""
     readonly property bool isCustom: Boolean(root.info && root.info.isCustom)
 
     SystemPalette { id: appTheme }
@@ -59,7 +60,8 @@ Item {
 
     readonly property real naturalContentWidth: {
         var iconSlot = root.iconSource.length > 0 ? 42 : 0
-        var badgeSlot = root.isCustom ? (customBadge.implicitWidth + 6) : 0
+        var badgeSlot = (root.isCustom ? (customBadge.implicitWidth + 6) : 0)
+            + (root.shortcutText.length > 0 ? (shortcutBadge.implicitWidth + 6) : 0)
         var headerW = iconSlot + Math.max(titleMetrics.advanceWidth + badgeSlot, categoryMetrics.advanceWidth)
         return Math.max(headerW, descMetrics.advanceWidth)
     }
@@ -151,6 +153,27 @@ Item {
                         color: appTheme.windowText
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
+                    }
+
+                    Rectangle {
+                        id: shortcutBadge
+                        visible: root.shortcutText.length > 0
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: Math.max(20, shortcutBadgeLabel.implicitWidth + 10)
+                        implicitHeight: shortcutBadgeLabel.implicitHeight + 4
+                        radius: 4
+                        color: Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.08)
+                        border.color: Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.22)
+                        border.width: 1
+
+                        AppText {
+                            id: shortcutBadgeLabel
+                            anchors.centerIn: parent
+                            text: root.shortcutText
+                            font.pixelSize: App.fontMicro
+                            font.bold: true
+                            color: appTheme.windowText
+                        }
                     }
 
                     Rectangle {

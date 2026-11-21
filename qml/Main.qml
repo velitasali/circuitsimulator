@@ -642,9 +642,7 @@ ApplicationWindow {
                 FileBrowser.rootPath = id.substring(9)
             } else if (id.indexOf("insertSubc:") === 0) {
                 var subcName = id.substring(11)
-                var subcSpec = subcName + ",Subcircuit"
-                ComponentList.addRecent(subcSpec)
-                CircuitCanvas.addComponent(subcSpec)
+                win.insertComponent(subcName + ",Subcircuit")
             } else if (id === "help.about") {
                 App.showAbout()
             } else if (id === "help.info") {
@@ -786,6 +784,9 @@ ApplicationWindow {
 
     Connections {
         target: CircuitCanvas
+        function onRequestInsertComponent(spec: string): void {
+            win.insertComponent(spec)
+        }
         function onRequestShowProperties() {
             var uid = CircuitCanvas.selectedUid
             if (uid && propWindowManager.windows[uid]) {
@@ -1416,32 +1417,43 @@ ApplicationWindow {
         id: commandCenterDialog
     }
 
+    function insertComponent(spec: string): void {
+        if (!spec)
+            return
+        var comma = spec.indexOf(",")
+        var name = comma >= 0 ? spec.substring(0, comma).trim() : spec.trim()
+        var compType = comma >= 0 ? spec.substring(comma + 1).trim() : spec.trim()
+        ComponentList.addRecent(spec)
+        if (compType === "MCU" && name === "MCU") {
+            App.showMcu()
+            return
+        }
+        CircuitCanvas.addComponent(spec)
+        if (compType === "Oscope" || compType === "Oscilloscope") {
+            App.showOsc()
+        } else if (compType === "LogicAnalyzer" || compType === "LAnalizer") {
+            App.showLa()
+        } else if (compType === "QemuDevice") {
+            App.showMcu()
+        } else if (compType === "SerialPort") {
+            App.showSerialMon()
+        } else if (compType === "SerialTerm") {
+            App.showTerminal()
+        }
+    }
+
     Connections {
         target: CommandCenter
         function onShortcutsUpdated(): void {
             AppMenuBar.rebuild()
+            ComponentList.refreshShortcuts()
         }
         function onExecuteItem(typ: string, data: string, compType: string): void {
             if (typ === "action") {
                 AppMenuBar.triggerAction(data)
             } else if (typ === "component") {
                 var spec = (data === compType || !compType) ? data : (data + "," + compType)
-                ComponentList.addRecent(spec)
-                CircuitCanvas.addComponent(spec)
-                if (compType === "Oscope" || compType === "Oscilloscope") {
-                    App.showOsc()
-                } else if (compType === "LAnalizer") {
-                    App.showLa()
-                } else if (compType === "MCU") {
-                    if (data === "MCU")
-                        App.showMcu()
-                } else if (compType === "QemuDevice") {
-                    App.showMcu()
-                } else if (compType === "SerialPort") {
-                    App.showSerialMon()
-                } else if (compType === "SerialTerm") {
-                    App.showTerminal()
-                }
+                win.insertComponent(spec)
             } else if (typ === "jump_comp") {
                 CircuitCanvas.focusComponent(data)
             } else if (typ === "jump_file") {

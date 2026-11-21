@@ -5,12 +5,12 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 
-use cs_engine::library::{Library, RECENT_CATEGORY_ID, TYPE_COMPONENT};
+use cs_engine::library::{self, Library, RECENT_CATEGORY_ID, TYPE_COMPONENT};
 use cs_engine::{catalog, i18n, project, settings};
 use qtbridge::qobject;
 use serde_json::{Value, json};
 
-use crate::{path_util, pending};
+use crate::{actions, path_util, pending};
 
 include!(concat!(env!("OUT_DIR"), "/component_svgs.rs"));
 
@@ -138,6 +138,7 @@ impl ComponentList {
     fn drag_started(&mut self, mime: String);
 
     fn rows(&self) -> Value {
+        let custom_shortcuts = settings::with(|s| s.shortcuts.clone());
         let arr: Vec<Value> = self
             .lib
             .visible_rows()
@@ -148,12 +149,26 @@ impl ComponentList {
                 } else {
                     String::new()
                 };
+                let (spec, action_id, shortcut, default_shortcut) = if r.item_type == TYPE_COMPONENT
+                {
+                    let spec = library::canonical_component_spec(&r.caption, &r.comp_type);
+                    let action_id = actions::component_action_id(&spec);
+                    let shortcut = actions::effective_shortcut(&action_id, &custom_shortcuts);
+                    let default_shortcut = actions::default_shortcut(&action_id).to_string();
+                    (spec, action_id, shortcut, default_shortcut)
+                } else {
+                    (String::new(), String::new(), String::new(), String::new())
+                };
                 json!({
                     "id": r.id,
                     "caption": r.caption,
                     "display": i18n::tr(&r.caption),
                     "itemType": r.item_type,
                     "compType": r.comp_type,
+                    "spec": spec,
+                    "actionId": action_id,
+                    "shortcut": shortcut,
+                    "defaultShortcut": default_shortcut,
                     "depth": r.depth,
                     "expanded": r.expanded,
                     "hasChildren": r.has_children,
@@ -163,6 +178,11 @@ impl ComponentList {
             })
             .collect();
         Value::Array(arr)
+    }
+
+    #[qslot]
+    fn refresh_shortcuts(&mut self) {
+        self.rows_changed();
     }
 
     #[qslot]
@@ -215,12 +235,17 @@ impl ComponentList {
             .map(i18n::tr)
             .collect::<Vec<_>>()
             .join(" › ");
+        let spec = library::canonical_component_spec(&it.caption, &it.comp_type);
+        let action_id = actions::component_action_id(&spec);
+        let shortcut = settings::with(|s| actions::effective_shortcut(&action_id, &s.shortcuts));
         json!({
             "id": id,
             "title": i18n::tr(&it.caption),
             "description": description,
             "category": category,
             "compType": it.comp_type,
+            "spec": spec,
+            "shortcut": shortcut,
             "iconUri": icon_uri,
             "isCustom": it.is_custom,
         })
@@ -255,12 +280,16 @@ impl ComponentList {
 
     #[qslot]
     fn add_recent(&mut self, spec: String) {
-        let trimmed = spec.trim();
-        if trimmed.is_empty() {
+        let canon = library::normalize_component_spec(&spec);
+        if canon.is_empty() {
             return;
         }
-        cs_engine::settings::edit(|s| s.push_recent_component(trimmed.to_string()));
-        self.lib.add_recent(trimmed);
+        settings::edit(|s| {
+            s.recent_components
+                .retain(|existing| library::normalize_component_spec(existing) != canon);
+            s.push_recent_component(canon.clone());
+        });
+        self.lib.add_recent(&canon);
         self.rows_changed();
     }
 

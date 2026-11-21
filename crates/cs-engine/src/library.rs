@@ -12,6 +12,30 @@ pub const RECENT_CATEGORY_ID: u32 = 0x8000_0000;
 pub const RECENT_ITEM_BASE_ID: u32 = 0x8000_0001;
 pub const MAX_RECENT_ITEMS: usize = 10;
 
+/// Canonical component spec used for settings keys (`insert:<spec>`) and placement.
+/// Built-in types use `comp_type` directly; parameterized types (`MCU`,
+/// `QemuDevice`, `Subcircuit`) use `caption,comp_type` to disambiguate.
+pub fn canonical_component_spec(caption: &str, comp_type: &str) -> String {
+    let cap = caption.trim();
+    let typ = comp_type.trim();
+    if matches!(typ, "MCU" | "QemuDevice" | "Subcircuit") && !cap.is_empty() && cap != typ {
+        format!("{cap},{typ}")
+    } else if !typ.is_empty() {
+        typ.to_string()
+    } else {
+        cap.to_string()
+    }
+}
+
+/// Normalizes a `spec` string (`name,compType` or `compType`) into canonical form.
+pub fn normalize_component_spec(spec: &str) -> String {
+    if let Some((cap, typ)) = spec.split_once(',') {
+        canonical_component_spec(cap, typ)
+    } else {
+        spec.trim().to_string()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct LibraryItem {
     pub id: u32,
@@ -205,12 +229,13 @@ impl Library {
     }
 
     pub fn add_recent(&mut self, spec: &str) {
-        let spec = spec.trim();
-        if spec.is_empty() {
+        let canon = normalize_component_spec(spec);
+        if canon.is_empty() {
             return;
         }
-        self.recent_components.retain(|s| s != spec);
-        self.recent_components.insert(0, spec.to_string());
+        self.recent_components
+            .retain(|s| normalize_component_spec(s) != canon);
+        self.recent_components.insert(0, canon);
         if self.recent_components.len() > MAX_RECENT_ITEMS {
             self.recent_components.truncate(MAX_RECENT_ITEMS);
         }

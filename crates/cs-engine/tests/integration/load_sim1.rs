@@ -1,6 +1,6 @@
 use cs_engine::{CERO_DOUB, Circuit};
 
-const DIVIDER: &str = include_str!("fixtures/divider.sim1");
+const DIVIDER: &str = include_str!("../fixtures/divider.sim1");
 
 fn approx(a: f64, b: f64) {
     assert!((a - b).abs() < 1e-6, "{a} != {b}");

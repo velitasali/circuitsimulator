@@ -420,7 +420,7 @@ fn interactive_board_mounted_push_and_switch_drive_inner_led_live() {
 #[test]
 fn legacy_sim1_board_fixtures_extract_only_onboard_children() {
     // 1. Arduino Uno board fixture: LedBar-9 (1 LED) is on-board; tunnels/MCU/buffer are off-board.
-    let uno_src = include_str!("fixtures/components/Arduino/arduino/Uno/Uno.sim1");
+    let uno_src = include_str!("../fixtures/components/Arduino/arduino/Uno/Uno.sim1");
     let search = SubcSearch::empty().with_memory("Uno", uno_src);
     let mut canvas = Canvas::empty();
     let uno_id = canvas
@@ -463,7 +463,7 @@ fn legacy_sim1_board_fixtures_extract_only_onboard_children() {
     }
 
     // 2. Encoder board fixture: Dial, 7-Seg BCD, Text, and 4 Lines are on-board; Tunnels & Script MCU are off-board.
-    let enc_src = include_str!("fixtures/components/Tools/tools/Encoder/Encoder.sim1");
+    let enc_src = include_str!("../fixtures/components/Tools/tools/Encoder/Encoder.sim1");
     let enc_search = SubcSearch::empty().with_memory("Encoder", enc_src);
     let enc_id = canvas
         .scene_mut()

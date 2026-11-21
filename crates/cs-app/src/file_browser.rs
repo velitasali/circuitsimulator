@@ -1,6 +1,8 @@
 //! File browser façade. Rows are JSON (no `QFileSystemModel` / `QModelIndex`).
 
 use crate::path_util::strip_file_url;
+use crate::ui_icon::UiIcon;
+use cs_engine::{i18n, project, settings};
 use qtbridge::qobject;
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -184,15 +186,28 @@ impl FileBrowser {
             self.toggle_expand(path);
             return;
         }
-        let ext = p
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        match ext.as_str() {
-            "circ1" | "circ" | "sim" | "sim1" | "sim2" => self.open_circuit(path),
-            _ => self.open_file(path),
+        if is_circuit_path(&p) {
+            self.open_circuit(path);
+        } else {
+            self.open_file(path);
         }
+    }
+
+    #[qslot]
+    fn recent_project_items(&self) -> Value {
+        let recent = settings::get().recent_projects;
+        Value::Array(build_recent_project_items(&self.root_path, &recent))
+    }
+
+    #[qslot]
+    fn circuit_switcher_items(&self, current_circuit_path: String) -> Value {
+        let recent = settings::get().recent_circuits;
+        Value::Array(build_circuit_switcher_items(
+            &self.root_path,
+            self.show_hidden,
+            &current_circuit_path,
+            &recent,
+        ))
     }
 
     #[qslot]
@@ -397,6 +412,248 @@ fn copy_item_recursive(src: &Path, dst_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+const MAX_PROJECT_CIRCUITS: usize = 200;
+const MAX_SCAN_DEPTH: usize = 8;
+
+fn is_circuit_path(path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(ext.as_str(), "circ1" | "circ" | "sim" | "sim1" | "sim2")
+}
+
+fn path_key(normalized: &str) -> String {
+    #[cfg(windows)]
+    {
+        normalized.to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        normalized.to_string()
+    }
+}
+
+fn shorten_home(path: &str) -> String {
+    let norm = project::normalize_path(path);
+    if norm.is_empty() {
+        return String::new();
+    }
+    if let Some(home) = dirs::home_dir() {
+        let home_norm = project::normalize_path(&home.to_string_lossy());
+        if !home_norm.is_empty() {
+            if path_key(&norm) == path_key(&home_norm) {
+                return "~".to_string();
+            }
+            let prefix = format!("{home_norm}/");
+            if path_key(&norm).starts_with(&path_key(&prefix)) {
+                return format!("~/{}", &norm[prefix.len()..]);
+            }
+        }
+    }
+    norm
+}
+
+fn parent_detail(path: &str) -> String {
+    Path::new(path)
+        .parent()
+        .map(|p| shorten_home(&p.to_string_lossy()))
+        .unwrap_or_default()
+}
+
+fn scan_project_circuits(dir: &Path, show_hidden: bool, depth: usize, out: &mut Vec<PathBuf>) {
+    if depth > MAX_SCAN_DEPTH || out.len() >= MAX_PROJECT_CIRCUITS {
+        return;
+    }
+    let Ok(rd) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !show_hidden && name.starts_with('.') {
+            continue;
+        }
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        let p = entry.path();
+        if ft.is_dir() {
+            if matches!(name.as_str(), ".git" | "target" | "build" | "node_modules") {
+                continue;
+            }
+            scan_project_circuits(&p, show_hidden, depth + 1, out);
+        } else if ft.is_file() && is_circuit_path(&p) {
+            out.push(p);
+            if out.len() >= MAX_PROJECT_CIRCUITS {
+                return;
+            }
+        }
+    }
+}
+
+fn build_recent_project_items(root_path: &str, recent_projects: &[String]) -> Vec<Value> {
+    let current_norm = project::normalize_path(&strip_file_url(root_path));
+    let current_key = path_key(&current_norm);
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut rows: Vec<Value> = Vec::new();
+
+    let mut push_dir = |raw: &str| {
+        let norm = project::normalize_path(&strip_file_url(raw));
+        if norm.is_empty() || !Path::new(&norm).is_dir() {
+            return;
+        }
+        let key = path_key(&norm);
+        if !seen.insert(key.clone()) {
+            return;
+        }
+        let name = Path::new(&norm)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&norm)
+            .to_string();
+        let is_current = !current_key.is_empty() && key == current_key;
+        rows.push(json!({
+            "kind": "item",
+            "name": name,
+            "detail": parent_detail(&norm),
+            "path": norm,
+            "tooltip": norm,
+            "current": is_current,
+            "icon": if is_current { UiIcon::FolderOpen.as_str() } else { UiIcon::Folder.as_str() },
+        }));
+    };
+
+    if !current_norm.is_empty() {
+        push_dir(&current_norm);
+    }
+    for raw in recent_projects {
+        push_dir(raw);
+    }
+
+    rows
+}
+
+fn build_circuit_switcher_items(
+    root_path: &str,
+    show_hidden: bool,
+    current_circuit_path: &str,
+    recent_circuits: &[String],
+) -> Vec<Value> {
+    let root_norm = project::normalize_path(&strip_file_url(root_path));
+    let current_norm = project::normalize_path(&strip_file_url(current_circuit_path));
+    let current_key = path_key(&current_norm);
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut proj_items: Vec<Value> = Vec::new();
+
+    if !root_norm.is_empty() {
+        let root_dir = Path::new(&root_norm);
+        if root_dir.is_dir() {
+            struct ProjectCircuit {
+                depth: usize,
+                rel_lower: String,
+                full_norm: String,
+                name: String,
+                rel_parent: String,
+            }
+
+            let mut found: Vec<PathBuf> = Vec::new();
+            scan_project_circuits(root_dir, show_hidden, 0, &mut found);
+
+            let mut entries: Vec<ProjectCircuit> = found
+                .into_iter()
+                .filter_map(|p| {
+                    let rel = p.strip_prefix(root_dir).ok()?;
+                    let rel_norm = project::normalize_path(&rel.to_string_lossy());
+                    let full_norm = project::normalize_path(&p.to_string_lossy());
+                    let depth = rel_norm.matches('/').count();
+                    let name = p.file_name()?.to_string_lossy().to_string();
+                    let rel_parent = rel
+                        .parent()
+                        .map(|d| project::normalize_path(&d.to_string_lossy()))
+                        .unwrap_or_default();
+                    Some(ProjectCircuit {
+                        depth,
+                        rel_lower: rel_norm.to_ascii_lowercase(),
+                        full_norm,
+                        name,
+                        rel_parent,
+                    })
+                })
+                .collect();
+
+            entries.sort_by(|a, b| {
+                a.depth
+                    .cmp(&b.depth)
+                    .then_with(|| a.rel_lower.cmp(&b.rel_lower))
+            });
+
+            for entry in entries {
+                let key = path_key(&entry.full_norm);
+                if !seen.insert(key.clone()) {
+                    continue;
+                }
+                let is_current = !current_key.is_empty() && key == current_key;
+                proj_items.push(json!({
+                    "kind": "item",
+                    "name": entry.name,
+                    "detail": entry.rel_parent,
+                    "path": entry.full_norm,
+                    "tooltip": entry.full_norm,
+                    "current": is_current,
+                    "icon": UiIcon::Schema.as_str(),
+                }));
+            }
+        }
+    }
+
+    let mut recent_items: Vec<Value> = Vec::new();
+    for raw in recent_circuits {
+        let norm = project::normalize_path(&strip_file_url(raw));
+        if norm.is_empty() || !Path::new(&norm).is_file() {
+            continue;
+        }
+        let key = path_key(&norm);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let name = Path::new(&norm)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&norm)
+            .to_string();
+        let is_current = !current_key.is_empty() && key == current_key;
+        recent_items.push(json!({
+            "kind": "item",
+            "name": name,
+            "detail": parent_detail(&norm),
+            "path": norm,
+            "tooltip": norm,
+            "current": is_current,
+            "icon": UiIcon::Schema.as_str(),
+        }));
+    }
+
+    let mut rows: Vec<Value> = Vec::new();
+    if !proj_items.is_empty() {
+        rows.push(json!({
+            "kind": "header",
+            "text": i18n::tr("In Project"),
+        }));
+        rows.extend(proj_items);
+    }
+    if !recent_items.is_empty() {
+        rows.push(json!({
+            "kind": "header",
+            "text": i18n::tr("Recent"),
+        }));
+        rows.extend(recent_items);
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +702,100 @@ mod tests {
         assert_eq!(arr[0]["name"], "sample.c");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_recent_project_items_dedupes_marks_current_and_skips_missing() {
+        let base = std::env::temp_dir().join("cs_test_recent_projects");
+        let _ = fs::remove_dir_all(&base);
+        let p1 = base.join("alpha");
+        let p2 = base.join("beta");
+        let missing = base.join("gone");
+        fs::create_dir_all(&p1).unwrap();
+        fs::create_dir_all(&p2).unwrap();
+
+        let p1_str = p1.to_string_lossy().replace('\\', "/");
+        let p2_str = p2.to_string_lossy().replace('\\', "/");
+        let missing_str = missing.to_string_lossy().replace('\\', "/");
+
+        let rows = build_recent_project_items(
+            &p1_str,
+            &[p2_str.clone(), format!("{p1_str}/"), missing_str],
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], "alpha");
+        assert_eq!(rows[0]["current"], true);
+        assert_eq!(rows[1]["name"], "beta");
+        assert_eq!(rows[1]["current"], false);
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_circuit_switcher_lists_project_circuits_first_then_deduped_recents() {
+        let base = std::env::temp_dir().join("cs_test_circuit_switcher");
+        let _ = fs::remove_dir_all(&base);
+        let proj = base.join("my_proj");
+        let sub = proj.join("sub");
+        let ignored = proj.join("target");
+        let other = base.join("other_proj");
+        fs::create_dir_all(&sub).unwrap();
+        fs::create_dir_all(&ignored).unwrap();
+        fs::create_dir_all(&other).unwrap();
+
+        let root_a = proj.join("a_root.circ1");
+        let root_b = proj.join("b_root.sim1");
+        let nested = sub.join("nested.circ1");
+        let non_circ = proj.join("firmware.c");
+        let ignored_circ = ignored.join("ignored.circ1");
+        let recent_ext = other.join("external.sim1");
+        let missing = other.join("missing.circ1");
+
+        for f in [
+            &root_a,
+            &root_b,
+            &nested,
+            &non_circ,
+            &ignored_circ,
+            &recent_ext,
+        ] {
+            fs::write(f, "<circuit/>").unwrap();
+        }
+
+        let proj_str = proj.to_string_lossy().replace('\\', "/");
+        let root_b_str = root_b.to_string_lossy().replace('\\', "/");
+        let recent_ext_str = recent_ext.to_string_lossy().replace('\\', "/");
+        let missing_str = missing.to_string_lossy().replace('\\', "/");
+
+        let rows = build_circuit_switcher_items(
+            &proj_str,
+            false,
+            &root_b_str,
+            &[root_b_str.clone(), recent_ext_str.clone(), missing_str],
+        );
+
+        let items: Vec<&Value> = rows.iter().filter(|r| r["kind"] == "item").collect();
+        let headers: Vec<&Value> = rows.iter().filter(|r| r["kind"] == "header").collect();
+        assert_eq!(headers.len(), 2);
+        assert_eq!(items.len(), 4);
+
+        // Project circuits come first: root-level alphabetically, then nested.
+        assert_eq!(items[0]["name"], "a_root.circ1");
+        assert_eq!(items[0]["detail"], "");
+        assert_eq!(items[0]["current"], false);
+
+        assert_eq!(items[1]["name"], "b_root.sim1");
+        assert_eq!(items[1]["detail"], "");
+        assert_eq!(items[1]["current"], true);
+
+        assert_eq!(items[2]["name"], "nested.circ1");
+        assert_eq!(items[2]["detail"], "sub");
+        assert_eq!(items[2]["current"], false);
+
+        // Recent section contains external.sim1 only (b_root.sim1 deduped, missing skipped).
+        assert_eq!(items[3]["name"], "external.sim1");
+        assert_eq!(items[3]["current"], false);
+
+        let _ = fs::remove_dir_all(&base);
     }
 }

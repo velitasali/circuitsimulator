@@ -804,6 +804,8 @@ impl AppMenuBar {
         Read = shortcut_map,
         Notify = shortcut_map_changed
     );
+    qproperty!("canUndo", Read = can_undo, Notify = edit_state_changed);
+    qproperty!("canRedo", Read = can_redo, Notify = edit_state_changed);
 
     #[qsignal]
     fn menus_changed(&mut self);
@@ -811,6 +813,8 @@ impl AppMenuBar {
     fn shortcuts_changed(&mut self);
     #[qsignal]
     fn shortcut_map_changed(&mut self);
+    #[qsignal]
+    fn edit_state_changed(&mut self);
     #[qsignal]
     fn toggle_popup_requested(&mut self);
     #[qsignal]
@@ -826,6 +830,14 @@ impl AppMenuBar {
 
     fn shortcut_map(&self) -> Value {
         Value::Object(self.shortcut_map.clone())
+    }
+
+    fn can_undo(&self) -> bool {
+        self.can_undo
+    }
+
+    fn can_redo(&self) -> bool {
+        self.can_redo
     }
 
     #[qslot]
@@ -939,6 +951,7 @@ impl AppMenuBar {
         has_selection: bool,
         can_paste: bool,
     ) {
+        let history_changed = self.can_undo != can_undo || self.can_redo != can_redo;
         self.can_undo = can_undo;
         self.can_redo = can_redo;
         self.has_selection = has_selection;
@@ -960,6 +973,9 @@ impl AppMenuBar {
                     break;
                 }
             }
+        }
+        if history_changed {
+            self.edit_state_changed();
         }
         if changed {
             self.republish();

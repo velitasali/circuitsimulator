@@ -794,12 +794,14 @@ ApplicationWindow {
             }
         }
         function onHistoryChanged() {
-            AppMenuBar.setEditState(CircuitCanvas.canUndo, CircuitCanvas.canRedo,
-                                    CircuitCanvas.hasSelection, CircuitCanvas.canPaste)
+            if (!EditorPanel.focused)
+                AppMenuBar.setEditState(CircuitCanvas.canUndo, CircuitCanvas.canRedo,
+                                        CircuitCanvas.hasSelection, CircuitCanvas.canPaste)
         }
         function onItemsChanged() {
-            AppMenuBar.setEditState(CircuitCanvas.canUndo, CircuitCanvas.canRedo,
-                                    CircuitCanvas.hasSelection, CircuitCanvas.canPaste)
+            if (!EditorPanel.focused)
+                AppMenuBar.setEditState(CircuitCanvas.canUndo, CircuitCanvas.canRedo,
+                                        CircuitCanvas.hasSelection, CircuitCanvas.canPaste)
             CommandCenter.setCircuitItems(CircuitCanvas.items)
         }
         function onSimChanged() {

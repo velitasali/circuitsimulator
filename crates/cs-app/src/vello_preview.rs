@@ -48,7 +48,7 @@ mod gpu {
     use std::sync::atomic::AtomicU32;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-    use std::thread::{self, JoinHandle};
+    use std::thread::JoinHandle;
     use std::time::{Duration, Instant};
     use vello::wgpu;
     #[cfg(target_os = "macos")]
@@ -166,6 +166,7 @@ mod gpu {
     });
     static WAKE: Condvar = Condvar::new();
     static PRESENTER: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
+    static STOP: AtomicBool = AtomicBool::new(false);
     static LOGGED: AtomicBool = AtomicBool::new(false);
     #[cfg(not(target_os = "macos"))]
     static FRAME_W: AtomicU32 = AtomicU32::new(0);
@@ -177,11 +178,16 @@ mod gpu {
     #[cfg(any(windows, target_os = "linux"))]
     static SHARE_LOGGED: AtomicBool = AtomicBool::new(false);
 
+    fn is_stopped() -> bool {
+        STOP.load(Ordering::Acquire)
+    }
+
     fn lock_gpu() -> MutexGuard<'static, Slot> {
         GPU.lock().unwrap_or_else(|err| err.into_inner())
     }
 
     pub fn release() {
+        STOP.store(true, Ordering::Release);
         {
             let mut slot = lock_gpu();
             slot.stop = true;
@@ -395,10 +401,13 @@ mod gpu {
                 log_once("GPU frame was not finished after 500 ms");
                 continue;
             }
-            if pending.patch_origin.is_some() {
-                publish_patch(&mut slot, &pending);
+            slot = if pending.patch_origin.is_some() {
+                publish_patch(slot, &pending)
             } else {
-                publish_target(&mut slot, &pending);
+                publish_target(slot, &pending)
+            };
+            if slot.stop {
+                return;
             }
             slot.phase = Phase::Idle;
             drop(slot);
@@ -461,89 +470,84 @@ mod gpu {
     }
 
     fn wait_until_gpu_idle(
-        mut slot: MutexGuard<'static, Slot>,
+        slot: MutexGuard<'static, Slot>,
         started: Instant,
         done: &AtomicBool,
     ) -> (MutexGuard<'static, Slot>, bool) {
-        loop {
-            if slot.stop {
-                return (slot, false);
-            }
-            let Some(gpu) = slot.gpu.as_ref() else {
-                return (slot, false);
-            };
-            if done.load(Ordering::Acquire) {
-                return (slot, true);
-            }
-            let _ = gpu.vello.device().poll(wgpu::Maintain::Poll);
-            if done.load(Ordering::Acquire) {
-                return (slot, true);
-            }
-            if started.elapsed() > Duration::from_millis(500) {
-                return (slot, false);
-            }
-            drop(slot);
-            thread::sleep(Duration::from_micros(200));
-            slot = lock_gpu();
+        if slot.stop || is_stopped() {
+            return (slot, false);
         }
+        let Some(vello) = slot.gpu.as_ref().map(|gpu| gpu.vello) else {
+            return (slot, false);
+        };
+        drop(slot);
+        let remaining = Duration::from_millis(500).saturating_sub(started.elapsed());
+        let ready = vello.wait_for_flag(done, remaining, is_stopped);
+        (lock_gpu(), ready)
     }
 
-    fn publish_target(slot: &mut Slot, pending: &Pending) {
+    fn publish_target(
+        slot: MutexGuard<'static, Slot>,
+        pending: &Pending,
+    ) -> MutexGuard<'static, Slot> {
         #[cfg(target_os = "macos")]
         {
-            let _ = slot;
             unsafe { cs_vello_shared_commit(pending.slot) };
+            slot
         }
         #[cfg(not(target_os = "macos"))]
         {
             #[cfg(any(windows, target_os = "linux"))]
             if slot.gpu.as_ref().is_some_and(|gpu| gpu.shared) {
                 vello_share::commit(pending.slot as usize);
-                return;
+                return slot;
             }
             let _ = pending.slot;
             let copied = {
                 let Some(gpu) = slot.gpu.as_ref() else {
-                    return;
+                    return slot;
                 };
                 let Some(frame) = gpu.frame.as_ref() else {
                     log_once("frame target missing");
-                    return;
+                    return slot;
                 };
                 (
+                    gpu.vello,
                     frame.texture.clone(),
                     frame.readback.clone(),
                     frame.width,
                     frame.height,
                 )
             };
-            let (texture, readback_buf, width, height) = copied;
-            let Some(gpu) = slot.gpu.as_ref() else {
-                return;
-            };
-            readback(gpu, &texture, &readback_buf, width, height);
+            drop(slot);
+            let (vello, texture, readback_buf, width, height) = copied;
+            readback(vello, &texture, &readback_buf, width, height);
+            lock_gpu()
         }
     }
 
-    fn publish_patch(slot: &mut Slot, pending: &Pending) {
+    fn publish_patch(
+        slot: MutexGuard<'static, Slot>,
+        pending: &Pending,
+    ) -> MutexGuard<'static, Slot> {
         let Some((x, y)) = pending.patch_origin else {
-            return;
+            return slot;
         };
         #[cfg(target_os = "macos")]
         {
             let Some(gpu) = slot.gpu.as_ref() else {
                 log_once("GPU released before patch");
-                return;
+                return slot;
             };
             let Some(scratch) = gpu.scratch.as_ref() else {
                 log_once("patch target missing");
-                return;
+                return slot;
             };
             let tex = match metal_texture(&scratch.texture) {
                 Ok(tex) => tex,
                 Err(err) => {
                     log_once(&err);
-                    return;
+                    return slot;
                 }
             };
             let ok = unsafe {
@@ -558,20 +562,24 @@ mod gpu {
             if ok == 0 {
                 log_once("IOSurface patch failed");
             }
+            slot
         }
         #[cfg(not(target_os = "macos"))]
         {
             #[cfg(any(windows, target_os = "linux"))]
             if slot.gpu.as_ref().is_some_and(|gpu| gpu.shared) {
-                if !composite_shared(slot, x, y, pending.width, pending.height) {
+                let (mut slot, ok) = composite_shared(slot, x, y, pending.width, pending.height);
+                if !ok && !slot.stop {
                     log_share_fallback("shared patch failed");
-                    forget_share(slot);
+                    forget_share(&mut slot);
                 }
-                return;
+                return slot;
             }
-            if !composite_patch(slot, x, y, pending.width, pending.height) {
+            let (slot, ok) = composite_patch(slot, x, y, pending.width, pending.height);
+            if !ok && !slot.stop {
                 log_once("frame patch failed");
             }
+            slot
         }
     }
 
@@ -580,7 +588,7 @@ mod gpu {
         #[cfg(not(target_os = "macos"))]
         let _ = (width, height);
         #[cfg(target_os = "macos")]
-        log_ready(width, height, "direct");
+        log_ready(width, height, "direct", &vello.adapter_info().name);
         Ok(Gpu {
             vello,
             #[cfg(target_os = "macos")]
@@ -757,7 +765,7 @@ mod gpu {
             match bind_shared(gpu, width, height) {
                 Ok(slot) => {
                     gpu.shared = true;
-                    log_ready(width, height, "shared");
+                    log_ready(width, height, "shared", &gpu.vello.adapter_info().name);
                     return Ok(slot);
                 }
                 Err(err) => {
@@ -775,7 +783,7 @@ mod gpu {
         }
         FRAME_W.store(width, Ordering::Release);
         FRAME_H.store(height, Ordering::Release);
-        log_ready(width, height, "readback");
+        log_ready(width, height, "readback", &gpu.vello.adapter_info().name);
         Ok(0)
     }
 
@@ -946,29 +954,41 @@ mod gpu {
 
     #[cfg(any(windows, target_os = "linux"))]
     #[allow(deprecated)]
-    fn composite_shared(slot: &Slot, x: u32, y: u32, width: u32, height: u32) -> bool {
+    fn composite_shared(
+        slot: MutexGuard<'static, Slot>,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> (MutexGuard<'static, Slot>, bool) {
         let Some((dst, src, copy_full)) = vello_share::patch_dest() else {
-            return false;
+            return (slot, false);
         };
-        let Some(gpu) = slot.gpu.as_ref() else {
-            return false;
+        let (vello, dst_tex, src_tex, scratch_tex, frame_w, frame_h) = {
+            let Some(gpu) = slot.gpu.as_ref() else {
+                return (slot, false);
+            };
+            let Some(dst_surf) = gpu.surfaces[dst].as_ref() else {
+                return (slot, false);
+            };
+            let Some(src_surf) = gpu.surfaces[src].as_ref() else {
+                return (slot, false);
+            };
+            let Some(scratch) = gpu.scratch.as_ref() else {
+                return (slot, false);
+            };
+            (
+                gpu.vello,
+                dst_surf.texture.clone(),
+                src_surf.texture.clone(),
+                scratch.texture.clone(),
+                dst_surf.width,
+                dst_surf.height,
+            )
         };
-        let Some(dst_surf) = gpu.surfaces[dst].as_ref() else {
-            return false;
-        };
-        let Some(src_surf) = gpu.surfaces[src].as_ref() else {
-            return false;
-        };
-        let Some(scratch) = gpu.scratch.as_ref() else {
-            return false;
-        };
-        let dst_tex = dst_surf.texture.clone();
-        let src_tex = src_surf.texture.clone();
-        let scratch_tex = scratch.texture.clone();
-        let frame_w = dst_surf.width;
-        let frame_h = dst_surf.height;
-        let device = gpu.vello.device();
-        let queue = gpu.vello.queue();
+        drop(slot);
+        let device = vello.device();
+        let queue = vello.queue();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("vello-share-patch"),
         });
@@ -1012,10 +1032,13 @@ mod gpu {
                 depth_or_array_layers: 1,
             },
         );
-        let submission = queue.submit([encoder.finish()]);
-        let _ = device.poll(wgpu::Maintain::WaitForSubmissionIndex(submission));
-        vello_share::commit(dst);
-        true
+        let _submission = queue.submit([encoder.finish()]);
+        let done = vello.mark_submitted();
+        let ready = vello.wait_for_flag(&done, Duration::from_millis(500), is_stopped);
+        if ready && !is_stopped() {
+            vello_share::commit(dst);
+        }
+        (lock_gpu(), ready || is_stopped())
     }
 
     #[cfg(any(windows, target_os = "linux"))]
@@ -1145,23 +1168,35 @@ mod gpu {
 
     #[cfg(not(target_os = "macos"))]
     #[allow(deprecated)]
-    fn composite_patch(slot: &mut Slot, x: u32, y: u32, width: u32, height: u32) -> bool {
-        let Some(gpu) = slot.gpu.as_ref() else {
-            return false;
+    fn composite_patch(
+        slot: MutexGuard<'static, Slot>,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> (MutexGuard<'static, Slot>, bool) {
+        let (vello, frame_tex, frame_buf, frame_w, frame_h, scratch_tex) = {
+            let Some(gpu) = slot.gpu.as_ref() else {
+                return (slot, false);
+            };
+            let Some(frame) = gpu.frame.as_ref() else {
+                return (slot, false);
+            };
+            let Some(scratch) = gpu.scratch.as_ref() else {
+                return (slot, false);
+            };
+            (
+                gpu.vello,
+                frame.texture.clone(),
+                frame.readback.clone(),
+                frame.width,
+                frame.height,
+                scratch.texture.clone(),
+            )
         };
-        let device = gpu.vello.device();
-        let queue = gpu.vello.queue();
-        let Some(frame) = gpu.frame.as_ref() else {
-            return false;
-        };
-        let frame_tex = frame.texture.clone();
-        let frame_buf = frame.readback.clone();
-        let frame_w = frame.width;
-        let frame_h = frame.height;
-        let Some(scratch) = gpu.scratch.as_ref() else {
-            return false;
-        };
-        let scratch_tex = scratch.texture.clone();
+        drop(slot);
+        let device = vello.device();
+        let queue = vello.queue();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("vello-patch-copy"),
         });
@@ -1184,26 +1219,27 @@ mod gpu {
                 depth_or_array_layers: 1,
             },
         );
-        let submission = queue.submit([encoder.finish()]);
-        let _ = device.poll(wgpu::Maintain::WaitForSubmissionIndex(submission));
-        readback(gpu, &frame_tex, &frame_buf, frame_w, frame_h);
-        true
+        let _submission = queue.submit([encoder.finish()]);
+        readback(vello, &frame_tex, &frame_buf, frame_w, frame_h);
+        (lock_gpu(), true)
     }
 
     #[cfg(not(target_os = "macos"))]
     fn readback(
-        gpu: &Gpu,
+        vello: &VelloGpu,
         texture: &wgpu::Texture,
         buffer: &wgpu::Buffer,
         width: u32,
         height: u32,
     ) {
-        let device = gpu.vello.device();
-        let queue = gpu.vello.queue();
-        let Some(image) =
-            cs_engine::canvas::read_texture(device, queue, texture, buffer, width, height)
-        else {
-            log_once("GPU readback failed");
+        let device = vello.device();
+        let queue = vello.queue();
+        let Some(image) = cs_engine::canvas::read_texture_until(
+            device, queue, texture, buffer, width, height, is_stopped,
+        ) else {
+            if !is_stopped() {
+                log_once("GPU readback failed");
+            }
             return;
         };
         crate::image_frame::publish(
@@ -1213,10 +1249,10 @@ mod gpu {
         );
     }
 
-    fn log_ready(width: u32, height: u32, handoff: &str) {
+    fn log_ready(width: u32, height: u32, handoff: &str, adapter: &str) {
         static HANDED: AtomicBool = AtomicBool::new(false);
         if !HANDED.swap(true, Ordering::AcqRel) {
-            eprintln!("[vello] canvas ready ({width}x{height}, {handoff})");
+            eprintln!("[vello] canvas ready ({width}x{height}, {handoff}, {adapter})");
         }
     }
 

@@ -24,8 +24,9 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Direct3D12::{
     D3D12_FENCE_FLAG_SHARED, D3D12_HEAP_FLAG_SHARED, D3D12_HEAP_PROPERTIES,
     D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
-    D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-    D3D12_RESOURCE_STATE_COMMON, ID3D12CommandQueue, ID3D12Device, ID3D12Fence, ID3D12Resource,
+    D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
+    D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON, ID3D12CommandQueue,
+    ID3D12Device, ID3D12Fence, ID3D12Resource,
 };
 #[cfg(windows)]
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SAMPLE_DESC};
@@ -182,6 +183,8 @@ struct ShareState {
     width: i32,
     height: i32,
     epoch: i32,
+    /// Strictly monotonic counter for the single shared fence / timeline semaphore.
+    signal: u64,
     values: [u64; 2],
     #[cfg(windows)]
     d3d: Option<D3dState>,
@@ -198,6 +201,7 @@ impl ShareState {
             width: 0,
             height: 0,
             epoch: 0,
+            signal: 0,
             values: [0, 0],
             #[cfg(windows)]
             d3d: None,
@@ -285,7 +289,8 @@ fn make_d3d_texture(
             Count: 1,
             Quality: 0,
         },
-        Flags: D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
+        Flags: D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
+            | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
             | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS,
         ..Default::default()
     };
@@ -382,6 +387,7 @@ fn ensure_d3d(state: &mut ShareState, handles: &ShareHandles, width: i32, height
     state.width = width;
     state.height = height;
     state.epoch += 1;
+    state.signal = 0;
     state.values = [0, 0];
     PUBLISHED.store(-1, Ordering::Relaxed);
     HELD.store(-1, Ordering::Relaxed);
@@ -551,6 +557,7 @@ fn ensure_vk(state: &mut ShareState, handles: &ShareHandles, width: i32, height:
     state.width = width;
     state.height = height;
     state.epoch += 1;
+    state.signal = 0;
     state.values = [0, 0];
     PUBLISHED.store(-1, Ordering::Relaxed);
     HELD.store(-1, Ordering::Relaxed);
@@ -618,15 +625,24 @@ pub fn commit(slot: usize) {
         return;
     }
     let mut state = lock_state();
-    let next_value = state.values[slot] + 1;
+    let next_value = state.signal.saturating_add(1);
     #[cfg(windows)]
-    if let Some(d3d) = state.d3d.as_ref() {
-        if unsafe { d3d.queue.Signal(&d3d.fence, next_value) }.is_ok() {
-            state.values[slot] = next_value;
+    {
+        let Some(d3d) = state.d3d.as_ref() else {
+            return;
+        };
+        if let Err(err) = unsafe { d3d.queue.Signal(&d3d.fence, next_value) } {
+            log_fail(&format!("D3D12 fence signal failed: {err}"));
+            return;
         }
+        state.signal = next_value;
+        state.values[slot] = next_value;
     }
     #[cfg(target_os = "linux")]
-    if let Some(vk_state) = state.vk.as_ref() {
+    {
+        let Some(vk_state) = state.vk.as_ref() else {
+            return;
+        };
         let values = [next_value];
         let sems = [vk_state.sem];
         let mut timeline =
@@ -639,11 +655,13 @@ pub fn commit(slot: usize) {
                 .device
                 .queue_submit(vk_state.queue, &[submit], vk::Fence::null())
         }
-        .is_ok()
+        .is_err()
         {
-            let _ = unsafe { vk_state.device.queue_wait_idle(vk_state.queue) };
-            state.values[slot] = next_value;
+            return;
         }
+        let _ = unsafe { vk_state.device.queue_wait_idle(vk_state.queue) };
+        state.signal = next_value;
+        state.values[slot] = next_value;
     }
     PUBLISHED.store(slot as i32, Ordering::Relaxed);
     FRAME.fetch_add(1, Ordering::Release);
@@ -740,12 +758,15 @@ pub unsafe extern "C" fn cs_vello_share_adopt_d3d11(
             block_share("Qt's D3D11 device cannot open a shared texture");
             return ptr::null_mut();
         };
-        let Ok(tex) =
-            (unsafe { device1.OpenSharedResource1::<_, ID3D11Texture2D>(d3d.tex_share[slot]) })
-        else {
-            block_share("opening the D3D11 shared texture failed");
-            return ptr::null_mut();
-        };
+        let tex =
+            match unsafe { device1.OpenSharedResource1::<_, ID3D11Texture2D>(d3d.tex_share[slot]) }
+            {
+                Ok(tex) => tex,
+                Err(err) => {
+                    block_share(&format!("opening the D3D11 shared texture failed: {err}"));
+                    return ptr::null_mut();
+                }
+            };
         d3d.qt_d3d11[slot] = Some(tex);
     }
 
@@ -759,7 +780,13 @@ pub unsafe extern "C" fn cs_vello_share_adopt_d3d11(
         };
         let mut fence: Option<ID3D11Fence> = None;
         let res = unsafe { device5.OpenSharedFence(d3d.fence_share, &mut fence) };
-        let Some(fence) = res.ok().and(fence) else {
+        let Some(fence) = (match res {
+            Ok(()) => fence,
+            Err(err) => {
+                block_share(&format!("opening the D3D11 fence failed: {err}"));
+                return ptr::null_mut();
+            }
+        }) else {
             block_share("opening the D3D11 fence failed");
             return ptr::null_mut();
         };
@@ -835,7 +862,13 @@ pub unsafe extern "C" fn cs_vello_share_adopt_d3d12(
     if d3d.qt_fence12.is_none() {
         let mut fence: Option<ID3D12Fence> = None;
         let res = unsafe { device.OpenSharedHandle(d3d.fence_share, &mut fence) };
-        let Some(fence) = res.ok().and(fence) else {
+        let Some(fence) = (match res {
+            Ok(()) => fence,
+            Err(err) => {
+                block_share(&format!("opening the D3D12 fence failed: {err}"));
+                return ptr::null_mut();
+            }
+        }) else {
             block_share("opening the D3D12 fence failed");
             return ptr::null_mut();
         };
@@ -844,7 +877,13 @@ pub unsafe extern "C" fn cs_vello_share_adopt_d3d12(
     if d3d.qt_d3d12[slot].is_none() {
         let mut tex: Option<ID3D12Resource> = None;
         let res = unsafe { device.OpenSharedHandle(d3d.tex_share[slot], &mut tex) };
-        let Some(tex) = res.ok().and(tex) else {
+        let Some(tex) = (match res {
+            Ok(()) => tex,
+            Err(err) => {
+                block_share(&format!("opening the D3D12 shared texture failed: {err}"));
+                return ptr::null_mut();
+            }
+        }) else {
             block_share("opening the D3D12 shared texture failed");
             return ptr::null_mut();
         };

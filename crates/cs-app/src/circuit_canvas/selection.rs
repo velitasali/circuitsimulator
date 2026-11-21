@@ -37,7 +37,17 @@ pub(super) fn selected_tunnel_visible(canvas: &Canvas) -> bool {
         .iter()
         .find(|it| it.selected)
         .map(|it| it.tunnel_visible())
-        .unwrap_or(true)
+        .unwrap_or(false)
+}
+
+pub(super) fn selected_tunnel_name(canvas: &Canvas) -> String {
+    canvas
+        .scene()
+        .items()
+        .iter()
+        .find(|it| it.selected)
+        .map(|it| it.tunnel_name().to_string())
+        .unwrap_or_default()
 }
 
 pub(super) fn selected_probe_pause(canvas: &Canvas) -> bool {

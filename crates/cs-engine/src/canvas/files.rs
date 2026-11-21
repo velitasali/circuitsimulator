@@ -1,5 +1,6 @@
 //! Circuit persistence (CIRC1 load/save), firmware uploads, data files, and subcircuits.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,6 +22,13 @@ pub struct MemoryItemInfo {
     pub cell_bytes: usize,
     pub word_bytes: usize,
     pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TunnelGroupInfo {
+    pub name: String,
+    pub group_count: usize,
+    pub existing_groups: BTreeMap<String, usize>,
 }
 
 impl Canvas {
@@ -783,6 +791,35 @@ impl Canvas {
         }
     }
 
+    pub fn tunnel_group_info(&self, uid: &str) -> Option<TunnelGroupInfo> {
+        let uid = self.resolve_item_uid(uid);
+        let name = self.scene.item_by_id(&uid).and_then(|it| {
+            if let Part::Tunnel(t) = &it.kind {
+                Some(t.name.clone())
+            } else {
+                None
+            }
+        })?;
+        let mut existing_groups = BTreeMap::new();
+        for it in self.scene.items() {
+            if let Part::Tunnel(t) = &it.kind {
+                if !t.name.is_empty() {
+                    *existing_groups.entry(t.name.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+        let group_count = if name.is_empty() {
+            1
+        } else {
+            existing_groups.get(&name).copied().unwrap_or(1)
+        };
+        Some(TunnelGroupInfo {
+            name,
+            group_count,
+            existing_groups,
+        })
+    }
+
     pub fn set_tunnel_group_visible(&mut self, uid: &str, visible: bool) -> Change {
         let uid = self.resolve_item_uid(uid);
         let Some(name) = self.scene.item_by_id(&uid).and_then(|it| {
@@ -794,48 +831,100 @@ impl Canvas {
         }) else {
             return Change::default();
         };
-        self.push_undo();
-        if visible {
-            for it in self.scene.items_mut() {
-                if let Part::Tunnel(t) = &mut it.kind {
-                    t.show = t.name == name;
-                }
-            }
-        } else {
-            for it in self.scene.items_mut() {
-                if let Part::Tunnel(t) = &mut it.kind {
-                    if t.name == name {
-                        t.show = false;
-                    }
+        if name.is_empty() {
+            return Change::default();
+        }
+        let mut dirty_ids: Vec<String> = Vec::new();
+        for it in self.scene.items_mut() {
+            if let Part::Tunnel(t) = &mut it.kind {
+                let next = if visible {
+                    t.name == name
+                } else if t.name == name {
+                    false
+                } else {
+                    t.show
+                };
+                if t.show != next {
+                    t.show = next;
+                    dirty_ids.push(it.id.clone());
                 }
             }
         }
-        Change::edit()
+        if dirty_ids.is_empty() {
+            return Change::default();
+        }
+        for id in &dirty_ids {
+            self.dirty_item_now(id);
+        }
+        Change {
+            items: true,
+            ..Change::default()
+        }
     }
 
     pub fn rename_tunnel_group(&mut self, uid: &str, new_name: &str) -> Change {
         let uid = self.resolve_item_uid(uid);
+        let new_name = new_name.trim();
         if new_name.is_empty() {
             return Change::default();
         }
-        let Some(old) = self.scene.item_by_id(&uid).and_then(|it| {
+        let Some((old, was_shown)) = self.scene.item_by_id(&uid).and_then(|it| {
             if let Part::Tunnel(t) = &it.kind {
-                Some(t.name.clone())
+                Some((t.name.clone(), t.show))
             } else {
                 None
             }
         }) else {
             return Change::default();
         };
-        self.push_undo();
-        for it in self.scene.items_mut() {
-            if let Part::Tunnel(t) = &mut it.kind {
-                if t.name == old {
-                    t.name = new_name.to_string();
+        if old == new_name {
+            return Change::default();
+        }
+        let target_shown = was_shown
+            || self
+                .scene
+                .items()
+                .iter()
+                .any(|it| matches!(&it.kind, Part::Tunnel(t) if t.name == new_name && t.show));
+        let mut affected_ids: Vec<String> = Vec::new();
+        for it in self.scene.items() {
+            if let Part::Tunnel(t) = &it.kind {
+                let is_member = if old.is_empty() {
+                    it.id == uid
+                } else {
+                    t.name == old
+                };
+                if is_member || (t.name == new_name && t.show != target_shown) {
+                    affected_ids.push(it.id.clone());
                 }
             }
         }
-        Change::edit()
+        self.push_undo();
+        for id in &affected_ids {
+            self.dirty_item_now(id);
+        }
+        for it in self.scene.items_mut() {
+            if let Part::Tunnel(t) = &mut it.kind {
+                let is_member = if old.is_empty() {
+                    it.id == uid
+                } else {
+                    t.name == old
+                };
+                if is_member {
+                    t.name = new_name.to_string();
+                    t.show = target_shown;
+                } else if t.name == new_name && t.show != target_shown {
+                    t.show = target_shown;
+                }
+            }
+        }
+        for id in &affected_ids {
+            self.dirty_item_now(id);
+        }
+        let mut c = Change::edit();
+        c.merge(self.refresh_sim());
+        c.merge(self.refresh_props());
+        c
     }
 
     pub fn toggle_probe_pause(&mut self, uid: &str) -> Change {

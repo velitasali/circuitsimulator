@@ -504,14 +504,10 @@ impl Item {
         self.local_hit_rect().contains_point(self.map_scene(scene))
     }
 
-    pub fn is_visible(&self) -> bool {
-        !matches!(&self.kind, Part::Tunnel(p) if !p.show)
-    }
-
     pub fn tunnel_visible(&self) -> bool {
         match &self.kind {
             Part::Tunnel(p) => p.show,
-            _ => true,
+            _ => false,
         }
     }
 

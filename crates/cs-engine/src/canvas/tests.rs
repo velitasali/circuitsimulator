@@ -2086,6 +2086,7 @@ fn test_node_drawing_and_color_matching() {
         tunnel_color1: Color::rgb(0, 0, 0),
         tunnel_color2: Color::rgb(0, 0, 0),
         tunnel_color3: Color::rgb(0, 0, 0),
+        component_id_text: Color::rgb(0, 0, 139),
         pin_open_high: Color::rgb(0, 0, 0),
         meter_display: Color::rgb(0, 0, 0),
         msg_warn: Color::rgb(0, 0, 0),
@@ -2510,4 +2511,168 @@ fn can_insert_by_key_yields_to_component_keys_and_modal_modes() {
     c.key_press(KEY_ESCAPE, 0);
     assert!(!c.scene.drawing());
     assert!(c.can_insert_by_key(KEY_C, 0, "c"));
+}
+
+#[test]
+fn tunnel_group_highlight_and_paint() {
+    use crate::canvas::draw::{Align, Draw};
+
+    let mut c = Canvas::empty();
+    let t_clk_1 = c.scene.add_tunnel(0.0, 0.0);
+    let t_clk_2 = c.scene.add_tunnel(80.0, 0.0);
+    let t_vcc = c.scene.add_tunnel(160.0, 0.0);
+    let t_unnamed = c.scene.add_tunnel(240.0, 0.0);
+
+    c.scene
+        .item_by_id_mut(&t_clk_1)
+        .unwrap()
+        .set_prop_text("Name", "CLK");
+    c.scene
+        .item_by_id_mut(&t_clk_2)
+        .unwrap()
+        .set_prop_text("Name", "CLK");
+    c.scene
+        .item_by_id_mut(&t_vcc)
+        .unwrap()
+        .set_prop_text("Name", "VCC");
+
+    // Tunnels start unhighlighted.
+    assert!(!c.scene.item_by_id(&t_clk_1).unwrap().tunnel_visible());
+
+    // Highlighting an unnamed tunnel is a no-op.
+    let ch_unnamed = c.set_tunnel_group_visible(&t_unnamed, true);
+    assert!(!ch_unnamed.items);
+    assert!(!c.scene.item_by_id(&t_unnamed).unwrap().tunnel_visible());
+
+    // Show CLK group: highlights both CLK tunnels, does not push undo.
+    let undo_before = c.history.undo.len();
+    let ch_show = c.set_tunnel_group_visible(&t_clk_1, true);
+    assert!(ch_show.items);
+    assert!(!ch_show.history);
+    assert_eq!(c.history.undo.len(), undo_before);
+    assert!(c.scene.item_by_id(&t_clk_1).unwrap().tunnel_visible());
+    assert!(c.scene.item_by_id(&t_clk_2).unwrap().tunnel_visible());
+    assert!(!c.scene.item_by_id(&t_vcc).unwrap().tunnel_visible());
+
+    // Verify Tunnel::paint emits a highlight fill_rect only when `show` is true.
+    struct RectCounter {
+        rects: Vec<(f64, f64, f64, f64, Color)>,
+    }
+    impl Draw for RectCounter {
+        fn push(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64) {}
+        fn pop(&mut self) {}
+        fn fill_rect(&mut self, x: f64, y: f64, w: f64, h: f64, c: Color) {
+            self.rects.push((x, y, w, h, c));
+        }
+        fn stroke_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn fill_round_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64, _: Color) {}
+        fn stroke_round_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn fill_circle(&mut self, _: f64, _: f64, _: f64, _: Color) {}
+        fn stroke_circle(&mut self, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn fill_ellipse(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color) {}
+        fn stroke_ellipse(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn line(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn polyline(&mut self, _: &[[f64; 2]], _: Color, _: f64, _: bool) {}
+        fn fill_poly(&mut self, _: &[[f64; 2]], _: Color) {}
+        fn stroke_poly(&mut self, _: &[[f64; 2]], _: Color, _: f64, _: bool) {}
+        fn text(&mut self, _: f64, _: f64, _: &str, _: f64, _: Color, _: Align) {}
+        fn arc(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn grid_dots(&mut self, _: Rect, _: i32, _: Color) {}
+    }
+
+    let pal = Palette::light();
+    let pctx = PaintCtx {
+        canvas: &c,
+        pal: &pal,
+        scale: 1.0,
+        item_id: &t_clk_1,
+        on_board: false,
+        active_item_id: None,
+    };
+    let mut shown_draw = RectCounter { rects: Vec::new() };
+    c.scene
+        .item_by_id(&t_clk_1)
+        .unwrap()
+        .kind
+        .paint(&mut shown_draw, &pctx);
+    assert_eq!(shown_draw.rects.len(), 1);
+    assert_eq!(shown_draw.rects[0].4, pal.component_id_text.fade(0.4));
+
+    let mut hidden_draw = RectCounter { rects: Vec::new() };
+    c.scene
+        .item_by_id(&t_vcc)
+        .unwrap()
+        .kind
+        .paint(&mut hidden_draw, &pctx);
+    assert!(hidden_draw.rects.is_empty());
+
+    // Showing another group clears the previous group's highlight.
+    let _ = c.set_tunnel_group_visible(&t_vcc, true);
+    assert!(!c.scene.item_by_id(&t_clk_1).unwrap().tunnel_visible());
+    assert!(!c.scene.item_by_id(&t_clk_2).unwrap().tunnel_visible());
+    assert!(c.scene.item_by_id(&t_vcc).unwrap().tunnel_visible());
+
+    // Hide clears that group.
+    let _ = c.set_tunnel_group_visible(&t_vcc, false);
+    assert!(!c.scene.item_by_id(&t_vcc).unwrap().tunnel_visible());
+}
+
+#[test]
+fn tunnel_group_rename_and_info() {
+    let mut c = Canvas::empty();
+    let t1 = c.scene.add_tunnel(0.0, 0.0);
+    let t2 = c.scene.add_tunnel(80.0, 0.0);
+    let t_vcc = c.scene.add_tunnel(160.0, 0.0);
+    let t_blank_1 = c.scene.add_tunnel(240.0, 0.0);
+    let t_blank_2 = c.scene.add_tunnel(320.0, 0.0);
+
+    c.scene
+        .item_by_id_mut(&t1)
+        .unwrap()
+        .set_prop_text("Name", "CLK");
+    c.scene
+        .item_by_id_mut(&t2)
+        .unwrap()
+        .set_prop_text("Name", "CLK");
+    c.scene
+        .item_by_id_mut(&t_vcc)
+        .unwrap()
+        .set_prop_text("Name", "VCC");
+
+    // Inspect group info for a named group and an unnamed tunnel.
+    let info = c.tunnel_group_info(&t1).expect("tunnel info");
+    assert_eq!(info.name, "CLK");
+    assert_eq!(info.group_count, 2);
+    assert_eq!(info.existing_groups.get("CLK"), Some(&2));
+    assert_eq!(info.existing_groups.get("VCC"), Some(&1));
+
+    let blank_info = c.tunnel_group_info(&t_blank_1).expect("blank tunnel info");
+    assert_eq!(blank_info.name, "");
+    assert_eq!(blank_info.group_count, 1);
+
+    // Renaming an unnamed tunnel only renames that single tunnel, not other unnamed tunnels.
+    let _ = c.rename_tunnel_group(&t_blank_1, "  RST  ");
+    assert_eq!(c.scene.item_by_id(&t_blank_1).unwrap().tunnel_name(), "RST");
+    assert_eq!(c.scene.item_by_id(&t_blank_2).unwrap().tunnel_name(), "");
+
+    // No-op rename (same name or whitespace-only) does not push undo.
+    let undo_len = c.history.undo.len();
+    let noop = c.rename_tunnel_group(&t1, "CLK");
+    assert!(!noop.history);
+    assert_eq!(c.history.undo.len(), undo_len);
+    let blank_noop = c.rename_tunnel_group(&t1, "   ");
+    assert!(!blank_noop.history);
+    assert_eq!(c.history.undo.len(), undo_len);
+
+    // Highlight CLK, then rename/merge into VCC: all three become VCC and share highlight state.
+    let _ = c.set_tunnel_group_visible(&t1, true);
+    let ch = c.rename_tunnel_group(&t1, "VCC");
+    assert!(ch.items);
+    assert!(ch.history);
+    assert_eq!(c.scene.item_by_id(&t1).unwrap().tunnel_name(), "VCC");
+    assert_eq!(c.scene.item_by_id(&t2).unwrap().tunnel_name(), "VCC");
+    assert_eq!(c.scene.item_by_id(&t_vcc).unwrap().tunnel_name(), "VCC");
+    assert!(c.scene.item_by_id(&t1).unwrap().tunnel_visible());
+    assert!(c.scene.item_by_id(&t2).unwrap().tunnel_visible());
+    assert!(c.scene.item_by_id(&t_vcc).unwrap().tunnel_visible());
 }

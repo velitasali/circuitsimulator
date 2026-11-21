@@ -477,7 +477,6 @@ pub(super) fn items_json(canvas: &Canvas) -> Value {
                 json!([])
             },
             "chTunnels": json!(it.ch_tunnels()),
-            "itemVisible": it.is_visible(),
             "tunnelShow": it.tunnel_visible(),
             "probePause": it.probe_pause(),
         }));

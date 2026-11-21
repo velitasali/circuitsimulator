@@ -549,6 +549,7 @@ fn compile_resources() {
         "MemTablePanel.qml",
         "EditPinDialog.qml",
         "GeneratePinsDialog.qml",
+        "RenameTunnelDialog.qml",
         "CircuitTooltip.qml",
         "CommandCenterDialog.qml",
         "ShortcutDialog.qml",

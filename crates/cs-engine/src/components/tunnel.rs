@@ -31,7 +31,7 @@ impl Default for Tunnel {
         Self {
             name: String::new(),
             is_bus: false,
-            show: true,
+            show: false,
         }
     }
 }
@@ -50,6 +50,9 @@ impl Tunnel {
     }
     fn set_name(&mut self, v: PropValue) -> Result<(), PropError> {
         self.name = expect_string("Name", v)?;
+        if self.name.is_empty() {
+            self.show = false;
+        }
         Ok(())
     }
 
@@ -91,6 +94,11 @@ impl Component for Tunnel {
         };
         Rect::new(-size - 8.0, -4.0, size + 4.0, 8.0)
     }
+
+    fn visual_rect(&self) -> Rect {
+        let b = self.body();
+        Rect::new(b.x - 2.0, b.y - 2.0, b.w + 4.0, b.h + 4.0)
+    }
 }
 
 impl Stampable for Tunnel {
@@ -124,6 +132,10 @@ impl Drawable for Tunnel {
         d.stroke_poly(&pts, ctx.pal.border, COMPONENT_BORDER_WIDTH, true);
         let text_x = -(size / 2.0 + 8.0);
         d.text(text_x, 0.0, &self.name, 7.0, ctx.pal.border, Align::Center);
+        if self.show {
+            let r = self.visual_rect();
+            d.fill_rect(r.x, r.y, r.w, r.h, ctx.pal.component_id_text.fade(0.4));
+        }
         true
     }
 }
@@ -147,8 +159,20 @@ mod tests {
         assert_eq!(t.type_id(), "Tunnel");
         assert!(t.name.is_empty());
         assert!(!t.is_bus);
-        assert!(t.show);
+        assert!(!t.show);
         assert_eq!(t.pin_geoms().len(), 1);
+    }
+
+    #[test]
+    fn clearing_name_clears_group_highlight() {
+        let mut t = Tunnel {
+            name: "CLK".into(),
+            is_bus: false,
+            show: true,
+        };
+        t.set_name(PropValue::String(String::new())).unwrap();
+        assert!(t.name.is_empty());
+        assert!(!t.show);
     }
 
     #[test]

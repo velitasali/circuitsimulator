@@ -749,6 +749,11 @@ impl CircuitCanvas {
         Notify = items_changed
     );
     qproperty!(
+        "selectedTunnelName",
+        Read = selected_tunnel_name,
+        Notify = items_changed
+    );
+    qproperty!(
         "selectedProbePause",
         Read = selected_probe_pause,
         Notify = items_changed
@@ -1752,6 +1757,10 @@ impl CircuitCanvas {
 
     fn selected_tunnel_visible(&self) -> bool {
         selection::selected_tunnel_visible(&self.inner)
+    }
+
+    fn selected_tunnel_name(&self) -> String {
+        selection::selected_tunnel_name(&self.inner)
     }
 
     fn selected_probe_pause(&self) -> bool {
@@ -4161,6 +4170,22 @@ impl CircuitCanvas {
     fn eject_sd_card(&mut self, uid: String) {
         let c = self.inner.eject_sd_card(&uid);
         self.apply(c);
+    }
+
+    #[qslot]
+    fn tunnel_group_info(&self, uid: String) -> Value {
+        match self.inner.tunnel_group_info(&uid) {
+            Some(info) => json!({
+                "name": info.name,
+                "groupCount": info.group_count,
+                "existingGroups": info.existing_groups,
+            }),
+            None => json!({
+                "name": "",
+                "groupCount": 0,
+                "existingGroups": {},
+            }),
+        }
     }
 
     #[qslot]

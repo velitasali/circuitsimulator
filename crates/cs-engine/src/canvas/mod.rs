@@ -39,7 +39,7 @@ pub use export::{
     Pixmap, RegionRenderStatus, parse_hex, png_bytes, render_viewport, render_viewport_mut,
     render_viewport_regions_mut, render_viewport_regions_projected_mut, save_image, svg_string,
 };
-pub use files::MemoryItemInfo;
+pub use files::{MemoryItemInfo, TunnelGroupInfo};
 pub use geom::{Point, Rect, map_rect, map_scene, snap_to_grid4, to_grid};
 pub use image_buf::ImageBuf;
 pub use pin::{PIN_HIT_RADIUS, Pin, PinDirection, PinGeom};

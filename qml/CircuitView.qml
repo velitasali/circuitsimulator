@@ -280,6 +280,7 @@ Item {
         readonly property bool hasEeprom: CircuitCanvas.selectedHasEeprom
         readonly property bool isActive: CircuitCanvas.selectedItemActive
         readonly property bool tunnelVisible: CircuitCanvas.selectedTunnelVisible
+        readonly property bool tunnelHasName: CircuitCanvas.selectedTunnelName.length > 0
         readonly property bool probePause: CircuitCanvas.selectedProbePause
         readonly property bool hasSpecial: isWaveGen || isOsc || isLa || isMcu || isSerial || isSubPackage || isSubc
             || isMemory || isFunction || isImage || isSdCard || isTunnel || isProbe || isTestUnit || isDcMotor || isLinker
@@ -554,18 +555,16 @@ Item {
         }
         ContextMenuItem {
             text: I18n.tr("Show group")
-            iconLigature: "stop_circle"
+            iconLigature: "visibility"
             visible: itemMenu.isTunnel && !itemMenu.tunnelVisible
+            enabled: itemMenu.tunnelHasName
             onTriggered: CircuitCanvas.showTunnelGroup(itemMenu.itemUid)
         }
         ContextMenuItem {
             text: I18n.tr("Rename group")
             iconLigature: "edit"
             visible: itemMenu.isTunnel
-            onTriggered: {
-                renameTunnelField.text = ""
-                renameTunnelPopup.open()
-            }
+            onTriggered: renameTunnelDialog.openFor(itemMenu.itemUid)
         }
 
         ContextMenuItem {
@@ -922,27 +921,8 @@ Item {
             AppText { text: I18n.tr("Use the Properties panel for live motor values.") }
         }
     }
-    Dialog {
-        id: renameTunnelPopup
-        title: I18n.tr("Rename Tunnels")
-        modal: true
-        anchors.centerIn: parent
-        width: 320
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        onAccepted: {
-            if (renameTunnelField.text.length > 0)
-                CircuitCanvas.renameTunnelGroup(itemMenu.itemUid, renameTunnelField.text)
-        }
-        Column {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
-            AppText { text: I18n.tr("New name:") }
-            AppTextField {
-                id: renameTunnelField
-                width: parent.width
-            }
-        }
+    RenameTunnelDialog {
+        id: renameTunnelDialog
     }
 
     AppWindow {

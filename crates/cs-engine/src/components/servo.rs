@@ -180,9 +180,7 @@ impl Component for Servo {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Configurable servo motor."
-    }
+    const DESCRIPTION: &'static str = "Configurable servo motor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Servo>] = &[

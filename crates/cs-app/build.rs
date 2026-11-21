@@ -531,6 +531,7 @@ fn compile_resources() {
         "ContextMenuItem.qml",
         "ContextMenuSeparator.qml",
         "ComponentListView.qml",
+        "ComponentHoverCard.qml",
         "EditorPanelView.qml",
         "CodeEditor.qml",
         "FindReplace.qml",

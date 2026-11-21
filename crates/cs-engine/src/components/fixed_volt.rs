@@ -84,9 +84,7 @@ impl Component for FixedVolt {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Fixed voltage source."
-    }
+    const DESCRIPTION: &'static str = "Fixed voltage source.";
     fn props() -> &'static [PropDef<Self>] {
         const VOLT: PropDef<FixedVolt> = {
             let mut p = PropDef::float(

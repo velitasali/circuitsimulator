@@ -223,9 +223,7 @@ impl Component for Relay {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Electromechanical relay."
-    }
+    const DESCRIPTION: &'static str = "Electromechanical relay.";
     fn props() -> &'static [PropDef<Self>] {
         const POLES: PropDef<Relay> = {
             let mut p = PropDef::int(

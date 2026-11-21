@@ -54,9 +54,7 @@ impl Component for SdCard {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "SD card reader, accessed over SPI."
-    }
+    const DESCRIPTION: &'static str = "SD card reader, accessed over SPI.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<SdCard>] =

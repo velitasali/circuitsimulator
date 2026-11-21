@@ -122,9 +122,7 @@ impl Component for Comparator {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Voltage comparator."
-    }
+    const DESCRIPTION: &'static str = "Voltage comparator.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Comparator>] = &[

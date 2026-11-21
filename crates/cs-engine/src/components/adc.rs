@@ -93,9 +93,7 @@ impl Component for Adc {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Analog to Digital Converter."
-    }
+    const DESCRIPTION: &'static str = "Analog to Digital Converter.";
 
     fn props() -> &'static [PropDef<Self>] {
         const BITS: PropDef<Adc> = {

@@ -186,9 +186,7 @@ impl Component for Ssd1306 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "128x64 OLED monochrome graphic display."
-    }
+    const DESCRIPTION: &'static str = "128x64 OLED monochrome graphic display.";
 
     fn props() -> &'static [PropDef<Self>] {
         const HEIGHT: PropDef<Ssd1306> = {

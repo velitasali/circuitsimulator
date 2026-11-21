@@ -134,9 +134,7 @@ impl Component for Rtd {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Resistance temperature detector (RTD)."
-    }
+    const DESCRIPTION: &'static str = "Resistance temperature detector (RTD).";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Rtd>] = &[

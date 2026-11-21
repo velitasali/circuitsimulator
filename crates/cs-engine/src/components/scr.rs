@@ -157,9 +157,7 @@ impl Component for Scr {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Silicon controlled rectifier (thyristor)."
-    }
+    const DESCRIPTION: &'static str = "Silicon controlled rectifier (thyristor).";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Scr>] = &[

@@ -119,9 +119,7 @@ impl Component for Switch {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "SPST switch."
-    }
+    const DESCRIPTION: &'static str = "SPST switch.";
     fn props() -> &'static [PropDef<Self>] {
         const POLES: PropDef<Switch> = {
             let mut p = PropDef::int(

@@ -462,9 +462,7 @@ impl super::Component for Harness {
     fn type_id(&self) -> &'static str {
         "Harness"
     }
-    fn description(&self) -> &'static str {
-        "Test harness part."
-    }
+    const DESCRIPTION: &'static str = "Test harness part.";
     fn props() -> &'static [PropDef<Self>] {
         const NOTE: PropDef<Harness> = {
             let mut p = PropDef::string("Note", "Note", Harness::get_note, Harness::set_note);

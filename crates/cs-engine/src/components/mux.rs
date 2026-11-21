@@ -55,9 +55,7 @@ impl Component for Mux {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Digital multiplexer."
-    }
+    const DESCRIPTION: &'static str = "Digital multiplexer.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ADDR_BITS: PropDef<Mux> = {

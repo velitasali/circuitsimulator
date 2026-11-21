@@ -64,9 +64,7 @@ impl Component for Dac {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Digital to Analog Converter."
-    }
+    const DESCRIPTION: &'static str = "Digital to Analog Converter.";
 
     fn props() -> &'static [PropDef<Self>] {
         const BITS: PropDef<Dac> = {

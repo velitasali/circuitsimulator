@@ -53,9 +53,7 @@ impl Component for FullAdder {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Binary Full Adder."
-    }
+    const DESCRIPTION: &'static str = "Binary Full Adder.";
 
     fn props() -> &'static [PropDef<Self>] {
         const BITS: PropDef<FullAdder> = {

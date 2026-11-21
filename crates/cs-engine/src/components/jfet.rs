@@ -110,9 +110,7 @@ impl Component for Jfet {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "JFET transistor."
-    }
+    const DESCRIPTION: &'static str = "JFET transistor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Jfet>] = &[

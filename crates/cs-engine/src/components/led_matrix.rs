@@ -150,9 +150,7 @@ impl Component for LedMatrix {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Dot matrix LED display."
-    }
+    const DESCRIPTION: &'static str = "Dot matrix LED display.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ROWS: PropDef<LedMatrix> = {

@@ -90,9 +90,7 @@ impl Component for Resistor {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Simple resistance."
-    }
+    const DESCRIPTION: &'static str = "Simple resistance.";
     fn props() -> &'static [PropDef<Self>] {
         const RES: PropDef<Resistor> = {
             let mut p = PropDef::float(

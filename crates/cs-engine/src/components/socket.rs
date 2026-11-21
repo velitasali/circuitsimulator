@@ -52,9 +52,7 @@ impl Component for Socket {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Socket connector."
-    }
+    const DESCRIPTION: &'static str = "Socket connector.";
 
     fn props() -> &'static [PropDef<Self>] {
         const PINS: PropDef<Socket> = {

@@ -85,9 +85,7 @@ impl Component for Ks0108 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "128x64 graphical LCD module."
-    }
+    const DESCRIPTION: &'static str = "128x64 graphical LCD module.";
 
     fn props() -> &'static [PropDef<Self>] {
         const WIDTH: PropDef<Ks0108> = {

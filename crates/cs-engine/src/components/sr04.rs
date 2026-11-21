@@ -84,9 +84,8 @@ impl Component for SR04 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Ultrasonic distance sensor. Volts equal to meters: 1.5 V = 1.5 m."
-    }
+    const DESCRIPTION: &'static str =
+        "Ultrasonic distance sensor. Volts equal to meters: 1.5 V = 1.5 m.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<SR04>] = &[

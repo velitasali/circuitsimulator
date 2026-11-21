@@ -49,9 +49,7 @@ impl Component for Voltmeter {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Voltage meter."
-    }
+    const DESCRIPTION: &'static str = "Voltage meter.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Voltmeter>] = &[PropDef::bool(

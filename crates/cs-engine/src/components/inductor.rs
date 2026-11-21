@@ -80,9 +80,7 @@ impl Component for Inductor {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Inductor."
-    }
+    const DESCRIPTION: &'static str = "Inductor.";
     fn props() -> &'static [PropDef<Self>] {
         const IND: PropDef<Inductor> = {
             let mut p = PropDef::float(

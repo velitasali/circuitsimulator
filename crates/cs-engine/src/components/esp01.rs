@@ -68,9 +68,8 @@ impl Component for Esp01 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Emulated ESP-01 WiFi module driven through AT command set over UART."
-    }
+    const DESCRIPTION: &'static str =
+        "Emulated ESP-01 WiFi module driven through AT command set over UART.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Esp01>] = &[

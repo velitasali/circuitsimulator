@@ -52,9 +52,7 @@ impl Component for DS1307 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Serial I2C real time clock."
-    }
+    const DESCRIPTION: &'static str = "Serial I2C real time clock.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<DS1307>] = &[PropDef::bool(

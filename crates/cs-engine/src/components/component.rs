@@ -195,8 +195,12 @@ pub fn group_rows_by(
 /// purpose — stamp dispatch goes through [`crate::components::Part`], not a
 /// vtable.
 pub trait Component: Sized + 'static {
+    const DESCRIPTION: &'static str;
+
     fn type_id(&self) -> &'static str;
-    fn description(&self) -> &'static str;
+    fn description(&self) -> &'static str {
+        Self::DESCRIPTION
+    }
     fn props() -> &'static [PropDef<Self>];
     fn pin_geoms(&self) -> Vec<CompPin>;
     fn body(&self) -> Rect;

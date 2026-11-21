@@ -148,9 +148,7 @@ impl Component for SwitchDip {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "DIP switch package."
-    }
+    const DESCRIPTION: &'static str = "DIP switch package.";
     fn props() -> &'static [PropDef<Self>] {
         const SIZE: PropDef<SwitchDip> = {
             let mut p = PropDef::int(

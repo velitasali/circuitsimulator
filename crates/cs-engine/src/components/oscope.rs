@@ -179,9 +179,7 @@ impl Component for Oscope {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Oscilloscope instrument."
-    }
+    const DESCRIPTION: &'static str = "Oscilloscope instrument.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Oscope>] = &[

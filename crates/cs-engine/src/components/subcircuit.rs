@@ -312,9 +312,7 @@ impl Component for Subcircuit {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Subcircuit."
-    }
+    const DESCRIPTION: &'static str = "Subcircuit.";
 
     fn props() -> &'static [PropDef<Self>] {
         const LS: PropDef<Subcircuit> = {

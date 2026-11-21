@@ -123,9 +123,7 @@ impl Component for AudioOut {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Audio speaker / buzzer output."
-    }
+    const DESCRIPTION: &'static str = "Audio speaker / buzzer output.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<AudioOut>] = &[

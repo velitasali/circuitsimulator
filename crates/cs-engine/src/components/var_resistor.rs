@@ -147,9 +147,7 @@ impl Component for VarResistor {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Variable resistor."
-    }
+    const DESCRIPTION: &'static str = "Variable resistor.";
     fn props() -> &'static [PropDef<Self>] {
         const RES_UPDATES: &[PropUpdate<VarResistor>] =
             &[PropUpdate::always(VarResistor::value_adjusts)];

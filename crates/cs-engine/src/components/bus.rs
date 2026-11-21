@@ -49,9 +49,7 @@ impl Component for Bus {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Bus connection."
-    }
+    const DESCRIPTION: &'static str = "Bus connection.";
 
     fn props() -> &'static [PropDef<Self>] {
         const WIDTH: PropDef<Bus> = {

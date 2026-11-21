@@ -95,9 +95,7 @@ impl Component for NotGate {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "NOT / Inverter logic gate."
-    }
+    const DESCRIPTION: &'static str = "NOT / Inverter logic gate.";
 
     fn props() -> &'static [PropDef<Self>] {
         const TRISTATE: PropDef<NotGate> = {

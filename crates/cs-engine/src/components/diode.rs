@@ -89,6 +89,7 @@ impl Default for Diode {
 impl Diode {
     pub const TYPE_ID: &'static str = "Diode";
     pub const TYPE_ID_ZENER: &'static str = "Zener";
+    pub const ZENER_DESCRIPTION: &'static str = "Zener diode.";
     pub fn zener_default() -> Self {
         let sat_current = diode_sat_current();
         Self {
@@ -182,6 +183,8 @@ impl Diode {
 }
 
 impl Component for Diode {
+    const DESCRIPTION: &'static str = "Rectifier diode with configurable model.";
+
     fn type_id(&self) -> &'static str {
         if self.zener {
             Self::TYPE_ID_ZENER
@@ -192,9 +195,9 @@ impl Component for Diode {
 
     fn description(&self) -> &'static str {
         if self.zener {
-            "Zener diode."
+            Self::ZENER_DESCRIPTION
         } else {
-            "Rectifier diode with configurable model."
+            Self::DESCRIPTION
         }
     }
 

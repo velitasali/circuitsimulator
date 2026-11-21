@@ -166,9 +166,7 @@ impl Component for VarInductor {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Variable inductor."
-    }
+    const DESCRIPTION: &'static str = "Variable inductor.";
     fn props() -> &'static [PropDef<Self>] {
         const IND_UPDATES: &[PropUpdate<VarInductor>] =
             &[PropUpdate::always(VarInductor::value_adjusts)];

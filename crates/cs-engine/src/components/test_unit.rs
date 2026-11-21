@@ -119,9 +119,7 @@ impl Component for TestUnit {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Automated digital unit tester."
-    }
+    const DESCRIPTION: &'static str = "Automated digital unit tester.";
 
     fn props() -> &'static [PropDef<Self>] {
         const INPUTS: PropDef<TestUnit> = {

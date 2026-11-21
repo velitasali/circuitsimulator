@@ -164,6 +164,17 @@ Item {
         border.width: 1
         z: root.overlayZ( "sidePanel" )
 
+        function clearComponentHover(): void {
+            var view = componentListLoader.item as ComponentListView
+            if ( view )
+                view.clearHover()
+        }
+        onVisibleChanged: if ( !visible ) clearComponentHover()
+        onXChanged: clearComponentHover()
+        onYChanged: clearComponentHover()
+        onWidthChanged: clearComponentHover()
+        onHeightChanged: clearComponentHover()
+
         // Absorbs unhandled pointer events (clicks on empty space, scrolling over margins)
         // and prevents any pointer events from leaking to the canvas below.
         MouseArea {
@@ -232,6 +243,7 @@ Item {
                 // `currentIndex: app.sidePanelTab` would not survive the first
                 // click, which breaks the binding; RestoreNone re-asserts it.
                 onCurrentIndexChanged: {
+                    sidePanel.clearComponentHover()
                     CircuitPanel.overlayClicked( "sidePanel" )
                     App.sidePanelTab = sideTabs.currentIndex
                 }
@@ -284,6 +296,7 @@ Item {
                         clip: true
 
                         Loader {
+                            id: componentListLoader
                             anchors.fill: parent
                             source: "ComponentListView.qml"
                         }
@@ -337,6 +350,22 @@ Item {
                 }
             }
         }
+    }
+
+    ComponentHoverCard {
+        id: componentHoverCard
+        readonly property ComponentListView listView: componentListLoader.item as ComponentListView
+        active: sidePanel.visible && sideTabs.currentIndex === 0 && listView !== null && listView.hoverCardVisible
+        info: listView ? listView.hoveredItemInfo : null
+        anchorY: {
+            var _panelY = sidePanel.y
+            return ( listView && listView.hoverCardVisible )
+                ? componentListLoader.mapToItem( root, 0, listView.hoveredRowCenterY ).y
+                : 0
+        }
+        panelRect: Qt.rect( sidePanel.x, sidePanel.y, sidePanel.width, sidePanel.height )
+        preferRight: root.rects.sidePanelClusterRight !== false
+        topInset: root.topInset
     }
 
     // ---- Editor panel ----------------------------------------------------

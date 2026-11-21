@@ -155,9 +155,7 @@ impl Component for Strain {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Strain gauge sensor."
-    }
+    const DESCRIPTION: &'static str = "Strain gauge sensor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Strain>] = &[

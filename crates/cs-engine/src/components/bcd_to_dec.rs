@@ -76,9 +76,7 @@ impl Component for BcdToDec {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "BCD to Decimal Decoder."
-    }
+    const DESCRIPTION: &'static str = "BCD to Decimal Decoder.";
 
     fn props() -> &'static [PropDef<Self>] {
         const SIXTEEN: PropDef<BcdToDec> = {

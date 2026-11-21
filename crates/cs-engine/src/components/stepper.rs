@@ -154,9 +154,7 @@ impl Component for Stepper {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Step by step Motor."
-    }
+    const DESCRIPTION: &'static str = "Step by step Motor.";
 
     fn props() -> &'static [PropDef<Self>] {
         const BIPOLAR: PropDef<Stepper> = {

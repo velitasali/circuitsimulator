@@ -157,9 +157,7 @@ impl Component for RgbLed {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "RGB LED."
-    }
+    const DESCRIPTION: &'static str = "RGB LED.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ANODE: PropDef<RgbLed> = {

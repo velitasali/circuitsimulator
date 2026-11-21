@@ -156,9 +156,7 @@ impl Component for Triac {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Triac bidirectional thyristor."
-    }
+    const DESCRIPTION: &'static str = "Triac bidirectional thyristor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Triac>] = &[

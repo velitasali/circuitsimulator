@@ -26,9 +26,7 @@ impl Component for Node {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Wire junction."
-    }
+    const DESCRIPTION: &'static str = "Wire junction.";
     fn props() -> &'static [PropDef<Self>] {
         &[]
     }

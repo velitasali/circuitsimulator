@@ -76,9 +76,7 @@ impl Component for DecToBcd {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Decimal to BCD Priority Encoder."
-    }
+    const DESCRIPTION: &'static str = "Decimal to BCD Priority Encoder.";
 
     fn props() -> &'static [PropDef<Self>] {
         const SIXTEEN: PropDef<DecToBcd> = {

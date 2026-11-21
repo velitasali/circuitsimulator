@@ -142,9 +142,7 @@ impl Component for Diac {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Diac bidirectional trigger diode."
-    }
+    const DESCRIPTION: &'static str = "Diac bidirectional trigger diode.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Diac>] = &[

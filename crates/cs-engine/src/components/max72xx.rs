@@ -110,9 +110,7 @@ impl Component for Max72xx {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "MAX7219/MAX7221 8x8 LED matrix display module."
-    }
+    const DESCRIPTION: &'static str = "MAX7219/MAX7221 8x8 LED matrix display module.";
 
     fn props() -> &'static [PropDef<Self>] {
         const MODS: PropDef<Max72xx> = {

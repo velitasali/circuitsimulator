@@ -50,9 +50,7 @@ impl Component for BinCounter {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "4-Bit Binary / Decade Counter."
-    }
+    const DESCRIPTION: &'static str = "4-Bit Binary / Decade Counter.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<BinCounter>] = &[PropDef::bool(

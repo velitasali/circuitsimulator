@@ -70,9 +70,7 @@ impl Component for DS1621 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Temperature sensor with I2C interface."
-    }
+    const DESCRIPTION: &'static str = "Temperature sensor with I2C interface.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<DS1621>] = &[

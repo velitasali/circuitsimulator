@@ -134,9 +134,7 @@ impl Component for Potentiometer {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Potentiometer."
-    }
+    const DESCRIPTION: &'static str = "Potentiometer.";
     fn props() -> &'static [PropDef<Self>] {
         const OHM_UPDATES: &[PropUpdate<Potentiometer>] =
             &[PropUpdate::always(Potentiometer::value_ohm_sets_wiper)];

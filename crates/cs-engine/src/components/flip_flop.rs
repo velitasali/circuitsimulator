@@ -112,9 +112,7 @@ impl Component for FlipFlop {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Flip-Flop (D, JK, RS, or T)."
-    }
+    const DESCRIPTION: &'static str = "Flip-Flop (D, JK, RS, or T).";
 
     fn props() -> &'static [PropDef<Self>] {
         const KIND_OPTIONS: &[&str] = &["D", "JK", "RS", "T"];

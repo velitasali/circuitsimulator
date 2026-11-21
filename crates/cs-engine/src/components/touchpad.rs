@@ -182,9 +182,7 @@ impl Component for TouchPad {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Resistive touchpad."
-    }
+    const DESCRIPTION: &'static str = "Resistive touchpad.";
 
     fn props() -> &'static [PropDef<Self>] {
         const WIDTH: PropDef<TouchPad> = {

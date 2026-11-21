@@ -134,9 +134,7 @@ impl Component for LedBar {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "LED bar graph."
-    }
+    const DESCRIPTION: &'static str = "LED bar graph.";
 
     fn props() -> &'static [PropDef<Self>] {
         const SEGS: PropDef<LedBar> = {

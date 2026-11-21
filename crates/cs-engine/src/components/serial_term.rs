@@ -89,9 +89,7 @@ impl Component for SerialTerm {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Serial terminal interface."
-    }
+    const DESCRIPTION: &'static str = "Serial terminal interface.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<SerialTerm>] = &[

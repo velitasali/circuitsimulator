@@ -93,9 +93,7 @@ impl Component for AnalogMux {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Analog multiplexer."
-    }
+    const DESCRIPTION: &'static str = "Analog multiplexer.";
 
     fn props() -> &'static [PropDef<Self>] {
         const CHANNELS: PropDef<AnalogMux> = {

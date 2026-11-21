@@ -121,9 +121,7 @@ impl Component for Latch {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Digital transparent latch / register."
-    }
+    const DESCRIPTION: &'static str = "Digital transparent latch / register.";
 
     fn props() -> &'static [PropDef<Self>] {
         const TRIGGER_OPTIONS: &[&str] = &["None", "Clock", "Enable"];

@@ -81,9 +81,7 @@ impl Component for Pcd8544 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "84x48 pixel monochrome LCD (Nokia 5110)."
-    }
+    const DESCRIPTION: &'static str = "84x48 pixel monochrome LCD (Nokia 5110).";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Pcd8544>] = &[

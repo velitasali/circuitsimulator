@@ -109,9 +109,7 @@ impl Component for Lamp {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Incandescent lamp indicator."
-    }
+    const DESCRIPTION: &'static str = "Incandescent lamp indicator.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Lamp>] = &[

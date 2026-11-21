@@ -196,9 +196,7 @@ impl Component for AndGate {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "AND logic gate."
-    }
+    const DESCRIPTION: &'static str = "AND logic gate.";
 
     fn props() -> &'static [PropDef<Self>] {
         const NUM_INPUTS: PropDef<AndGate> = {

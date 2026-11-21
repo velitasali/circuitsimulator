@@ -56,9 +56,7 @@ impl Component for VoltReg {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Voltage regulator."
-    }
+    const DESCRIPTION: &'static str = "Voltage regulator.";
 
     fn props() -> &'static [PropDef<Self>] {
         const VOLT: PropDef<VoltReg> = {

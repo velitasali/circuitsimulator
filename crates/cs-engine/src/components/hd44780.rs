@@ -63,9 +63,7 @@ impl Component for Hd44780 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "HD44780-compatible alphanumeric dot-matrix LCD display."
-    }
+    const DESCRIPTION: &'static str = "HD44780-compatible alphanumeric dot-matrix LCD display.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ROWS: PropDef<Hd44780> = {

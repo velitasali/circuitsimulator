@@ -102,9 +102,7 @@ impl Component for Memory {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Static RAM / ROM Memory Block."
-    }
+    const DESCRIPTION: &'static str = "Static RAM / ROM Memory Block.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ADDR_BITS: PropDef<Memory> = {

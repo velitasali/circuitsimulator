@@ -97,9 +97,7 @@ impl Component for Probe {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Voltage logic probe."
-    }
+    const DESCRIPTION: &'static str = "Voltage logic probe.";
 
     fn props() -> &'static [PropDef<Self>] {
         const SMALL: PropDef<Probe> = {

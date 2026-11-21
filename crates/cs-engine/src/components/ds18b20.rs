@@ -103,9 +103,7 @@ impl Component for DS18B20 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Programmable Resolution 1-Wire Digital Thermometer."
-    }
+    const DESCRIPTION: &'static str = "Programmable Resolution 1-Wire Digital Thermometer.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<DS18B20>] = &[

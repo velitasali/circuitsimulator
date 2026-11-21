@@ -101,9 +101,7 @@ impl Component for Clock {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Clock signal generator."
-    }
+    const DESCRIPTION: &'static str = "Clock signal generator.";
     fn props() -> &'static [PropDef<Self>] {
         const FREQ: PropDef<Clock> = {
             let mut p = PropDef::float(

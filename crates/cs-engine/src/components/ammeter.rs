@@ -49,9 +49,7 @@ impl Component for Ammeter {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Current meter."
-    }
+    const DESCRIPTION: &'static str = "Current meter.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Ammeter>] = &[PropDef::bool(

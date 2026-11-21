@@ -246,9 +246,7 @@ impl Component for TftDisplay {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Color TFT LCD display with SPI interface."
-    }
+    const DESCRIPTION: &'static str = "Color TFT LCD display with SPI interface.";
 
     fn props() -> &'static [PropDef<Self>] {
         const WIDTH: PropDef<TftDisplay> = {

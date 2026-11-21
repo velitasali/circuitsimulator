@@ -137,9 +137,7 @@ impl Component for OpAmp {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Operational amplifier."
-    }
+    const DESCRIPTION: &'static str = "Operational amplifier.";
 
     fn props() -> &'static [PropDef<Self>] {
         const POWER_PINS: PropDef<OpAmp> = {

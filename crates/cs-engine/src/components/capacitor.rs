@@ -80,9 +80,7 @@ impl Component for Capacitor {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Capacitor."
-    }
+    const DESCRIPTION: &'static str = "Capacitor.";
     fn props() -> &'static [PropDef<Self>] {
         const CAP: PropDef<Capacitor> = {
             let mut p = PropDef::float(

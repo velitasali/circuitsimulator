@@ -78,9 +78,7 @@ impl Component for SevenSegmentBCD {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "7-Segment Display with BCD Decoder."
-    }
+    const DESCRIPTION: &'static str = "7-Segment Display with BCD Decoder.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<SevenSegmentBCD>] = &[

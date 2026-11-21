@@ -124,9 +124,7 @@ impl Component for CurrSource {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Adjustable current source."
-    }
+    const DESCRIPTION: &'static str = "Adjustable current source.";
     fn props() -> &'static [PropDef<Self>] {
         const VALUE_UPDATES: &[PropUpdate<CurrSource>] =
             &[PropUpdate::always(CurrSource::value_adjusts)];

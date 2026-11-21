@@ -53,9 +53,7 @@ impl Component for ShiftReg {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Shift register with parallel outputs."
-    }
+    const DESCRIPTION: &'static str = "Shift register with parallel outputs.";
 
     fn props() -> &'static [PropDef<Self>] {
         const BITS: PropDef<ShiftReg> = {

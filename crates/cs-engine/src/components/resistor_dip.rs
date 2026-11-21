@@ -121,9 +121,7 @@ impl Component for ResistorDip {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Resistor network package."
-    }
+    const DESCRIPTION: &'static str = "Resistor network package.";
 
     fn props() -> &'static [PropDef<Self>] {
         const SIZE: PropDef<ResistorDip> = {

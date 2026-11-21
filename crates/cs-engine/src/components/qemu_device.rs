@@ -166,9 +166,7 @@ impl Component for QemuDevice {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "QEMU co-simulation device (ESP32/STM32)."
-    }
+    const DESCRIPTION: &'static str = "QEMU co-simulation device (ESP32/STM32).";
 
     fn props() -> &'static [PropDef<Self>] {
         const DEV: PropDef<QemuDevice> = {

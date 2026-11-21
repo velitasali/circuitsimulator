@@ -151,9 +151,7 @@ impl Component for Csource {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Controlled source."
-    }
+    const DESCRIPTION: &'static str = "Controlled source.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Csource>] = &[

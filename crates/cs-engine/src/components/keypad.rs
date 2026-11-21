@@ -173,9 +173,7 @@ impl Component for KeyPad {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Keypad matrix."
-    }
+    const DESCRIPTION: &'static str = "Keypad matrix.";
     fn props() -> &'static [PropDef<Self>] {
         const ROWS: PropDef<KeyPad> = {
             let mut p = PropDef::int(

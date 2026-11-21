@@ -166,9 +166,7 @@ impl Component for DHT22 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Temperature and humidity sensor."
-    }
+    const DESCRIPTION: &'static str = "Temperature and humidity sensor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<DHT22>] = &[

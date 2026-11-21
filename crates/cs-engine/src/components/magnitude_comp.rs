@@ -53,9 +53,7 @@ impl Component for MagnitudeComp {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Magnitude comparator."
-    }
+    const DESCRIPTION: &'static str = "Magnitude comparator.";
 
     fn props() -> &'static [PropDef<Self>] {
         const BITS: PropDef<MagnitudeComp> = {

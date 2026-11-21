@@ -108,9 +108,7 @@ impl Component for OrGate {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "OR logic gate."
-    }
+    const DESCRIPTION: &'static str = "OR logic gate.";
 
     fn props() -> &'static [PropDef<Self>] {
         const NUM_INPUTS: PropDef<OrGate> = {

@@ -64,9 +64,7 @@ impl Component for DynamicMemory {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Dynamic RAM (DRAM) Memory Block."
-    }
+    const DESCRIPTION: &'static str = "Dynamic RAM (DRAM) Memory Block.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ADDR_BITS: PropDef<DynamicMemory> = {

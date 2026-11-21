@@ -370,9 +370,7 @@ impl Component for Mcu {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Microcontroller."
-    }
+    const DESCRIPTION: &'static str = "Microcontroller.";
 
     fn props() -> &'static [PropDef<Self>] {
         const DEV: PropDef<Mcu> = {

@@ -73,6 +73,19 @@ fn tinted_icon_file(icon_uri: &str, color: &str) -> String {
     file_url(&path)
 }
 
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {
+            let mut out = String::with_capacity(s.len());
+            out.push(c.to_ascii_uppercase());
+            out.push_str(chars.as_str());
+            out
+        }
+        _ => s.to_string(),
+    }
+}
+
 fn build_library(circuit_path: &str, project_dir: &str) -> Library {
     let mut lib = Library::new();
     let local = catalog::local_subcircuits(
@@ -176,6 +189,41 @@ impl ComponentList {
     #[qslot]
     fn is_item_expanded(&self, id: u32) -> bool {
         self.lib.is_expanded(id)
+    }
+
+    #[qslot]
+    fn component_info(&self, id: u32) -> Value {
+        let Some(it) = self.lib.item(id) else {
+            return Value::Null;
+        };
+        if it.item_type != TYPE_COMPONENT {
+            return Value::Null;
+        }
+        let icon_uri = if !it.icon.is_empty() {
+            format!("qrc:/icons/components/{}", it.icon)
+        } else {
+            String::new()
+        };
+        let description = it
+            .description()
+            .map(|d| capitalize_first(&i18n::tr(d)))
+            .unwrap_or_default();
+        let category = self
+            .lib
+            .category_path(id)
+            .into_iter()
+            .map(i18n::tr)
+            .collect::<Vec<_>>()
+            .join(" › ");
+        json!({
+            "id": id,
+            "title": i18n::tr(&it.caption),
+            "description": description,
+            "category": category,
+            "compType": it.comp_type,
+            "iconUri": icon_uri,
+            "isCustom": it.is_custom,
+        })
     }
 
     /// File URL of `icon_uri` with `currentColor` rewritten to `color`.

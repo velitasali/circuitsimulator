@@ -75,9 +75,7 @@ impl Component for Function {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Combinational Boolean Logic Function."
-    }
+    const DESCRIPTION: &'static str = "Combinational Boolean Logic Function.";
 
     fn props() -> &'static [PropDef<Self>] {
         const INPUTS: PropDef<Function> = {

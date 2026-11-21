@@ -67,9 +67,7 @@ impl Component for Tunnel {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Net tunnel connector."
-    }
+    const DESCRIPTION: &'static str = "Net tunnel connector.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Tunnel>] = &[

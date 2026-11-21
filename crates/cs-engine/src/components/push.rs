@@ -131,9 +131,7 @@ impl Component for Push {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Push button switch."
-    }
+    const DESCRIPTION: &'static str = "Push button switch.";
     fn props() -> &'static [PropDef<Self>] {
         const POLES: PropDef<Push> = {
             let mut p = PropDef::int(

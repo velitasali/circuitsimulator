@@ -85,9 +85,7 @@ impl Component for Battery {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Simple battery."
-    }
+    const DESCRIPTION: &'static str = "Simple battery.";
     fn props() -> &'static [PropDef<Self>] {
         const VOLT: PropDef<Battery> = {
             let mut p = PropDef::float(

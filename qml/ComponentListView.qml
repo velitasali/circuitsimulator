@@ -16,6 +16,82 @@ Item {
     readonly property int typeCategMain: 2
     readonly property int typeCategChild: 3
 
+    property var hoveredItemInfo: null
+    property real hoveredRowCenterY: 0
+    property bool hoverCardVisible: false
+
+    property real pendingHoverId: -1
+    property Item pendingHoverRow: null
+
+    function clearHover(): void {
+        hoverDelayTimer.stop()
+        hoverLeaveTimer.stop()
+        root.pendingHoverId = -1
+        root.pendingHoverRow = null
+        root.hoverCardVisible = false
+        root.hoveredItemInfo = null
+    }
+
+    function applyHover(itemId: real, rowItem: Item): void {
+        if (!rowItem || contextMenu.opened || list.moving) {
+            root.clearHover()
+            return
+        }
+        var info = ComponentList.componentInfo(itemId)
+        if (!info) {
+            root.clearHover()
+            return
+        }
+        root.hoveredItemInfo = info
+        root.hoveredRowCenterY = rowItem.mapToItem(root, 0, rowItem.height / 2).y
+        root.hoverCardVisible = true
+    }
+
+    function beginRowHover(itemId: real, rowItem: Item, isCat: bool): void {
+        hoverLeaveTimer.stop()
+        if (isCat || contextMenu.opened) {
+            root.clearHover()
+            return
+        }
+        root.pendingHoverId = itemId
+        root.pendingHoverRow = rowItem
+        if (root.hoverCardVisible) {
+            hoverDelayTimer.stop()
+            root.applyHover(itemId, rowItem)
+        } else {
+            hoverDelayTimer.restart()
+        }
+    }
+
+    function endRowHover(itemId: real): void {
+        if (root.pendingHoverId === itemId) {
+            hoverDelayTimer.stop()
+            root.pendingHoverId = -1
+            root.pendingHoverRow = null
+            if (root.hoverCardVisible)
+                hoverLeaveTimer.restart()
+        }
+    }
+
+    onVisibleChanged: if (!visible) root.clearHover()
+
+    Timer {
+        id: hoverDelayTimer
+        interval: 350
+        repeat: false
+        onTriggered: {
+            if (root.pendingHoverId >= 0 && root.pendingHoverRow)
+                root.applyHover(root.pendingHoverId, root.pendingHoverRow)
+        }
+    }
+
+    Timer {
+        id: hoverLeaveTimer
+        interval: 60
+        repeat: false
+        onTriggered: root.clearHover()
+    }
+
     function syncRows(): void {
         var arr = ComponentList.rows
         if ( !arr )
@@ -80,8 +156,12 @@ Item {
 
     Connections {
         target: ComponentList
-        function onRowsChanged(): void { root.syncRows() }
+        function onRowsChanged(): void {
+            root.clearHover()
+            root.syncRows()
+        }
         function onSearchApplied(filter: string): void {
+            root.clearHover()
             root.syncRows()
             list.positionViewAtBeginning()
         }
@@ -89,6 +169,7 @@ Item {
     Connections {
         target: App
         function onI18nTickChanged() {
+            root.clearHover()
             ComponentList.reloadComponents()
             root.syncRows()
         }
@@ -97,6 +178,7 @@ Item {
 
     AppContextMenu {
         id: contextMenu
+        onAboutToShow: root.clearHover()
         ContextMenuItem {
             text: I18n.tr( "Clear Recently Used" )
             iconLigature: "delete"
@@ -123,11 +205,14 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: AppScrollBar {}
         clip: true
+        onContentYChanged: root.clearHover()
+        onMovingChanged: if (list.moving) root.clearHover()
 
         delegate: Item {
             id: row
             required property var model
             required property int index
+            Component.onDestruction: if (root.pendingHoverRow === row) root.clearHover()
             width: list.width
             height: {
                 if ( row.model.itemType === root.typeCategMain ) return 30
@@ -209,15 +294,27 @@ Item {
                 }
             }
 
-            HoverHandler { id: hover }
+            HoverHandler {
+                id: hover
+                onHoveredChanged: {
+                    if (hover.hovered) {
+                        if (!dragHandler.active)
+                            root.beginRowHover(row.model.id, row, row.isCategory)
+                    } else {
+                        root.endRowHover(row.model.id)
+                    }
+                }
+            }
 
             TapHandler {
                 acceptedButtons: Qt.LeftButton
                 onTapped: {
+                    root.clearHover()
                     if ( row.isCategory )
                         ComponentList.toggleExpanded( row.model.id )
                 }
                 onDoubleTapped: {
+                    root.clearHover()
                     if ( row.isCategory )
                         return
                     var t = row.model.compType
@@ -259,6 +356,7 @@ Item {
                 id: dragHandler
                 target: null
                 enabled: !row.isCategory
+                onActiveChanged: if (dragHandler.active) root.clearHover()
             }
         }
     }

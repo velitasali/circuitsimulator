@@ -141,9 +141,7 @@ impl Component for SubPackage {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Subcircuit IC package footprint."
-    }
+    const DESCRIPTION: &'static str = "Subcircuit IC package footprint.";
 
     fn props() -> &'static [PropDef<Self>] {
         const W: PropDef<SubPackage> = {

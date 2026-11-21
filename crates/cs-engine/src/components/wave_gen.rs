@@ -294,9 +294,7 @@ impl Component for WaveGen {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Function / waveform generator."
-    }
+    const DESCRIPTION: &'static str = "Function / waveform generator.";
 
     fn props() -> &'static [PropDef<Self>] {
         const BIPOLAR: PropDef<WaveGen> = {

@@ -440,9 +440,7 @@ impl Component for Shape {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Configurable schematic shape annotation."
-    }
+    const DESCRIPTION: &'static str = "Configurable schematic shape annotation.";
 
     fn props() -> &'static [PropDef<Self>] {
         const W: PropDef<Shape> = PropDef::float(

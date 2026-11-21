@@ -163,9 +163,7 @@ impl Component for Led {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Light-emitting diode."
-    }
+    const DESCRIPTION: &'static str = "Light-emitting diode.";
 
     fn props() -> &'static [PropDef<Self>] {
         const GROUNDED: PropDef<Led> = {

@@ -50,9 +50,7 @@ impl Component for I2CToParallel {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "I2C to 8-Bit Parallel I/O Expander (PCF8574)."
-    }
+    const DESCRIPTION: &'static str = "I2C to 8-Bit Parallel I/O Expander (PCF8574).";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<I2CToParallel>] = &[PropDef::int(

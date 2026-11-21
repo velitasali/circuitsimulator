@@ -118,9 +118,7 @@ impl Component for SerialPort {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "SerialPort interface."
-    }
+    const DESCRIPTION: &'static str = "SerialPort interface.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<SerialPort>] = &[

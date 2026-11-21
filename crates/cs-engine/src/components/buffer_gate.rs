@@ -95,9 +95,7 @@ impl Component for BufferGate {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Buffer logic gate."
-    }
+    const DESCRIPTION: &'static str = "Buffer logic gate.";
 
     fn props() -> &'static [PropDef<Self>] {
         const TRISTATE: PropDef<BufferGate> = {

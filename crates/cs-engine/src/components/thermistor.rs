@@ -147,9 +147,7 @@ impl Component for Thermistor {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "NTC thermistor."
-    }
+    const DESCRIPTION: &'static str = "NTC thermistor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Thermistor>] = &[

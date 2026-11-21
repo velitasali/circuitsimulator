@@ -107,9 +107,7 @@ impl Component for Aip31068 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Dot matrix character LCD with I2C interface."
-    }
+    const DESCRIPTION: &'static str = "Dot matrix character LCD with I2C interface.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ROWS: PropDef<Aip31068> = {

@@ -95,9 +95,7 @@ impl Component for Bjt {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Bipolar junction transistor."
-    }
+    const DESCRIPTION: &'static str = "Bipolar junction transistor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Bjt>] = &[

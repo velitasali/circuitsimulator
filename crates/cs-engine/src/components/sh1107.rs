@@ -125,9 +125,7 @@ impl Component for Sh1107 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "128x128 monochrome OLED display."
-    }
+    const DESCRIPTION: &'static str = "128x128 monochrome OLED display.";
 
     fn props() -> &'static [PropDef<Self>] {
         const WIDTH: PropDef<Sh1107> = {

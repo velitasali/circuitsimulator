@@ -53,9 +53,7 @@ impl Component for HalfAdder {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Binary Half Adder."
-    }
+    const DESCRIPTION: &'static str = "Binary Half Adder.";
 
     fn props() -> &'static [PropDef<Self>] {
         const BITS: PropDef<HalfAdder> = {

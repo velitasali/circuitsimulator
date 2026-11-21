@@ -58,9 +58,7 @@ impl Component for Rail {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Power supply rail."
-    }
+    const DESCRIPTION: &'static str = "Power supply rail.";
     fn props() -> &'static [PropDef<Self>] {
         const VOLT: PropDef<Rail> = {
             let mut p = PropDef::float(

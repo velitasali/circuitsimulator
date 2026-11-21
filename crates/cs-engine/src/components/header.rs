@@ -52,9 +52,7 @@ impl Component for Header {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Pin header connector."
-    }
+    const DESCRIPTION: &'static str = "Pin header connector.";
 
     fn props() -> &'static [PropDef<Self>] {
         const PINS: PropDef<Header> = {

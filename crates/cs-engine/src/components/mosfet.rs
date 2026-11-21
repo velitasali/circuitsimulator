@@ -107,9 +107,7 @@ impl Component for Mosfet {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "MOSFET transistor."
-    }
+    const DESCRIPTION: &'static str = "MOSFET transistor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Mosfet>] = &[

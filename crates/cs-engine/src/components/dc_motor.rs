@@ -113,9 +113,7 @@ impl Component for DcMotor {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Configurable DC motor with speed/direction indicator."
-    }
+    const DESCRIPTION: &'static str = "Configurable DC motor with speed/direction indicator.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<DcMotor>] = &[

@@ -166,9 +166,7 @@ impl Component for VarCapacitor {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Variable capacitor."
-    }
+    const DESCRIPTION: &'static str = "Variable capacitor.";
     fn props() -> &'static [PropDef<Self>] {
         const CAP_UPDATES: &[PropUpdate<VarCapacitor>] =
             &[PropUpdate::always(VarCapacitor::value_adjusts)];

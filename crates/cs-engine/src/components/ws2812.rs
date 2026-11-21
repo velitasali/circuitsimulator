@@ -151,9 +151,7 @@ impl Component for Ws2812 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "WS2812 addressable RGB LED chain/matrix."
-    }
+    const DESCRIPTION: &'static str = "WS2812 addressable RGB LED chain/matrix.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ROWS: PropDef<Ws2812> = {

@@ -114,9 +114,7 @@ impl Component for Pcf8833 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "132x132 color LCD controller."
-    }
+    const DESCRIPTION: &'static str = "132x132 color LCD controller.";
 
     fn props() -> &'static [PropDef<Self>] {
         const WIDTH: PropDef<Pcf8833> = {

@@ -84,9 +84,7 @@ impl Component for I2CRam {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "I2C Serial EEPROM / RAM (24C04 compatible)."
-    }
+    const DESCRIPTION: &'static str = "I2C Serial EEPROM / RAM (24C04 compatible).";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<I2CRam>] = &[

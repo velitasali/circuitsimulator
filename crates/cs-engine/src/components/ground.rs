@@ -36,9 +36,7 @@ impl Component for Ground {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Ground reference (0 V)."
-    }
+    const DESCRIPTION: &'static str = "Ground reference (0 V).";
     fn props() -> &'static [PropDef<Self>] {
         &[]
     }

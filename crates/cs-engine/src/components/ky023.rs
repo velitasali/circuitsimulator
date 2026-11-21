@@ -77,9 +77,7 @@ impl Component for KY023 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Resistive joystick."
-    }
+    const DESCRIPTION: &'static str = "Resistive joystick.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<KY023>] = &[

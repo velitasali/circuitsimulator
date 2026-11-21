@@ -123,9 +123,7 @@ impl Component for VoltSource {
     fn type_id(&self) -> &'static str {
         Self::TYPE_ID
     }
-    fn description(&self) -> &'static str {
-        "Adjustable voltage source."
-    }
+    const DESCRIPTION: &'static str = "Adjustable voltage source.";
     fn props() -> &'static [PropDef<Self>] {
         const VALUE_UPDATES: &[PropUpdate<VoltSource>] =
             &[PropUpdate::always(VoltSource::value_adjusts)];

@@ -71,9 +71,7 @@ impl Component for Lm555 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "LM555 Timer IC."
-    }
+    const DESCRIPTION: &'static str = "LM555 Timer IC.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Lm555>] = &[

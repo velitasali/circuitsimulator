@@ -132,9 +132,7 @@ impl Component for Dial {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Rotary control dial."
-    }
+    const DESCRIPTION: &'static str = "Rotary control dial.";
 
     fn props() -> &'static [PropDef<Self>] {
         const VALUE_UPDATES: &[PropUpdate<Dial>] = &[PropUpdate::always(Dial::value_adjusts)];

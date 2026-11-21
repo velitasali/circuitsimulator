@@ -247,9 +247,7 @@ impl Component for LogicAnalyzer {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Logic analyzer."
-    }
+    const DESCRIPTION: &'static str = "Logic analyzer.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<LogicAnalyzer>] = &[

@@ -95,9 +95,7 @@ impl Component for KY040 {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Relative rotary encoder."
-    }
+    const DESCRIPTION: &'static str = "Relative rotary encoder.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<KY040>] = &[

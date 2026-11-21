@@ -142,9 +142,7 @@ impl Component for SevenSegment {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Seven-segment display."
-    }
+    const DESCRIPTION: &'static str = "Seven-segment display.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ANODE: PropDef<SevenSegment> = {

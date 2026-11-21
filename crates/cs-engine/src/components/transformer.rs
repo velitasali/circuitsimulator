@@ -220,9 +220,7 @@ impl Component for Transformer {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Coupled inductor transformer."
-    }
+    const DESCRIPTION: &'static str = "Coupled inductor transformer.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Transformer>] = &[

@@ -67,9 +67,7 @@ impl Component for Demux {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Digital demultiplexer."
-    }
+    const DESCRIPTION: &'static str = "Digital demultiplexer.";
 
     fn props() -> &'static [PropDef<Self>] {
         const ADDR_BITS: PropDef<Demux> = {

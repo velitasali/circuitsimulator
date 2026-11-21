@@ -24,6 +24,7 @@ pub struct LibraryItem {
     pub icon: String,
     pub aliases: Vec<String>,
     pub is_custom: bool,
+    pub info: Option<String>,
 }
 
 /// Text match ranking matching C++ `TreeItem::textMatchTier`:
@@ -103,6 +104,26 @@ impl LibraryItem {
             }
         }
         best
+    }
+
+    /// Type-level description for a component row.
+    /// Prefers catalog XML `info`, then a custom-subcircuit fallback, then `PlaceKind::description`.
+    pub fn description(&self) -> Option<&str> {
+        if self.item_type != TYPE_COMPONENT {
+            return None;
+        }
+        if let Some(info) = self
+            .info
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(info);
+        }
+        if self.is_custom {
+            return Some("Custom subcircuit.");
+        }
+        self.kind.map(|k| k.description())
     }
 }
 
@@ -266,6 +287,25 @@ impl Library {
 
     pub fn items(&self) -> &[LibraryItem] {
         &self.items
+    }
+
+    /// Ancestor category captions from root to immediate parent for `id`.
+    /// Resolves `Recently Used` row IDs to their underlying catalog item.
+    pub fn category_path(&self, id: u32) -> Vec<&str> {
+        let Some(item) = self.item(id) else {
+            return Vec::new();
+        };
+        let mut path = Vec::new();
+        let mut cur = item.parent;
+        while let Some(pid) = cur {
+            let Some(parent) = self.items.iter().find(|i| i.id == pid) else {
+                break;
+            };
+            path.push(parent.caption.as_str());
+            cur = parent.parent;
+        }
+        path.reverse();
+        path
     }
 
     pub fn visible_rows(&self) -> Vec<VisibleRow> {
@@ -460,6 +500,7 @@ impl Library {
             icon: String::new(),
             aliases: Vec::new(),
             is_custom,
+            info: None,
         });
         id
     }
@@ -522,6 +563,12 @@ impl Library {
                 icon: "ic2.svg".into(),
                 aliases,
                 is_custom: item.is_custom,
+                info: item
+                    .info
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string),
             });
         }
     }
@@ -1948,6 +1995,7 @@ fn catalog() -> Vec<LibraryItem> {
             icon: spec.icon.to_string(),
             aliases: spec.aliases.iter().map(|&s| s.to_string()).collect(),
             is_custom: false,
+            info: None,
         });
     }
     items
@@ -2127,5 +2175,75 @@ mod tests {
         assert_eq!(text_match_tier("Electrolytic Capacitor", "elec"), Some(2)); // Word prefix
         assert_eq!(text_match_tier("Capacitor", "paci"), Some(3)); // Substring
         assert_eq!(text_match_tier("Resistor", "xyz"), None); // No match
+    }
+
+    #[test]
+    fn descriptions_and_category_paths() {
+        let mut cat = crate::catalog::Catalog::new();
+        cat.load_xml_str(
+            r#"<itemlib>
+            <itemset category="IC 74" type="Subcircuit" folder="74">
+                <item name="7400" info="quad 2-input NAND gate " />
+            </itemset>
+            </itemlib>"#,
+            std::path::Path::new("/lib/74IC.xml"),
+        );
+        cat.insert(crate::catalog::CatalogItem {
+            name: "MyFilter".into(),
+            typ: "Subcircuit".into(),
+            category: crate::catalog::LOCAL_SUBCIRCUIT_CATEGORY.into(),
+            folder: String::new(),
+            xml_file: std::path::PathBuf::from("/proj/local.xml"),
+            package: None,
+            data: None,
+            info: None,
+            is_custom: true,
+        });
+
+        let mut lib = Library::new();
+        lib.add_catalog_mcus(&cat);
+        lib.add_recent("Resistor");
+
+        for it in lib.items() {
+            if it.item_type == TYPE_COMPONENT {
+                assert!(
+                    it.description().is_some_and(|d| !d.is_empty()),
+                    "missing description for {}",
+                    it.caption
+                );
+            } else {
+                assert!(it.description().is_none());
+            }
+        }
+
+        let diode = lib.items().iter().find(|i| i.comp_type == "Diode").unwrap();
+        let zener = lib.items().iter().find(|i| i.comp_type == "Zener").unwrap();
+        assert_eq!(
+            diode.description(),
+            Some("Rectifier diode with configurable model.")
+        );
+        assert_eq!(zener.description(), Some("Zener diode."));
+
+        let ic7400 = lib.items().iter().find(|i| i.caption == "7400").unwrap();
+        assert_eq!(ic7400.description(), Some("quad 2-input NAND gate"));
+        assert_eq!(lib.category_path(ic7400.id), vec!["Logic", "IC 74"]);
+
+        let custom = lib
+            .items()
+            .iter()
+            .find(|i| i.caption == "MyFilter")
+            .unwrap();
+        assert_eq!(custom.description(), Some("Custom subcircuit."));
+        assert_eq!(lib.category_path(custom.id), vec!["Custom"]);
+
+        // Recently Used row resolves back to real catalog item & category path.
+        assert_eq!(
+            lib.category_path(RECENT_ITEM_BASE_ID),
+            vec!["Passive", "Resistors"]
+        );
+        assert_eq!(
+            lib.item(RECENT_ITEM_BASE_ID).and_then(|i| i.description()),
+            Some("Simple resistance.")
+        );
     }
 }

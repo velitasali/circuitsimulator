@@ -65,9 +65,7 @@ impl Component for Counter {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Binary Counter."
-    }
+    const DESCRIPTION: &'static str = "Binary Counter.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Counter>] = &[

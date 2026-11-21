@@ -48,9 +48,7 @@ impl Component for FreqMeter {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Frequency meter."
-    }
+    const DESCRIPTION: &'static str = "Frequency meter.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<FreqMeter>] = &[PropDef::float(

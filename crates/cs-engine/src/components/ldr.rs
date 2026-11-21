@@ -127,9 +127,7 @@ impl Component for Ldr {
         Self::TYPE_ID
     }
 
-    fn description(&self) -> &'static str {
-        "Light-dependent resistor."
-    }
+    const DESCRIPTION: &'static str = "Light-dependent resistor.";
 
     fn props() -> &'static [PropDef<Self>] {
         static PROPS: &[PropDef<Ldr>] = &[

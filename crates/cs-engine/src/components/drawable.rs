@@ -3,7 +3,7 @@
 use crate::canvas::Rect;
 use crate::canvas::draw::{Align, Color, Draw, PaintCtx, Palette, parse_hex};
 use crate::plot::{Channel, PlotBuffer};
-use crate::theme::{COMPONENT_BORDER_WIDTH, ColorId, ColorTheme};
+use crate::theme::{COMPONENT_BORDER_WIDTH, COMPONENT_FILL_ALPHA, ColorId, ColorTheme};
 
 fn scope_color(id: ColorId) -> Color {
     let (r, g, b, a) = ColorTheme::get_rgba(id, true);
@@ -1151,36 +1151,35 @@ pub fn paint_chip_body(
     ic_label: &str,
     rotate: bool,
 ) {
-    d.fill_round_rect(
-        r.x,
-        r.y,
-        r.w,
-        r.h,
-        2.0,
-        pal.body.fade(crate::theme::COMPONENT_FILL_ALPHA),
-    );
+    d.fill_round_rect(r.x, r.y, r.w, r.h, 2.0, pal.body.fade(COMPONENT_FILL_ALPHA));
     d.stroke_round_rect(r.x, r.y, r.w, r.h, 2.0, pal.border, COMPONENT_BORDER_WIDTH);
     if !ic_label.is_empty() {
         if rotate {
             d.push(0.0, 0.0, -90.0, 1.0, 1.0);
-            d.text(
-                0.0,
-                0.0,
-                ic_label,
-                7.0,
-                pal.border,
-                crate::canvas::draw::Align::Center,
-            );
+            d.text(0.0, 0.0, ic_label, 7.0, pal.border, Align::Center);
             d.pop();
         } else {
-            d.text(
-                0.0,
-                0.0,
-                ic_label,
-                7.0,
-                pal.border,
-                crate::canvas::draw::Align::Center,
-            );
+            d.text(0.0, 0.0, ic_label, 7.0, pal.border, Align::Center);
+        }
+    }
+}
+
+pub fn paint_trapezoid_body(
+    d: &mut dyn Draw,
+    pal: &Palette,
+    pts: &[[f64; 2]; 4],
+    ic_label: &str,
+    rotate: bool,
+) {
+    d.fill_poly(pts, pal.body.fade(COMPONENT_FILL_ALPHA));
+    d.stroke_poly(pts, pal.border, COMPONENT_BORDER_WIDTH, true);
+    if !ic_label.is_empty() {
+        if rotate {
+            d.push(0.0, 0.0, -90.0, 1.0, 1.0);
+            d.text(0.0, 0.0, ic_label, 7.0, pal.border, Align::Center);
+            d.pop();
+        } else {
+            d.text(0.0, 0.0, ic_label, 7.0, pal.border, Align::Center);
         }
     }
 }

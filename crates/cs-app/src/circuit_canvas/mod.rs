@@ -1780,7 +1780,7 @@ impl CircuitCanvas {
     fn prop_item_type(&self) -> String {
         self.inner
             .prop_item()
-            .map(|it| it.kind.type_name().to_string())
+            .map(|it| selection::ui_item_type(&it.kind).to_string())
             .unwrap_or_default()
     }
 

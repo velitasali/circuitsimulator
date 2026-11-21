@@ -1,11 +1,16 @@
 //! Circuit persistence (CIRC1 load/save), firmware uploads, data files, and subcircuits.
 
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use crate::canvas::drag::Drag;
 use crate::canvas::events::Change;
 use crate::canvas::export;
 use crate::canvas::scene::{Part, Scene};
 use crate::canvas::{Canvas, Point};
-use crate::components::ShapeKind;
+use crate::components::shape;
+use crate::components::{Shape, ShapeKind};
 use crate::{mcu, subcircuit};
 
 #[derive(Clone, Debug)]
@@ -642,13 +647,60 @@ impl Canvas {
         std::fs::write(path, body).is_ok()
     }
 
+    fn resolve_one_shape_image(sh: &mut Shape, circuit_dir: Option<&Path>) -> bool {
+        if sh.shape_kind != ShapeKind::Image
+            || sh.image_pixmap.is_some()
+            || sh.image_file.is_empty()
+        {
+            return false;
+        }
+        let p = PathBuf::from(&sh.image_file);
+        if sh.load_image_from_path(&p, false) {
+            return true;
+        }
+        if let Some(dir) = circuit_dir {
+            let resolved = dir.join(&p);
+            return sh.load_image_from_path(&resolved, false);
+        }
+        false
+    }
+
+    pub(crate) fn resolve_shape_image_for(&mut self, uid: &str) -> bool {
+        let circuit_dir = self
+            .file_path
+            .as_deref()
+            .and_then(|cp| Path::new(cp).parent().map(Path::to_path_buf));
+        let Some(it) = self.scene.item_by_id_mut(uid) else {
+            return false;
+        };
+        if let Part::Shape(sh) = &mut it.kind {
+            if Self::resolve_one_shape_image(sh, circuit_dir.as_deref()) {
+                self.dirty.mark_full();
+                return true;
+            }
+        }
+        false
+    }
+
+    pub(crate) fn resolve_shape_images(&mut self) {
+        let circuit_dir = self
+            .file_path
+            .as_deref()
+            .and_then(|cp| Path::new(cp).parent().map(Path::to_path_buf));
+        for it in self.scene.items_mut() {
+            if let Part::Shape(sh) = &mut it.kind {
+                Self::resolve_one_shape_image(sh, circuit_dir.as_deref());
+            }
+        }
+    }
+
     pub fn load_image_file(&mut self, uid: &str, path: &str) -> Change {
         let uid = self.resolve_item_uid(uid);
-        let bytes = match std::fs::read(path) {
+        let bytes = match fs::read(path) {
             Ok(b) => b,
             Err(_) => return Change::default(),
         };
-        let pixmap = match crate::components::shape::decode_image_bytes(&bytes) {
+        let pixmap = match shape::decode_image_bytes(&bytes) {
             Some(pm) => pm,
             None => return Change::default(),
         };
@@ -658,15 +710,18 @@ impl Canvas {
             self.history.undo.pop();
             return Change::default();
         };
-        if let Part::Shape(shape) = &mut it.kind {
-            if shape.shape_kind == ShapeKind::Image {
-                shape.width = pixmap.width() as f64;
-                shape.height = pixmap.height() as f64;
-                shape.image_file = path.to_string();
-                if shape.embed_bck {
-                    shape.bck_data = crate::components::shape::bytes_to_hex(&bytes);
+        if let Part::Shape(sh) = &mut it.kind {
+            if sh.shape_kind == ShapeKind::Image {
+                sh.width = pixmap.width() as f64;
+                sh.height = pixmap.height() as f64;
+                sh.image_file = path.to_string();
+                if sh.embed_bck {
+                    sh.bck_data = shape::bytes_to_hex(&bytes);
+                } else {
+                    sh.bck_data.clear();
                 }
-                shape.image_pixmap = Some(std::sync::Arc::new(pixmap));
+                sh.image_pixmap = Some(Arc::new(pixmap));
+                self.dirty.mark_full();
                 return Change::edit();
             }
         }
@@ -675,21 +730,20 @@ impl Canvas {
     }
 
     pub fn save_image_item(&self, uid: &str, path: &str) -> bool {
-        let Some(it) = self.scene.item_by_id(uid) else {
+        let uid = self.resolve_item_uid(uid);
+        let Some(it) = self.scene.item_by_id(&uid) else {
             return false;
         };
-        if let Part::Shape(shape) = &it.kind {
-            if shape.shape_kind == ShapeKind::Image {
-                if !shape.bck_data.is_empty() {
-                    let bytes = crate::components::shape::hex_to_bytes(&shape.bck_data);
-                    return std::fs::write(path, bytes).is_ok();
-                } else if !shape.image_file.is_empty()
-                    && std::path::Path::new(&shape.image_file).exists()
-                {
-                    return std::fs::copy(&shape.image_file, path).is_ok();
-                } else if let Some(pm) = &shape.image_pixmap {
+        if let Part::Shape(sh) = &it.kind {
+            if sh.shape_kind == ShapeKind::Image {
+                if !sh.bck_data.is_empty() {
+                    let bytes = shape::hex_to_bytes(&sh.bck_data);
+                    return fs::write(path, bytes).is_ok();
+                } else if !sh.image_file.is_empty() && Path::new(&sh.image_file).exists() {
+                    return fs::copy(&sh.image_file, path).is_ok();
+                } else if let Some(pm) = &sh.image_pixmap {
                     if let Some(png_bytes) = pm.encode_png() {
-                        return std::fs::write(path, png_bytes).is_ok();
+                        return fs::write(path, png_bytes).is_ok();
                     }
                 }
             }
@@ -1043,6 +1097,7 @@ impl Canvas {
         self.link_mode = None;
         self.board_layout = None;
         self.file_path = path;
+        self.resolve_shape_images();
         self.hovered_pin = None;
         self.history.clear();
         self.pending = None;

@@ -13,13 +13,20 @@ pub(super) fn selected_item_uid(canvas: &Canvas) -> String {
         .unwrap_or_default()
 }
 
+pub(super) fn ui_item_type(kind: &Part) -> &'static str {
+    match kind {
+        Part::Shape(s) => s.shape_kind.as_str(),
+        _ => kind.type_name(),
+    }
+}
+
 pub(super) fn selected_item_type(canvas: &Canvas) -> String {
     canvas
         .scene()
         .items()
         .iter()
         .find(|it| it.selected)
-        .map(|it| it.kind.type_name().to_string())
+        .map(|it| ui_item_type(&it.kind).to_string())
         .unwrap_or_default()
 }
 

@@ -863,7 +863,7 @@ Item {
         title: I18n.tr("Load Image")
         fileMode: FileDialog.OpenFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
-        nameFilters: [ I18n.tr("All files (*)") ]
+        nameFilters: [ I18n.tr("Images (*.png *.jpg *.jpeg *.bmp)"), I18n.tr("All files (*)") ]
         onAccepted: CircuitCanvas.loadImageFile(itemMenu.itemUid, "" + selectedFile)
     }
     FileDialog {
@@ -871,6 +871,8 @@ Item {
         title: I18n.tr("Save Image")
         fileMode: FileDialog.SaveFile
         currentFolder: App.suggestFolderUrl(CircuitCanvas.filePath)
+        defaultSuffix: "png"
+        nameFilters: [ I18n.tr("PNG image (*.png)"), I18n.tr("All files (*)") ]
         onAccepted: CircuitCanvas.saveImageItem(itemMenu.itemUid, "" + selectedFile)
     }
     FileDialog {

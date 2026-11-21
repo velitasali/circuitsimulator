@@ -905,7 +905,7 @@ impl Part {
             Self::SerialTerm(_) => "Serial Terminal",
             Self::SubPackage(_) => "Subcircuit Package",
             Self::Dial(_) => "Dial",
-            Self::Shape(_) => "Shape",
+            Self::Shape(s) => s.shape_kind.as_str(),
         }
     }
 

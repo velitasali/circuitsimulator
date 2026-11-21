@@ -1,5 +1,7 @@
 //! Shape: schematic visual annotation and geometry shapes.
 
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use super::component::PropGroup;
@@ -366,11 +368,72 @@ impl Shape {
         Ok(())
     }
 
+    pub fn load_image_from_path(&mut self, path: &Path, resize: bool) -> bool {
+        let Ok(bytes) = fs::read(path) else {
+            return false;
+        };
+        let Some(pm) = decode_image_bytes(&bytes) else {
+            return false;
+        };
+        if resize {
+            self.width = pm.width() as f64;
+            self.height = pm.height() as f64;
+        }
+        if self.embed_bck {
+            self.bck_data = bytes_to_hex(&bytes);
+        } else {
+            self.bck_data.clear();
+        }
+        self.image_pixmap = Some(Arc::new(pm));
+        true
+    }
+
+    fn apply_embed_bck(&mut self, embed: bool) {
+        self.embed_bck = embed;
+        if embed {
+            if self.bck_data.is_empty() {
+                if !self.image_file.is_empty() {
+                    if let Ok(bytes) = fs::read(&self.image_file) {
+                        if decode_image_bytes(&bytes).is_some() {
+                            self.bck_data = bytes_to_hex(&bytes);
+                            return;
+                        }
+                    }
+                }
+                if let Some(pm) = &self.image_pixmap {
+                    if let Some(png) = pm.encode_png() {
+                        self.bck_data = bytes_to_hex(&png);
+                    }
+                }
+            }
+        } else {
+            self.bck_data.clear();
+        }
+    }
+
+    fn apply_image_file(&mut self, path: &str) {
+        let trimmed = path.trim();
+        self.image_file = trimmed.to_string();
+        if trimmed.is_empty() {
+            if !self.embed_bck || self.bck_data.is_empty() {
+                self.image_pixmap = None;
+                self.bck_data.clear();
+            }
+            return;
+        }
+        if !self.load_image_from_path(Path::new(trimmed), false)
+            && (!self.embed_bck || self.bck_data.is_empty())
+        {
+            self.image_pixmap = None;
+        }
+    }
+
     fn get_embed_bck(&self) -> PropValue {
         PropValue::Bool(self.embed_bck)
     }
     fn set_embed_bck(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.embed_bck = expect_bool("EmbedBck", v)?;
+        let embed = expect_bool("EmbedBck", v)?;
+        self.apply_embed_bck(embed);
         Ok(())
     }
 
@@ -378,7 +441,8 @@ impl Shape {
         PropValue::String(self.image_file.clone())
     }
     fn set_image_file(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.image_file = expect_string("ImageFile", v)?;
+        let path = expect_string("ImageFile", v)?;
+        self.apply_image_file(&path);
         Ok(())
     }
 
@@ -438,7 +502,14 @@ impl Shape {
                 attrs.push((PROP_OPACITY, self.opacity.to_string()));
                 attrs.push((PROP_EMBEED_BCK, self.embed_bck.to_string()));
                 attrs.push((PROP_IMAGE_FILE, self.image_file.clone()));
-                attrs.push((PROP_BCKGND_DATA, self.bck_data.clone()));
+                attrs.push((
+                    PROP_BCKGND_DATA,
+                    if self.embed_bck {
+                        self.bck_data.clone()
+                    } else {
+                        String::new()
+                    },
+                ));
             }
         }
         let attr_refs: Vec<(&str, String)> = attrs;
@@ -590,7 +661,7 @@ impl Component for Shape {
                 (
                     ShapeKind::Image,
                     PROP_MARGIN | PROP_TEXT | PROP_FONT | PROP_FONT_COLOR | PROP_FONT_SIZE
-                    | PROP_FIXED_WIDTH | PROP_COLOR | PROP_IMAGE_FILE | PROP_BCKGND_DATA,
+                    | PROP_FIXED_WIDTH | PROP_COLOR | PROP_BCKGND_DATA,
                 ) => (false, false),
                 (
                     ShapeKind::Rectangle
@@ -671,7 +742,13 @@ impl Component for Shape {
                 &[
                     (
                         "Main",
-                        &[PROP_H_SIZE, PROP_V_SIZE, PROP_EMBEED_BCK, PROP_BORDER],
+                        &[
+                            PROP_IMAGE_FILE,
+                            PROP_H_SIZE,
+                            PROP_V_SIZE,
+                            PROP_EMBEED_BCK,
+                            PROP_BORDER,
+                        ],
                     ),
                     ("Color", &[PROP_OPACITY]),
                 ],
@@ -800,11 +877,11 @@ impl Component for Shape {
                 Ok(super::change::ComponentChange::document(""))
             }
             "embeedbck" | "embedbck" | "embeedbackground" | "embedbackground" => {
-                self.embed_bck = matches!(text.trim(), "true" | "1" | "yes");
+                self.apply_embed_bck(matches!(text.trim(), "true" | "1" | "yes"));
                 Ok(super::change::ComponentChange::document(""))
             }
             "imagefile" => {
-                self.image_file = text.trim().to_string();
+                self.apply_image_file(text);
                 Ok(super::change::ComponentChange::document(""))
             }
             "bckgnddata" | "bckdata" => {
@@ -1037,5 +1114,82 @@ mod tests {
         assert_eq!(groups[0].name, "Main");
         assert_eq!(groups[1].name, "Color");
         assert!(groups.iter().all(|g| g.name != "Text"));
+        assert!(
+            groups[0]
+                .rows
+                .iter()
+                .any(|r| r.name == PROP_IMAGE_FILE && r.visible && r.enabled)
+        );
+        assert!(groups.iter().all(|g| {
+            g.rows
+                .iter()
+                .all(|r| r.name != PROP_BCKGND_DATA || !r.visible)
+        }));
+    }
+
+    #[test]
+    fn image_file_load_embed_and_canvas_roundtrip() {
+        use std::env;
+        use std::process;
+
+        use crate::canvas::{Canvas, Part};
+
+        let png = ImageBuf::from_rgba(2, 3, vec![255; 2 * 3 * 4])
+            .unwrap()
+            .encode_png()
+            .unwrap();
+        let dir = env::temp_dir().join(format!("cs_shape_img_test_{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let img_path = dir.join("sample.png");
+        fs::write(&img_path, &png).unwrap();
+
+        // Setting Image_File via prop loads pixmap and toggling Embeed_bck syncs bck_data.
+        let mut shape = Shape::new_for_kind(ShapeKind::Image);
+        shape
+            .set_prop_text(PROP_IMAGE_FILE, img_path.to_str().unwrap())
+            .unwrap();
+        assert!(shape.image_pixmap.is_some());
+        assert!(shape.bck_data.is_empty());
+
+        shape.set_prop_text(PROP_EMBEED_BCK, "true").unwrap();
+        assert!(!shape.bck_data.is_empty());
+
+        shape.set_prop_text(PROP_EMBEED_BCK, "false").unwrap();
+        assert!(shape.bck_data.is_empty());
+        assert!(shape.image_pixmap.is_some());
+
+        // Canvas::load_image_file resizes, sets pixmap, marks dirty, and save_image_item writes out.
+        let mut canvas = Canvas::new();
+        let uid = canvas.scene_mut().add_shape("Image", 0.0, 0.0);
+        let ch = canvas.load_image_file(&uid, img_path.to_str().unwrap());
+        assert!(ch.items);
+        let out_path = dir.join("saved.png");
+        assert!(canvas.save_image_item(&uid, out_path.to_str().unwrap()));
+        assert!(out_path.exists());
+
+        // Relative Image_File roundtrips via load_circ1_as.
+        if let Some(it) = canvas.scene_mut().item_by_id_mut(&uid) {
+            if let Part::Shape(sh) = &mut it.kind {
+                assert_eq!(sh.width, 2.0);
+                assert_eq!(sh.height, 3.0);
+                sh.image_file = "sample.png".to_string();
+            }
+        }
+        let saved_circ = canvas.to_circ1();
+        let circ_path = dir.join("test.sim1").to_string_lossy().into_owned();
+        let mut reloaded = Canvas::new();
+        reloaded.load_circ1(&saved_circ, Some(circ_path)).unwrap();
+        let reloaded_img = reloaded
+            .scene()
+            .items()
+            .iter()
+            .find_map(|it| match &it.kind {
+                Part::Shape(sh) if sh.shape_kind == ShapeKind::Image => Some(sh),
+                _ => None,
+            })
+            .unwrap();
+        assert!(reloaded_img.image_pixmap.is_some());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -222,6 +222,12 @@ impl Canvas {
             }
             res
         });
+        if name.replace('_', "").eq_ignore_ascii_case("ImageFile")
+            && self.resolve_shape_image_for(uid)
+        {
+            c.items = true;
+            c.props = true;
+        }
         // If simulation is running and we edited a Dial/linker property, ensure linked targets sync.
         if self.sim_running {
             if let Some(it) = self.scene.item_by_id(uid) {

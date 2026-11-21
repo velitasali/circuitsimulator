@@ -39,26 +39,21 @@ pub extern "C" fn cs_vello_preview_release() {
 mod gpu {
     use super::{Rect, RegionPresent};
     use cs_engine::canvas::vello_draw::{self, color_of};
-    use cs_engine::canvas::{Canvas, Palette};
+    use cs_engine::canvas::{Canvas, Palette, VelloGpu};
     #[cfg(target_os = "macos")]
     use metal::foreign_types::ForeignType;
     #[cfg(target_os = "macos")]
     use std::ffi::c_void;
-    use std::future::Future;
-    use std::num::NonZeroUsize;
     #[cfg(not(target_os = "macos"))]
     use std::sync::atomic::AtomicU32;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-    use std::thread::JoinHandle;
+    use std::thread::{self, JoinHandle};
     use std::time::{Duration, Instant};
-    use vello::util::RenderContext;
     use vello::wgpu;
     #[cfg(target_os = "macos")]
     use vello::wgpu::hal::api::Metal;
-    #[cfg(windows)]
-    use vello::wgpu::{Backends, Instance, InstanceDescriptor};
-    use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
+    use vello::{AaConfig, RenderParams, Scene};
 
     #[cfg(any(windows, target_os = "linux"))]
     use crate::vello_share::{self, ShareHandles};
@@ -121,7 +116,7 @@ mod gpu {
     }
 
     struct Gpu {
-        renderer: Renderer,
+        vello: &'static VelloGpu,
         #[cfg(target_os = "macos")]
         surfaces: [Option<ImportedSurface>; 2],
         /// Private frame used when the shared texture cannot be opened.
@@ -132,8 +127,6 @@ mod gpu {
         #[cfg(any(windows, target_os = "linux"))]
         shared: bool,
         scratch: Option<Scratch>,
-        dev_id: usize,
-        cx: RenderContext,
     }
 
     /// A frame the UI thread has recorded. The present thread submits it and
@@ -153,7 +146,7 @@ mod gpu {
         /// Scene is recorded. The present thread still has to submit it.
         Recorded(Pending),
         /// Commands are on the GPU. The present thread is polling completion.
-        Waiting(Pending),
+        Waiting(Pending, Arc<AtomicBool>),
     }
 
     struct Slot {
@@ -183,25 +176,6 @@ mod gpu {
     static SHARE_OFF: AtomicBool = AtomicBool::new(false);
     #[cfg(any(windows, target_os = "linux"))]
     static SHARE_LOGGED: AtomicBool = AtomicBool::new(false);
-
-    struct NopWaker;
-    impl std::task::Wake for NopWaker {
-        fn wake(self: Arc<Self>) {}
-    }
-
-    fn block_on<F: Future>(fut: F) -> F::Output {
-        let mut fut = std::pin::pin!(fut);
-        let waker = std::task::Waker::from(Arc::new(NopWaker));
-        let mut cx = std::task::Context::from_waker(&waker);
-        loop {
-            match fut.as_mut().poll(&mut cx) {
-                std::task::Poll::Ready(value) => return value,
-                std::task::Poll::Pending => {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-            }
-        }
-    }
 
     fn lock_gpu() -> MutexGuard<'static, Slot> {
         GPU.lock().unwrap_or_else(|err| err.into_inner())
@@ -270,7 +244,7 @@ mod gpu {
             Err(std::sync::TryLockError::WouldBlock) => return false,
             Err(std::sync::TryLockError::Poisoned(err)) => err.into_inner(),
         };
-        if slot.failed || slot.stop || matches!(slot.phase, Phase::Waiting(_)) {
+        if slot.failed || slot.stop || matches!(slot.phase, Phase::Waiting(..)) {
             return false;
         }
         let scene = slot.scene.get_or_insert_with(Scene::new);
@@ -396,20 +370,23 @@ mod gpu {
                 log_once(&err);
                 continue;
             }
-            let pending = match &slot.phase {
-                Phase::Waiting(pending) => Pending {
-                    width: pending.width,
-                    height: pending.height,
-                    started: pending.started,
-                    clear: pending.clear,
-                    slot: pending.slot,
-                    patch_origin: pending.patch_origin,
-                },
+            let (pending, done) = match &slot.phase {
+                Phase::Waiting(pending, done) => (
+                    Pending {
+                        width: pending.width,
+                        height: pending.height,
+                        started: pending.started,
+                        clear: pending.clear,
+                        slot: pending.slot,
+                        patch_origin: pending.patch_origin,
+                    },
+                    Arc::clone(done),
+                ),
                 _ => continue,
             };
             // Poll without wgpu's 1 ms sleep. The lock is released between
             // checks; phase stays Waiting so tick() returns instead of waiting.
-            let (mut slot, ready) = wait_until_gpu_idle(slot, pending.started);
+            let (mut slot, ready) = wait_until_gpu_idle(slot, pending.started, &done);
             if slot.stop {
                 return;
             }
@@ -462,49 +439,51 @@ mod gpu {
         } else {
             full_frame_view(gpu, surface_slot)?
         };
-        let dev_id = gpu.dev_id;
-        let device = &gpu.cx.devices[dev_id].device;
-        let queue = &gpu.cx.devices[dev_id].queue;
         let params = RenderParams {
             base_color: color_of(clear),
             width,
             height,
             antialiasing_method: AaConfig::Area,
         };
-        gpu.renderer
-            .render_to_texture(device, queue, scene, &view, &params)
-            .map_err(|err| err.to_string())?;
-        *phase = Phase::Waiting(Pending {
-            width,
-            height,
-            started,
-            clear,
-            slot: surface_slot,
-            patch_origin: patch,
-        });
+        let done = gpu.vello.render_to_texture(scene, &view, &params)?;
+        *phase = Phase::Waiting(
+            Pending {
+                width,
+                height,
+                started,
+                clear,
+                slot: surface_slot,
+                patch_origin: patch,
+            },
+            done,
+        );
         Ok(())
     }
 
     fn wait_until_gpu_idle(
         mut slot: MutexGuard<'static, Slot>,
         started: Instant,
+        done: &AtomicBool,
     ) -> (MutexGuard<'static, Slot>, bool) {
         loop {
             if slot.stop {
                 return (slot, false);
             }
-            let done = slot.gpu.as_ref().is_some_and(|gpu| {
-                let device = &gpu.cx.devices[gpu.dev_id].device;
-                device.poll(wgpu::Maintain::Poll).is_queue_empty()
-            });
-            if done {
+            let Some(gpu) = slot.gpu.as_ref() else {
+                return (slot, false);
+            };
+            if done.load(Ordering::Acquire) {
+                return (slot, true);
+            }
+            let _ = gpu.vello.device().poll(wgpu::Maintain::Poll);
+            if done.load(Ordering::Acquire) {
                 return (slot, true);
             }
             if started.elapsed() > Duration::from_millis(500) {
                 return (slot, false);
             }
             drop(slot);
-            std::thread::sleep(Duration::from_micros(200));
+            thread::sleep(Duration::from_micros(200));
             slot = lock_gpu();
         }
     }
@@ -597,38 +576,13 @@ mod gpu {
     }
 
     fn init_gpu(width: u32, height: u32) -> Result<Gpu, String> {
-        let mut cx = RenderContext::new();
-        #[cfg(windows)]
-        {
-            cx.instance = Instance::new(&InstanceDescriptor {
-                backends: Backends::from_env().unwrap_or(Backends::DX12),
-                ..Default::default()
-            });
-        }
-        let dev_id = block_on(cx.device(None)).ok_or_else(|| "no gpu device".to_string())?;
-        let renderer = {
-            let device = &cx.devices[dev_id].device;
-            Renderer::new(
-                device,
-                RendererOptions {
-                    use_cpu: false,
-                    antialiasing_support: AaSupport::area_only(),
-                    num_init_threads: if cfg!(target_os = "macos") {
-                        NonZeroUsize::new(1)
-                    } else {
-                        None
-                    },
-                    pipeline_cache: None,
-                },
-            )
-            .map_err(|err| err.to_string())?
-        };
+        let vello = VelloGpu::get().map_err(str::to_string)?;
         #[cfg(not(target_os = "macos"))]
         let _ = (width, height);
         #[cfg(target_os = "macos")]
         log_ready(width, height, "direct");
         Ok(Gpu {
-            renderer,
+            vello,
             #[cfg(target_os = "macos")]
             surfaces: [None, None],
             #[cfg(not(target_os = "macos"))]
@@ -638,8 +592,6 @@ mod gpu {
             #[cfg(any(windows, target_os = "linux"))]
             shared: false,
             scratch: None,
-            dev_id,
-            cx,
         })
     }
 
@@ -651,7 +603,7 @@ mod gpu {
         {
             return;
         }
-        let device = &gpu.cx.devices[gpu.dev_id].device;
+        let device = gpu.vello.device();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("vello-patch"),
             size: wgpu::Extent3d {
@@ -763,10 +715,7 @@ mod gpu {
 
     #[cfg(target_os = "macos")]
     fn bind_surface(gpu: &mut Gpu, width: u32, height: u32) -> Result<i32, String> {
-        let dev_ptr = {
-            let device = &gpu.cx.devices[gpu.dev_id].device;
-            metal_device(device)?
-        };
+        let dev_ptr = metal_device(gpu.vello.device())?;
         if unsafe { cs_vello_shared_reset_needed(dev_ptr, width as i32, height as i32) } != 0 {
             gpu.surfaces = [None, None];
         }
@@ -790,8 +739,7 @@ mod gpu {
             .as_ref()
             .is_some_and(|surface| surface.epoch == epoch && surface.ptr == ptr_bits);
         if !reuse {
-            let device = &gpu.cx.devices[gpu.dev_id].device;
-            let (texture, view) = import_surface(device, ptr, width, height);
+            let (texture, view) = import_surface(gpu.vello.device(), ptr, width, height);
             gpu.surfaces[idx] = Some(ImportedSurface {
                 epoch,
                 ptr: ptr_bits,
@@ -852,7 +800,7 @@ mod gpu {
         if ready {
             return Ok(surface_slot as i32);
         }
-        let device = gpu.cx.devices[gpu.dev_id].device.clone();
+        let device = gpu.vello.device();
         for index in 0..2 {
             let reuse = gpu.surfaces[index].as_ref().is_some_and(|surface| {
                 surface.epoch == epoch && surface.width == width && surface.height == height
@@ -861,7 +809,7 @@ mod gpu {
                 continue;
             }
             gpu.surfaces[index] = None;
-            let (texture, view) = import_shared(&device, index, width, height)?;
+            let (texture, view) = import_shared(device, index, width, height)?;
             gpu.surfaces[index] = Some(SharedSurface {
                 epoch,
                 width,
@@ -875,7 +823,7 @@ mod gpu {
 
     #[cfg(windows)]
     fn share_handles(gpu: &Gpu) -> Result<ShareHandles, String> {
-        let device = &gpu.cx.devices[gpu.dev_id].device;
+        let device = gpu.vello.device();
         unsafe {
             device.as_hal::<wgpu::hal::api::Dx12, _, _>(|dev| {
                 let dev = dev.ok_or_else(|| "not a Direct3D12 device".to_string())?;
@@ -892,7 +840,7 @@ mod gpu {
     #[cfg(target_os = "linux")]
     fn share_handles(gpu: &Gpu) -> Result<ShareHandles, String> {
         use ash::vk::Handle;
-        let device = &gpu.cx.devices[gpu.dev_id].device;
+        let device = gpu.vello.device();
         unsafe {
             device.as_hal::<wgpu::hal::api::Vulkan, _, _>(|dev| {
                 let dev = dev.ok_or_else(|| "not a Vulkan device".to_string())?;
@@ -1019,9 +967,8 @@ mod gpu {
         let scratch_tex = scratch.texture.clone();
         let frame_w = dst_surf.width;
         let frame_h = dst_surf.height;
-        let dev_id = gpu.dev_id;
-        let device = gpu.cx.devices[dev_id].device.clone();
-        let queue = gpu.cx.devices[dev_id].queue.clone();
+        let device = gpu.vello.device();
+        let queue = gpu.vello.queue();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("vello-share-patch"),
         });
@@ -1065,8 +1012,8 @@ mod gpu {
                 depth_or_array_layers: 1,
             },
         );
-        queue.submit([encoder.finish()]);
-        let _ = device.poll(wgpu::Maintain::Wait);
+        let submission = queue.submit([encoder.finish()]);
+        let _ = device.poll(wgpu::Maintain::WaitForSubmissionIndex(submission));
         vello_share::commit(dst);
         true
     }
@@ -1162,7 +1109,7 @@ mod gpu {
         {
             return;
         }
-        let device = &gpu.cx.devices[gpu.dev_id].device;
+        let device = gpu.vello.device();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("vello-frame"),
             size: wgpu::Extent3d {
@@ -1202,9 +1149,8 @@ mod gpu {
         let Some(gpu) = slot.gpu.as_ref() else {
             return false;
         };
-        let dev_id = gpu.dev_id;
-        let device = gpu.cx.devices[dev_id].device.clone();
-        let queue = gpu.cx.devices[dev_id].queue.clone();
+        let device = gpu.vello.device();
+        let queue = gpu.vello.queue();
         let Some(frame) = gpu.frame.as_ref() else {
             return false;
         };
@@ -1238,8 +1184,8 @@ mod gpu {
                 depth_or_array_layers: 1,
             },
         );
-        queue.submit([encoder.finish()]);
-        let _ = device.poll(wgpu::Maintain::Wait);
+        let submission = queue.submit([encoder.finish()]);
+        let _ = device.poll(wgpu::Maintain::WaitForSubmissionIndex(submission));
         readback(gpu, &frame_tex, &frame_buf, frame_w, frame_h);
         true
     }
@@ -1252,8 +1198,8 @@ mod gpu {
         width: u32,
         height: u32,
     ) {
-        let device = &gpu.cx.devices[gpu.dev_id].device;
-        let queue = &gpu.cx.devices[gpu.dev_id].queue;
+        let device = gpu.vello.device();
+        let queue = gpu.vello.queue();
         let Some(image) =
             cs_engine::canvas::read_texture(device, queue, texture, buffer, width, height)
         else {

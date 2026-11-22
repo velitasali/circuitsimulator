@@ -7,6 +7,7 @@ pub mod lsp;
 pub mod search;
 
 use std::collections::BTreeMap;
+use std::mem;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
@@ -258,7 +259,6 @@ impl EditorPanel {
             self.font_size,
         );
         self.highlight_changed();
-        self.marks_changed();
     }
 
     fn apply_editor_settings(&mut self, s: &AppSettings) {
@@ -287,7 +287,6 @@ impl EditorPanel {
     pub fn push_log_buffered(&mut self, line: impl Into<String>) {
         let line = line.into();
         self.pending_log.push(line);
-        self.log_changed();
     }
 
     pub fn open_path(&mut self, path: String) {
@@ -339,7 +338,9 @@ impl EditorPanel {
         self.reapply_arduino_board();
         self.documents_changed();
         self.current_document_changed();
+        self.current_file_changed();
         self.current_text_changed();
+        self.marks_changed();
         self.refresh_tool_path_help();
         self.file_settings_changed();
         self.rehighlight();
@@ -377,12 +378,12 @@ impl EditorPanel {
     qproperty!(
         "currentTitle",
         Read = current_title,
-        Notify = current_text_changed
+        Notify = current_file_changed
     );
     qproperty!(
         "currentPath",
         Read = current_path,
-        Notify = current_text_changed
+        Notify = current_file_changed
     );
     qproperty!(
         "highlightHtml",
@@ -756,6 +757,8 @@ impl EditorPanel {
     #[qsignal]
     pub fn current_document_changed(&mut self);
     #[qsignal]
+    pub fn current_file_changed(&mut self);
+    #[qsignal]
     pub fn current_text_changed(&mut self);
     #[qsignal]
     pub fn signature_changed(&mut self);
@@ -1037,6 +1040,7 @@ impl EditorPanel {
         self.clear_hover_link();
         self.hide_completions();
         self.current_document_changed();
+        self.current_file_changed();
         self.current_text_changed();
         self.marks_changed();
         self.refresh_arduino_boards();
@@ -1123,7 +1127,9 @@ impl EditorPanel {
         self.pending_hover_diag.clear();
         self.documents_changed();
         self.current_document_changed();
+        self.current_file_changed();
         self.current_text_changed();
+        self.marks_changed();
         self.file_settings_changed();
         self.rehighlight();
         self.request_hide();
@@ -1137,8 +1143,16 @@ impl EditorPanel {
 
     pub fn set_current_text(&mut self, text: String) {
         let mut changed = false;
+        let mut dirty_toggled = false;
+        let mut marks_need_update = false;
         if let Some(d) = self.current_doc_mut() {
             if d.text != text {
+                let old_lines = editor::line_count(&d.text);
+                let new_lines = editor::line_count(&text);
+                let had_marks =
+                    !d.breakpoints.is_empty() || !d.errors.is_empty() || !d.warnings.is_empty();
+                marks_need_update = had_marks && old_lines != new_lines;
+                dirty_toggled = !d.dirty;
                 d.text = text;
                 d.dirty = true;
                 self.pending_hover_pos = -1;
@@ -1150,8 +1164,13 @@ impl EditorPanel {
         if changed {
             self.pending_flush = true;
             self.current_text_changed();
-            self.documents_changed();
+            if dirty_toggled {
+                self.documents_changed();
+            }
             self.rehighlight();
+            if marks_need_update {
+                self.marks_changed();
+            }
             if let Some(d) = self.current_doc() {
                 if !d.path.is_empty() {
                     let path = d.path.clone();
@@ -1164,7 +1183,8 @@ impl EditorPanel {
                 let cursor_byte =
                     editor::utf16_to_byte_offset(&text, self.cursor_pos.max(0) as usize);
                 let prefix = identifier_prefix(&text, cursor_byte).to_string();
-                if prefix.len() >= 2 {
+                let member_trigger = lsp::is_member_trigger(&text, cursor_byte);
+                if prefix.len() >= 2 || (member_trigger && self.lsp.is_initialized()) {
                     self.complete_at(false);
                 } else {
                     self.hide_completions();
@@ -1193,6 +1213,7 @@ impl EditorPanel {
         self.dark = dark;
         self.refresh_theme_colors();
         self.rehighlight();
+        self.marks_changed();
     }
 
     fn set_focused(&mut self, focused: bool) {
@@ -1681,7 +1702,9 @@ impl EditorPanel {
                     .unwrap_or(json!([]));
                 self.pending_hover_diag.clear();
                 self.current_document_changed();
+                self.current_file_changed();
                 self.current_text_changed();
+                self.marks_changed();
                 self.file_settings_changed();
                 self.rehighlight();
             }
@@ -1724,7 +1747,9 @@ impl EditorPanel {
             .unwrap_or(json!([]));
         self.pending_hover_diag.clear();
         self.current_document_changed();
+        self.current_file_changed();
         self.current_text_changed();
+        self.marks_changed();
         self.file_settings_changed();
         self.rehighlight();
         if !self.docs.is_empty() {
@@ -1841,7 +1866,9 @@ impl EditorPanel {
             self.pending_hover_diag.clear();
             self.documents_changed();
             self.current_document_changed();
+            self.current_file_changed();
             self.current_text_changed();
+            self.marks_changed();
             self.file_settings_changed();
             self.rehighlight();
             self.request_show();
@@ -1851,8 +1878,7 @@ impl EditorPanel {
         }
     }
 
-    #[qslot]
-    fn flush_drafts(&mut self) {
+    fn flush_dirty_drafts(&mut self) {
         self.pending_flush = false;
         for d in &self.docs {
             if d.dirty {
@@ -1860,6 +1886,11 @@ impl EditorPanel {
                 backup::put_file(&rec_id, &d.path, &self.project_path, &d.title, &d.text);
             }
         }
+    }
+
+    #[qslot]
+    fn flush_drafts(&mut self) {
+        self.flush_dirty_drafts();
         let editor_files: Vec<String> = self
             .docs
             .iter()
@@ -1890,7 +1921,9 @@ impl EditorPanel {
         self.pending_hover_diag.clear();
         self.documents_changed();
         self.current_document_changed();
+        self.current_file_changed();
         self.current_text_changed();
+        self.marks_changed();
         self.file_settings_changed();
         self.rehighlight();
         self.request_show();
@@ -2022,6 +2055,7 @@ impl EditorPanel {
             });
         }
         self.documents_changed();
+        self.current_file_changed();
         self.current_text_changed();
         self.rehighlight();
         self.persist_cfg();
@@ -2466,6 +2500,11 @@ impl EditorPanel {
     }
 
     #[qslot]
+    fn take_log_lines(&mut self) -> Vec<String> {
+        mem::take(&mut self.pending_log)
+    }
+
+    #[qslot]
     fn show_hover(&mut self, pos: i32) {
         let path = self.current_path();
         let text = self.current_text();
@@ -2849,7 +2888,7 @@ impl EditorPanel {
             self.marks_changed();
         }
         if self.pending_flush {
-            self.flush_drafts();
+            self.flush_dirty_drafts();
         }
         self.update_lsp_ready();
         // Drain file watcher events
@@ -2903,11 +2942,12 @@ impl EditorPanel {
         let prefix = self.completion_prefix.clone();
         let show_debug = self.show_lsp_debug;
         let mut need_local = false;
+        let mut logged_debug = false;
         for ev in events {
             match ev {
                 LspEvent::Completions(items) => {
                     if items.is_empty() {
-                        need_local = true;
+                        need_local = !prefix.is_empty();
                         continue;
                     }
                     let filtered: Vec<Value> = items
@@ -2918,6 +2958,7 @@ impl EditorPanel {
                                     .get(..prefix.len())
                                     .is_some_and(|h| h.eq_ignore_ascii_case(&prefix))
                         })
+                        .take(100)
                         .map(|c| {
                             json!({
                                 "text": c.label,
@@ -2928,17 +2969,23 @@ impl EditorPanel {
                         })
                         .collect();
                     if filtered.is_empty() {
-                        need_local = true;
+                        need_local = !prefix.is_empty();
                     } else {
                         let p = prefix.clone();
                         self.set_completion_items(filtered, &p);
                     }
                 }
                 LspEvent::Diagnostics { uri, items } => {
-                    let uri_path = editor::lsp::uri_to_path(&uri);
-                    if !path.is_empty()
-                        && (uri_path == path
-                            || Path::new(&uri_path).file_name() == Path::new(&path).file_name())
+                    let uri_path = strip_file_url(&editor::lsp::uri_to_path(&uri));
+                    let cur_path = strip_file_url(&path);
+                    let same_path = if cfg!(windows) {
+                        uri_path.eq_ignore_ascii_case(&cur_path)
+                    } else {
+                        uri_path == cur_path
+                    };
+                    if !cur_path.is_empty()
+                        && (same_path
+                            || Path::new(&uri_path).file_name() == Path::new(&cur_path).file_name())
                     {
                         let dark = self.dark;
                         let mut new_ranges = None;
@@ -3054,10 +3101,23 @@ impl EditorPanel {
                 }
                 LspEvent::Log(line) => {
                     if show_debug {
-                        self.push_log(line);
+                        let line = if line.len() > 1024 {
+                            let mut cut = 1024;
+                            while cut > 0 && !line.is_char_boundary(cut) {
+                                cut -= 1;
+                            }
+                            format!("{}… ({} bytes)", &line[..cut], line.len())
+                        } else {
+                            line
+                        };
+                        self.push_log_buffered(line);
+                        logged_debug = true;
                     }
                 }
             }
+        }
+        if logged_debug {
+            self.log_changed();
         }
         if need_local {
             let p = prefix.clone();

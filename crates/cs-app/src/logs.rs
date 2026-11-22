@@ -187,6 +187,8 @@ fn color_for_level(level: LogLevel, dark: bool) -> String {
     ColorTheme::get_hex(color_id, dark)
 }
 
+const MAX_LOG_ENTRIES: usize = 2000;
+
 fn render_entry_html(line: &str, level: LogLevel, dark: bool) -> String {
     let hex = color_for_level(level, dark);
     let escaped = html_escape(line);
@@ -332,7 +334,21 @@ impl SimulatorLog {
         self.append_line_with_level(line, level);
     }
 
-    pub fn append_line_with_level(&mut self, line: String, level: LogLevel) {
+    #[qslot]
+    fn append_lines(&mut self, lines: Vec<String>) {
+        if lines.is_empty() {
+            return;
+        }
+        for line in lines {
+            let level = classify_line(&line);
+            self.push_entry_raw(line, level);
+        }
+        self.trim_overflow();
+        self.text_changed();
+        self.appended();
+    }
+
+    fn push_entry_raw(&mut self, line: String, level: LogLevel) {
         if !self.raw_text.is_empty() && !self.raw_text.ends_with('\n') {
             self.raw_text.push('\n');
         }
@@ -344,7 +360,32 @@ impl SimulatorLog {
         self.text
             .push_str(&render_entry_html(&line, level, self.dark));
         self.entries.push((line, level));
+    }
 
+    fn trim_overflow(&mut self) {
+        if self.entries.len() > MAX_LOG_ENTRIES {
+            let excess = self.entries.len() - MAX_LOG_ENTRIES;
+            self.entries.drain(..excess);
+            self.raw_text = self
+                .entries
+                .iter()
+                .map(|(l, _)| l.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let mut html = String::new();
+            for (i, (line, level)) in self.entries.iter().enumerate() {
+                if i > 0 {
+                    html.push_str("<br/>");
+                }
+                html.push_str(&render_entry_html(line, *level, self.dark));
+            }
+            self.text = html;
+        }
+    }
+
+    pub fn append_line_with_level(&mut self, line: String, level: LogLevel) {
+        self.push_entry_raw(line, level);
+        self.trim_overflow();
         self.text_changed();
         self.appended();
     }
@@ -517,7 +558,21 @@ impl CompilerLog {
         self.append_line_with_level(line, level);
     }
 
-    pub fn append_line_with_level(&mut self, line: String, level: LogLevel) {
+    #[qslot]
+    fn append_lines(&mut self, lines: Vec<String>) {
+        if lines.is_empty() {
+            return;
+        }
+        for line in lines {
+            let level = classify_line(&line);
+            self.push_entry_raw(line, level);
+        }
+        self.trim_overflow();
+        self.text_changed();
+        self.appended();
+    }
+
+    fn push_entry_raw(&mut self, line: String, level: LogLevel) {
         if !self.raw_text.is_empty() && !self.raw_text.ends_with('\n') {
             self.raw_text.push('\n');
         }
@@ -529,7 +584,32 @@ impl CompilerLog {
         self.text
             .push_str(&render_entry_html(&line, level, self.dark));
         self.entries.push((line, level));
+    }
 
+    fn trim_overflow(&mut self) {
+        if self.entries.len() > MAX_LOG_ENTRIES {
+            let excess = self.entries.len() - MAX_LOG_ENTRIES;
+            self.entries.drain(..excess);
+            self.raw_text = self
+                .entries
+                .iter()
+                .map(|(l, _)| l.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let mut html = String::new();
+            for (i, (line, level)) in self.entries.iter().enumerate() {
+                if i > 0 {
+                    html.push_str("<br/>");
+                }
+                html.push_str(&render_entry_html(line, *level, self.dark));
+            }
+            self.text = html;
+        }
+    }
+
+    pub fn append_line_with_level(&mut self, line: String, level: LogLevel) {
+        self.push_entry_raw(line, level);
+        self.trim_overflow();
         self.text_changed();
         self.appended();
     }

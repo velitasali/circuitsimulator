@@ -3,12 +3,14 @@
 
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::fs;
 use std::io::{Read, Write};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -72,6 +74,7 @@ struct Shared {
     pending_open: Mutex<Vec<PendingDoc>>,
     versions: Mutex<HashMap<String, i32>>,
     offsets: Mutex<HashMap<String, i32>>,
+    uri_cache: Mutex<HashMap<String, String>>,
 }
 
 struct PendingDoc {
@@ -82,7 +85,7 @@ struct PendingDoc {
 
 pub struct LspClient {
     child: Option<Child>,
-    stdin: Option<Arc<Mutex<ChildStdin>>>,
+    stdin_tx: Option<Sender<Vec<u8>>>,
     shared: Arc<Shared>,
     next_id: AtomicI32,
 }
@@ -91,7 +94,7 @@ impl Default for LspClient {
     fn default() -> Self {
         Self {
             child: None,
-            stdin: None,
+            stdin_tx: None,
             shared: Arc::new(Shared {
                 initialized: AtomicBool::new(false),
                 last_completion: AtomicI32::new(-1),
@@ -102,6 +105,7 @@ impl Default for LspClient {
                 pending_open: Mutex::new(Vec::new()),
                 versions: Mutex::new(HashMap::new()),
                 offsets: Mutex::new(HashMap::new()),
+                uri_cache: Mutex::new(HashMap::new()),
             }),
             next_id: AtomicI32::new(1),
         }
@@ -158,6 +162,55 @@ pub fn language_id_for_path(path: &str) -> Option<&'static str> {
     }
 }
 
+/// Strip Windows extended-length verbatim path prefixes (`\\?\`, `//?/`, `\\?\UNC\`).
+pub fn strip_windows_verbatim(path: &str) -> String {
+    if let Some(rest) = path
+        .strip_prefix(r"\\?\UNC\")
+        .or_else(|| path.strip_prefix("//?/UNC/"))
+    {
+        return format!("//{rest}");
+    }
+    if let Some(rest) = path
+        .strip_prefix(r"\\?\")
+        .or_else(|| path.strip_prefix("//?/"))
+    {
+        return rest.to_string();
+    }
+    path.to_string()
+}
+
+fn percent_encode_uri_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for &b in path.as_bytes() {
+        let keep =
+            b.is_ascii_alphanumeric() || matches!(b, b'/' | b':' | b'-' | b'.' | b'_' | b'~');
+        if keep {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+fn percent_decode_uri_path(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(hex) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(hex);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub fn to_uri(path: &str) -> String {
     if path.starts_with("file://") {
         return path.to_string();
@@ -165,25 +218,31 @@ pub fn to_uri(path: &str) -> String {
     if path.is_empty() {
         return String::new();
     }
-    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
-    let s = abs.to_string_lossy();
-    if cfg!(windows) {
-        format!("file:///{}", s.replace('\\', "/"))
+    let cleaned = strip_windows_verbatim(path);
+    let abs = fs::canonicalize(&cleaned).unwrap_or_else(|_| PathBuf::from(&cleaned));
+    let s = strip_windows_verbatim(&abs.to_string_lossy()).replace('\\', "/");
+    let encoded = percent_encode_uri_path(&s);
+    if cfg!(windows) || encoded.as_bytes().get(1) == Some(&b':') {
+        let trimmed = encoded.trim_start_matches('/');
+        format!("file:///{trimmed}")
+    } else if encoded.starts_with('/') {
+        format!("file://{encoded}")
     } else {
-        format!("file://{s}")
+        format!("file:///{encoded}")
     }
 }
 
 pub fn uri_to_path(uri: &str) -> String {
     let s = uri.strip_prefix("file://").unwrap_or(uri);
+    let decoded = strip_windows_verbatim(&percent_decode_uri_path(s));
     #[cfg(windows)]
     {
-        let s = s.trim_start_matches('/');
-        return s.replace('/', "\\");
+        let trimmed = decoded.trim_start_matches('/');
+        return trimmed.replace('/', "\\");
     }
     #[cfg(not(windows))]
     {
-        s.to_string()
+        decoded
     }
 }
 
@@ -271,15 +330,11 @@ fn push_event(shared: &Shared, ev: LspEvent) {
     }
 }
 
-fn send_stdin(stdin: &Arc<Mutex<ChildStdin>>, msg: &Value) {
-    let bytes = encode_message(msg);
-    if let Ok(mut s) = stdin.lock() {
-        let _ = s.write_all(&bytes);
-        let _ = s.flush();
-    }
+fn send_stdin(stdin_tx: &Sender<Vec<u8>>, msg: &Value) {
+    let _ = stdin_tx.send(encode_message(msg));
 }
 
-fn handle_message(msg: &Value, shared: &Shared, stdin: &Arc<Mutex<ChildStdin>>) {
+fn handle_message(msg: &Value, shared: &Shared, stdin_tx: &Sender<Vec<u8>>) {
     let method = msg.get("method").and_then(|v| v.as_str()).unwrap_or("");
     if method == "textDocument/publishDiagnostics" {
         let Some(params) = msg.get("params") else {
@@ -342,7 +397,7 @@ fn handle_message(msg: &Value, shared: &Shared, stdin: &Arc<Mutex<ChildStdin>>) 
     if id == 1 && !shared.initialized.load(Ordering::SeqCst) {
         shared.initialized.store(true, Ordering::SeqCst);
         send_stdin(
-            stdin,
+            stdin_tx,
             &json!({
                 "jsonrpc": "2.0",
                 "method": "initialized",
@@ -359,7 +414,7 @@ fn handle_message(msg: &Value, shared: &Shared, stdin: &Arc<Mutex<ChildStdin>>) 
                 v.insert(doc.uri.clone(), 1);
             }
             send_stdin(
-                stdin,
+                stdin_tx,
                 &json!({
                     "jsonrpc": "2.0",
                     "method": "textDocument/didOpen",
@@ -393,6 +448,7 @@ fn handle_message(msg: &Value, shared: &Shared, stdin: &Arc<Mutex<ChildStdin>>) 
                     .get("label")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
+                    .trim_start_matches([' ', '\t', '•'])
                     .trim()
                     .to_string();
                 let detail = it
@@ -521,15 +577,33 @@ fn handle_message(msg: &Value, shared: &Shared, stdin: &Arc<Mutex<ChildStdin>>) 
 
 impl LspClient {
     pub fn is_running(&self) -> bool {
-        self.stdin.is_some()
+        self.stdin_tx.is_some()
     }
 
     pub fn is_initialized(&self) -> bool {
         self.shared.initialized.load(Ordering::SeqCst)
     }
 
+    fn resolve_uri(&self, path: &str) -> String {
+        if path.is_empty() {
+            return String::new();
+        }
+        if let Ok(cache) = self.shared.uri_cache.lock() {
+            if let Some(uri) = cache.get(path) {
+                return uri.clone();
+            }
+        }
+        let uri = to_uri(path);
+        if !uri.is_empty() {
+            if let Ok(mut cache) = self.shared.uri_cache.lock() {
+                cache.insert(path.to_string(), uri.clone());
+            }
+        }
+        uri
+    }
+
     pub fn start(&mut self, server: &Path, root: &str) {
-        if self.stdin.is_some() {
+        if self.stdin_tx.is_some() {
             return;
         }
         let mut cmd = Command::new(server);
@@ -549,20 +623,31 @@ impl LspClient {
                 return;
             }
         };
-        let stdin = match child.stdin.take() {
-            Some(s) => Arc::new(Mutex::new(s)),
+        let mut stdin = match child.stdin.take() {
+            Some(s) => s,
             None => return,
         };
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        self.stdin = Some(stdin.clone());
+        let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>();
+        thread::Builder::new()
+            .name("cs-lsp-stdin".into())
+            .spawn(move || {
+                while let Ok(bytes) = stdin_rx.recv() {
+                    if stdin.write_all(&bytes).is_err() || stdin.flush().is_err() {
+                        break;
+                    }
+                }
+            })
+            .ok();
+        self.stdin_tx = Some(stdin_tx.clone());
         self.child = Some(child);
         self.shared.initialized.store(false, Ordering::SeqCst);
         self.next_id.store(2, Ordering::SeqCst);
 
         if let Some(mut stdout) = stdout {
             let shared = self.shared.clone();
-            let stdin_r = stdin.clone();
+            let stdin_r = stdin_tx.clone();
             thread::Builder::new()
                 .name("cs-lsp-stdout".into())
                 .spawn(move || {
@@ -613,7 +698,7 @@ impl LspClient {
                 .ok();
         }
 
-        let root_uri = to_uri(root);
+        let root_uri = self.resolve_uri(root);
         let pid = std::process::id() as i32;
         self.send(&json!({
             "jsonrpc": "2.0",
@@ -644,14 +729,14 @@ impl LspClient {
     }
 
     pub fn stop(&mut self) {
-        if let Some(stdin) = &self.stdin {
+        if let Some(stdin_tx) = &self.stdin_tx {
             send_stdin(
-                stdin,
+                stdin_tx,
                 &json!({ "jsonrpc": "2.0", "id": 999999, "method": "shutdown" }),
             );
-            send_stdin(stdin, &json!({ "jsonrpc": "2.0", "method": "exit" }));
+            send_stdin(stdin_tx, &json!({ "jsonrpc": "2.0", "method": "exit" }));
         }
-        self.stdin = None;
+        self.stdin_tx = None;
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -660,8 +745,8 @@ impl LspClient {
     }
 
     fn send(&self, msg: &Value) {
-        if let Some(stdin) = &self.stdin {
-            send_stdin(stdin, msg);
+        if let Some(stdin_tx) = &self.stdin_tx {
+            send_stdin(stdin_tx, msg);
         }
     }
 
@@ -677,10 +762,10 @@ impl LspClient {
         let Some(lang) = language_id_for_path(path) else {
             return;
         };
-        if self.stdin.is_none() {
+        if self.stdin_tx.is_none() {
             return;
         }
-        let uri = to_uri(path);
+        let uri = self.resolve_uri(path);
         if uri.is_empty() {
             return;
         }
@@ -722,7 +807,7 @@ impl LspClient {
     }
 
     pub fn close_file(&self, path: &str) {
-        let uri = to_uri(path);
+        let uri = self.resolve_uri(path);
         if uri.is_empty() {
             return;
         }
@@ -747,7 +832,7 @@ impl LspClient {
             self.open_file(path, text);
             return;
         }
-        let uri = to_uri(path);
+        let uri = self.resolve_uri(path);
         if uri.is_empty() {
             return;
         }
@@ -787,7 +872,7 @@ impl LspClient {
         character: i32,
         last: &AtomicI32,
     ) -> i32 {
-        let uri = to_uri(path);
+        let uri = self.resolve_uri(path);
         if uri.is_empty() || !self.shared.initialized.load(Ordering::SeqCst) {
             return -1;
         }
@@ -1116,5 +1201,27 @@ mod tests {
     fn signature_html_empty() {
         let sig = SignatureHelp::default();
         assert!(format_signature_html(&sig).is_empty());
+    }
+
+    #[test]
+    fn uri_strips_windows_verbatim_and_encodes_spaces() {
+        assert_eq!(
+            strip_windows_verbatim(r"\\?\C:\Users\me\My Project\sketch.ino"),
+            r"C:\Users\me\My Project\sketch.ino"
+        );
+        assert_eq!(
+            strip_windows_verbatim("//?/C:/Users/me/My Project/sketch.ino"),
+            "C:/Users/me/My Project/sketch.ino"
+        );
+        let uri = to_uri("//?/C:/NonExistent Dir/My Sketch/esp32_uart.ino");
+        assert_eq!(
+            uri,
+            "file:///C:/NonExistent%20Dir/My%20Sketch/esp32_uart.ino"
+        );
+        assert!(!uri.contains('?'));
+        let decoded = uri_to_path(&uri);
+        assert!(decoded.contains("NonExistent Dir"), "{decoded}");
+        assert!(decoded.contains("My Sketch"), "{decoded}");
+        assert!(!decoded.contains("%20"), "{decoded}");
     }
 }

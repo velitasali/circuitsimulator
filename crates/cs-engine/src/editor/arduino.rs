@@ -1,6 +1,8 @@
 //! Arduino compilation via arduino-cli. C++ InoDebugger::compile.
 
+use std::cmp;
 use std::collections::HashMap;
+use std::fs;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -12,6 +14,7 @@ use super::compiler::{
     CompileResult, DEFAULT_COMPILE_TIMEOUT, command_exists, parse_error_lines,
     run_command_logged_cancel,
 };
+use super::lsp::strip_windows_verbatim;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -326,6 +329,10 @@ pub fn arduino_include_paths(
                                         continue;
                                     }
                                     add_inc(&mut paths, vpath.join("cores/arduino"));
+                                    if target_arch == "esp32" {
+                                        add_inc(&mut paths, vpath.join("cores/esp32"));
+                                        add_inc(&mut paths, vpath.join("variants/esp32"));
+                                    }
                                     if is_mega {
                                         add_inc(&mut paths, vpath.join("variants/mega"));
                                     }
@@ -336,19 +343,21 @@ pub fn arduino_include_paths(
                         }
                     }
 
-                    let tools_dir = pkg_entry.path().join("tools");
-                    if let Ok(tool_entries) = std::fs::read_dir(&tools_dir) {
-                        for tool_entry in tool_entries.flatten() {
-                            let tool_name = tool_entry.file_name();
-                            let tool_str = tool_name.to_string_lossy().to_ascii_lowercase();
-                            if target_arch == "avr" && !tool_str.contains("avr") {
-                                continue;
-                            }
-                            if let Ok(ver_entries) = std::fs::read_dir(tool_entry.path()) {
-                                for ver_entry in ver_entries.flatten() {
-                                    let vpath = ver_entry.path();
-                                    if vpath.is_dir() {
-                                        add_inc(&mut paths, vpath.join("avr/include"));
+                    if target_arch == "avr" {
+                        let tools_dir = pkg_entry.path().join("tools");
+                        if let Ok(tool_entries) = fs::read_dir(&tools_dir) {
+                            for tool_entry in tool_entries.flatten() {
+                                let tool_name = tool_entry.file_name();
+                                let tool_str = tool_name.to_string_lossy().to_ascii_lowercase();
+                                if !tool_str.contains("avr") {
+                                    continue;
+                                }
+                                if let Ok(ver_entries) = fs::read_dir(tool_entry.path()) {
+                                    for ver_entry in ver_entries.flatten() {
+                                        let vpath = ver_entry.path();
+                                        if vpath.is_dir() {
+                                            add_inc(&mut paths, vpath.join("avr/include"));
+                                        }
                                     }
                                 }
                             }
@@ -404,6 +413,410 @@ pub fn arduino_include_paths(
     }
 
     paths
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Esp32BoardMeta {
+    pub mcu: String,
+    pub tarch: String,
+    pub variant: String,
+    pub board_define: String,
+    pub f_cpu: String,
+    pub defines: Vec<String>,
+}
+
+impl Default for Esp32BoardMeta {
+    fn default() -> Self {
+        Self {
+            mcu: "esp32".into(),
+            tarch: "xtensa".into(),
+            variant: "esp32".into(),
+            board_define: "ESP32_DEV".into(),
+            f_cpu: "240000000L".into(),
+            defines: Vec::new(),
+        }
+    }
+}
+
+fn infer_esp32_mcu(board: &str, fqbn: &str) -> &'static str {
+    let combined = format!("{} {}", board, fqbn).to_ascii_lowercase();
+    for mcu in [
+        "esp32s3", "esp32-s3", "esp32s2", "esp32-s2", "esp32c6", "esp32-c6", "esp32c5", "esp32-c5",
+        "esp32c3", "esp32-c3", "esp32h2", "esp32-h2", "esp32p4", "esp32-p4",
+    ] {
+        if combined.contains(mcu) {
+            return match mcu {
+                "esp32s3" | "esp32-s3" => "esp32s3",
+                "esp32s2" | "esp32-s2" => "esp32s2",
+                "esp32c6" | "esp32-c6" => "esp32c6",
+                "esp32c5" | "esp32-c5" => "esp32c5",
+                "esp32c3" | "esp32-c3" => "esp32c3",
+                "esp32h2" | "esp32-h2" => "esp32h2",
+                "esp32p4" | "esp32-p4" => "esp32p4",
+                _ => "esp32",
+            };
+        }
+    }
+    "esp32"
+}
+
+fn default_tarch_for_mcu(mcu: &str) -> &'static str {
+    let lower = mcu.to_ascii_lowercase();
+    if lower.starts_with("esp32c") || lower.starts_with("esp32h") || lower.starts_with("esp32p") {
+        "riscv32"
+    } else {
+        "xtensa"
+    }
+}
+
+/// Extract ESP32 board build metadata (`build.mcu`, `build.tarch`, `build.variant`, etc.)
+/// from Arduino ESP32 `boards.txt` using either the FQBN board id or the UI board name.
+pub fn parse_esp32_board_meta(boards_txt: &str, board_name: &str, fqbn: &str) -> Esp32BoardMeta {
+    let inferred_mcu = infer_esp32_mcu(board_name, fqbn);
+    let mut meta = Esp32BoardMeta {
+        mcu: inferred_mcu.into(),
+        tarch: default_tarch_for_mcu(inferred_mcu).into(),
+        variant: inferred_mcu.into(),
+        ..Default::default()
+    };
+
+    // 1. Try FQBN board id (3rd colon-separated field: vendor:arch:board[:options])
+    let mut board_id: Option<String> = fqbn
+        .split(':')
+        .nth(2)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    // 2. Otherwise match `<id>.name=<board_name>` in boards.txt
+    if board_id.is_none() && !board_name.is_empty() {
+        let want = board_name.trim();
+        for line in boards_txt.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((k, v)) = line.split_once('=') {
+                if let Some(id) = k.strip_suffix(".name") {
+                    if v.trim().eq_ignore_ascii_case(want) {
+                        board_id = Some(id.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let Some(id) = board_id else {
+        return meta;
+    };
+
+    let prefix = format!("{id}.build.");
+    for line in boards_txt.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix(&prefix) else {
+            continue;
+        };
+        let Some((key, val)) = rest.split_once('=') else {
+            continue;
+        };
+        let val = val.trim();
+        if val.is_empty() {
+            continue;
+        }
+        match key {
+            "mcu" => meta.mcu = val.to_ascii_lowercase(),
+            "tarch" => meta.tarch = val.to_ascii_lowercase(),
+            "variant" => meta.variant = val.to_string(),
+            "board" => meta.board_define = val.to_string(),
+            "f_cpu" => meta.f_cpu = val.to_string(),
+            "defines" => {
+                for tok in val.split_whitespace() {
+                    if tok.starts_with("-D") {
+                        meta.defines.push(tok.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    meta
+}
+
+fn latest_subdir(parent: &Path) -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = fs::read_dir(parent)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort_by(|a, b| {
+        let na = a.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let nb = b.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        version_cmp(na, nb)
+    });
+    dirs.pop()
+}
+
+fn version_cmp(a: &str, b: &str) -> cmp::Ordering {
+    let parts_a: Vec<&str> = a.split(['.', '-', '_']).collect();
+    let parts_b: Vec<&str> = b.split(['.', '-', '_']).collect();
+    for (pa, pb) in parts_a.iter().zip(parts_b.iter()) {
+        let ord = match (pa.parse::<u64>(), pb.parse::<u64>()) {
+            (Ok(na), Ok(nb)) => na.cmp(&nb),
+            _ => pa.cmp(pb),
+        };
+        if ord != cmp::Ordering::Equal {
+            return ord;
+        }
+    }
+    parts_a.len().cmp(&parts_b.len())
+}
+
+fn find_esp32_package_root() -> Option<(PathBuf, PathBuf)> {
+    for a15 in arduino15_dirs() {
+        let pkg = a15.join("packages/esp32");
+        let hw = pkg.join("hardware/esp32");
+        if let Some(core_ver) = latest_subdir(&hw) {
+            return Some((pkg, core_ver));
+        }
+    }
+    None
+}
+
+fn push_flag_pair(out: &mut Vec<String>, flag: &str, path: &Path) {
+    if path.is_dir() {
+        let s = strip_windows_verbatim(&path.to_string_lossy());
+        if !out
+            .windows(2)
+            .any(|w| w[0] == flag && w[1].eq_ignore_ascii_case(&s))
+        {
+            out.push(flag.to_string());
+            out.push(s);
+        }
+    }
+}
+
+fn add_esp32_toolchain_sys_includes(out: &mut Vec<String>, pkg_root: &Path, meta: &Esp32BoardMeta) {
+    let tools = pkg_root.join("tools");
+    let is_riscv = meta.tarch == "riscv32";
+    let triple = if is_riscv {
+        "riscv32-esp-elf"
+    } else {
+        "xtensa-esp-elf"
+    };
+
+    let candidate_tool_dirs: Vec<PathBuf> = if is_riscv {
+        vec![tools.join("esp-rv32"), tools.join("riscv32-esp-elf-gcc")]
+    } else {
+        vec![
+            tools.join("esp-x32"),
+            tools.join(format!("xtensa-{}-elf-gcc", meta.mcu)),
+            tools.join("xtensa-esp32-elf-gcc"),
+        ]
+    };
+
+    let Some(tc_root) = candidate_tool_dirs.iter().find_map(|d| latest_subdir(d)) else {
+        return;
+    };
+
+    // Match either `<triple>` (esp-x32 14.x) or `xtensa-esp32-elf` (legacy 2.x).
+    let triple_candidates = [
+        triple.to_string(),
+        format!("xtensa-{}-elf", meta.mcu),
+        "xtensa-esp32-elf".to_string(),
+    ];
+    let Some((actual_triple, target_dir)) = triple_candidates.iter().find_map(|t| {
+        let direct = tc_root.join(t);
+        if direct.join("include").is_dir() {
+            return Some((t.clone(), direct));
+        }
+        let pico = tc_root.join("picolibc").join(t);
+        if pico.join("include").is_dir() {
+            return Some((t.clone(), pico));
+        }
+        None
+    }) else {
+        return;
+    };
+
+    let inc_dir = target_dir.join("include");
+    if let Some(cxx_ver_dir) = latest_subdir(&inc_dir.join("c++")) {
+        push_flag_pair(out, "-isystem", &cxx_ver_dir);
+        let arch_mcu = cxx_ver_dir.join(&actual_triple).join(&meta.mcu);
+        if arch_mcu.is_dir() {
+            push_flag_pair(out, "-isystem", &arch_mcu);
+        } else {
+            push_flag_pair(out, "-isystem", &cxx_ver_dir.join(&actual_triple));
+        }
+        push_flag_pair(out, "-isystem", &cxx_ver_dir.join("backward"));
+    }
+
+    // GCC include-fixed (if present under lib/gcc/<triple>/<ver>/include-fixed)
+    if let Some(gcc_ver_dir) = latest_subdir(&tc_root.join("lib/gcc").join(&actual_triple)) {
+        push_flag_pair(out, "-isystem", &gcc_ver_dir.join("include-fixed"));
+    }
+
+    push_flag_pair(out, "-isystem", &inc_dir);
+    push_flag_pair(out, "-isystem", &target_dir.join("sys-include"));
+}
+
+/// Build clangd-compatible compile flags for an ESP32 Arduino sketch.
+pub fn esp32_compile_flags(
+    file_path: &str,
+    custom_incl: &str,
+    board: &str,
+    fqbn: &str,
+) -> Vec<String> {
+    let mut flags = vec!["-x".into(), "c++".into(), "-std=gnu++20".into()];
+
+    let pkg_and_core = find_esp32_package_root();
+    let meta = if let Some((_, ref core_dir)) = pkg_and_core {
+        let boards_txt = fs::read_to_string(core_dir.join("boards.txt")).unwrap_or_default();
+        parse_esp32_board_meta(&boards_txt, board, fqbn)
+    } else {
+        parse_esp32_board_meta("", board, fqbn)
+    };
+
+    let target_triple = if meta.tarch == "riscv32" {
+        "riscv32-esp-elf"
+    } else {
+        "xtensa-esp-elf"
+    };
+    flags.push(format!("--target={target_triple}"));
+    flags.push(format!("-DF_CPU={}", meta.f_cpu));
+    flags.push("-DARDUINO=10819".into());
+    flags.push("-DARDUINO_ARCH_ESP32".into());
+    if !meta.board_define.is_empty() {
+        flags.push(format!("-DARDUINO_{}", meta.board_define));
+    }
+    let mcu_upper = meta.mcu.to_ascii_uppercase();
+    flags.push(format!("-D{mcu_upper}={mcu_upper}"));
+    flags.push("-DCORE_DEBUG_LEVEL=0".into());
+    flags.push("-DARDUINO_USB_CDC_ON_BOOT=0".into());
+    for def in &meta.defines {
+        if !flags.contains(def) {
+            flags.push(def.clone());
+        }
+    }
+
+    if let Some((pkg_root, core_dir)) = pkg_and_core {
+        // Core 3.x: packages/esp32/tools/<mcu>-libs/<ver>
+        // Core 2.x: packages/esp32/hardware/esp32/<ver>/tools/sdk/<mcu>
+        let core_ver_name = core_dir.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let libs_parent = pkg_root.join("tools").join(format!("{}-libs", meta.mcu));
+        let libs_dir = {
+            let exact = libs_parent.join(core_ver_name);
+            if exact.is_dir() {
+                Some(exact)
+            } else {
+                latest_subdir(&libs_parent).or_else(|| {
+                    let legacy = core_dir.join("tools/sdk").join(&meta.mcu);
+                    legacy.is_dir().then_some(legacy)
+                })
+            }
+        };
+
+        if let Some(ref libs) = libs_dir {
+            // Read SDK preprocessor defines
+            if let Ok(defines_txt) = fs::read_to_string(libs.join("flags/defines")) {
+                for tok in defines_txt.split_whitespace() {
+                    if tok.starts_with("-D") && !flags.contains(&tok.to_string()) {
+                        flags.push(tok.to_string());
+                    }
+                }
+            }
+        }
+
+        // Core & variant headers
+        push_flag_pair(&mut flags, "-I", &core_dir.join("cores/esp32"));
+        let variant_dir = core_dir.join("variants").join(&meta.variant);
+        if variant_dir.is_dir() {
+            push_flag_pair(&mut flags, "-I", &variant_dir);
+        } else {
+            let fallback_variant = core_dir.join("variants").join(&meta.mcu);
+            if fallback_variant.is_dir() {
+                push_flag_pair(&mut flags, "-I", &fallback_variant);
+            } else {
+                push_flag_pair(&mut flags, "-I", &core_dir.join("variants/esp32"));
+            }
+        }
+
+        if let Some(ref libs) = libs_dir {
+            // sdkconfig.h directory (dio_qspi / qio_qspi / dio_opi / qio_opi)
+            for cfg_subdir in [
+                "dio_qspi/include",
+                "qio_qspi/include",
+                "dio_opi/include",
+                "qio_opi/include",
+                "include/config",
+            ] {
+                let cand = libs.join(cfg_subdir);
+                if cand.join("sdkconfig.h").is_file() {
+                    push_flag_pair(&mut flags, "-I", &cand);
+                    break;
+                }
+            }
+
+            // Expand SDK includes list (`-iwithprefixbefore <rel>`)
+            if let Ok(inc_txt) = fs::read_to_string(libs.join("flags/includes")) {
+                let inc_base = libs.join("include");
+                let toks: Vec<&str> = inc_txt.split_whitespace().collect();
+                let mut i = 0;
+                while i < toks.len() {
+                    if toks[i] == "-iwithprefixbefore" && i + 1 < toks.len() {
+                        let p = inc_base.join(toks[i + 1]);
+                        push_flag_pair(&mut flags, "-I", &p);
+                        i += 2;
+                    } else if let Some(rest) = toks[i].strip_prefix("-I") {
+                        let p = if rest.is_empty() && i + 1 < toks.len() {
+                            i += 1;
+                            PathBuf::from(toks[i])
+                        } else {
+                            PathBuf::from(rest)
+                        };
+                        push_flag_pair(&mut flags, "-I", &p);
+                        i += 1;
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+        }
+
+        // Core bundled libraries (WiFi, Wire, SPI, Preferences, etc.)
+        let mut extra_inc = Vec::new();
+        add_inc_subdirs(&mut extra_inc, &core_dir.join("libraries"));
+        for lib_root in arduino_user_library_dirs() {
+            add_inc_subdirs(&mut extra_inc, &lib_root);
+        }
+        for a15 in arduino15_dirs() {
+            add_inc_subdirs(&mut extra_inc, &a15.join("libraries"));
+        }
+        if !file_path.is_empty() {
+            if let Some(parent) = Path::new(file_path).parent() {
+                add_inc(&mut extra_inc, parent.join("src"));
+                add_inc_subdirs(&mut extra_inc, &parent.join("libraries"));
+            }
+        }
+        if !custom_incl.is_empty() {
+            for p in custom_incl.split([';', ',', '\n']) {
+                let trimmed = p.trim();
+                if !trimmed.is_empty() {
+                    add_inc_subdirs(&mut extra_inc, Path::new(trimmed));
+                }
+            }
+        }
+        for inc in extra_inc {
+            push_flag_pair(&mut flags, "-I", &inc);
+        }
+
+        // Toolchain C++ and libc sysroot headers
+        add_esp32_toolchain_sys_includes(&mut flags, &pkg_root, &meta);
+    }
+
+    flags.push("-include".into());
+    flags.push("Arduino.h".into());
+    flags
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -509,7 +922,7 @@ pub fn device_for_board_or_fqbn(board: &str, fqbn: &str) -> String {
         "atmega2560".into()
     } else if b == "leonardo" || f.contains("32u4") || f.contains("leonardo") {
         "atmega32u4".into()
-    } else if f.starts_with("esp32:") || f.contains(":esp32:") {
+    } else if b.contains("esp32") || f.contains("esp32") {
         "esp32".into()
     } else {
         // Uno, Nano, Duemilanove, or generic AVR
@@ -965,10 +1378,13 @@ pub fn start_arduino_compile(
         logs.push(msg);
     }
 
-    let file_path = std::fs::canonicalize(file_path)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| file_path.to_string());
-    let cli = std::fs::canonicalize(&cli).unwrap_or(cli);
+    let cleaned_file = strip_windows_verbatim(file_path);
+    let file_path = fs::canonicalize(&cleaned_file)
+        .map(|p| strip_windows_verbatim(&p.to_string_lossy()))
+        .unwrap_or(cleaned_file);
+    let cli = fs::canonicalize(&cli)
+        .map(|p| PathBuf::from(strip_windows_verbatim(&p.to_string_lossy())))
+        .unwrap_or(cli);
 
     let p = Path::new(&file_path);
     let sketch_dir = p.parent().unwrap_or_else(|| Path::new("."));
@@ -1713,5 +2129,153 @@ mod tests {
         assert_eq!(std::fs::read(&dest).unwrap(), b"firmware");
         assert_eq!(std::fs::read(dir.join("App.elf")).unwrap(), b"elf");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_esp32_board_meta_by_fqbn_and_name() {
+        let sample = concat!(
+            "esp32doit-devkit-v1.name=DOIT ESP32 DEVKIT V1\n",
+            "esp32doit-devkit-v1.build.tarch=xtensa\n",
+            "esp32doit-devkit-v1.build.mcu=esp32\n",
+            "esp32doit-devkit-v1.build.variant=doitESP32devkitV1\n",
+            "esp32doit-devkit-v1.build.board=ESP32_DEV\n",
+            "esp32doit-devkit-v1.build.f_cpu=240000000L\n",
+            "esp32c3.name=ESP32C3 Dev Module\n",
+            "esp32c3.build.tarch=riscv32\n",
+            "esp32c3.build.mcu=esp32c3\n",
+            "esp32c3.build.variant=esp32c3\n",
+            "esp32c3.build.board=ESP32C3_DEV\n",
+            "esp32c3.build.f_cpu=160000000L\n",
+        );
+
+        let by_fqbn = parse_esp32_board_meta(sample, "", "esp32:esp32:esp32doit-devkit-v1");
+        assert_eq!(by_fqbn.mcu, "esp32");
+        assert_eq!(by_fqbn.tarch, "xtensa");
+        assert_eq!(by_fqbn.variant, "doitESP32devkitV1");
+        assert_eq!(by_fqbn.board_define, "ESP32_DEV");
+        assert_eq!(by_fqbn.f_cpu, "240000000L");
+
+        let by_name = parse_esp32_board_meta(sample, "DOIT ESP32 DEVKIT V1", "");
+        assert_eq!(by_name, by_fqbn);
+
+        let c3 = parse_esp32_board_meta(sample, "ESP32C3 Dev Module", "");
+        assert_eq!(c3.mcu, "esp32c3");
+        assert_eq!(c3.tarch, "riscv32");
+        assert_eq!(c3.variant, "esp32c3");
+
+        assert_eq!(
+            device_for_board_or_fqbn("DOIT ESP32 DEVKIT V1", ""),
+            "esp32"
+        );
+    }
+
+    #[test]
+    fn esp32_lsp_zero_false_errors_and_completions() {
+        use super::super::compiler::{CompileCtx, CompilerSpec, write_compile_flags};
+        use super::super::lsp::{LspClient, LspEvent, find_clangd};
+        use std::env;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let Some(clangd) = find_clangd() else {
+            return;
+        };
+        if find_esp32_package_root().is_none() {
+            return;
+        }
+
+        let dir = env::temp_dir().join("cs_esp32_lsp_integration_test with spaces");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let ino = dir.join("esp32_uart.ino");
+        let src = concat!(
+            "#include <Arduino.h>\n",
+            "\n",
+            "void setup() {\n",
+            "  Serial.begin(115200);\n",
+            "  delay(1000);\n",
+            "  Serial.println(\"ESP32 is awake!\");\n",
+            "}\n",
+            "\n",
+            "void loop() {\n",
+            "  Serial.print(\"Hello: \");\n",
+            "  Serial.println(millis());\n",
+            "  delay(1000);\n",
+            "}\n",
+        );
+        fs::write(&ino, src).unwrap();
+
+        let ino_str = ino.to_string_lossy().into_owned();
+        let ctx = CompileCtx {
+            file: ino_str.clone(),
+            board: "DOIT ESP32 DEVKIT V1".into(),
+            device: "esp32".into(),
+            fqbn: "esp32:esp32:esp32doit-devkit-v1".into(),
+            ..Default::default()
+        };
+        let spec = CompilerSpec {
+            name: "Arduino".into(),
+            type_name: "arduino".into(),
+            ..Default::default()
+        };
+        assert!(write_compile_flags(&ctx, &spec));
+
+        let mut lsp = LspClient::default();
+        lsp.start(&clangd, &dir.to_string_lossy());
+        lsp.open_file(&ino_str, src);
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut got_diags = None;
+        while Instant::now() < deadline {
+            for ev in lsp.take_events() {
+                if let LspEvent::Diagnostics { uri, items } = ev {
+                    if uri.ends_with("esp32_uart.ino") {
+                        got_diags = Some(items);
+                    }
+                }
+            }
+            if got_diags.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        let diags = got_diags.expect("clangd should publish diagnostics for ESP32 sketch");
+        let errors: Vec<_> = diags.iter().filter(|d| d.severity == 1).collect();
+        assert!(
+            errors.is_empty(),
+            "expected zero errors for valid ESP32 sketch, got: {errors:?}"
+        );
+
+        // Now delete one char (`Serial.println` -> `Serial.printl`) and request completion
+        let edited = src.replace("Serial.println(\"ESP32", "Serial.printl(\"ESP32");
+        let t0 = Instant::now();
+        lsp.change_file(&ino_str, &edited);
+        lsp.request_completion(&ino_str, 5, 15);
+        assert!(
+            t0.elapsed() < Duration::from_millis(200),
+            "LSP edit + completion request must not block caller thread"
+        );
+
+        let comp_deadline = Instant::now() + Duration::from_secs(10);
+        let mut completions = Vec::new();
+        while Instant::now() < comp_deadline {
+            for ev in lsp.take_events() {
+                if let LspEvent::Completions(items) = ev {
+                    completions = items;
+                }
+            }
+            if !completions.is_empty() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            completions.iter().any(|c| c.label.starts_with("println")),
+            "expected HardwareSerial::println completion, got: {completions:?}"
+        );
+
+        lsp.stop();
+        let _ = fs::remove_dir_all(&dir);
     }
 }

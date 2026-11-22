@@ -6,7 +6,7 @@ use crate::compat::simulide;
 use crate::theme::{ColorId, ColorTheme};
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpanStyle {
@@ -465,6 +465,22 @@ fn pre_open(font_family: &str, font_size: i32, dark: bool) -> String {
     format!("<pre style=\"margin:0;font-family:'{family}';font-size:{size}px;color:#{fg:06x};\">")
 }
 
+fn cached_syntax(name: &str, src: &str, dark: bool, show_spaces: bool) -> Arc<Syntax> {
+    static CACHE: OnceLock<Mutex<HashMap<(String, bool, bool), Arc<Syntax>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = (name.to_string(), dark, show_spaces);
+    if let Ok(g) = cache.lock() {
+        if let Some(syn) = g.get(&key) {
+            return Arc::clone(syn);
+        }
+    }
+    let compiled = Arc::new(parse_syntax(src, dark, show_spaces));
+    if let Ok(mut g) = cache.lock() {
+        g.insert(key, Arc::clone(&compiled));
+    }
+    compiled
+}
+
 /// Highlight `text` to an HTML fragment suitable for `Text.RichText`.
 pub fn highlight_html(
     text: &str,
@@ -480,7 +496,7 @@ pub fn highlight_html(
     let Some(src) = syntax_map().get(name) else {
         return escape_pre(text, font_family, font_size, dark);
     };
-    let syn = parse_syntax(src, dark, show_spaces);
+    let syn = cached_syntax(name, src, dark, show_spaces);
     let lines: Vec<&str> = if text.is_empty() {
         vec![""]
     } else {

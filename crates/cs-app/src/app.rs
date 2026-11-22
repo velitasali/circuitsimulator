@@ -749,7 +749,12 @@ impl App {
 }
 
 fn path_to_folder_url(path: &std::path::Path) -> String {
-    let p = path.to_string_lossy().replace('\\', "/");
+    let mut p = path.to_string_lossy().replace('\\', "/");
+    if let Some(rest) = p.strip_prefix("//?/UNC/") {
+        p = format!("//{rest}");
+    } else if let Some(rest) = p.strip_prefix("//?/") {
+        p = rest.to_string();
+    }
     if p.starts_with('/') {
         format!("file://{p}")
     } else {

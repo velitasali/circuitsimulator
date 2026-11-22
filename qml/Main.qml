@@ -1137,15 +1137,15 @@ ApplicationWindow {
         function onRequestShowCompilerSettings() { compilerSettingsWin.bringToFront() }
         function onRequestSaveAs(): void { win.openSaveFileAs() }
         function onLogChanged() {
-            var line
-            while ((line = EditorPanel.takeLogLine()) !== "") {
-                CompilerLog.appendLine(line)
+            var lines = EditorPanel.takeLogLines()
+            if (lines && lines.length > 0) {
+                CompilerLog.appendLines(lines)
             }
         }
         function onCompilingChanged() {
-            var line
-            while ((line = EditorPanel.takeLogLine()) !== "") {
-                CompilerLog.appendLine(line)
+            var lines = EditorPanel.takeLogLines()
+            if (lines && lines.length > 0) {
+                CompilerLog.appendLines(lines)
             }
         }
         function onRequestCompilerLog() {
@@ -1317,9 +1317,9 @@ ApplicationWindow {
         var simLine
         while ((simLine = CircuitCanvas.takeSimLogLine()) !== "")
             SimulatorLog.appendLine(simLine)
-        var compLine
-        while ((compLine = EditorPanel.takeLogLine()) !== "") {
-            CompilerLog.appendLine(compLine)
+        var compLines = EditorPanel.takeLogLines()
+        if (compLines && compLines.length > 0) {
+            CompilerLog.appendLines(compLines)
         }
         CircuitCanvas.restoreDraft()
         EditorPanel.restoreDrafts()

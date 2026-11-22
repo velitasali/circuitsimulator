@@ -3,11 +3,20 @@
 use super::EditorPanel;
 use cs_engine::editor::{
     self, CompileCtx, document_words, filter_completions, identifier_prefix, language_id_for_path,
-    write_compile_flags,
+    match_board, resolve_board_fqbn, write_compile_flags,
 };
 use cs_engine::highlighter;
 use serde_json::{Value, json};
 use std::path::Path;
+
+pub fn is_member_trigger(text: &str, cursor_byte: usize) -> bool {
+    let mut safe = cursor_byte.min(text.len());
+    while safe > 0 && !text.is_char_boundary(safe) {
+        safe -= 1;
+    }
+    let before = &text[..safe];
+    before.ends_with('.') || before.ends_with("->") || before.ends_with("::")
+}
 
 pub fn escape_html(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -69,6 +78,14 @@ impl EditorPanel {
         } else {
             d.compiler.clone()
         };
+        let spec = self.specs.get(&compiler_name).cloned().unwrap_or_default();
+        let fqbn = if spec.is_arduino() || compiler_name.eq_ignore_ascii_case("arduino") {
+            let (b, cb, _) =
+                match_board(&d.board, &d.custom_board, &d.device, &self.arduino_boards);
+            resolve_board_fqbn(&b, &cb, &self.arduino_boards)
+        } else {
+            String::new()
+        };
         let ctx = CompileCtx {
             file: path.clone(),
             board: d.board.clone(),
@@ -79,9 +96,8 @@ impl EditorPanel {
             incl_path: d.incl_path.clone(),
             tool_path: d.tool_path.clone(),
             debug: false,
-            fqbn: String::new(),
+            fqbn,
         };
-        let spec = self.specs.get(&compiler_name).cloned().unwrap_or_default();
         write_compile_flags(&ctx, &spec);
         self.ensure_lsp(&path);
         self.lsp.reopen_file(&path, &text);
@@ -134,15 +150,23 @@ impl EditorPanel {
         let text = self.current_text();
         let cursor_byte = editor::utf16_to_byte_offset(&text, self.cursor_pos.max(0) as usize);
         let prefix = identifier_prefix(&text, cursor_byte).to_string();
-        if !manual && prefix.len() < 2 {
+        let member_trigger = is_member_trigger(&text, cursor_byte);
+        let path = self.current_path();
+        let can_lsp =
+            !path.is_empty() && language_id_for_path(&path).is_some() && self.lsp.is_running();
+        if !manual && prefix.len() < 2 && !(member_trigger && can_lsp && self.lsp.is_initialized())
+        {
             self.hide_completions();
             return;
         }
         self.completion_prefix = prefix.clone();
-        let path = self.current_path();
-        if !path.is_empty() && language_id_for_path(&path).is_some() && self.lsp.is_running() {
+        if can_lsp {
             let (line, col) = editor::line_col(&text, cursor_byte);
             self.lsp.request_completion(&path, line, col);
+            return;
+        }
+        if !manual && prefix.is_empty() {
+            self.hide_completions();
             return;
         }
         self.local_complete(&prefix);

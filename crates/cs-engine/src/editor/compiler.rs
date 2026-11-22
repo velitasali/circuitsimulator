@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::env;
+use std::fs;
 use std::io::BufRead;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -935,67 +936,100 @@ pub fn extract_ino_prototypes(source: &str) -> Vec<String> {
     protos
 }
 
-pub fn write_compile_flags(ctx: &CompileCtx, spec: &CompilerSpec) {
+pub fn write_compile_flags(ctx: &CompileCtx, spec: &CompilerSpec) -> bool {
     if ctx.file.is_empty() {
-        return;
+        return false;
     }
     let (file_dir, _, file_ext) = file_parts(&ctx.file);
-    let path = Path::new(file_dir.trim_end_matches(['/', '\\'])).join("compile_flags.txt");
-    let mut out = String::from("-x\nc++\n-std=gnu++17\n");
+    let dir_path = Path::new(file_dir.trim_end_matches(['/', '\\']));
+    let path = dir_path.join("compile_flags.txt");
     let is_arduino = spec.is_arduino()
         || file_ext.eq_ignore_ascii_case(".ino")
         || file_ext.eq_ignore_ascii_case(".pde");
-    let is_avr = is_arduino
-        || spec.type_name.to_ascii_lowercase().contains("avr")
-        || spec.name.to_ascii_lowercase().contains("avr");
 
-    if is_avr {
-        out.push_str("--target=avr\n");
-        let dev = if !ctx.device.is_empty() && !ctx.device.contains(':') {
-            ctx.device.to_ascii_lowercase()
-        } else if !ctx.board.is_empty() {
-            super::arduino::device_for_board_or_fqbn(&ctx.board, &ctx.custom_board)
-        } else {
-            "atmega328p".to_string()
-        };
-        out.push_str(&format!("-mmcu={dev}\n"));
-        out.push_str(&format!("-D__AVR_{}__\n", dev.to_ascii_uppercase()));
-        out.push_str("-DARDUINO=10819\n-DARDUINO_ARCH_AVR\n-DF_CPU=16000000L\n");
-    } else if !ctx.device.is_empty() {
-        out.push_str(&format!("-mmcu={}\n", ctx.device));
-    }
-
-    let inc_paths = if is_arduino || is_avr {
-        super::arduino::arduino_include_paths(&ctx.file, &ctx.tool_path, &ctx.incl_path, &ctx.board)
+    let effective_fqbn = if !ctx.fqbn.is_empty() {
+        ctx.fqbn.as_str()
     } else {
-        Vec::new()
+        ctx.custom_board.as_str()
     };
+    let board_hint = format!("{} {} {}", ctx.board, ctx.custom_board, ctx.device);
+    let target_arch = super::arduino::target_arch_for_board(&board_hint, effective_fqbn);
 
-    for inc in inc_paths {
-        out.push_str("-I\n");
-        out.push_str(&inc.to_string_lossy());
-        out.push('\n');
-    }
+    let mut out = if is_arduino && target_arch == "esp32" {
+        let flags = super::arduino::esp32_compile_flags(
+            &ctx.file,
+            &ctx.incl_path,
+            &ctx.board,
+            effective_fqbn,
+        );
+        let mut s = flags.join("\n");
+        if !s.is_empty() {
+            s.push('\n');
+        }
+        let proto_header_path = dir_path.join(".arduino_prototypes.h");
+        if proto_header_path.is_file() {
+            let _ = fs::remove_file(&proto_header_path);
+        }
+        s
+    } else {
+        let mut out = String::from("-x\nc++\n-std=gnu++17\n");
+        let is_avr = (is_arduino && target_arch == "avr")
+            || spec.type_name.to_ascii_lowercase().contains("avr")
+            || spec.name.to_ascii_lowercase().contains("avr");
 
-    if !is_arduino && !is_avr && !ctx.incl_path.is_empty() {
-        for p in ctx.incl_path.split([';', ',', '\n']) {
-            let p = p.trim();
-            if !p.is_empty() {
-                out.push_str("-I\n");
-                out.push_str(p);
-                out.push('\n');
+        if is_avr {
+            out.push_str("--target=avr\n");
+            let dev = if !ctx.device.is_empty() && !ctx.device.contains(':') {
+                ctx.device.to_ascii_lowercase()
+            } else if !ctx.board.is_empty() {
+                super::arduino::device_for_board_or_fqbn(&ctx.board, &ctx.custom_board)
+            } else {
+                "atmega328p".to_string()
+            };
+            out.push_str(&format!("-mmcu={dev}\n"));
+            out.push_str(&format!("-D__AVR_{}__\n", dev.to_ascii_uppercase()));
+            out.push_str("-DARDUINO=10819\n-DARDUINO_ARCH_AVR\n-DF_CPU=16000000L\n");
+        } else if !ctx.device.is_empty() {
+            out.push_str(&format!("-mmcu={}\n", ctx.device));
+        }
+
+        let inc_paths = if is_arduino || is_avr {
+            super::arduino::arduino_include_paths(
+                &ctx.file,
+                &ctx.tool_path,
+                &ctx.incl_path,
+                &board_hint,
+            )
+        } else {
+            Vec::new()
+        };
+
+        for inc in inc_paths {
+            out.push_str("-I\n");
+            out.push_str(&inc.to_string_lossy());
+            out.push('\n');
+        }
+
+        if !is_arduino && !is_avr && !ctx.incl_path.is_empty() {
+            for p in ctx.incl_path.split([';', ',', '\n']) {
+                let p = p.trim();
+                if !p.is_empty() {
+                    out.push_str("-I\n");
+                    out.push_str(p);
+                    out.push('\n');
+                }
             }
         }
-    }
 
-    if is_arduino || is_avr {
-        out.push_str("-include\nArduino.h\n");
-        let proto_header_path =
-            Path::new(file_dir.trim_end_matches(['/', '\\'])).join(".arduino_prototypes.h");
-        if proto_header_path.is_file() {
-            let _ = std::fs::remove_file(&proto_header_path);
+        if is_arduino || is_avr {
+            out.push_str("-include\nArduino.h\n");
+            let proto_header_path = dir_path.join(".arduino_prototypes.h");
+            if proto_header_path.is_file() {
+                let _ = fs::remove_file(&proto_header_path);
+            }
         }
-    }
+        out
+    };
 
     if !ctx.extra_args.is_empty() {
         for a in ctx.extra_args.split_whitespace() {
@@ -1003,7 +1037,13 @@ pub fn write_compile_flags(ctx: &CompileCtx, spec: &CompilerSpec) {
             out.push('\n');
         }
     }
-    let _ = std::fs::write(path, out);
+
+    if let Ok(existing) = fs::read_to_string(&path)
+        && existing == out
+    {
+        return false;
+    }
+    fs::write(path, out).is_ok()
 }
 
 fn embedded() -> Vec<(&'static str, &'static str)> {
@@ -1488,7 +1528,39 @@ mod tests {
         assert!(content.contains("-mmcu=atmega328p"));
         assert!(content.contains("-include\nArduino.h"));
         assert!(!content.contains(".arduino_prototypes.h"));
+        // Calling again with identical context is a no-op
+        assert!(!write_compile_flags(&ctx, &spec));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_compile_flags_esp32_not_avr() {
+        let dir = env::temp_dir().join("cs_test_flags_esp32");
+        let _ = fs::create_dir_all(&dir);
+        let ino = dir.join("test.ino");
+        let _ = fs::write(&ino, "void setup(){}\nvoid loop(){}\n");
+        let ctx = CompileCtx {
+            file: ino.to_string_lossy().into_owned(),
+            board: "DOIT ESP32 DEVKIT V1".into(),
+            device: "esp32".into(),
+            fqbn: "esp32:esp32:esp32doit-devkit-v1".into(),
+            ..Default::default()
+        };
+        let spec = CompilerSpec {
+            name: "Arduino".into(),
+            type_name: "arduino".into(),
+            ..Default::default()
+        };
+        assert!(write_compile_flags(&ctx, &spec));
+        let flags_file = dir.join("compile_flags.txt");
+        let content = fs::read_to_string(&flags_file).unwrap();
+        assert!(!content.contains("--target=avr"), "{content}");
+        assert!(!content.contains("-DARDUINO_ARCH_AVR"), "{content}");
+        assert!(!content.contains("-mmcu=esp32"), "{content}");
+        assert!(content.contains("--target=xtensa-esp-elf"), "{content}");
+        assert!(content.contains("-DARDUINO_ARCH_ESP32"), "{content}");
+        assert!(content.contains("-include\nArduino.h"), "{content}");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

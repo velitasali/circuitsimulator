@@ -274,11 +274,18 @@ impl EditorPanel {
             return;
         }
         let mut finished = None;
+        let mut logged = false;
         for ev in events {
             match ev {
-                CompileEvent::Log(line) => self.push_log_buffered(line),
+                CompileEvent::Log(line) => {
+                    self.push_log_buffered(line);
+                    logged = true;
+                }
                 CompileEvent::Finished(result) => finished = Some(result),
             }
+        }
+        if logged {
+            self.log_changed();
         }
         if let Some(result) = finished {
             let pending = self.compile_job.take().expect("compile job just finished");

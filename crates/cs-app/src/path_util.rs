@@ -41,15 +41,19 @@ pub fn strip_file_url(url: &str) -> String {
 
 #[cfg(any(target_os = "windows", test))]
 fn normalize_windows_path(s: &str) -> String {
-    let bytes = s.as_bytes();
-    if bytes.len() >= 3
-        && (bytes[0] == b'/' || bytes[0] == b'\\')
-        && bytes[1].is_ascii_alphabetic()
-        && bytes[2] == b':'
-    {
-        return s[1..].replace('\\', "/");
+    let mut normalized = s.replace('\\', "/");
+    if let Some(rest) = normalized.strip_prefix("//?/UNC/") {
+        normalized = format!("//{rest}");
+    } else if let Some(rest) = normalized.strip_prefix("//?/") {
+        normalized = rest.to_string();
+    } else if let Some(rest) = normalized.strip_prefix("/?/") {
+        normalized = rest.to_string();
     }
-    s.replace('\\', "/")
+    let bytes = normalized.as_bytes();
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
+        return normalized[1..].to_string();
+    }
+    normalized
 }
 
 #[cfg(test)]
@@ -85,6 +89,14 @@ mod tests {
         assert_eq!(
             normalize_windows_path("C:/Users/test/project"),
             "C:/Users/test/project"
+        );
+        assert_eq!(
+            normalize_windows_path("//?/C:/Users/test/project/sketch.ino"),
+            "C:/Users/test/project/sketch.ino"
+        );
+        assert_eq!(
+            normalize_windows_path(r"\\?\C:\Users\test\project\sketch.ino"),
+            "C:/Users/test/project/sketch.ino"
         );
     }
 

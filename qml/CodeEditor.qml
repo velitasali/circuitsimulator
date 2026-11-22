@@ -319,8 +319,15 @@ Item {
             // so Qt's built-in one is dropped — two menus would answer one click.
             ContextMenu.menu: null
             tabStopDistance: Math.max(4, fm.averageCharacterWidth * EditorPanel.tabSize)
-            text: EditorPanel.currentText
+            property bool _syncingFromModel: false
+            Component.onCompleted: {
+                _syncingFromModel = true
+                text = EditorPanel.currentText
+                _syncingFromModel = false
+            }
             onTextChanged: {
+                if (_syncingFromModel) return
+                EditorPanel.cursorPos = cursorPosition
                 if ( text !== EditorPanel.currentText )
                     EditorPanel.currentText = text
             }
@@ -911,6 +918,14 @@ Item {
         function onCurrentDocumentChanged(): void {
             if (EditorPanel.currentDocument >= 0) {
                 root.focusEditor()
+            }
+        }
+        function onCurrentTextChanged(): void {
+            var modelText = EditorPanel.currentText
+            if (area.text !== modelText) {
+                area._syncingFromModel = true
+                area.text = modelText
+                area._syncingFromModel = false
             }
         }
         function onGotoChanged() {

@@ -35,6 +35,8 @@ Dialog {
     header: null
     footer: null
 
+    onOpened: acceptBtn.forceActiveFocus()
+
     onRejected: {
         root.cancelled()
     }

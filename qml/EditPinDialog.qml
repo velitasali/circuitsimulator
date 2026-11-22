@@ -100,8 +100,6 @@ Rectangle {
                  && !typeCombo.popup.visible
                  && !angleCombo.popup.visible
                  && !lengthCombo.popup.visible
-                 && !deleteBtn.activeFocus
-                 && !cancelBtn.activeFocus
         onActivated: root.saveAndClose()
     }
 
@@ -302,8 +300,6 @@ Rectangle {
                 font: root.uiFont
                 palette.buttonText: CircuitCanvas.msgErrorBg || appTheme.windowText
                 onClicked: root.deleteAndClose()
-                Keys.onReturnPressed: root.deleteAndClose()
-                Keys.onEnterPressed: root.deleteAndClose()
             }
 
             Item { Layout.fillWidth: true }
@@ -313,8 +309,6 @@ Rectangle {
                 text: I18n.tr("Cancel")
                 font: root.uiFont
                 onClicked: root.rejected()
-                Keys.onReturnPressed: root.rejected()
-                Keys.onEnterPressed: root.rejected()
             }
 
             AppButton {

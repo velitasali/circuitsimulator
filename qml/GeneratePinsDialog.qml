@@ -60,7 +60,7 @@ Rectangle {
 
     Shortcut {
         sequences: [ "Return", "Enter" ]
-        enabled: root.visible && !cancelBtn.activeFocus
+        enabled: root.visible
         onActivated: root.generateAndClose()
     }
 
@@ -226,8 +226,6 @@ Rectangle {
                 text: I18n.tr("Cancel")
                 font: root.uiFont
                 onClicked: root.rejected()
-                Keys.onReturnPressed: root.rejected()
-                Keys.onEnterPressed: root.rejected()
             }
 
             AppButton {

@@ -79,4 +79,42 @@ T.Button {
 
         Behavior on color { ColorAnimation { duration: 90 } }
     }
+
+    function activateFromKey(): void {
+        if (!control.enabled)
+            return
+        if (typeof control.click === "function") {
+            control.click()
+        } else {
+            if (control.checkable)
+                control.toggle()
+            control.clicked()
+        }
+    }
+
+    // Activate focused buttons on Return/Enter and claim those keys ahead of
+    // any enclosing dialog's default-accept Shortcut.
+    Keys.onShortcutOverride: (event) => {
+        if (control.enabled
+                && (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier
+                && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+            event.accepted = true
+        }
+    }
+
+    Keys.onReturnPressed: (event) => {
+        if ((event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier) {
+            event.accepted = true
+            if (!event.isAutoRepeat)
+                control.activateFromKey()
+        }
+    }
+
+    Keys.onEnterPressed: (event) => {
+        if ((event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier) {
+            event.accepted = true
+            if (!event.isAutoRepeat)
+                control.activateFromKey()
+        }
+    }
 }

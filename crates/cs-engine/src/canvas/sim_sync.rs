@@ -739,6 +739,10 @@ impl Canvas {
     }
 
     pub(crate) fn publish_instrument_views(&mut self) -> Change {
+        self.publish_instrument_views_inner(false)
+    }
+
+    fn publish_instrument_views_inner(&mut self, force_plots: bool) -> Change {
         let prev_readings = std::mem::take(&mut self.readings);
         self.apply_probe_hover();
         let mut plots_changed = false;
@@ -802,11 +806,6 @@ impl Canvas {
                                 })
                         })
                         .unwrap_or_default();
-                    let changed = self.readings.get(&it.id).map(|r| (&r.text, &r.extra))
-                        != Some((&hex, &lines));
-                    if changed {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -837,10 +836,6 @@ impl Canvas {
                                 })
                         })
                         .unwrap_or_default();
-                    let changed = self.readings.get(&it.id).map(|r| &r.text) != Some(&text);
-                    if changed {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -871,11 +866,6 @@ impl Canvas {
                                 })
                         })
                         .unwrap_or_default();
-                    let changed = self.readings.get(&it.id).map(|r| (&r.text, &r.extra))
-                        != Some((&hex, &lines));
-                    if changed {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -906,10 +896,6 @@ impl Canvas {
                                 })
                         })
                         .unwrap_or_default();
-                    let changed = self.readings.get(&it.id).map(|r| &r.text) != Some(&text);
-                    if changed {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -940,10 +926,6 @@ impl Canvas {
                                 })
                         })
                         .unwrap_or_default();
-                    let changed = self.readings.get(&it.id).map(|r| &r.text) != Some(&text);
-                    if changed {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -974,10 +956,6 @@ impl Canvas {
                                 })
                         })
                         .unwrap_or_default();
-                    let changed = self.readings.get(&it.id).map(|r| &r.text) != Some(&text);
-                    if changed {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -1008,10 +986,6 @@ impl Canvas {
                                 })
                         })
                         .unwrap_or_default();
-                    let changed = self.readings.get(&it.id).map(|r| &r.text) != Some(&text);
-                    if changed {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -1042,10 +1016,6 @@ impl Canvas {
                                 })
                         })
                         .unwrap_or_default();
-                    let changed = self.readings.get(&it.id).map(|r| &r.text) != Some(&text);
-                    if changed {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -1115,14 +1085,6 @@ impl Canvas {
                         let on = (vl - vr) >= 1.4;
                         bitmask_str.push(if on { '1' } else { '0' });
                     }
-                    // The compare at the bottom of this function runs every third
-                    // tick. A mask that changed on another tick is already stored
-                    // by then, so the part would keep the old picture.
-                    if prev_readings.get(&it.id).map(|r| r.text.as_str())
-                        != Some(bitmask_str.as_str())
-                    {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -1157,11 +1119,6 @@ impl Canvas {
                             };
                             bitmask_str.push(if on { '1' } else { '0' });
                         }
-                    }
-                    if prev_readings.get(&it.id).map(|r| r.text.as_str())
-                        != Some(bitmask_str.as_str())
-                    {
-                        self.dirty.mark_item(&it.id);
                     }
                     self.readings.insert(
                         it.id.clone(),
@@ -1207,11 +1164,6 @@ impl Canvas {
                     for bit in 0..8 {
                         bitmask_str.push(if (digit & (1 << bit)) != 0 { '1' } else { '0' });
                     }
-                    if prev_readings.get(&it.id).map(|r| r.text.as_str())
-                        != Some(bitmask_str.as_str())
-                    {
-                        self.dirty.mark_item(&it.id);
-                    }
                     self.readings.insert(
                         it.id.clone(),
                         crate::instruments::ReadingView {
@@ -1228,8 +1180,9 @@ impl Canvas {
                 _ => {}
             }
         }
-        let visual_tick = !self.sim_running || self.sim_tick % 3 == 0;
-        if visual_tick {
+        let update_plots =
+            force_plots || !self.sim_running || self.sim_paused || self.sim_tick % 3 == 0;
+        if update_plots {
             if let Some(circuit) = self.running.as_ref() {
                 if !circuit.instruments.scopes.is_empty() {
                     let new_scope = circuit
@@ -1282,25 +1235,23 @@ impl Canvas {
                 }
             }
         }
-        if visual_tick {
-            let changed_ids: Vec<String> = self
-                .readings
-                .iter()
-                .filter(|(id, reading)| prev_readings.get(*id) != Some(*reading))
-                .map(|(id, _)| id.clone())
-                .chain(
-                    prev_readings
-                        .keys()
-                        .filter(|id| !self.readings.contains_key(*id))
-                        .cloned(),
-                )
-                .collect();
-            for id in changed_ids {
-                self.dirty.mark_item(&id);
-            }
-            if plots_changed {
-                self.dirty_plot_items();
-            }
+        let changed_ids: Vec<String> = self
+            .readings
+            .iter()
+            .filter(|(id, reading)| prev_readings.get(*id) != Some(*reading))
+            .map(|(id, _)| id.clone())
+            .chain(
+                prev_readings
+                    .keys()
+                    .filter(|id| !self.readings.contains_key(*id))
+                    .cloned(),
+            )
+            .collect();
+        for id in changed_ids {
+            self.dirty.mark_item(&id);
+        }
+        if plots_changed {
+            self.dirty_plot_items();
         }
         Change {
             plots: plots_changed,
@@ -1472,19 +1423,23 @@ impl Canvas {
 
     pub fn set_scope_time_div(&mut self, v: f64) -> Change {
         self.scope_time_div = v.max(1e-12);
-        self.publish_instrument_views()
+        let c = self.publish_instrument_views_inner(true);
+        self.dirty_plot_items();
+        c
     }
 
     pub fn set_scope_time_pos(&mut self, v: f64) -> Change {
         self.scope_time_pos = v;
-        self.publish_instrument_views()
+        let c = self.publish_instrument_views_inner(true);
+        self.dirty_plot_items();
+        c
     }
 
     pub fn set_scope_volt_div(&mut self, ch: usize, v: f64) -> Change {
         if ch < 4 {
             self.scope_volt_div[ch] = v.max(1e-12);
         }
-        let c = self.publish_instrument_views();
+        let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
     }
@@ -1493,7 +1448,7 @@ impl Canvas {
         if ch < 4 {
             self.scope_volt_pos[ch] = v;
         }
-        let c = self.publish_instrument_views();
+        let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
     }
@@ -1504,7 +1459,7 @@ impl Canvas {
             4 => 4,
             _ => 1,
         };
-        let c = self.publish_instrument_views();
+        let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
     }
@@ -1513,19 +1468,23 @@ impl Canvas {
         if ch < 4 {
             self.scope_hidden[ch] = hide;
         }
-        let c = self.publish_instrument_views();
+        let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
     }
 
     pub fn set_scope_trigger(&mut self, ch: i32) -> Change {
         self.scope_trigger = ch;
-        self.publish_instrument_views()
+        let c = self.publish_instrument_views_inner(true);
+        self.dirty_plot_items();
+        c
     }
 
     pub fn set_scope_trig_level(&mut self, level: f64) -> Change {
         self.scope_trig_level = level;
-        self.publish_instrument_views()
+        let c = self.publish_instrument_views_inner(true);
+        self.dirty_plot_items();
+        c
     }
 
     pub fn set_scope_filter(&mut self, v: f64) -> Change {
@@ -1535,21 +1494,21 @@ impl Canvas {
 
     pub fn set_la_time_div(&mut self, v: f64) -> Change {
         self.la_time_div = v.max(1e-12);
-        let c = self.publish_instrument_views();
+        let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
     }
 
     pub fn set_la_time_pos(&mut self, v: f64) -> Change {
         self.la_time_pos = v;
-        let c = self.publish_instrument_views();
+        let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
     }
 
     pub fn set_la_trigger(&mut self, ch: i32) -> Change {
         self.la_trigger = ch;
-        let c = self.publish_instrument_views();
+        let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
     }
@@ -1557,7 +1516,7 @@ impl Canvas {
     pub fn set_la_thresholds(&mut self, rise: f64, fall: f64) -> Change {
         self.la_threshold_r = rise;
         self.la_threshold_f = fall;
-        let c = self.publish_instrument_views();
+        let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
     }

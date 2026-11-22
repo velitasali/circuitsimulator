@@ -627,6 +627,9 @@ impl Canvas {
         if let Part::Function(func) = &mut it.kind {
             func.n_inputs = n_in.clamp(1, 16);
             func.expression = expr;
+            self.scene.drop_wires_to_missing_pins();
+            self.scene.sync_wires_for(std::slice::from_ref(&uid));
+            self.dirty.mark_full();
             Change::edit()
         } else {
             self.history.undo.pop();
@@ -768,6 +771,7 @@ impl Canvas {
         };
         if let Part::SdCard(sd) = &mut it.kind {
             sd.file = path.to_string();
+            self.dirty_item_now(&uid);
             Change::edit()
         } else {
             self.history.undo.pop();
@@ -784,6 +788,7 @@ impl Canvas {
         };
         if let Part::SdCard(sd) = &mut it.kind {
             sd.file.clear();
+            self.dirty_item_now(&uid);
             Change::edit()
         } else {
             self.history.undo.pop();
@@ -936,6 +941,7 @@ impl Canvas {
         };
         if let Part::Probe(p) = &mut it.kind {
             p.pause_at_change = !p.pause_at_change;
+            self.dirty_item_now(&uid);
             Change::edit()
         } else {
             self.history.undo.pop();
@@ -1040,6 +1046,7 @@ impl Canvas {
             }
         }
         if ok {
+            self.dirty_item_now(item_id);
             let mut c = Change {
                 items: true,
                 sim: true,
@@ -1261,6 +1268,7 @@ impl Canvas {
             .paste_circ1_with(src, Point::zero(), &self.search())
         {
             Ok(true) => {
+                self.dirty.mark_full();
                 let mut c = Change::edit();
                 c.merge(self.refresh_sim());
                 c

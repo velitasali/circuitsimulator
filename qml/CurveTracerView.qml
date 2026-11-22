@@ -218,6 +218,20 @@ Rectangle {
 
     Component.onCompleted: root.reloadSourcesAndProbes()
 
+    Connections {
+        target: CircuitCanvas
+        function onItemsChanged() { root.reloadSourcesAndProbes() }
+        function onWiresChanged() { root.reloadSourcesAndProbes() }
+        function onRootCircuitLoaded() { root.reloadSourcesAndProbes() }
+        function onAppearanceChanged() { plot.requestPaint() }
+    }
+
+    Connections {
+        target: App
+        function onThemeChanged() { plot.requestPaint() }
+        function onFontChanged() { plot.requestPaint() }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 12
@@ -279,7 +293,10 @@ Rectangle {
                 id: secEnableCheck
                 text: I18n.tr("Secondary Source (Family):")
                 checked: false
-                onCheckedChanged: if (!checked) root.hoverInfo = null
+                onCheckedChanged: if (!checked) {
+                    root.hoverInfo = null
+                    plot.requestPaint()
+                }
             }
             AppComboBox {
                 id: secSourceBox

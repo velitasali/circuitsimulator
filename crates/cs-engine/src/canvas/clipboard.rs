@@ -35,9 +35,29 @@ impl Canvas {
             return Change::default();
         };
         let delta = snap_point(at).sub(origin);
+        let prev_items: Vec<String> = self
+            .scene
+            .items()
+            .iter()
+            .filter(|it| it.selected)
+            .map(|it| it.id.clone())
+            .collect();
+        let prev_wires: Vec<String> = self
+            .scene
+            .wires()
+            .iter()
+            .filter(|w| w.selected)
+            .map(|w| w.id.clone())
+            .collect();
         self.push_undo();
         match self.scene.paste_circ1_with(&src, delta, &self.search()) {
             Ok(true) => {
+                for id in &prev_items {
+                    self.dirty_item_now(id);
+                }
+                for id in &prev_wires {
+                    self.dirty_wire_now(id);
+                }
                 self.dirty_selected_now();
                 let mut c = Change::edit();
                 c.merge(self.refresh_sim());
@@ -217,6 +237,42 @@ impl Canvas {
         }
         self.dirty_move_footprint();
         Change::edit()
+    }
+
+    pub fn set_item_label_pos(&mut self, uid: &str, lx: f64, ly: f64) -> Change {
+        if self.scene.item_by_id(uid).is_none() {
+            return Change::default();
+        }
+        self.dirty_item_now(uid);
+        if let Some(it) = self.scene.item_by_id_mut(uid) {
+            it.label_x = lx;
+            it.label_y = ly;
+            it.custom_label_pos = true;
+        }
+        self.dirty_item_now(uid);
+        Change {
+            items: true,
+            history: true,
+            ..Change::default()
+        }
+    }
+
+    pub fn set_item_val_label_pos(&mut self, uid: &str, vx: f64, vy: f64) -> Change {
+        if self.scene.item_by_id(uid).is_none() {
+            return Change::default();
+        }
+        self.dirty_item_now(uid);
+        if let Some(it) = self.scene.item_by_id_mut(uid) {
+            it.val_x = vx;
+            it.val_y = vy;
+            it.custom_val_pos = true;
+        }
+        self.dirty_item_now(uid);
+        Change {
+            items: true,
+            history: true,
+            ..Change::default()
+        }
     }
 
     pub fn rotate_item_label(&mut self, uid: &str, angle_deg: i32) -> Change {

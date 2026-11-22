@@ -2676,3 +2676,191 @@ fn tunnel_group_rename_and_info() {
     assert!(c.scene.item_by_id(&t2).unwrap().tunnel_visible());
     assert!(c.scene.item_by_id(&t_vcc).unwrap().tunnel_visible());
 }
+
+#[test]
+fn set_show_grid_and_component_rect_mark_full_dirty() {
+    let mut c = Canvas::empty();
+    let _ = c.take_dirty();
+
+    assert!(!c.set_show_grid(true));
+    assert!(c.take_dirty().is_empty());
+
+    assert!(c.set_show_grid(false));
+    assert!(c.take_dirty().full);
+
+    assert!(c.set_show_grid(true));
+    assert!(c.take_dirty().full);
+
+    assert!(!c.set_show_component_rect(false));
+    assert!(c.take_dirty().is_empty());
+
+    assert!(c.set_show_component_rect(true));
+    assert!(c.take_dirty().full);
+}
+
+#[test]
+fn paste_dirties_previously_selected_items() {
+    let mut c = Canvas::empty();
+    let r1 = c.scene.add_default_resistor(0.0, 0.0);
+    c.scene.select_only(0);
+    assert!(c.copy_selection());
+    let _ = c.take_dirty();
+
+    let ch = c.paste_at(Point::new(160.0, 0.0));
+    assert!(ch.items);
+    let dirty = c.take_dirty();
+    assert!(
+        dirty.items.contains(&r1),
+        "deselected source item must be marked dirty on paste"
+    );
+    assert_eq!(c.scene.items().len(), 2);
+    let r2 = c.scene.items()[1].id.clone();
+    assert!(
+        dirty.items.contains(&r2),
+        "newly pasted item must be marked dirty on paste"
+    );
+}
+
+#[test]
+fn center_select_overflowing_import_pin_invert_and_label_pos_mark_dirty() {
+    let mut c = Canvas::empty();
+    let r1 = c.scene.add_default_resistor(120.0, 80.0);
+    let _ = c.take_dirty();
+
+    let ch = c.center_circuit();
+    assert!(ch.items);
+    assert!(c.take_dirty().full);
+
+    let pin_id = format!("{r1}-lPin");
+    let ch = c.toggle_pin_inverted(&pin_id);
+    assert!(ch.items);
+    assert!(c.take_dirty().items.contains(&r1));
+
+    let ch = c.set_pin_inverted(&pin_id, false);
+    assert!(ch.items);
+    assert!(c.take_dirty().items.contains(&r1));
+
+    let ch = c.set_item_label_pos(&r1, 12.0, -24.0);
+    assert!(ch.items);
+    assert!(c.take_dirty().items.contains(&r1));
+
+    let ch = c.set_item_val_label_pos(&r1, 12.0, 24.0);
+    assert!(ch.items);
+    assert!(c.take_dirty().items.contains(&r1));
+
+    // Place an item outside canvas bounds while r1 is selected, then select overflowing.
+    c.scene.select_only(0);
+    let r_out = c.scene.add_default_resistor(5000.0, 5000.0);
+    let _ = c.take_dirty();
+    let ch = c.select_overflowing_items();
+    assert!(ch.items);
+    let dirty = c.take_dirty();
+    assert!(dirty.items.contains(&r1));
+    assert!(dirty.items.contains(&r_out));
+
+    // Import circuit marks full dirty.
+    let src = c.to_circ1();
+    let _ = c.take_dirty();
+    let ch = c.import_circ1(&src);
+    assert!(ch.items);
+    assert!(c.take_dirty().full);
+}
+
+#[test]
+fn meter_reading_change_on_non_third_tick_marks_dirty() {
+    let mut c = Canvas::empty();
+    let v_id = c.scene.add_fixed_volt(0.0, 0.0, 0.0);
+    let vm_id = c.scene.add_voltmeter(80.0, 0.0);
+    let gnd_id = c.scene.add_ground(80.0, 48.0);
+    let p_out = c.scene.item_by_id(&v_id).unwrap().pins()[0].id.clone();
+    let vm_pins = c.scene.item_by_id(&vm_id).unwrap().pins();
+    let p_l = vm_pins[0].id.clone();
+    let p_r = vm_pins[1].id.clone();
+    let p_gnd = c.scene.item_by_id(&gnd_id).unwrap().pins()[0].id.clone();
+    let p_out_pos = c.scene.pin_scene(&p_out).unwrap();
+    let p_l_pos = c.scene.pin_scene(&p_l).unwrap();
+    let p_r_pos = c.scene.pin_scene(&p_r).unwrap();
+    let p_gnd_pos = c.scene.pin_scene(&p_gnd).unwrap();
+    c.scene.connect_pins(&p_out, p_out_pos, &p_l, p_l_pos);
+    c.scene.connect_pins(&p_r, p_r_pos, &p_gnd, p_gnd_pos);
+
+    let _ = c.power_on();
+    let _ = c.take_dirty();
+
+    // Advance to a non-multiple-of-3 tick, change source voltage, and verify the
+    // voltmeter is dirtied immediately rather than dropped between % 3 ticks.
+    c.sim_tick = 1;
+    let _ = c.set_prop_text_for(&v_id, "Voltage".into(), "5 V".into());
+    let dirty = c.take_dirty();
+    assert!(
+        dirty.full || dirty.items.contains(&vm_id),
+        "voltmeter must be marked dirty when its reading changes on a non-%3 tick"
+    );
+}
+
+#[test]
+fn paused_scope_and_la_setters_update_on_non_third_tick() {
+    let mut c = Canvas::empty();
+    let osc_id = c.scene.add_oscope(0.0, 0.0);
+    let la_id = c.scene.add_lanalizer(200.0, 0.0);
+    let _ = c.power_on();
+    let _ = c.tick(); // sim_tick == 1 (non-%3)
+    let _ = c.pause_sim();
+    let _ = c.take_dirty();
+
+    let _ = c.set_scope_time_div(2e-3);
+    assert!(c.take_dirty().items.contains(&osc_id));
+
+    let _ = c.set_scope_time_pos(5e-4);
+    assert!(c.take_dirty().items.contains(&osc_id));
+
+    let _ = c.set_scope_trigger(0);
+    assert!(c.take_dirty().items.contains(&osc_id));
+
+    let _ = c.set_scope_trig_level(1.5);
+    assert!(c.take_dirty().items.contains(&osc_id));
+
+    let _ = c.set_la_time_div(2e-3);
+    assert!(c.take_dirty().items.contains(&la_id));
+
+    let _ = c.set_la_time_pos(5e-4);
+    assert!(c.take_dirty().items.contains(&la_id));
+
+    let _ = c.set_la_trigger(1);
+    assert!(c.take_dirty().items.contains(&la_id));
+
+    let _ = c.set_la_thresholds(2.0, 1.0);
+    assert!(c.take_dirty().items.contains(&la_id));
+}
+
+#[test]
+fn led_matrix_sub_logic_threshold_change_marks_dirty() {
+    let mut c = Canvas::empty();
+    let v_id = c.scene.add_fixed_volt(0.0, 0.0, 0.0);
+    let mat_id = c.scene.add_led_matrix(120.0, 0.0);
+    let gnd_id = c.scene.add_ground(120.0, 120.0);
+    // Row 0 -> first row pin, Col 0 -> first col pin. Default Yellow threshold = 2.4 V (paint > 1.92 V).
+    let p_out = c.scene.item_by_id(&v_id).unwrap().pins()[0].id.clone();
+    let mat_pins = c.scene.item_by_id(&mat_id).unwrap().pins();
+    let p_r0 = mat_pins[0].id.clone();
+    let p_c0 = mat_pins[8].id.clone();
+    let p_gnd = c.scene.item_by_id(&gnd_id).unwrap().pins()[0].id.clone();
+    let p_out_pos = c.scene.pin_scene(&p_out).unwrap();
+    let p_r0_pos = c.scene.pin_scene(&p_r0).unwrap();
+    let p_c0_pos = c.scene.pin_scene(&p_c0).unwrap();
+    let p_gnd_pos = c.scene.pin_scene(&p_gnd).unwrap();
+    c.scene.connect_pins(&p_out, p_out_pos, &p_r0, p_r0_pos);
+    c.scene.connect_pins(&p_c0, p_c0_pos, &p_gnd, p_gnd_pos);
+
+    let _ = c.power_on();
+    let _ = c.take_dirty();
+
+    // Raise voltage to 2.2 V: below PIN_LOGIC_HIGH_V (2.5 V) so pin logic state
+    // does not change, but above LedMatrix paint threshold (2.4 * 0.8 = 1.92 V).
+    let _ = c.set_prop_text_for(&v_id, "Voltage".into(), "2.2 V".into());
+    let dirty = c.take_dirty();
+    assert!(
+        dirty.full || dirty.items.contains(&mat_id),
+        "LedMatrix must be marked dirty when a pixel lights below 2.5 V"
+    );
+}

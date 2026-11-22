@@ -17,6 +17,7 @@ Item {
     clip: true
 
     readonly property bool dark: App.darkTheme
+    readonly property real dpr: Screen.devicePixelRatio
 
     function rgba(hex: string): vector4d {
         var h = ("" + hex).replace("#", "")
@@ -46,6 +47,7 @@ Item {
     }
     onWidthChanged: syncSize()
     onHeightChanged: syncSize()
+    onDprChanged: CircuitCanvas.setDpr(dpr)
     onDarkChanged: {
         CircuitCanvas.dark = dark
         CircuitCanvas.render()

@@ -847,6 +847,10 @@ ApplicationWindow {
             AppMenuBar.setChecked("sim.animateLogic", CircuitCanvas.animateLogic)
             AppMenuBar.setChecked("sim.animateCurr", CircuitCanvas.animateCurr)
         }
+        function onCircSettingsChanged() {
+            AppMenuBar.setChecked("sim.animateLogic", CircuitCanvas.animateLogic)
+            AppMenuBar.setChecked("sim.animateCurr", CircuitCanvas.animateCurr)
+        }
     }
 
     function isCircuitPath(path: string): bool {

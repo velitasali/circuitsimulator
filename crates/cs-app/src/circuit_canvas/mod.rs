@@ -1912,6 +1912,7 @@ impl CircuitCanvas {
     fn set_show_grid(&mut self, show: bool) {
         if self.inner.set_show_grid(show) {
             self.appearance_changed();
+            self.redraw_or_mark_full();
         }
     }
 
@@ -3001,13 +3002,13 @@ impl CircuitCanvas {
     #[qslot]
     fn set_scope_time_div(&mut self, v: f64) {
         let c = self.inner.set_scope_time_div(v);
-        self.apply(c);
+        self.apply_scope_view(c);
     }
 
     #[qslot]
     fn set_scope_time_pos(&mut self, v: f64) {
         let c = self.inner.set_scope_time_pos(v);
-        self.apply(c);
+        self.apply_scope_view(c);
     }
 
     #[qslot]
@@ -3040,7 +3041,7 @@ impl CircuitCanvas {
         }
     }
 
-    /// Volt scale, track count, and hide do not rewrite the sample buffer.
+    /// Scope view setters do not always rewrite the sample buffer.
     /// `apply` queues a paint only when `c.plots` is set. The queued flush runs
     /// once, after every setter in this event has returned.
     fn apply_scope_view(&mut self, c: Change) {
@@ -3051,16 +3052,24 @@ impl CircuitCanvas {
         }
     }
 
+    fn apply_la_view(&mut self, c: Change) {
+        let plots = c.plots;
+        self.apply(c);
+        if !plots {
+            self.schedule_la_paint();
+        }
+    }
+
     #[qslot]
     fn set_scope_trigger(&mut self, ch: i32) {
         let c = self.inner.set_scope_trigger(ch);
-        self.apply(c);
+        self.apply_scope_view(c);
     }
 
     #[qslot]
     fn set_scope_trig_level(&mut self, level: f64) {
         let c = self.inner.set_scope_trig_level(level);
-        self.apply(c);
+        self.apply_scope_view(c);
     }
 
     #[qslot]
@@ -3114,25 +3123,25 @@ impl CircuitCanvas {
     #[qslot]
     fn set_la_time_div(&mut self, v: f64) {
         let c = self.inner.set_la_time_div(v);
-        self.apply(c);
+        self.apply_la_view(c);
     }
 
     #[qslot]
     fn set_la_time_pos(&mut self, v: f64) {
         let c = self.inner.set_la_time_pos(v);
-        self.apply(c);
+        self.apply_la_view(c);
     }
 
     #[qslot]
     fn set_la_trigger(&mut self, ch: i32) {
         let c = self.inner.set_la_trigger(ch);
-        self.apply(c);
+        self.apply_la_view(c);
     }
 
     #[qslot]
     fn set_la_thresholds(&mut self, rise: f64, fall: f64) {
         let c = self.inner.set_la_thresholds(rise, fall);
-        self.apply(c);
+        self.apply_la_view(c);
     }
 
     #[qslot]
@@ -3414,26 +3423,14 @@ impl CircuitCanvas {
 
     #[qslot]
     fn set_item_label_pos(&mut self, uid: String, lx: f64, ly: f64) {
-        if let Some(it) = self.inner.scene_mut().item_by_id_mut(&uid) {
-            it.label_x = lx;
-            it.label_y = ly;
-            it.custom_label_pos = true;
-            self.items_changed();
-            self.history_changed();
-            self.persist_circuit_draft();
-        }
+        let c = self.inner.set_item_label_pos(&uid, lx, ly);
+        self.apply(c);
     }
 
     #[qslot]
     fn set_item_val_label_pos(&mut self, uid: String, vx: f64, vy: f64) {
-        if let Some(it) = self.inner.scene_mut().item_by_id_mut(&uid) {
-            it.val_x = vx;
-            it.val_y = vy;
-            it.custom_val_pos = true;
-            self.items_changed();
-            self.history_changed();
-            self.persist_circuit_draft();
-        }
+        let c = self.inner.set_item_val_label_pos(&uid, vx, vy);
+        self.apply(c);
     }
 
     #[qslot]

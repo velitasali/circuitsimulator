@@ -14,6 +14,7 @@ use super::pin::Pin;
 use super::scene::wires::pin_belongs;
 use super::scene::{Item, Part};
 use super::wire::Wire;
+use crate::elements::pins;
 
 /// Pin stem / wire logic colour threshold. Matches `paint_pin` / `paint_wire`.
 pub const PIN_LOGIC_HIGH_V: f64 = 2.5;
@@ -631,6 +632,36 @@ pub fn analog_visual_bucket_for_part(
                 1.0
             };
             Some(glow_bucket(current / max_i.max(0.001)))
+        }
+        Part::LedMatrix(p) => {
+            let rows = p.rows.max(1);
+            let cols = p.cols.max(1);
+            let thresh = p.threshold * 0.8;
+            let row_v: Vec<f64> = (0..rows)
+                .map(|r| {
+                    super::with_pin_id_idx(item_id, pins::PIN_RIGHT, r, |pid| {
+                        circuit.pin_voltage(pid)
+                    })
+                    .unwrap_or(0.0)
+                })
+                .collect();
+            let col_v: Vec<f64> = (0..cols)
+                .map(|c| {
+                    super::with_pin_id_idx(item_id, pins::PIN_RGB_C, c, |pid| {
+                        circuit.pin_voltage(pid)
+                    })
+                    .unwrap_or(0.0)
+                })
+                .collect();
+            let mut hash: u32 = 2166136261;
+            for &vr in &row_v {
+                for &vc in &col_v {
+                    let on = u32::from((vr - vc) > thresh);
+                    hash ^= on;
+                    hash = hash.wrapping_mul(16777619);
+                }
+            }
+            Some(hash as i32)
         }
         _ => None,
     }

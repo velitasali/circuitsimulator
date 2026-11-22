@@ -518,6 +518,7 @@ impl Canvas {
             return false;
         }
         self.show_grid = show;
+        self.dirty.mark_full();
         true
     }
 
@@ -542,6 +543,7 @@ impl Canvas {
             return false;
         }
         self.show_component_rect = show;
+        self.dirty.mark_full();
         true
     }
 
@@ -818,6 +820,7 @@ impl Canvas {
         if let Some(c) = &mut self.running {
             c.set_pin_inverted(pin_id, is_inv);
         }
+        self.dirty_pin_now(pin_id);
         Change {
             items: true,
             wires: true,
@@ -830,6 +833,7 @@ impl Canvas {
         if let Some(c) = &mut self.running {
             c.set_pin_inverted(pin_id, inverted);
         }
+        self.dirty_pin_now(pin_id);
         Change {
             items: true,
             wires: true,
@@ -1040,6 +1044,7 @@ impl Canvas {
             self.history.undo.pop();
             return Change::default();
         }
+        self.dirty.mark_full();
         let mut c = Change {
             items: true,
             wires: true,
@@ -1052,10 +1057,31 @@ impl Canvas {
     }
 
     pub fn select_overflowing_items(&mut self) -> Change {
+        let prev_items: Vec<String> = self
+            .scene
+            .items()
+            .iter()
+            .filter(|it| it.selected)
+            .map(|it| it.id.clone())
+            .collect();
+        let prev_wires: Vec<String> = self
+            .scene
+            .wires()
+            .iter()
+            .filter(|w| w.selected)
+            .map(|w| w.id.clone())
+            .collect();
         let changed = self.scene.select_overflowing();
         if !changed {
             return Change::default();
         }
+        for id in &prev_items {
+            self.dirty_item_now(id);
+        }
+        for id in &prev_wires {
+            self.dirty_wire_now(id);
+        }
+        self.dirty_selected_now();
         self.sync_last_scene();
         let mut c = Change {
             items: true,

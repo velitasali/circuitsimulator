@@ -167,6 +167,13 @@ Rectangle {
         function onItemsChanged() { root.reloadEnds() }
         function onWiresChanged() { root.reloadEnds() }
         function onRootCircuitLoaded() { root.reloadEnds() }
+        function onAppearanceChanged() { plot.requestPaint() }
+    }
+
+    Connections {
+        target: App
+        function onThemeChanged() { plot.requestPaint() }
+        function onFontChanged() { plot.requestPaint() }
     }
 
     ColumnLayout {

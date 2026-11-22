@@ -486,12 +486,14 @@ Rectangle {
                         text: I18n.tr( "Enable canvas repaint debug overlay" )
                         checked: AppDialog.repaintOverlayEnabled
                         onToggled: AppDialog.repaintOverlayEnabled = checked
+                        Binding on checked { value: AppDialog.repaintOverlayEnabled }
                     }
 
                     Check {
                         text: I18n.tr( "Show component bounding rectangles" )
                         checked: AppDialog.showComponentRects
                         onToggled: AppDialog.showComponentRects = checked
+                        Binding on checked { value: AppDialog.showComponentRects }
                     }
 
                     Header { text: I18n.tr( "Language Server & Editor Diagnostics" ) }
@@ -500,6 +502,7 @@ Rectangle {
                         text: I18n.tr( "Show LSP debug messages in output panel" )
                         checked: AppDialog.editorShowLspDebug
                         onToggled: AppDialog.editorShowLspDebug = checked
+                        Binding on checked { value: AppDialog.editorShowLspDebug }
                     }
                 }
             }

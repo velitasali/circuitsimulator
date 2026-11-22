@@ -278,6 +278,7 @@ impl QemuComp {
         rst.set_levels(3.3, 0.0);
         rst.set_thresholds(0.65, 0.65);
         rst.set_pullup(1e5);
+        let _ = rst.get_inp_state(rst.out_volt());
         let rst_pin = Some(pins.len());
         pins.push(rst);
 
@@ -682,11 +683,14 @@ impl QemuComp {
 
     pub fn sample_inputs_nodes(&mut self, nodes: &[crate::net::ENode]) {
         for (i, p) in self.pins.iter_mut().enumerate() {
-            if let Some(&Some(node_idx)) = self.node_indices.get(i) {
-                if let Some(n) = nodes.get(node_idx) {
-                    let _ = p.get_inp_state(n.volt);
-                }
-            }
+            let volt = self
+                .node_indices
+                .get(i)
+                .and_then(|&idx| idx)
+                .and_then(|node_idx| nodes.get(node_idx))
+                .map(|n| n.volt)
+                .unwrap_or_else(|| p.out_volt());
+            let _ = p.get_inp_state(volt);
         }
     }
 
@@ -762,6 +766,8 @@ impl QemuComp {
         if self.family == QemuFamily::Esp32 {
             if let Some(i) = self.rst_pin {
                 self.pins[i].set_pullup(1e5);
+                let v = self.pins[i].out_volt();
+                let _ = self.pins[i].get_inp_state(v);
             }
             for i in 0..self.usarts.len() {
                 let tx = self.usarts[i].tx;
@@ -1267,6 +1273,10 @@ impl QemuComp {
 
     /// C++ `QemuDevice::voltChanged` on the reset pin: low kills the child.
     pub fn check_reset(&mut self) {
+        self.check_reset_at(self.time_offset);
+    }
+
+    pub fn check_reset_at(&mut self, circuit_now: u64) {
         let Some(i) = self.rst_pin else {
             return;
         };
@@ -1274,6 +1284,9 @@ impl QemuComp {
         if reset {
             self.stop_live();
         } else if !self.is_live() && !self.firmware.is_empty() && self.last_error.is_none() {
+            self.time_offset = circuit_now;
+            self.last_guest_raw = None;
+            self.pending_guest_raw = None;
             if let Err(e) = self.start_live() {
                 crate::logging::log_sim_err(format!("[QEMU] {e}"));
                 self.last_error = Some(e);
@@ -2384,6 +2397,7 @@ pub fn instantiate_qemu_view(id: &str, device: &str, search: &SubcSearch) -> Qem
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Circuit;
 
     #[test]
     fn flash_image_rejects_wrong_size() {
@@ -2539,6 +2553,71 @@ mod tests {
         q.process_pending();
         assert_eq!(q.arena.reg_data, 0x13);
         assert_eq!(q.arena.qemu_action, SimAction::Read as u64);
+    }
+
+    #[test]
+    fn unwired_rst_pin_does_not_reset_esp32_when_g02_drives_led() {
+        let mut c = Circuit::new();
+        c.add_qemu_esp32("Esp32-1")
+            .add_resistor("Resistor-1", 330.0)
+            .add_led("Led-1")
+            .add_ground("Ground-1")
+            .connect("Resistor-1-lPin", "Esp32-1-G02")
+            .connect("Led-1-lPin", "Resistor-1-rPin")
+            .connect("Led-1-rPin", "Ground-1-Gnd");
+        c.configure_led("Led-1", 2.4, 0.03, 0.6, false);
+        c.solve().unwrap();
+
+        if let Some(stub) = qemu_stub_path() {
+            let q = c.qemu_mut("Esp32-1").unwrap();
+            q.set_shm_key(cs_qemu::shm_key(std::process::id(), "qrst"));
+            let args = vec![format!("esp32-cs,cosim-shm={}", q.shm_key())];
+            q.start_live_with(&stub, &args, Duration::from_secs(2))
+                .expect("stub should start");
+            assert!(q.is_live());
+        }
+
+        // Re-solving the circuit (which runs digital_volt_changed -> sample_inputs_nodes -> check_reset)
+        // must keep the unwired Rst pin pulled high rather than killing the live QEMU process.
+        c.update().unwrap();
+        if qemu_stub_path().is_some() {
+            let q = c.qemu_mut("Esp32-1").unwrap();
+            assert!(
+                q.is_live(),
+                "live QEMU process must not be killed when Rst is unwired"
+            );
+            q.stop_live();
+        }
+
+        {
+            let q = c.qemu_mut("Esp32-1").unwrap();
+            let rst_idx = q.rst_pin.expect("esp32 rst pin");
+            assert!(
+                q.pins[rst_idx].last_inp_state(),
+                "unwired Rst pin with pullup must sample high"
+            );
+            q.post(
+                SimAction::Write,
+                ESP32_GPIO_START + GPIO_ENABLE_W1TS,
+                1 << 2,
+                1,
+            );
+            q.process_pending();
+            q.post(
+                SimAction::Write,
+                ESP32_GPIO_START + GPIO_OUT_W1TS,
+                1 << 2,
+                2,
+            );
+            q.process_pending();
+        }
+        c.update().unwrap();
+
+        let v_g02 = c.pin_voltage("Esp32-1-G02").expect("G02 voltage");
+        assert!(
+            v_g02 > 3.0,
+            "G02 should drive high into resistor+LED, got {v_g02}"
+        );
     }
 
     #[test]

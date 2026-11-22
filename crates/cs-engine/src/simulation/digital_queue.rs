@@ -1,7 +1,7 @@
 //! Event-driven digital scheduler, logic gate propagation delay queue, and MCU pin I/O.
 
 use crate::Result;
-use crate::digital::{EventTarget, GateUpdate, IoPin, PinAction, PinMode};
+use crate::digital::{Drive, EventTarget, GateUpdate, IoPin, PinAction, PinMode};
 use crate::elements::Kind;
 
 use super::Circuit;
@@ -594,7 +594,7 @@ impl Circuit {
         };
         let t = self.circ_time;
         let mut stamp_changed = false;
-        let mut periph_arms: Vec<(usize, crate::digital::Drive)> = Vec::new();
+        let mut periph_arms: Vec<(usize, Drive)> = Vec::new();
         let mut updates = std::mem::take(&mut self.digital_updates_buf);
         updates.clear();
         for (i, (c, cache)) in self.components.iter_mut().zip(&self.pin_caches).enumerate() {
@@ -628,7 +628,18 @@ impl Circuit {
                 }
                 Kind::QemuDevice(q) => {
                     q.sample_inputs_nodes(nodes);
-                    q.check_reset();
+                    let was_live = q.is_live();
+                    q.check_reset_at(t);
+                    if self.sim_started && !was_live && q.is_live() {
+                        periph_arms.push((
+                            i,
+                            Drive {
+                                changed: false,
+                                arm_at: Some(t.saturating_add(1)),
+                                replace: true,
+                            },
+                        ));
+                    }
                     continue;
                 }
                 Kind::ScriptCpu(s) => {

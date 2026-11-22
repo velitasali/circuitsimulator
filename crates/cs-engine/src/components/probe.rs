@@ -194,8 +194,7 @@ impl Drawable for Probe {
 
 impl crate::canvas::Scene {
     pub fn add_probe(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Probe-{}", self.next_probe);
-        self.next_probe += 1;
+        let id = self.alloc_unique_id("Probe");
         let mut probe = crate::canvas::Item::new(&id, x, y, Probe::default());
         probe.rotation = -45.0;
         self.items.push(probe);

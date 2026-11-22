@@ -132,8 +132,7 @@ impl Drawable for VoltReg {
 
 impl crate::canvas::Scene {
     pub fn add_volt_reg(&mut self, x: f64, y: f64) -> String {
-        let id = format!("VoltReg-{}", self.next_voltreg);
-        self.next_voltreg += 1;
+        let id = self.alloc_unique_id("VoltReg");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, VoltReg::default()));
         id

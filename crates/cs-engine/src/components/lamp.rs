@@ -253,7 +253,7 @@ impl Drawable for Lamp {
 
 impl crate::canvas::Scene {
     pub fn add_lamp(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Lamp-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Lamp");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Lamp::default()));
         id

@@ -183,7 +183,7 @@ impl Drawable for SerialTerm {
 
 impl crate::canvas::Scene {
     pub fn add_serial_term(&mut self, x: f64, y: f64) -> String {
-        let id = format!("SerialTerm-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("SerialTerm");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, SerialTerm::default()));
         id

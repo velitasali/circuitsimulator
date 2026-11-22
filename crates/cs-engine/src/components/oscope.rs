@@ -348,8 +348,7 @@ impl Drawable for Oscope {
 
 impl crate::canvas::Scene {
     pub fn add_oscope(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Oscope-{}", self.next_oscope);
-        self.next_oscope += 1;
+        let id = self.alloc_unique_id("Oscope");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Oscope::default()));
         id

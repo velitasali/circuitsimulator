@@ -154,8 +154,7 @@ impl Drawable for Capacitor {
 
 impl crate::canvas::Scene {
     pub fn add_capacitor(&mut self, x: f64, y: f64, farads: f64) -> String {
-        let id = format!("Capacitor-{}", self.next_capacitor);
-        self.next_capacitor += 1;
+        let id = self.alloc_unique_id("Capacitor");
         self.items
             .push(crate::canvas::Item::capacitor(&id, x, y, farads));
         id

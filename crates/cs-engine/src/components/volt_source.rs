@@ -219,7 +219,7 @@ impl Component for VoltSource {
 
 impl crate::canvas::Scene {
     pub fn add_volt_source(&mut self, x: f64, y: f64) -> String {
-        let id = format!("VoltSource-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("VoltSource");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, VoltSource::default()));
         id

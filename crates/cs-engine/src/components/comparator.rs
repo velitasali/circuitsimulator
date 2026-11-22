@@ -218,8 +218,7 @@ impl Drawable for Comparator {
 
 impl crate::canvas::Scene {
     pub fn add_comparator(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Comparator-{}", self.next_comparator);
-        self.next_comparator += 1;
+        let id = self.alloc_unique_id("Comparator");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Comparator::default()));
         id

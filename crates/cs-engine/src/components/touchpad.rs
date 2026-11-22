@@ -322,7 +322,7 @@ impl Component for TouchPad {
 
 impl crate::canvas::Scene {
     pub fn add_touchpad(&mut self, x: f64, y: f64) -> String {
-        let id = format!("TouchPad-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("TouchPad");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, TouchPad::default()));
         id

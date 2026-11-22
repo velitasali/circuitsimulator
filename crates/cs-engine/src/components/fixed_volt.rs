@@ -150,8 +150,7 @@ impl Drawable for FixedVolt {
 
 impl crate::canvas::Scene {
     pub fn add_fixed_volt(&mut self, x: f64, y: f64, voltage: f64) -> String {
-        let id = format!("Fixed Voltage-{}", self.next_fixed);
-        self.next_fixed += 1;
+        let id = self.alloc_unique_id("Fixed Voltage");
         self.items
             .push(crate::canvas::Item::fixed_volt(&id, x, y, voltage));
         id

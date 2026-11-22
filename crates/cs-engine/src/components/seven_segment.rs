@@ -381,7 +381,7 @@ impl Drawable for SevenSegment {
 
 impl crate::canvas::Scene {
     pub fn add_seven_segment(&mut self, x: f64, y: f64) -> String {
-        let id = format!("SevenSegment-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("SevenSegment");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, SevenSegment::default()));
         id

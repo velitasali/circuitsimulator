@@ -535,7 +535,7 @@ impl Drawable for WaveGen {
 
 impl crate::canvas::Scene {
     pub fn add_wave_gen(&mut self, x: f64, y: f64) -> String {
-        let id = format!("WaveGen-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("WaveGen");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, WaveGen::default()));
         id

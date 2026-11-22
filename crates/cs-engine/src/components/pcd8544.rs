@@ -174,7 +174,7 @@ impl super::drawable::Drawable for Pcd8544 {
 
 impl crate::canvas::Scene {
     pub fn add_pcd8544(&mut self, x: f64, y: f64) -> String {
-        let id = format!("PCD8544-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("PCD8544");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Pcd8544::default()));
         id

@@ -107,7 +107,7 @@ impl Drawable for Rail {
 
 impl crate::canvas::Scene {
     pub fn add_rail(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Rail-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Rail");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Rail::default()));
         id

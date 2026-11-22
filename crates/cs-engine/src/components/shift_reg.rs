@@ -99,7 +99,7 @@ impl Drawable for ShiftReg {
 
 impl crate::canvas::Scene {
     pub fn add_shift_reg(&mut self, x: f64, y: f64) -> String {
-        let id = format!("ShiftReg-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("ShiftReg");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, ShiftReg::default()));
         id

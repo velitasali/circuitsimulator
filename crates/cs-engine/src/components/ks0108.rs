@@ -212,7 +212,7 @@ impl super::drawable::Drawable for Ks0108 {
 
 impl crate::canvas::Scene {
     pub fn add_ks0108(&mut self, x: f64, y: f64) -> String {
-        let id = format!("KS0108-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("KS0108");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Ks0108::default()));
         id

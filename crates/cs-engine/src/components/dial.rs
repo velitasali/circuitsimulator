@@ -226,7 +226,7 @@ impl Component for Dial {
 
 impl crate::canvas::Scene {
     pub fn add_dial(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Dial-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Dial");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Dial::default()));
         id

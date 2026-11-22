@@ -325,7 +325,7 @@ impl Drawable for Ssd1306 {
 
 impl crate::canvas::Scene {
     pub fn add_ssd1306(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Ssd1306-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Ssd1306");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Ssd1306::default()));
         id

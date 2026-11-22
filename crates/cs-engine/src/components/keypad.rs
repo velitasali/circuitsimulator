@@ -331,7 +331,7 @@ impl Component for KeyPad {
 
 impl crate::canvas::Scene {
     pub fn add_keypad(&mut self, x: f64, y: f64) -> String {
-        let id = format!("KeyPad-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("KeyPad");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, KeyPad::default()));
         id

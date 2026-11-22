@@ -13,46 +13,25 @@ pub use crate::components::*;
 pub use item::{CanvasOverflowInfo, Item, ProgrammableDevice, SELECTION_MARGIN};
 pub use item_props::{PropGroup, PropRow, prop_group};
 pub use selection::HitTarget;
-pub use wires::bump_counter;
 
+use std::collections::{HashMap, HashSet};
+
+use crate::CircSettings;
 use crate::canvas::geom::Point;
 use crate::canvas::wire::Wire;
+use crate::elements::Comp;
 
 #[derive(Clone, Debug)]
 pub struct Scene {
     pub(crate) items: Vec<Item>,
     pub(crate) wires: Vec<Wire>,
     /// Undrawn netlist parts (later gates). MCU chips live in `items`.
-    pub(crate) hidden: Vec<crate::elements::Comp>,
-    pub(crate) next_resistor: u32,
-    pub(crate) next_battery: u32,
-    pub(crate) next_ground: u32,
-    pub(crate) next_fixed: u32,
-    pub(crate) next_node: u32,
-    pub(crate) next_capacitor: u32,
-    pub(crate) next_el_capacitor: u32,
-    pub(crate) next_inductor: u32,
-    pub(crate) next_switch: u32,
-    pub(crate) next_diode: u32,
-    pub(crate) next_zener: u32,
-    pub(crate) next_led: u32,
-    pub(crate) next_bjt: u32,
-    pub(crate) next_mosfet: u32,
-    pub(crate) next_opamp: u32,
-    pub(crate) next_jfet: u32,
-    pub(crate) next_comparator: u32,
-    pub(crate) next_voltreg: u32,
-    pub(crate) next_probe: u32,
-    pub(crate) next_voltmeter: u32,
-    pub(crate) next_ammeter: u32,
-    pub(crate) next_freqmeter: u32,
-    pub(crate) next_oscope: u32,
-    pub(crate) next_lanalizer: u32,
-    pub(crate) next_subc: u32,
-    pub(crate) next_mcu: u32,
+    pub(crate) hidden: Vec<Comp>,
+    /// Next numeric suffix per component ID prefix (`{prefix}-{n}`).
+    pub(crate) next_ids: HashMap<String, u32>,
     pub(crate) next_wire: u32,
-    pub(crate) settings: crate::CircSettings,
-    pub inverted_pins: std::collections::HashSet<String>,
+    pub(crate) settings: CircSettings,
+    pub inverted_pins: HashSet<String>,
 }
 
 impl Default for Scene {
@@ -67,35 +46,10 @@ impl Scene {
             items: Vec::new(),
             wires: Vec::new(),
             hidden: Vec::new(),
-            next_resistor: 1,
-            next_battery: 1,
-            next_ground: 1,
-            next_fixed: 1,
-            next_node: 1,
-            next_capacitor: 1,
-            next_el_capacitor: 1,
-            next_inductor: 1,
-            next_switch: 1,
-            next_diode: 1,
-            next_zener: 1,
-            next_led: 1,
-            next_bjt: 1,
-            next_mosfet: 1,
-            next_opamp: 1,
-            next_jfet: 1,
-            next_comparator: 1,
-            next_voltreg: 1,
-            next_probe: 1,
-            next_voltmeter: 1,
-            next_ammeter: 1,
-            next_freqmeter: 1,
-            next_oscope: 1,
-            next_lanalizer: 1,
-            next_subc: 1,
-            next_mcu: 1,
+            next_ids: HashMap::new(),
             next_wire: 1,
-            settings: crate::CircSettings::default(),
-            inverted_pins: std::collections::HashSet::new(),
+            settings: CircSettings::default(),
+            inverted_pins: HashSet::new(),
         }
     }
 
@@ -226,57 +180,76 @@ impl Scene {
         None
     }
 
+    /// Record an existing item ID so future allocations for its prefix will not collide.
+    pub(crate) fn record_id(&mut self, id: &str) {
+        if let Some((prefix, rest)) = id.rsplit_once('-') {
+            if let Ok(n) = rest.parse::<u32>() {
+                let next = self.next_ids.entry(prefix.to_string()).or_insert(1);
+                if n >= *next {
+                    *next = n.saturating_add(1);
+                }
+                if prefix == "elCapacitor" {
+                    let next = self.next_ids.entry("ElCapacitor".to_string()).or_insert(1);
+                    if n >= *next {
+                        *next = n.saturating_add(1);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Return the next unused ID for `prefix` without advancing the counter.
+    pub fn peek_unique_id(&self, prefix: &str) -> String {
+        let mut n = *self.next_ids.get(prefix).unwrap_or(&1);
+        loop {
+            let candidate = format!("{prefix}-{n}");
+            if !self.items.iter().any(|it| it.id == candidate) {
+                return candidate;
+            }
+            n = n.saturating_add(1);
+        }
+    }
+
+    /// Allocate a unique component ID of the form `{prefix}-{n}` that does not
+    /// collide with any existing item in the scene.
+    pub fn alloc_unique_id(&mut self, prefix: &str) -> String {
+        let mut n = *self.next_ids.get(prefix).unwrap_or(&1);
+        loop {
+            let candidate = format!("{prefix}-{n}");
+            n = n.saturating_add(1);
+            if !self.items.iter().any(|it| it.id == candidate) {
+                self.next_ids.insert(prefix.to_string(), n);
+                return candidate;
+            }
+        }
+    }
+
+    /// Return the next unused wire ID without advancing the counter.
+    pub(crate) fn peek_wire_id(&self) -> String {
+        let mut n = self.next_wire;
+        loop {
+            let candidate = format!("Connector-{n}");
+            if !self.wires.iter().any(|w| w.id == candidate) {
+                return candidate;
+            }
+            n = n.saturating_add(1);
+        }
+    }
+
+    /// Allocate a unique wire ID of the form `Connector-{n}`.
+    pub(crate) fn alloc_wire_id(&mut self) -> String {
+        loop {
+            let candidate = format!("Connector-{}", self.next_wire);
+            self.next_wire = self.next_wire.saturating_add(1);
+            if !self.wires.iter().any(|w| w.id == candidate) {
+                return candidate;
+            }
+        }
+    }
+
     /// Place an item with a saved CircId, bumping the matching counter.
     pub fn add_saved_item(&mut self, item: Item) {
-        bump_counter(&mut self.next_resistor, &item.id, "Resistor-");
-        bump_counter(&mut self.next_battery, &item.id, "Battery-");
-        bump_counter(&mut self.next_ground, &item.id, "Ground-");
-        bump_counter(&mut self.next_fixed, &item.id, "Fixed Voltage-");
-        bump_counter(&mut self.next_node, &item.id, "Node-");
-        bump_counter(&mut self.next_capacitor, &item.id, "Capacitor-");
-        bump_counter(&mut self.next_el_capacitor, &item.id, "ElCapacitor-");
-        bump_counter(&mut self.next_el_capacitor, &item.id, "elCapacitor-");
-        bump_counter(&mut self.next_inductor, &item.id, "Inductor-");
-        bump_counter(&mut self.next_switch, &item.id, "Switch-");
-        bump_counter(&mut self.next_diode, &item.id, "Diode-");
-        bump_counter(&mut self.next_zener, &item.id, "Zener-");
-        bump_counter(&mut self.next_led, &item.id, "Led-");
-        bump_counter(&mut self.next_bjt, &item.id, "BJT-");
-        bump_counter(&mut self.next_mosfet, &item.id, "Mosfet-");
-        bump_counter(&mut self.next_opamp, &item.id, "opAmp-");
-        bump_counter(&mut self.next_jfet, &item.id, "Jfet-");
-        bump_counter(&mut self.next_comparator, &item.id, "Comparator-");
-        bump_counter(&mut self.next_voltreg, &item.id, "VoltReg-");
-        bump_counter(&mut self.next_probe, &item.id, "Probe-");
-        bump_counter(&mut self.next_voltmeter, &item.id, "Voltimeter-");
-        bump_counter(&mut self.next_ammeter, &item.id, "Amperimeter-");
-        bump_counter(&mut self.next_freqmeter, &item.id, "FreqMeter-");
-        bump_counter(&mut self.next_oscope, &item.id, "Oscope-");
-        bump_counter(&mut self.next_lanalizer, &item.id, "LAnalizer-");
-        if matches!(&item.kind, Part::Subcircuit(_)) {
-            if let Some(n) = item
-                .id
-                .rsplit('-')
-                .next()
-                .and_then(|s| s.parse::<u32>().ok())
-            {
-                if n >= self.next_subc {
-                    self.next_subc = n + 1;
-                }
-            }
-        }
-        if matches!(&item.kind, Part::Mcu(_)) {
-            if let Some(n) = item
-                .id
-                .rsplit('-')
-                .next()
-                .and_then(|s| s.parse::<u32>().ok())
-            {
-                if n >= self.next_mcu {
-                    self.next_mcu = n + 1;
-                }
-            }
-        }
+        self.record_id(&item.id);
         self.items.push(item);
     }
 }

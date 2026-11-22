@@ -306,8 +306,7 @@ impl crate::canvas::Scene {
         if device.is_empty() {
             return None;
         }
-        let id = format!("{device}-{}", self.next_mcu);
-        self.next_mcu += 1;
+        let id = self.alloc_unique_id(device);
         let view = crate::qemu::instantiate_qemu_view(&id, device, search);
         let item = crate::canvas::Item::qemu_device_from_view(id.clone(), x, y, view);
         self.add_saved_item(item);

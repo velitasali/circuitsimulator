@@ -268,14 +268,14 @@ impl Drawable for FlipFlop {
 
 impl crate::canvas::Scene {
     pub fn add_flipflop_d(&mut self, x: f64, y: f64) -> String {
-        let id = format!("FlipFlopD-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("FlipFlopD");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, FlipFlop::default()));
         id
     }
 
     pub fn add_flipflop_jk(&mut self, x: f64, y: f64) -> String {
-        let id = format!("FlipFlopJK-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("FlipFlopJK");
         let mut flip_flop = FlipFlop::default();
         flip_flop.ff_kind = FlipFlopKind::Jk;
         flip_flop.use_rs = true;
@@ -285,7 +285,7 @@ impl crate::canvas::Scene {
     }
 
     pub fn add_flipflop_rs(&mut self, x: f64, y: f64) -> String {
-        let id = format!("FlipFlopRS-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("FlipFlopRS");
         let mut flip_flop = FlipFlop::default();
         flip_flop.ff_kind = FlipFlopKind::Rs;
         flip_flop.use_rs = false;
@@ -295,7 +295,7 @@ impl crate::canvas::Scene {
     }
 
     pub fn add_flipflop_t(&mut self, x: f64, y: f64) -> String {
-        let id = format!("FlipFlopT-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("FlipFlopT");
         let mut flip_flop = FlipFlop::default();
         flip_flop.ff_kind = FlipFlopKind::T;
         flip_flop.use_rs = true;

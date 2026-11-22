@@ -224,8 +224,7 @@ impl Drawable for Mosfet {
 
 impl crate::canvas::Scene {
     pub fn add_mosfet(&mut self, x: f64, y: f64, p_channel: bool, depletion: bool) -> String {
-        let id = format!("Mosfet-{}", self.next_mosfet);
-        self.next_mosfet += 1;
+        let id = self.alloc_unique_id("Mosfet");
         self.items
             .push(crate::canvas::Item::mosfet(&id, x, y, p_channel, depletion));
         id

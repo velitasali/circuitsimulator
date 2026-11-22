@@ -293,7 +293,7 @@ fn ws_pixel(hex: &str, index: usize) -> Option<Color> {
 
 impl crate::canvas::Scene {
     pub fn add_ws2812(&mut self, x: f64, y: f64) -> String {
-        let id = format!("WS2812-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("WS2812");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Ws2812::default()));
         id

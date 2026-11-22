@@ -325,8 +325,7 @@ impl Drawable for Led {
 
 impl crate::canvas::Scene {
     pub fn add_led(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Led-{}", self.next_led);
-        self.next_led += 1;
+        let id = self.alloc_unique_id("Led");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Led::default()));
         id

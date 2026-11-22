@@ -216,7 +216,7 @@ impl Drawable for Pcf8833 {
 
 impl Scene {
     pub fn add_pcf8833(&mut self, x: f64, y: f64) -> String {
-        let id = format!("PCF8833-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("PCF8833");
         self.items.push(Item::new(&id, x, y, Pcf8833::default()));
         id
     }

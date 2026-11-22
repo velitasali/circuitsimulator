@@ -69,8 +69,7 @@ impl Drawable for Ground {
 
 impl crate::canvas::Scene {
     pub fn add_ground(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Ground-{}", self.next_ground);
-        self.next_ground += 1;
+        let id = self.alloc_unique_id("Ground");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Ground::default()));
         id

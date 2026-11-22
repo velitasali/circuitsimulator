@@ -129,7 +129,7 @@ impl Drawable for BcdToDec {
 
 impl crate::canvas::Scene {
     pub fn add_bcd_to_dec(&mut self, x: f64, y: f64) -> String {
-        let id = format!("BcdToDec-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("BcdToDec");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, BcdToDec::default()));
         id

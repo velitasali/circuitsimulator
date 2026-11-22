@@ -181,8 +181,7 @@ impl Drawable for Inductor {
 
 impl crate::canvas::Scene {
     pub fn add_inductor(&mut self, x: f64, y: f64, henries: f64) -> String {
-        let id = format!("Inductor-{}", self.next_inductor);
-        self.next_inductor += 1;
+        let id = self.alloc_unique_id("Inductor");
         self.items
             .push(crate::canvas::Item::inductor(&id, x, y, henries));
         id

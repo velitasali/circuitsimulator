@@ -210,8 +210,7 @@ impl Drawable for Jfet {
 
 impl crate::canvas::Scene {
     pub fn add_jfet(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Jfet-{}", self.next_jfet);
-        self.next_jfet += 1;
+        let id = self.alloc_unique_id("Jfet");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Jfet::default()));
         id

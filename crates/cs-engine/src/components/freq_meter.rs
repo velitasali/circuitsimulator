@@ -113,8 +113,7 @@ impl Drawable for FreqMeter {
 
 impl crate::canvas::Scene {
     pub fn add_freq_meter(&mut self, x: f64, y: f64) -> String {
-        let id = format!("FreqMeter-{}", self.next_freqmeter);
-        self.next_freqmeter += 1;
+        let id = self.alloc_unique_id("FreqMeter");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, FreqMeter::default()));
         id

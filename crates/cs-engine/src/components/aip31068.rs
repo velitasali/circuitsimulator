@@ -277,7 +277,7 @@ impl super::drawable::Drawable for Aip31068 {
 
 impl crate::canvas::Scene {
     pub fn add_aip31068(&mut self, x: f64, y: f64, rows: u8, cols: u8) -> String {
-        let id = format!("AIP31068-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("AIP31068");
         self.items
             .push(crate::canvas::Item::aip31068_display(&id, x, y, rows, cols));
         id

@@ -360,13 +360,11 @@ impl Drawable for Diode {
 impl crate::canvas::Scene {
     pub fn add_diode(&mut self, x: f64, y: f64, zener: bool) -> String {
         if zener {
-            let id = format!("Zener-{}", self.next_zener);
-            self.next_zener += 1;
+            let id = self.alloc_unique_id("Zener");
             self.items.push(crate::canvas::Item::diode(&id, x, y, true));
             id
         } else {
-            let id = format!("Diode-{}", self.next_diode);
-            self.next_diode += 1;
+            let id = self.alloc_unique_id("Diode");
             self.items
                 .push(crate::canvas::Item::diode(&id, x, y, false));
             id

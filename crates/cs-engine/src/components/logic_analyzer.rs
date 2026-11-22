@@ -452,8 +452,7 @@ impl Drawable for LogicAnalyzer {
 
 impl crate::canvas::Scene {
     pub fn add_lanalizer(&mut self, x: f64, y: f64) -> String {
-        let id = format!("LAnalizer-{}", self.next_lanalizer);
-        self.next_lanalizer += 1;
+        let id = self.alloc_unique_id("LAnalizer");
         self.items.push(crate::canvas::Item::new(
             &id,
             x,

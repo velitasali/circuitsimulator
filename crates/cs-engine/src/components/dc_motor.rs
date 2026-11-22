@@ -196,7 +196,7 @@ impl Drawable for DcMotor {
 
 impl crate::canvas::Scene {
     pub fn add_dcmotor(&mut self, x: f64, y: f64) -> String {
-        let id = format!("DcMotor-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("DcMotor");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, DcMotor::default()));
         id

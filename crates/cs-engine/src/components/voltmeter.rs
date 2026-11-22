@@ -201,8 +201,7 @@ impl Drawable for Voltmeter {
 
 impl crate::canvas::Scene {
     pub fn add_voltmeter(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Voltimeter-{}", self.next_voltmeter);
-        self.next_voltmeter += 1;
+        let id = self.alloc_unique_id("Voltimeter");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Voltmeter::default()));
         id

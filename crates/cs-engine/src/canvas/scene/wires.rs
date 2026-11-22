@@ -32,7 +32,7 @@ pub(crate) fn pin_belongs(pin_id: &str, item_ids: &[String]) -> bool {
         .any(|id| pin_id.starts_with(id) && pin_id.as_bytes().get(id.len()).copied() == Some(b'-'))
 }
 
-pub fn bump_counter(next: &mut u32, id: &str, prefix: &str) {
+fn bump_counter(next: &mut u32, id: &str, prefix: &str) {
     if let Some(rest) = id.strip_prefix(prefix) {
         if let Ok(n) = rest.parse::<u32>() {
             if n >= *next {
@@ -67,8 +67,7 @@ impl Scene {
     }
 
     pub fn connect_pins(&mut self, a: &str, ap: Point, b: &str, bp: Point) {
-        let id = format!("Connector-{}", self.next_wire);
-        self.next_wire += 1;
+        let id = self.alloc_wire_id();
         let mut w = Wire::start(id, a, ap);
         w.close(b, bp);
         self.wires.push(w);
@@ -213,8 +212,7 @@ impl Scene {
         if pin.unused || self.pin_connected(&pin.id) || self.drawing() {
             return false;
         }
-        let id = format!("Connector-{}", self.next_wire);
-        self.next_wire += 1;
+        let id = self.alloc_wire_id();
         let mut w = Wire::start(id, pin.id.clone(), at);
         w.is_bus = self.pin_is_bus(&pin.id);
         self.wires.push(w);
@@ -467,18 +465,16 @@ impl Scene {
         wire_idx: usize,
         at: Point,
     ) -> Option<(String, String, String, String)> {
-        let node_id = self.add_node(at.x, at.y);
+        let node_id = self.peek_unique_id("Node");
         let p0 = format!("{node_id}-0");
         let p1 = format!("{node_id}-1");
         let p2 = format!("{node_id}-2");
-        let new_id = format!("Connector-{}", self.next_wire);
-        self.next_wire += 1;
+        let new_id = self.peek_wire_id();
         let old = self.wires[wire_idx].clone();
-        let Some((a, b)) = old.split(at, new_id, p0.clone(), p2.clone()) else {
-            self.items.pop();
-            self.next_node = self.next_node.saturating_sub(1);
-            return None;
-        };
+        let (a, b) = old.split(at, new_id, p0.clone(), p2.clone())?;
+        let actual_node_id = self.add_node(at.x, at.y);
+        debug_assert_eq!(actual_node_id, node_id);
+        let _ = self.alloc_wire_id();
         self.wires[wire_idx] = a;
         self.wires.push(b);
         Some((node_id, p0, p1, p2))

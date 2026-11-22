@@ -202,8 +202,7 @@ impl Drawable for Bjt {
 
 impl crate::canvas::Scene {
     pub fn add_bjt(&mut self, x: f64, y: f64, pnp: bool) -> String {
-        let id = format!("BJT-{}", self.next_bjt);
-        self.next_bjt += 1;
+        let id = self.alloc_unique_id("BJT");
         self.items.push(crate::canvas::Item::bjt(&id, x, y, pnp));
         id
     }

@@ -201,8 +201,7 @@ impl Drawable for Ammeter {
 
 impl crate::canvas::Scene {
     pub fn add_ammeter(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Amperimeter-{}", self.next_ammeter);
-        self.next_ammeter += 1;
+        let id = self.alloc_unique_id("Amperimeter");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Ammeter::default()));
         id

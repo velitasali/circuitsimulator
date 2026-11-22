@@ -327,7 +327,7 @@ fn palette_drop_matches_default() {
         |s| s.add_subpackage(0.0, 0.0),
         {
             let mut p = SubPackage::default();
-            p.package.name = "SubPackage-2".into();
+            p.package.name = "SubPackage-1".into();
             p.into()
         },
         &mut out,

@@ -227,8 +227,7 @@ impl Component for Switch {
 
 impl crate::canvas::Scene {
     pub fn add_switch(&mut self, x: f64, y: f64, closed: bool) -> String {
-        let id = format!("Switch-{}", self.next_switch);
-        self.next_switch += 1;
+        let id = self.alloc_unique_id("Switch");
         self.items
             .push(crate::canvas::Item::switch(&id, x, y, closed));
         id

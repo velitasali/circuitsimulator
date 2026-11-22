@@ -121,7 +121,7 @@ impl super::drawable::Drawable for DS1307 {
 
 impl crate::canvas::Scene {
     pub fn add_ds1307(&mut self, x: f64, y: f64) -> String {
-        let id = format!("DS1307-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("DS1307");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, DS1307::default()));
         id

@@ -192,7 +192,7 @@ impl Drawable for Hd44780 {
 
 impl crate::canvas::Scene {
     pub fn add_hd44780(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Hd44780-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Hd44780");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Hd44780::default()));
         id

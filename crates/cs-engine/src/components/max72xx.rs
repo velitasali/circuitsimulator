@@ -277,7 +277,7 @@ fn max72_rgb(color: LedColor) -> Color {
 
 impl crate::canvas::Scene {
     pub fn add_max72xx(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Max72xx-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Max72xx");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Max72xx::default()));
         id

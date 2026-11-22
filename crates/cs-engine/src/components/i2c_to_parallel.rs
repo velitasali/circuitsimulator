@@ -90,7 +90,7 @@ impl Drawable for I2CToParallel {
 
 impl crate::canvas::Scene {
     pub fn add_i2c_to_parallel(&mut self, x: f64, y: f64) -> String {
-        let id = format!("I2CToParallel-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("I2CToParallel");
         self.items.push(crate::canvas::Item::new(
             &id,
             x,

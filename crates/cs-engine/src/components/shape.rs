@@ -1038,7 +1038,7 @@ impl crate::canvas::Scene {
             ShapeKind::Text => "TextComponent",
             ShapeKind::Image => "Image",
         };
-        let id = format!("{id_prefix}-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id(id_prefix);
         self.items.push(crate::canvas::Item::shape(&id, x, y, kind));
         id
     }

@@ -183,7 +183,7 @@ impl super::drawable::Drawable for DS18B20 {
 
 impl crate::canvas::Scene {
     pub fn add_ds18b20(&mut self, x: f64, y: f64) -> String {
-        let id = format!("DS18B20-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("DS18B20");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, DS18B20::default()));
         id

@@ -237,7 +237,7 @@ impl Component for DHT22 {
 
 impl crate::canvas::Scene {
     pub fn add_dht22(&mut self, x: f64, y: f64) -> String {
-        let id = format!("DHT22-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("DHT22");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, DHT22::default()));
         id

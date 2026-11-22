@@ -152,8 +152,7 @@ impl Drawable for Battery {
 
 impl crate::canvas::Scene {
     pub fn add_battery(&mut self, x: f64, y: f64, voltage: f64, resistance: f64) -> String {
-        let id = format!("Battery-{}", self.next_battery);
-        self.next_battery += 1;
+        let id = self.alloc_unique_id("Battery");
         self.items
             .push(crate::canvas::Item::battery(&id, x, y, voltage, resistance));
         id

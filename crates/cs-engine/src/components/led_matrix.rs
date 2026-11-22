@@ -317,7 +317,7 @@ impl Drawable for LedMatrix {
 
 impl crate::canvas::Scene {
     pub fn add_led_matrix(&mut self, x: f64, y: f64) -> String {
-        let id = format!("LedMatrix-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("LedMatrix");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, LedMatrix::default()));
         id

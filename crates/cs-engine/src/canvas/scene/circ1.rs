@@ -1,5 +1,8 @@
 //! CIRC1 file format import/export, clipboard serialization, circuit lowering, and ID allocation.
 
+use std::collections::HashMap;
+use std::slice;
+
 use super::Scene;
 use super::item::Item;
 use super::wires::pin_belongs;
@@ -10,13 +13,11 @@ use crate::circ1;
 use crate::components::*;
 use crate::subcircuit;
 
-fn remap_pin(pin: &str, map: &std::collections::HashMap<String, String>) -> String {
-    for (old, new) in map {
-        if pin_belongs(pin, std::slice::from_ref(old)) {
-            return format!("{}{}", new, &pin[old.len()..]);
-        }
-    }
-    pin.to_string()
+fn remap_pin(pin: &str, map: &HashMap<String, String>) -> Option<String> {
+    map.iter()
+        .filter(|(old, _)| pin_belongs(pin, slice::from_ref(old)))
+        .max_by_key(|(old, _)| old.len())
+        .map(|(old, new)| format!("{}{}", new, &pin[old.len()..]))
 }
 
 fn hidden_mcu_circ1(id: &str, m: &crate::mcu::McuComp) -> String {
@@ -92,31 +93,46 @@ impl Scene {
             return Ok(false);
         }
         self.clear_selection();
-        let mut id_map = std::collections::HashMap::new();
+        let mut id_map = HashMap::new();
         let mut pasted_items = Vec::with_capacity(incoming.items.len());
         for mut it in incoming.items {
             let old = it.id.clone();
             let new_id = match &mut it.kind {
-                Part::Subcircuit(subc) => {
-                    let id = format!("{}-{}", subc.device, self.next_subc);
-                    self.next_subc += 1;
+                Part::Mcu(mcu) => {
+                    let device = if !mcu.device.is_empty() {
+                        mcu.device.clone()
+                    } else {
+                        subcircuit::device_from_id(&old)
+                    };
+                    let id = self.alloc_unique_id(&device);
+                    mcu.mcu.rebind_id(&id);
                     id
                 }
-                Part::Mcu(mcu) => {
-                    let device = crate::subcircuit::device_from_id(&old);
-                    let id = format!("{device}-{}", self.next_mcu);
-                    self.next_mcu += 1;
-                    mcu.mcu.rebind_id(&id);
+                Part::QemuDevice(qemu) => {
+                    let device = if !qemu.qemu.device.is_empty() {
+                        qemu.qemu.device.clone()
+                    } else {
+                        subcircuit::device_from_id(&old)
+                    };
+                    let id = self.alloc_unique_id(&device);
+                    qemu.qemu.rebind_id(&id);
+                    id
+                }
+                Part::SubPackage(sp) => {
+                    let id = self.alloc_unique_id("SubPackage");
+                    if sp.package.name == old {
+                        sp.package.name = id.clone();
+                    }
                     id
                 }
                 k => self.alloc_id(k),
             };
-            id_map.insert(old, new_id.clone());
+            id_map.insert(old.clone(), new_id.clone());
             it.id = new_id;
             it.x += delta.x;
             it.y += delta.y;
             it.selected = true;
-            if it.label.is_empty() {
+            if it.label.is_empty() || it.label == old {
                 it.label = it.id.clone();
             }
             pasted_items.push(it);
@@ -135,16 +151,16 @@ impl Scene {
             if !w.closed() {
                 continue;
             }
-            let start = remap_pin(&w.start_pin, &id_map);
+            let Some(start) = remap_pin(&w.start_pin, &id_map) else {
+                continue;
+            };
             let Some(end_old) = w.end_pin.clone() else {
                 continue;
             };
-            let end = remap_pin(&end_old, &id_map);
-            if start == w.start_pin || end == end_old {
+            let Some(end) = remap_pin(&end_old, &id_map) else {
                 continue;
-            }
-            w.id = format!("Connector-{}", self.next_wire);
-            self.next_wire += 1;
+            };
+            w.id = self.alloc_wire_id();
             w.start_pin = start;
             w.end_pin = Some(end);
             w.translate(delta.x, delta.y);
@@ -155,35 +171,8 @@ impl Scene {
     }
 
     fn alloc_id(&mut self, part: &Part) -> String {
-        let (next, prefix) = match part {
-            Part::Resistor(_) => (&mut self.next_resistor, "Resistor"),
-            Part::Battery(_) => (&mut self.next_battery, "Battery"),
-            Part::Ground(_) => (&mut self.next_ground, "Ground"),
-            Part::FixedVolt(_) => (&mut self.next_fixed, "FixedVolt"),
-            Part::Node(_) => (&mut self.next_node, "Node"),
-            Part::Capacitor(_) => (&mut self.next_capacitor, "Capacitor"),
-            Part::ElCapacitor(_) => (&mut self.next_el_capacitor, "ElCapacitor"),
-            Part::Inductor(_) => (&mut self.next_inductor, "Inductor"),
-            Part::Switch(_) => (&mut self.next_switch, "Switch"),
-            Part::Diode(_) => (&mut self.next_diode, "Diode"),
-            Part::Led(_) => (&mut self.next_led, "Led"),
-            Part::Bjt(_) => (&mut self.next_bjt, "Bjt"),
-            Part::Mosfet(_) => (&mut self.next_mosfet, "Mosfet"),
-            Part::OpAmp(_) => (&mut self.next_opamp, "OpAmp"),
-            Part::Jfet(_) => (&mut self.next_jfet, "Jfet"),
-            Part::Comparator(_) => (&mut self.next_comparator, "Comparator"),
-            Part::VoltReg(_) => (&mut self.next_voltreg, "VoltReg"),
-            Part::Probe(_) => (&mut self.next_probe, "Probe"),
-            Part::Voltmeter(_) => (&mut self.next_voltmeter, "Voltmeter"),
-            Part::Ammeter(_) => (&mut self.next_ammeter, "Ammeter"),
-            Part::FreqMeter(_) => (&mut self.next_freqmeter, "FreqMeter"),
-            Part::Oscope(_) => (&mut self.next_oscope, "Oscope"),
-            Part::LogicAnalyzer(_) => (&mut self.next_lanalizer, "LogicAnalyzer"),
-            _ => (&mut self.next_resistor, part.type_name()),
-        };
-        let id = format!("{prefix}-{next}");
-        *next += 1;
-        id
+        let prefix = part.id_prefix().to_string();
+        self.alloc_unique_id(&prefix)
     }
 
     pub fn analog_dt(&self) -> f64 {

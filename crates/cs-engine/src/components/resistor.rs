@@ -196,8 +196,7 @@ impl Drawable for Resistor {
 
 impl crate::canvas::Scene {
     pub fn add_resistor(&mut self, x: f64, y: f64, resistance: f64) -> String {
-        let id = format!("Resistor-{}", self.next_resistor);
-        self.next_resistor += 1;
+        let id = self.alloc_unique_id("Resistor");
         self.items.push(crate::canvas::Item::resistor(
             &id,
             x,

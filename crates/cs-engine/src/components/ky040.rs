@@ -181,7 +181,7 @@ impl Component for KY040 {
 
 impl crate::canvas::Scene {
     pub fn add_ky040(&mut self, x: f64, y: f64) -> String {
-        let id = format!("KY040-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("KY040");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, KY040::default()));
         id

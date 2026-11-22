@@ -90,7 +90,7 @@ impl Drawable for BcdTo7Segment {
 
 impl crate::canvas::Scene {
     pub fn add_bcd_to_7s(&mut self, x: f64, y: f64) -> String {
-        let id = format!("BcdTo7S-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("BcdTo7S");
         self.items.push(crate::canvas::Item::new(
             &id,
             x,

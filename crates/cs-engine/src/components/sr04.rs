@@ -117,7 +117,7 @@ impl Component for SR04 {
 
 impl crate::canvas::Scene {
     pub fn add_sr04(&mut self, x: f64, y: f64) -> String {
-        let id = format!("SR04-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("SR04");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, SR04::default()));
         id

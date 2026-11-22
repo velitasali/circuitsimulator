@@ -116,7 +116,7 @@ impl Drawable for Counter {
 
 impl crate::canvas::Scene {
     pub fn add_counter(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Counter-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Counter");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Counter::default()));
         id

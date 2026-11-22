@@ -283,7 +283,7 @@ impl Drawable for Stepper {
 
 impl crate::canvas::Scene {
     pub fn add_stepper(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Stepper-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Stepper");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Stepper::default()));
         id

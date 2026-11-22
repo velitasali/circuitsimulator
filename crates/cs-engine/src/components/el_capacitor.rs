@@ -171,8 +171,7 @@ impl Drawable for ElCapacitor {
 
 impl crate::canvas::Scene {
     pub fn add_el_capacitor(&mut self, x: f64, y: f64, farads: f64) -> String {
-        let id = format!("ElCapacitor-{}", self.next_el_capacitor);
-        self.next_el_capacitor += 1;
+        let id = self.alloc_unique_id("ElCapacitor");
         self.items
             .push(crate::canvas::Item::el_capacitor(&id, x, y, farads));
         id

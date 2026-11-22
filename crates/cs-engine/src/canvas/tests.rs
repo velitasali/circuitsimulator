@@ -754,9 +754,144 @@ fn copy_paste_new_ids() {
     c.paste_at(Point::new(40.0, 0.0));
     assert_eq!(c.scene.items().len(), 2);
     assert_eq!(c.scene.items()[1].id, "Resistor-2");
+    assert_eq!(c.scene.items()[1].label, "Resistor-2");
     assert!((c.scene.items()[1].x - 40.0).abs() < 1e-9);
     c.undo();
     assert_eq!(c.scene.items().len(), 1);
+}
+
+#[test]
+fn copy_paste_preserves_custom_label_and_updates_default_label() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+    c.add_component_at("Resistor", Point::zero());
+    c.scene.items_mut()[0].label = "R_bias".into();
+    c.scene.select_only(0);
+    assert!(c.copy_selection());
+    c.paste_at(Point::new(40.0, 0.0));
+    assert_eq!(c.scene.items().len(), 2);
+    assert_eq!(c.scene.items()[1].id, "Resistor-2");
+    assert_eq!(c.scene.items()[1].label, "R_bias");
+}
+
+#[test]
+fn copy_paste_non_resistor_types_get_unique_ids_and_keep_wires() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+    let clk = c.scene.add_clock(0.0, 0.0);
+    let gate = c.scene.add_and_gate(80.0, 0.0);
+    let bjt = c.scene.add_bjt(0.0, 64.0, false);
+    let fv = c.scene.add_default_fixed_volt(80.0, 64.0);
+    let zener = c.scene.add_diode(160.0, 64.0, true);
+    let sp = c.scene.add_subpackage(240.0, 64.0);
+    assert_eq!(clk, "Clock-1");
+    assert_eq!(gate, "AndGate-1");
+    assert_eq!(bjt, "BJT-1");
+    assert_eq!(fv, "Fixed Voltage-1");
+    assert_eq!(zener, "Zener-1");
+    assert_eq!(sp, "SubPackage-1");
+
+    let p_out = c.scene.pin_scene("Clock-1-outnod").unwrap();
+    let p_in = c.scene.pin_scene("AndGate-1-in0").unwrap();
+    c.scene
+        .connect_pins("Clock-1-outnod", p_out, "AndGate-1-in0", p_in);
+
+    c.scene.select_all();
+    assert!(c.copy_selection());
+    c.paste_at(Point::new(0.0, 160.0));
+
+    assert_eq!(c.scene.items().len(), 12);
+    let pasted_ids: Vec<&str> = c.scene.items()[6..]
+        .iter()
+        .map(|it| it.id.as_str())
+        .collect();
+    assert_eq!(
+        pasted_ids,
+        vec![
+            "Clock-2",
+            "AndGate-2",
+            "BJT-2",
+            "Fixed Voltage-2",
+            "Zener-2",
+            "SubPackage-2",
+        ]
+    );
+    for it in &c.scene.items()[6..] {
+        assert_eq!(it.label, it.id);
+    }
+    match &c.scene.items()[11].kind {
+        Part::SubPackage(p) => assert_eq!(p.package.name, "SubPackage-2"),
+        _ => panic!("expected SubPackage"),
+    }
+    assert_eq!(c.scene.wires().len(), 2);
+    assert_eq!(c.scene.wires()[1].start_pin, "Clock-2-outnod");
+    assert_eq!(c.scene.wires()[1].end_pin.as_deref(), Some("AndGate-2-in0"));
+}
+
+#[test]
+fn paste_wired_selection_into_empty_scene_keeps_wires() {
+    let mut src_canvas = Canvas::empty();
+    src_canvas.scene.add_clock(0.0, 0.0);
+    src_canvas.scene.add_and_gate(80.0, 0.0);
+    let p_out = src_canvas.scene.pin_scene("Clock-1-outnod").unwrap();
+    let p_in = src_canvas.scene.pin_scene("AndGate-1-in0").unwrap();
+    src_canvas
+        .scene
+        .connect_pins("Clock-1-outnod", p_out, "AndGate-1-in0", p_in);
+    src_canvas.scene.select_all();
+    let clip = src_canvas.scene.selection_to_circ1().unwrap();
+
+    let mut dst = Scene::new();
+    assert!(dst.paste_circ1(&clip, Point::new(40.0, 40.0)).unwrap());
+    assert_eq!(dst.items().len(), 2);
+    assert_eq!(dst.wires().len(), 1);
+    assert_eq!(dst.wires()[0].start_pin, "Clock-1-outnod");
+    assert_eq!(dst.wires()[0].end_pin.as_deref(), Some("AndGate-1-in0"));
+}
+
+#[test]
+fn copy_paste_qemu_rebinds_uid_and_pins() {
+    let mut c = Canvas::empty();
+    let id = c
+        .scene
+        .add_qemu("Esp32", 0.0, 0.0, &crate::subcircuit::SubcSearch::default())
+        .unwrap();
+    assert_eq!(id, "Esp32-1");
+    c.scene.select_only(0);
+    assert!(c.copy_selection());
+    c.paste_at(Point::new(120.0, 0.0));
+    assert_eq!(c.scene.items().len(), 2);
+    let pasted = &c.scene.items()[1];
+    assert_eq!(pasted.id, "Esp32-2");
+    assert_eq!(pasted.label, "Esp32-2");
+    match &pasted.kind {
+        Part::QemuDevice(q) => {
+            assert_eq!(q.qemu.uid, "Esp32-2");
+            for pin in &q.qemu.pins {
+                assert!(
+                    pin.id.starts_with("Esp32-2-"),
+                    "unexpected pin id {}",
+                    pin.id
+                );
+            }
+        }
+        _ => panic!("expected QemuDevice"),
+    }
+}
+
+#[test]
+fn delete_then_add_does_not_collide_ids() {
+    let mut c = Canvas::empty();
+    let g1 = c.scene.add_and_gate(0.0, 0.0);
+    let g2 = c.scene.add_and_gate(80.0, 0.0);
+    assert_eq!(g1, "AndGate-1");
+    assert_eq!(g2, "AndGate-2");
+    c.scene.select_only(0);
+    c.delete_selected();
+    let g3 = c.scene.add_and_gate(160.0, 0.0);
+    assert_eq!(g3, "AndGate-3");
+    assert_eq!(c.scene.items().len(), 2);
+    assert_ne!(c.scene.items()[0].id, c.scene.items()[1].id);
 }
 
 #[test]

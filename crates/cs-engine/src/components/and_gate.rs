@@ -352,7 +352,7 @@ impl Drawable for AndGate {
 
 impl crate::canvas::Scene {
     pub fn add_and_gate(&mut self, x: f64, y: f64) -> String {
-        let id = format!("AndGate-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("AndGate");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, AndGate::default()));
         id

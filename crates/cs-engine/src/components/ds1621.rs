@@ -151,7 +151,7 @@ impl super::drawable::Drawable for DS1621 {
 
 impl crate::canvas::Scene {
     pub fn add_ds1621(&mut self, x: f64, y: f64) -> String {
-        let id = format!("DS1621-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("DS1621");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, DS1621::default()));
         id

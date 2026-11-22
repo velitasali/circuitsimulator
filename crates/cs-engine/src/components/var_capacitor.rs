@@ -288,7 +288,7 @@ impl Component for VarCapacitor {
 
 impl crate::canvas::Scene {
     pub fn add_var_capacitor(&mut self, x: f64, y: f64) -> String {
-        let id = format!("VarCapacitor-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("VarCapacitor");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, VarCapacitor::default()));
         id

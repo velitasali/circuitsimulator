@@ -260,7 +260,7 @@ impl Drawable for Triac {
 
 impl crate::canvas::Scene {
     pub fn add_triac(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Triac-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Triac");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Triac::default()));
         id

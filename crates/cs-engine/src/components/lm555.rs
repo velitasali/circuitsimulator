@@ -121,7 +121,7 @@ impl Drawable for Lm555 {
 
 impl crate::canvas::Scene {
     pub fn add_lm555(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Lm555-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Lm555");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Lm555::default()));
         id

@@ -660,7 +660,7 @@ impl crate::canvas::Scene {
         if device.is_empty() || device == "MCU" || device == "NEW_MCU" {
             device = "mega328".to_string();
         }
-        let id = format!("{device}-{}", self.next_mcu);
+        let id = self.peek_unique_id(&device);
         let spec = crate::mcu::McuItemSpec {
             device: device.clone(),
             force_freq: true,

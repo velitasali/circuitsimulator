@@ -179,7 +179,7 @@ impl Drawable for Clock {
 
 impl crate::canvas::Scene {
     pub fn add_clock(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Clock-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("Clock");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Clock::default()));
         id

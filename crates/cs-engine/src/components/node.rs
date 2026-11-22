@@ -84,8 +84,7 @@ impl Drawable for Node {
 
 impl crate::canvas::Scene {
     pub fn add_node(&mut self, x: f64, y: f64) -> String {
-        let id = format!("Node-{}", self.next_node);
-        self.next_node += 1;
+        let id = self.alloc_unique_id("Node");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, Node::default()));
         id

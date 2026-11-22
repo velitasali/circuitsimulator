@@ -132,7 +132,7 @@ impl Drawable for I2CRam {
 
 impl crate::canvas::Scene {
     pub fn add_i2c_ram(&mut self, x: f64, y: f64) -> String {
-        let id = format!("I2CRam-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("I2CRam");
         self.items
             .push(crate::canvas::Item::new(&id, x, y, I2CRam::default()));
         id

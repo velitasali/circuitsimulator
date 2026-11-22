@@ -801,7 +801,7 @@ impl Scene {
         y: f64,
         search: &SubcSearch,
     ) -> Option<String> {
-        let id = format!("{device}-{}", self.next_subc);
+        let id = self.peek_unique_id(device);
         let view = subcircuit::load_view(&id, device, search, false, None).ok()?;
         let mut item = Item::subcircuit(
             id.clone(),

@@ -266,7 +266,7 @@ impl super::drawable::Drawable for Sh1107 {
 
 impl crate::canvas::Scene {
     pub fn add_sh1107(&mut self, x: f64, y: f64, width: u32, height: u32) -> String {
-        let id = format!("SH1107-{}", self.items.len() + 1);
+        let id = self.alloc_unique_id("SH1107");
         self.items
             .push(crate::canvas::Item::sh1107(&id, x, y, width, height));
         id

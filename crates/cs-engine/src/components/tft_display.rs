@@ -419,7 +419,7 @@ impl Scene {
         width: u32,
         height: u32,
     ) -> String {
-        let id = format!("{}-{}", controller, self.items.len() + 1);
+        let id = self.alloc_unique_id(controller);
         let mut display = TftDisplay::default();
         display.controller = TftController::from_str_name(controller);
         display.width = width;

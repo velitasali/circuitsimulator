@@ -266,6 +266,7 @@ pub use xor_gate::XorGate;
 
 use crate::canvas::Rect;
 use crate::canvas::draw::{Draw, PaintCtx};
+use crate::digital::FlipFlopKind;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 
@@ -680,6 +681,51 @@ impl Part {
 
     pub fn type_name(&self) -> &'static str {
         self.type_id()
+    }
+
+    /// Canonical prefix used when allocating unique component IDs (`{prefix}-{n}`).
+    pub fn id_prefix(&self) -> &str {
+        match self {
+            Self::Subcircuit(p) if !p.device.is_empty() => p.device.as_str(),
+            Self::Mcu(p) if !p.device.is_empty() => p.device.as_str(),
+            Self::QemuDevice(p) if !p.qemu.device.is_empty() => p.qemu.device.as_str(),
+            Self::TftDisplay(p) => p.controller.as_str(),
+            Self::Shape(p) => match p.shape_kind {
+                ShapeKind::Rectangle | ShapeKind::Rounded => "Rectangle",
+                ShapeKind::Ellipse => "Ellipse",
+                ShapeKind::Line | ShapeKind::Arc => "Line",
+                ShapeKind::Text => "TextComponent",
+                ShapeKind::Image => "Image",
+            },
+            Self::FlipFlop(p) => match p.ff_kind {
+                FlipFlopKind::D => "FlipFlopD",
+                FlipFlopKind::Jk => "FlipFlopJK",
+                FlipFlopKind::Rs => "FlipFlopRS",
+                FlipFlopKind::T => "FlipFlopT",
+            },
+            Self::Adc(_) => "ADC",
+            Self::Aip31068(_) => "AIP31068",
+            Self::Ammeter(_) => "Amperimeter",
+            Self::BcdTo7Segment(_) => "BcdTo7S",
+            Self::Bjt(_) => "BJT",
+            Self::BufferGate(_) => "Buffer",
+            Self::Dac(_) => "DAC",
+            Self::FixedVolt(_) => "Fixed Voltage",
+            Self::Ks0108(_) => "KS0108",
+            Self::Latch(_) => "LatchD",
+            Self::Ldr(_) => "LDR",
+            Self::LogicAnalyzer(_) => "LAnalizer",
+            Self::OpAmp(_) => "opAmp",
+            Self::Pcd8544(_) => "PCD8544",
+            Self::Pcf8833(_) => "PCF8833",
+            Self::RgbLed(_) => "RGBLed",
+            Self::Rtd(_) => "RTD",
+            Self::Scr(_) => "SCR",
+            Self::Sh1107(_) => "SH1107",
+            Self::Voltmeter(_) => "Voltimeter",
+            Self::Ws2812(_) => "WS2812",
+            _ => self.type_name(),
+        }
     }
 
     pub fn description(&self) -> &'static str {

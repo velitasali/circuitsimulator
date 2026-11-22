@@ -178,6 +178,12 @@ pub fn current_theme_dark() -> bool {
     }
 }
 
+pub fn post_on_main(cb: extern "C" fn()) {
+    unsafe {
+        cs_qt_post_on_main(cb);
+    }
+}
+
 /// Schedules theme application onto the Qt main event loop so that
 /// `QStyleHints::setColorScheme`/`unsetColorScheme`, `QGuiApplication::setPalette`,
 /// and native titlebar updates never execute synchronously while a `qtbridge`

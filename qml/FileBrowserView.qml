@@ -80,7 +80,10 @@ Item {
         function onEntriesChanged(): void { root.syncEntries() }
         function onRootPathChanged(): void { root.syncEntries() }
     }
-    Component.onCompleted: root.syncEntries()
+    Component.onCompleted: {
+        FileBrowser.startWatching()
+        root.syncEntries()
+    }
 
     FolderDialog {
         id: folderDialog

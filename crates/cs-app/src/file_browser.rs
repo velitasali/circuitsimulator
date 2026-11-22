@@ -1,14 +1,65 @@
 //! File browser façade. Rows are JSON (no `QFileSystemModel` / `QModelIndex`).
 
+use crate::file_watcher::{TreeWatcher, WatchScope};
+use crate::macos_host;
 use crate::path_util::strip_file_url;
 use crate::ui_icon::UiIcon;
 use cs_engine::compat::simulide;
 use cs_engine::{i18n, project, settings};
-use qtbridge::qobject;
+use qtbridge::{QObjectHolder, QmlMethodInvoker, qobject};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static WATCHER_INVOKER: Mutex<Option<QmlMethodInvoker>> = Mutex::new(None);
+static WATCHER_REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
+
+fn schedule_watcher_refresh() {
+    if WATCHER_REFRESH_PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    macos_host::post_on_main(on_watcher_refresh_main);
+}
+
+extern "C" fn on_watcher_refresh_main() {
+    WATCHER_REFRESH_PENDING.store(false, Ordering::Release);
+    if let Ok(guard) = WATCHER_INVOKER.lock()
+        && let Some(inv) = guard.as_ref()
+    {
+        let _ = inv.invoke_method("refreshFromWatcher");
+    }
+}
+
+struct BrowserWatcher {
+    inner: Option<TreeWatcher>,
+}
+
+impl BrowserWatcher {
+    fn new() -> Self {
+        Self {
+            inner: Some(TreeWatcher::new(schedule_watcher_refresh)),
+        }
+    }
+
+    fn sync_scope(&mut self, scope: Option<WatchScope>) {
+        if let Some(watcher) = self.inner.as_mut() {
+            watcher.sync_scope(scope);
+        }
+    }
+}
+
+impl Drop for BrowserWatcher {
+    fn drop(&mut self) {
+        self.inner.take();
+        if let Ok(mut guard) = WATCHER_INVOKER.lock() {
+            *guard = None;
+        }
+        WATCHER_REFRESH_PENDING.store(false, Ordering::Release);
+    }
+}
 
 pub struct FileBrowser {
     root_path: String,
@@ -16,6 +67,9 @@ pub struct FileBrowser {
     clipboard: Option<String>,
     expanded_paths: HashSet<String>,
     expand_all: bool,
+    watcher: Option<BrowserWatcher>,
+    last_has_project: bool,
+    last_visible_snapshot: Option<Vec<(String, bool)>>,
 }
 
 impl Default for FileBrowser {
@@ -34,12 +88,16 @@ impl Default for FileBrowser {
         } else {
             String::new()
         };
+        let last_has_project = !root_path.is_empty();
         Self {
             root_path,
             show_hidden: false,
             clipboard: None,
             expanded_paths: HashSet::new(),
             expand_all: false,
+            watcher: None,
+            last_has_project,
+            last_visible_snapshot: None,
         }
     }
 }
@@ -111,8 +169,9 @@ impl FileBrowser {
                 s.last_project_dir = None;
             });
         }
+        self.sync_watcher();
         self.root_path_changed();
-        self.entries_changed();
+        self.notify_entries_changed();
     }
 
     fn set_show_hidden(&mut self, hidden: bool) {
@@ -120,24 +179,50 @@ impl FileBrowser {
             return;
         }
         self.show_hidden = hidden;
+        self.sync_watcher();
         self.show_hidden_changed();
-        self.entries_changed();
+        self.notify_entries_changed();
     }
 
     fn entries(&self) -> Value {
-        if self.root_path.is_empty() {
-            return Value::Array(vec![]);
-        }
-        let root = PathBuf::from(&self.root_path);
-        if !root.is_dir() {
-            return Value::Array(vec![]);
-        }
         let mut rows = Vec::new();
-        self.collect_dir(&root, 0, &mut rows);
+        self.walk_visible(|name, path, is_dir, depth, expanded| {
+            rows.push(json!({
+                "name": name,
+                "path": path,
+                "isDir": is_dir,
+                "depth": depth,
+                "expanded": expanded,
+            }));
+        });
         Value::Array(rows)
     }
 
-    fn collect_dir(&self, dir: &Path, depth: i32, out: &mut Vec<Value>) {
+    fn visible_snapshot(&self) -> Vec<(String, bool)> {
+        let mut out = Vec::new();
+        self.walk_visible(|_, path, is_dir, _, _| {
+            out.push((path, is_dir));
+        });
+        out
+    }
+
+    fn walk_visible(&self, mut visit: impl FnMut(String, String, bool, i32, bool)) {
+        if self.root_path.is_empty() {
+            return;
+        }
+        let root = PathBuf::from(&self.root_path);
+        if !root.is_dir() {
+            return;
+        }
+        self.walk_dir(&root, 0, &mut visit);
+    }
+
+    fn walk_dir(
+        &self,
+        dir: &Path,
+        depth: i32,
+        visit: &mut impl FnMut(String, String, bool, i32, bool),
+    ) {
         let Ok(rd) = fs::read_dir(dir) else {
             return;
         };
@@ -157,17 +242,89 @@ impl FileBrowser {
             let path_str = path.to_string_lossy().replace('\\', "/");
             let expanded = is_dir && (self.expand_all || self.expanded_paths.contains(&path_str));
 
-            out.push(json!({
-                "name": name,
-                "path": path_str,
-                "isDir": is_dir,
-                "depth": depth,
-                "expanded": expanded,
-            }));
+            visit(name, path_str, is_dir, depth, expanded);
 
             if is_dir && expanded {
-                self.collect_dir(&path, depth + 1, out);
+                self.walk_dir(&path, depth + 1, visit);
             }
+        }
+    }
+
+    fn build_watch_scope(&self) -> Option<WatchScope> {
+        if self.root_path.is_empty() {
+            return None;
+        }
+        let root = PathBuf::from(&self.root_path);
+        if !root.is_dir() {
+            return None;
+        }
+        Some(WatchScope {
+            root,
+            expanded_dirs: self.expanded_paths.iter().map(PathBuf::from).collect(),
+            expand_all: self.expand_all,
+            show_hidden: self.show_hidden,
+        })
+    }
+
+    fn sync_watcher(&mut self) {
+        let scope = self.build_watch_scope();
+        if let Some(watcher) = self.watcher.as_mut() {
+            watcher.sync_scope(scope);
+        }
+    }
+
+    fn notify_entries_changed(&mut self) {
+        self.last_has_project = self.has_project();
+        self.last_visible_snapshot = Some(self.visible_snapshot());
+        self.entries_changed();
+    }
+
+    #[qslot]
+    fn start_watching(&mut self) {
+        if let Ok(mut guard) = WATCHER_INVOKER.lock()
+            && guard.is_none()
+        {
+            *guard = Some(self.get_qml_method_invoker());
+        }
+        if self.watcher.is_none() {
+            self.watcher = Some(BrowserWatcher::new());
+        }
+        self.last_has_project = self.has_project();
+        self.last_visible_snapshot = Some(self.visible_snapshot());
+        self.sync_watcher();
+    }
+
+    #[qslot]
+    fn refresh_from_watcher(&mut self) {
+        let prev_expanded_len = self.expanded_paths.len();
+        self.expanded_paths.retain(|p| Path::new(p).is_dir());
+
+        if let Some(clip) = &self.clipboard
+            && !Path::new(clip).exists()
+        {
+            self.clipboard = None;
+            self.clipboard_changed();
+        }
+
+        let has_project_now = self.has_project();
+        let snapshot = self.visible_snapshot();
+
+        if has_project_now != self.last_has_project {
+            self.last_has_project = has_project_now;
+            self.last_visible_snapshot = Some(snapshot);
+            self.sync_watcher();
+            self.root_path_changed();
+            self.entries_changed();
+            return;
+        }
+
+        if self.expanded_paths.len() != prev_expanded_len || self.expand_all {
+            self.sync_watcher();
+        }
+
+        if self.last_visible_snapshot.as_ref() != Some(&snapshot) {
+            self.last_visible_snapshot = Some(snapshot);
+            self.entries_changed();
         }
     }
 
@@ -225,25 +382,30 @@ impl FileBrowser {
         } else {
             self.expanded_paths.insert(path);
         }
-        self.entries_changed();
+        self.sync_watcher();
+        self.notify_entries_changed();
     }
 
     #[qslot]
     fn expand_all(&mut self) {
         self.expand_all = true;
-        self.entries_changed();
+        self.sync_watcher();
+        self.notify_entries_changed();
     }
 
     #[qslot]
     fn collapse_all(&mut self) {
         self.expand_all = false;
         self.expanded_paths.clear();
-        self.entries_changed();
+        self.sync_watcher();
+        self.notify_entries_changed();
     }
 
     #[qslot]
     fn reload(&mut self) {
-        self.entries_changed();
+        self.expanded_paths.retain(|p| Path::new(p).is_dir());
+        self.sync_watcher();
+        self.notify_entries_changed();
     }
 
     #[qslot]
@@ -277,7 +439,10 @@ impl FileBrowser {
         }
         if dst_dir.is_dir() {
             let _ = copy_item_recursive(src, &dst_dir);
-            self.entries_changed();
+            if self.expand_all {
+                self.sync_watcher();
+            }
+            self.notify_entries_changed();
         }
     }
 
@@ -303,7 +468,8 @@ impl FileBrowser {
             let _ = fs::write(&target, "");
             let dir_str = dir.to_string_lossy().replace('\\', "/");
             self.expanded_paths.insert(dir_str);
-            self.entries_changed();
+            self.sync_watcher();
+            self.notify_entries_changed();
             let target_str = target.to_string_lossy().replace('\\', "/");
             self.open_path(target_str);
         }
@@ -331,7 +497,8 @@ impl FileBrowser {
             let _ = fs::create_dir_all(&target);
             let dir_str = dir.to_string_lossy().replace('\\', "/");
             self.expanded_paths.insert(dir_str);
-            self.entries_changed();
+            self.sync_watcher();
+            self.notify_entries_changed();
         }
     }
 
@@ -346,7 +513,9 @@ impl FileBrowser {
         if let Some(parent) = src.parent() {
             let target = parent.join(new_name);
             let _ = fs::rename(src, target);
-            self.entries_changed();
+            self.expanded_paths.retain(|p| Path::new(p).is_dir());
+            self.sync_watcher();
+            self.notify_entries_changed();
         }
     }
 
@@ -360,7 +529,9 @@ impl FileBrowser {
             } else {
                 let _ = fs::remove_file(p);
             }
-            self.entries_changed();
+            self.expanded_paths.retain(|p| Path::new(p).is_dir());
+            self.sync_watcher();
+            self.notify_entries_changed();
         }
     }
 
@@ -670,6 +841,9 @@ mod tests {
             clipboard: None,
             expanded_paths: HashSet::new(),
             expand_all: false,
+            watcher: None,
+            last_has_project: false,
+            last_visible_snapshot: None,
         };
 
         #[cfg(target_os = "windows")]

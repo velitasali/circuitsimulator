@@ -391,7 +391,7 @@ Item {
             id: openMcuMonitorItem
             text: I18n.tr("Open Mcu Monitor.")
             iconLigature: "terminal"
-            visible: itemMenu.isMcuChip || itemMenu.hasNestedMcu
+            visible: itemMenu.showMcuActions
             onTriggered: {
                 if (itemMenu.firmwareUid)
                     CircuitCanvas.activeDeviceId = itemMenu.firmwareUid

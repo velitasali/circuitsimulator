@@ -1,6 +1,8 @@
 //! Variable Watch and VarSet evaluator: multi-base expression resolution,
 //! type casting, and SFR inspection.
 
+use std::collections::BTreeMap;
+
 use cs_mcu::Device;
 use serde::{Deserialize, Serialize};
 
@@ -174,6 +176,18 @@ impl VarSet {
         snap: &McuSnap,
         symbols: Option<&DebugSymbols>,
     ) -> Option<VarValue> {
+        Self::eval_snap_with_remote(entry, snap, symbols, None)
+    }
+
+    /// Evaluate a watch entry against a snapshot `McuSnap`, falling back to
+    /// remote memory windows (e.g. QEMU GDB memory reads for ESP32/STM32) when
+    /// `snap.ram` does not cover the resolved address.
+    pub fn eval_snap_with_remote(
+        entry: &WatchEntry,
+        snap: &McuSnap,
+        symbols: Option<&DebugSymbols>,
+        remote_mem: Option<&BTreeMap<u32, Vec<u8>>>,
+    ) -> Option<VarValue> {
         let (addr, is_reg) = Self::resolve_address_snap(&entry.expr, symbols, snap)?;
         if is_reg {
             for (name, reg_addr) in &snap.registers {
@@ -192,11 +206,77 @@ impl VarSet {
             }
         }
 
-        let bytes = Self::read_snap_bytes(snap, addr as usize, entry.var_type.size_in_bytes());
+        let len = entry.var_type.size_in_bytes();
+        let bytes = if (addr as usize) < snap.ram.len() {
+            Self::read_snap_bytes(snap, addr as usize, len)
+        } else if let Some(remote) = remote_mem {
+            Self::read_remote_bytes(remote, addr, len)?
+        } else {
+            return None;
+        };
         let mut val_res = Self::format_bytes(&bytes, &entry.var_type, entry.format, Some(addr));
         val_res.name = entry.name.clone();
         val_res.expr = entry.expr.clone();
         Some(val_res)
+    }
+
+    /// Resolve a watch expression to a memory address without reading memory.
+    pub fn resolve_watch_address(
+        expr: &str,
+        symbols: Option<&DebugSymbols>,
+        snap: Option<&McuSnap>,
+    ) -> Option<u32> {
+        let clean = expr.trim();
+        if let Some(hex) = clean
+            .strip_prefix("0x")
+            .or_else(|| clean.strip_prefix("0X"))
+        {
+            if let Ok(addr) = u32::from_str_radix(hex, 16) {
+                return Some(addr);
+            }
+        }
+        if let Ok(addr) = clean.parse::<u32>() {
+            return Some(addr);
+        }
+        if let Some(s) = snap {
+            for (name, addr) in &s.registers {
+                if name.eq_ignore_ascii_case(clean) {
+                    return Some(*addr as u32);
+                }
+            }
+        }
+        if let Some(syms) = symbols {
+            if let Some(v) = syms.variable_named(clean) {
+                return Some(v.address);
+            }
+        }
+        None
+    }
+
+    fn read_remote_bytes(
+        remote_mem: &BTreeMap<u32, Vec<u8>>,
+        addr: u32,
+        len: usize,
+    ) -> Option<Vec<u8>> {
+        if len == 0 {
+            return Some(Vec::new());
+        }
+        if let Some(exact) = remote_mem.get(&addr) {
+            if exact.len() >= len {
+                return Some(exact[..len].to_vec());
+            }
+        }
+        // Check if any cached window covers [addr, addr + len)
+        for (&base, data) in remote_mem.range(..=addr).rev() {
+            let off = addr.saturating_sub(base) as usize;
+            if off < data.len() && off + len <= data.len() {
+                return Some(data[off..off + len].to_vec());
+            }
+            if addr.saturating_sub(base) > 4096 {
+                break;
+            }
+        }
+        None
     }
 
     fn resolve_address(

@@ -1,8 +1,11 @@
 //! Peripheral synchronization hooks (MCU, QEMU cosim, AngelScript, Audio, Motors, Instruments).
 
+use crate::debug::DebugSession;
 use crate::digital::EventTarget;
 use crate::elements::Kind;
 use crate::instruments::ScopeSampler;
+use crate::mcu::McuSnap;
+use crate::qemu::QemuComp;
 
 use super::Circuit;
 
@@ -67,10 +70,21 @@ impl Circuit {
             })
     }
 
-    /// C++ `MCUMonitor::updateStep` snapshot of the first MCU.
-    pub fn mcu_snap(&self) -> crate::mcu::McuSnap {
+    pub fn first_qemu(&self) -> Option<(&str, &QemuComp)> {
+        self.components.iter().find_map(|c| match &c.kind {
+            Kind::QemuDevice(q) => Some((c.id.as_str(), q)),
+            _ => None,
+        })
+    }
+
+    /// C++ `MCUMonitor::updateStep` snapshot of the first MCU or QEMU device.
+    pub fn mcu_snap(&self) -> McuSnap {
         self.first_mcu()
-            .map(|(id, m)| crate::mcu::McuSnap::from_mcu(id, m))
+            .map(|(id, m)| McuSnap::from_mcu(id, m))
+            .or_else(|| {
+                self.first_qemu()
+                    .map(|(id, _)| McuSnap::from_qemu(id, DebugSession::global().remote_pc()))
+            })
             .unwrap_or_default()
     }
 

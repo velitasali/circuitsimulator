@@ -138,6 +138,7 @@ Item {
         CircuitPanel.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
         CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )
         CircuitPanel.setCanvasOverflow( CircuitCanvas.canvasOverflow ? App.translate("Canvas Overflow") : "" )
+        CircuitPanel.setCompileStatus( EditorPanel.compileStatus )
     }
 
 
@@ -764,6 +765,7 @@ Item {
                         id: widgetItem
                         Loader {
                             sourceComponent: tbLoader.modelData.widget === "msg"            ? textItem
+                                           : tbLoader.modelData.widget === "compileStatus"  ? compileStatusItem
                                            : tbLoader.modelData.widget === "coords"         ? coordsItem
                                            : tbLoader.modelData.widget === "zoom"           ? zoomItem
                                            : tbLoader.modelData.widget === "warnings"       ? warnItem
@@ -773,6 +775,122 @@ Item {
                                                                                             : embeddedItem
                         }
                     }
+                }
+            }
+        }
+    }
+
+    Timer {
+        id: compileAutoHideTimer
+        repeat: false
+        onTriggered: EditorPanel.clearCompileStatus()
+    }
+
+    Component {
+        id: compileStatusItem
+        Rectangle {
+            id: compilePill
+            readonly property var st: CircuitPanel.compileStatus
+            readonly property color fgColor: (st && st.fg) ? st.fg : appTheme.windowText
+            visible: st ? st.visible === true : false
+            implicitWidth: Math.ceil(compileRow.implicitWidth + 14)
+            implicitHeight: Math.max(22, Math.ceil((compileRow.implicitHeight + 6) / 2) * 2)
+            radius: compilePill.height / 2
+            color: (st && st.bg) ? st.bg : "transparent"
+
+            MouseArea {
+                id: compilePillMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    CircuitPanel.overlayClicked( "toolbar" )
+                    CircuitPanel.showSidePanel()
+                    App.sidePanelTab = 3
+                    if ( compilePill.st && compilePill.st.state === "error" )
+                        CircuitPanel.showEditor()
+                }
+            }
+
+            ToolTip.visible: Boolean(compilePillMouse.containsMouse && !compileActMouse.containsMouse
+                             && compilePill.st && compilePill.st.tooltip !== "")
+            ToolTip.text: (compilePill.st && compilePill.st.tooltip) ? compilePill.st.tooltip : ""
+            ToolTip.delay: 400
+
+            Row {
+                id: compileRow
+                anchors.centerIn: parent
+                spacing: 4
+
+                Item {
+                    width: 16
+                    height: 16
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    AppIcon {
+                        id: compileIcon
+                        anchors.centerIn: parent
+                        icon: (compilePill.st && compilePill.st.icon) ? compilePill.st.icon : ""
+                        size: 16
+                        color: compilePill.fgColor
+                        NumberAnimation on rotation {
+                            from: 0
+                            to: 360
+                            duration: 900
+                            loops: Animation.Infinite
+                            running: Boolean(compilePill.visible && compilePill.st && compilePill.st.spinning === true)
+                            onRunningChanged: if ( !running ) compileIcon.rotation = 0
+                        }
+                    }
+                }
+
+                AppText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: (compilePill.st && compilePill.st.text) ? compilePill.st.text : ""
+                    color: compilePill.fgColor
+                }
+
+                Item {
+                    id: compileActBtn
+                    visible: Boolean(compilePill.st && (compilePill.st.cancellable === true || compilePill.st.dismissible === true))
+                    width: 16
+                    height: 16
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: height / 2
+                        color: compileActMouse.containsMouse
+                               ? Qt.alpha(compilePill.fgColor, 0.22)
+                               : "transparent"
+                    }
+
+                    AppIcon {
+                        anchors.centerIn: parent
+                        icon: (compilePill.st && compilePill.st.cancellable === true) ? "stop_circle" : "close"
+                        size: 16
+                        color: compilePill.fgColor
+                    }
+
+                    MouseArea {
+                        id: compileActMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            CircuitPanel.overlayClicked( "toolbar" )
+                            if ( compilePill.st && compilePill.st.cancellable === true )
+                                EditorPanel.cancelCompile()
+                            else
+                                EditorPanel.clearCompileStatus()
+                        }
+                    }
+
+                    ToolTip.visible: compileActMouse.containsMouse
+                    ToolTip.text: (compilePill.st && compilePill.st.cancellable === true)
+                                  ? App.translate( "Cancel compilation" )
+                                  : App.translate( "Dismiss" )
+                    ToolTip.delay: 300
                 }
             }
         }
@@ -1201,6 +1319,8 @@ Item {
             CircuitPanel.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
             CircuitPanel.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
             CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )
+            if ( !EditorPanel.compiling )
+                EditorPanel.clearCompileStatus()
         }
         function onSubcircuitsChanged(): void {
             CircuitPanel.syncSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
@@ -1233,12 +1353,6 @@ Item {
                 CircuitPanel.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
             else if ( CircuitCanvas.simWarning )
                 CircuitPanel.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
-            else if ( CircuitCanvas.simRunning ) {
-                if ( CircuitCanvas.simPaused )
-                    CircuitPanel.setMessage( App.translate( "Paused" ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
-                else
-                    CircuitPanel.setMessage( App.translate( "Running" ), CircuitCanvas.msgOkBg, CircuitCanvas.msgOkText )
-            }
         }
     }
 
@@ -1271,6 +1385,12 @@ Item {
             else if ( id === "powerOff" ) CircuitCanvas.powerOff()
             else if ( id === "pauseCirc" || id === "pauseQemu" || id === "resumeQemu" ) CircuitCanvas.pauseCirc()
             else if ( id === "settCircuit" ) App.showCircuitSettings()
+            else if ( id === "watch" ) App.showMcu()
+            else if ( id === "debug" ) AppMenuBar.triggerAction( "sim.debug" )
+            else if ( id === "debugStep" ) AppMenuBar.triggerAction( "sim.step" )
+            else if ( id === "debugStepOver" ) AppMenuBar.triggerAction( "sim.stepOver" )
+            else if ( id === "debugReset" ) AppMenuBar.triggerAction( "sim.reset" )
+            else if ( id === "debugStop" ) AppMenuBar.triggerAction( "sim.stop" )
             else if ( id.startsWith( "openSubcircuit:" ) ) CircuitCanvas.openSubcircuit( id.substring( 15 ) )
         }
     }
@@ -1281,6 +1401,18 @@ Item {
         function onRequestShow(): void { CircuitPanel.showEditor() }
         function onRequestHide(): void { CircuitPanel.hideEditor() }
         function onFocusedChanged(): void { if ( EditorPanel.focused ) CircuitPanel.overlayClicked( "editorPanel" ) }
+        function onDebugStateChanged(): void { CircuitPanel.refreshDebugToolbar() }
+        function onCompilingChanged(): void {
+            CircuitPanel.setCompileStatus( EditorPanel.compileStatus )
+            var st = CircuitPanel.compileStatus
+            var ms = (st && st.autoHideMs) ? Number(st.autoHideMs) : 0
+            if ( ms > 0 ) {
+                compileAutoHideTimer.interval = ms
+                compileAutoHideTimer.restart()
+            } else {
+                compileAutoHideTimer.stop()
+            }
+        }
     }
 
     Connections {

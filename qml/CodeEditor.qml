@@ -38,11 +38,17 @@ Item {
         })
     }
 
-    readonly property int lineHeight: {
+    readonly property real lineHeight: {
+        var _f = root.editorFont
+        var _b = root.bundledMonoReady
+        var _l = area.lineCount
         var r = area.positionToRectangle(0)
-        return r.height > 1 ? r.height : Math.ceil(area.font.pixelSize * 1.4)
+        return r.height > 1 ? r.height : (fm.lineSpacing > 1 ? fm.lineSpacing : Math.ceil(area.font.pixelSize * 1.4))
     }
-    readonly property int gutterWidth: Math.max(48, String(Math.max(1, area.lineCount)).length * fm.averageCharacterWidth + 24)
+    readonly property int markerLaneWidth: Math.max(18, Math.round(root.lineHeight))
+    readonly property int markerSize: Math.max(8, Math.min(12, Math.round(root.lineHeight * 0.58 / 2) * 2))
+    readonly property int gutterWidth: Math.max(52, root.markerLaneWidth + Math.ceil(String(Math.max(1, area.lineCount)).length * fm.averageCharacterWidth) + 14)
+    property int hoveredGutterLine: -1
     readonly property int cursorLine: {
         var t = area.text.substring(0, area.cursorPosition)
         return t.length === 0 ? 0 : t.split('\n').length - 1
@@ -139,6 +145,25 @@ Item {
             contentY: flick.contentY
             contentHeight: area.implicitHeight
 
+            Rectangle {
+                id: hoverBpDot
+                visible: root.hoveredGutterLine >= 1
+                         && root.hoveredGutterLine <= area.lineCount
+                         && !root.containsLine(root.breakpoints, root.hoveredGutterLine)
+                         && !root.containsLine(root.errors, root.hoveredGutterLine)
+                         && !root.containsLine(root.warnings, root.hoveredGutterLine)
+                         && EditorPanel.debugLine !== root.hoveredGutterLine
+                z: 1
+                width: root.markerSize
+                height: root.markerSize
+                radius: width / 2
+                x: Math.round((root.markerLaneWidth - width) / 2)
+                y: Math.round(area.topPadding + (root.hoveredGutterLine - 1) * root.lineHeight + (root.lineHeight - height) / 2)
+                color: Qt.alpha(EditorPanel.errorColor, 0.32)
+                border.width: 1
+                border.color: Qt.alpha(EditorPanel.errorColor, 0.65)
+            }
+
             Repeater {
                 model: Math.max( 1, area.lineCount )
                 delegate: Item {
@@ -156,51 +181,49 @@ Item {
                     Rectangle {
                         id: bpDot
                         visible: gutterLine.isBp && !gutterLine.isErr && !gutterLine.isWarn
-                        z: 1
-                        width: Math.max(8, root.lineHeight - 6)
-                        height: bpDot.width
-                        radius: bpDot.width / 2
-                        anchors.verticalCenter: parent.verticalCenter
-                        x: 3
+                        z: 2
+                        width: root.markerSize
+                        height: root.markerSize
+                        radius: width / 2
+                        x: Math.round((root.markerLaneWidth - width) / 2)
+                        y: Math.round((gutterLine.height - height) / 2)
                         color: EditorPanel.errorColor
+                        border.width: gutterLine.isDbg ? 1.5 : 1
+                        border.color: gutterLine.isDbg
+                                      ? (CircuitCanvas.msgWarnBg || appTheme.highlight)
+                                      : Qt.darker(EditorPanel.errorColor, 1.35)
                     }
                     Rectangle {
                         id: errWarnDot
                         visible: gutterLine.isErr || gutterLine.isWarn
-                        z: 2
-                        width: Math.max(8, root.lineHeight - 6)
+                        z: 3
+                        width: Math.max(10, Math.min(13, Math.round(root.lineHeight * 0.66)))
                         height: errWarnDot.width
                         radius: errWarnDot.width / 2
-                        anchors.verticalCenter: parent.verticalCenter
-                        x: 3
+                        x: Math.round((root.markerLaneWidth - width) / 2)
+                        y: Math.round((gutterLine.height - height) / 2)
                         color: gutterLine.isErr ? EditorPanel.errorColor : EditorPanel.warnColor
                         border.width: gutterLine.isBp ? 1.5 : 0
-                        border.color: gutterLine.isBp ? (gutterLine.isErr ? "#ffffff" : EditorPanel.errorColor) : "transparent"
+                        border.color: gutterLine.isBp ? (gutterLine.isErr ? appTheme.highlightedText : EditorPanel.errorColor) : "transparent"
 
                         AppText {
                             anchors.centerIn: parent
                             text: "!"
-                            color: "#ffffff"
+                            color: appTheme.highlightedText
                             font.bold: true
-                            font.pixelSize: Math.max(7, Math.round(errWarnDot.height * 0.75))
+                            font.pixelSize: Math.max(7, Math.round(errWarnDot.height * 0.72))
                             font.family: area.font.family
                             verticalAlignment: Text.AlignVCenter
                             horizontalAlignment: Text.AlignHCenter
                         }
                     }
-                    Rectangle {
-                        id: dbgDot
-                        visible: gutterLine.isDbg
-                        z: 3
-                        width: gutterLine.isBp ? gutterLine.height * 0.28 : gutterLine.height * 0.45
-                        height: dbgDot.width * 1.4
-                        anchors.verticalCenter: parent.verticalCenter
-                        x: gutterLine.isBp ? 6 : 4
-                        color: gutterLine.isBp ? appTheme.highlightedText : (CircuitCanvas.msgWarnBg || appTheme.highlight)
-                    }
                     AppText {
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.leftMargin: root.markerLaneWidth
+                        anchors.right: parent.right
                         anchors.rightMargin: 8
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter
                         text: gutterLine.line
@@ -208,6 +231,67 @@ Item {
                         font.pixelSize: area.font.pixelSize
                         color: gutterLine.index === root.cursorLine ? EditorPanel.gutterActiveNumColor : EditorPanel.gutterNumColor
                         font.bold: gutterLine.index === root.cursorLine
+                    }
+                }
+            }
+
+            Canvas {
+                id: dbgArrow
+                contextType: "2d"
+                readonly property int dbgLine: EditorPanel.debugLine
+                readonly property bool dbgOnBp: dbgLine >= 1 && root.containsLine(root.breakpoints, dbgLine)
+                visible: dbgLine >= 1 && dbgLine <= area.lineCount
+                z: 4
+                x: 0
+                y: Math.round(area.topPadding + (dbgLine - 1) * root.lineHeight)
+                width: root.markerLaneWidth
+                height: Math.max(1, Math.round(root.lineHeight))
+                antialiasing: true
+                onDbgLineChanged: requestPaint()
+                onDbgOnBpChanged: requestPaint()
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onVisibleChanged: if (visible) requestPaint()
+                Connections {
+                    target: CircuitCanvas
+                    function onAppearanceChanged() { dbgArrow.requestPaint() }
+                }
+                onPaint: {
+                    var ctx = getContext("2d")
+                    if (!ctx)
+                        return
+                    ctx.clearRect(0, 0, width, height)
+                    var cx = width / 2
+                    var cy = height / 2
+                    ctx.beginPath()
+                    if (dbgOnBp) {
+                        var r = Math.max(2.4, root.markerSize * 0.27)
+                        ctx.moveTo(cx - r * 0.65, cy - r)
+                        ctx.lineTo(cx + r * 0.95, cy)
+                        ctx.lineTo(cx - r * 0.65, cy + r)
+                        ctx.closePath()
+                        ctx.fillStyle = appTheme.highlightedText
+                        ctx.fill()
+                    } else {
+                        var aw = Math.max(9, Math.min(12, Math.round(root.markerSize * 1.1)))
+                        var ah = Math.max(8, Math.min(10, Math.round(root.markerSize * 0.88)))
+                        var x0 = cx - aw / 2
+                        var xm = cx + aw * 0.12
+                        var x1 = cx + aw / 2
+                        var y0 = cy - ah / 2
+                        var y1 = cy + ah / 2
+                        ctx.moveTo(x0, y0)
+                        ctx.lineTo(xm, y0)
+                        ctx.lineTo(x1, cy)
+                        ctx.lineTo(xm, y1)
+                        ctx.lineTo(x0, y1)
+                        ctx.closePath()
+                        var fillCol = CircuitCanvas.msgWarnBg || appTheme.highlight
+                        ctx.fillStyle = fillCol
+                        ctx.fill()
+                        ctx.lineWidth = 1
+                        ctx.strokeStyle = Qt.darker(fillCol, 1.35)
+                        ctx.stroke()
                     }
                 }
             }
@@ -237,6 +321,7 @@ Item {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             hoverEnabled: true
+            cursorShape: root.hoveredGutterLine >= 1 ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: (mouse) => {
                 root.hideHover()
                 var line = Math.floor((mouse.y + gutterFlick.contentY - area.topPadding) / Math.max(1, root.lineHeight)) + 1
@@ -245,9 +330,11 @@ Item {
             onPositionChanged: (mouse) => {
                 var line = Math.floor((mouse.y + gutterFlick.contentY - area.topPadding) / Math.max(1, root.lineHeight)) + 1
                 if (line < 1 || line > area.lineCount) {
+                    root.hoveredGutterLine = -1
                     root.hideHover()
                     return
                 }
+                root.hoveredGutterLine = line
                 var tip = EditorPanel.gutterTooltip(line)
                 if (!tip || tip.length === 0) {
                     root.hideHover()
@@ -259,6 +346,7 @@ Item {
                 }
             }
             onExited: {
+                root.hoveredGutterLine = -1
                 root.hideHover()
             }
         }

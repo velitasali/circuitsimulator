@@ -9,24 +9,44 @@ use super::item::{Item, ProgrammableDevice};
 use crate::Circuit;
 use crate::circ1;
 use crate::components::Part;
+use crate::debug::DebugSession;
 use crate::elements::Kind;
+use crate::mcu::McuSnap;
 use crate::subcircuit::{self, SubcSearch, SubcTreeNode};
 
 impl Scene {
-    pub fn hidden_mcu_snap(&self) -> crate::mcu::McuSnap {
+    pub fn hidden_mcu_snap(&self) -> McuSnap {
         self.mcu_snap()
     }
 
-    pub fn mcu_snap(&self) -> crate::mcu::McuSnap {
+    pub fn mcu_snap(&self) -> McuSnap {
         self.items
             .iter()
             .find_map(|it| match &it.kind {
-                Part::Mcu(mcu) => Some(crate::mcu::McuSnap::from_mcu(&it.id, &mcu.mcu)),
+                Part::Mcu(mcu) => Some(McuSnap::from_mcu(&it.id, &mcu.mcu)),
                 _ => None,
             })
             .or_else(|| {
                 self.hidden.iter().find_map(|c| match &c.kind {
-                    crate::elements::Kind::Mcu(m) => Some(crate::mcu::McuSnap::from_mcu(&c.id, m)),
+                    Kind::Mcu(m) => Some(McuSnap::from_mcu(&c.id, m)),
+                    _ => None,
+                })
+            })
+            .or_else(|| {
+                self.items.iter().find_map(|it| match &it.kind {
+                    Part::QemuDevice(_) => Some(McuSnap::from_qemu(
+                        &it.id,
+                        DebugSession::global().remote_pc(),
+                    )),
+                    _ => None,
+                })
+            })
+            .or_else(|| {
+                self.hidden.iter().find_map(|c| match &c.kind {
+                    Kind::QemuDevice(_) => Some(McuSnap::from_qemu(
+                        &c.id,
+                        DebugSession::global().remote_pc(),
+                    )),
                     _ => None,
                 })
             })

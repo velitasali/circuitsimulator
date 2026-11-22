@@ -81,6 +81,21 @@ impl McuSnap {
             eeprom: d.eeprom().to_vec(),
         }
     }
+
+    pub fn from_qemu(id: &str, pc: u32) -> Self {
+        Self {
+            id: id.to_string(),
+            status_bits: Vec::new(),
+            status: 0,
+            has_status: false,
+            pc,
+            word_size: 1,
+            ram: Vec::new(),
+            registers: Vec::new(),
+            flash: Vec::new(),
+            eeprom: Vec::new(),
+        }
+    }
 }
 
 /// Pending monitor writes applied on the canvas tick / `sync_mcu`.

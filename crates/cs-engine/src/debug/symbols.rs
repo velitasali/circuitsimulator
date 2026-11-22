@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::str;
 
 /// Source code location corresponding to a flash program address.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -72,7 +73,10 @@ impl DebugSymbols {
 
     pub fn insert_line(&mut self, pc: u32, loc: SourceLocation) {
         let key = (loc.file.clone(), loc.line);
-        self.source_to_flash.entry(key).or_default().push(pc);
+        let list = self.source_to_flash.entry(key).or_default();
+        if !list.contains(&pc) {
+            list.push(pc);
+        }
         self.flash_to_source.insert(pc, loc);
     }
 
@@ -110,8 +114,24 @@ impl DebugSymbols {
     }
 
     /// Lookup source location for a given program counter.
+    /// Falls back to the nearest preceding line entry within the same function
+    /// (or within 32 address units) so stops mid-statement still highlight the line.
     pub fn lookup_address(&self, pc: u32) -> Option<&SourceLocation> {
-        self.flash_to_source.get(&pc)
+        if let Some(exact) = self.flash_to_source.get(&pc) {
+            return Some(exact);
+        }
+        if let Some((&prev_pc, loc)) = self.flash_to_source.range(..=pc).next_back() {
+            let delta = pc.saturating_sub(prev_pc);
+            let same_fn = match (self.function_at(prev_pc), self.function_at(pc)) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => delta <= 32,
+                _ => false,
+            };
+            if same_fn && delta <= 64 {
+                return Some(loc);
+            }
+        }
+        None
     }
 
     /// Lookup all flash addresses mapped to a given source line.
@@ -129,6 +149,53 @@ impl DebugSymbols {
             }
         }
         &[]
+    }
+
+    /// Resolve breakpoint address(es) for a source file and 1-based line.
+    /// Returns the entry address of the line (or the nearest following executable
+    /// line within 5 lines in the same file when the exact line has no code,
+    /// e.g. blank line / comment / opening brace).
+    pub fn resolve_breakpoint_addrs(&self, file: &Path, line: usize) -> Vec<u32> {
+        let exact = self.lookup_lines(file, line);
+        if !exact.is_empty() {
+            return Self::select_line_entry_addrs(exact);
+        }
+        // Fallback: search up to 5 lines forward in the same file.
+        let want_name = file.file_name();
+        let mut best: Option<(usize, &[u32])> = None;
+        for ((path, l), addrs) in &self.source_to_flash {
+            if *l > line && *l <= line.saturating_add(5) && !addrs.is_empty() {
+                let matches_file =
+                    path == file || (want_name.is_some() && path.file_name() == want_name);
+                if matches_file && best.is_none_or(|(bl, _)| *l < bl) {
+                    best = Some((*l, addrs.as_slice()));
+                }
+            }
+        }
+        if let Some((_, addrs)) = best {
+            return Self::select_line_entry_addrs(addrs);
+        }
+        Vec::new()
+    }
+
+    /// Collapse contiguous instructions belonging to the same source line down to
+    /// the entry address of each disjoint code range (e.g. inlined copies get one
+    /// breakpoint each, while multi-instruction lines only break once at entry).
+    fn select_line_entry_addrs(addrs: &[u32]) -> Vec<u32> {
+        let mut sorted: Vec<u32> = addrs.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        let mut out = Vec::new();
+        for addr in sorted {
+            if let Some(&prev) = out.last() {
+                // Consecutive instructions for the same statement are typically within 16 bytes.
+                if addr.saturating_sub(prev) <= 16 {
+                    continue;
+                }
+            }
+            out.push(addr);
+        }
+        out
     }
 
     /// Return the function name that starts at or contains `pc`.
@@ -626,6 +693,12 @@ impl ElfParser {
             }
         };
 
+        // ELF machine architecture: AVR uses 16-bit word-addressed PC in cs-mcu,
+        // while ELF/DWARF stores byte addresses.
+        const EM_AVR: u16 = 83;
+        let e_machine = read_u16(18);
+        let code_addr_div: u32 = if e_machine == EM_AVR { 2 } else { 1 };
+
         // Section header table offset
         let shoff = if is_64 {
             read_u64(40) as usize
@@ -666,16 +739,20 @@ impl ElfParser {
             }
             let slice = &bytes[str_offset + name_offset..];
             let len = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
-            std::str::from_utf8(&slice[..len]).unwrap_or("")
+            str::from_utf8(&slice[..len]).unwrap_or("")
         };
 
-        // Find .symtab, .strtab, and .debug_line sections
+        // Find .symtab, .strtab, .debug_line, .debug_str, and .debug_line_str sections
         let mut symtab_offset = 0;
         let mut symtab_size = 0;
         let mut symtab_entsize = if is_64 { 24 } else { 16 };
         let mut symstr_offset = 0;
         let mut debug_line_offset = 0;
         let mut debug_line_size = 0;
+        let mut debug_str_offset = 0;
+        let mut debug_str_size = 0;
+        let mut debug_line_str_offset = 0;
+        let mut debug_line_str_size = 0;
 
         for i in 0..shnum {
             let offset = shoff + i * shentsize;
@@ -697,17 +774,30 @@ impl ElfParser {
                 read_u32(offset + 36) as usize
             };
 
-            if name == ".symtab" {
-                symtab_offset = sh_offset;
-                symtab_size = sh_size;
-                if sh_entsize > 0 {
-                    symtab_entsize = sh_entsize;
+            match name {
+                ".symtab" => {
+                    symtab_offset = sh_offset;
+                    symtab_size = sh_size;
+                    if sh_entsize > 0 {
+                        symtab_entsize = sh_entsize;
+                    }
                 }
-            } else if name == ".strtab" {
-                symstr_offset = sh_offset;
-            } else if name == ".debug_line" {
-                debug_line_offset = sh_offset;
-                debug_line_size = sh_size;
+                ".strtab" => {
+                    symstr_offset = sh_offset;
+                }
+                ".debug_line" => {
+                    debug_line_offset = sh_offset;
+                    debug_line_size = sh_size;
+                }
+                ".debug_str" => {
+                    debug_str_offset = sh_offset;
+                    debug_str_size = sh_size;
+                }
+                ".debug_line_str" => {
+                    debug_line_str_offset = sh_offset;
+                    debug_line_str_size = sh_size;
+                }
+                _ => {}
             }
         }
 
@@ -719,12 +809,15 @@ impl ElfParser {
                 }
                 let slice = &bytes[symstr_offset + name_offset..];
                 let len = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
-                std::str::from_utf8(&slice[..len]).unwrap_or("")
+                str::from_utf8(&slice[..len]).unwrap_or("")
             };
 
             let count = symtab_size / symtab_entsize;
             for i in 0..count {
                 let ent_offset = symtab_offset + i * symtab_entsize;
+                if ent_offset + symtab_entsize > bytes.len() {
+                    break;
+                }
                 let (st_name, st_value, st_size, st_info) = if is_64 {
                     let name = read_u32(ent_offset) as usize;
                     let info = bytes[ent_offset + 4];
@@ -746,47 +839,41 @@ impl ElfParser {
                     && !sym_name.starts_with('.')
                     && !sym_name.starts_with("__")
                     && !sym_name.starts_with("_vector")
+                    && !sym_name.contains('$')
+                    && !sym_name.starts_with("CSWTCH")
                     && sym_name != "_edata"
                     && sym_name != "_etext"
                     && sym_name != "_end"
                 {
                     // STT_FUNC = 2
                     if sym_type == 2 {
+                        let start_pc = st_value / code_addr_div;
                         let end_pc = if st_size > 0 {
-                            Some(st_value.saturating_add(st_size as u32).saturating_sub(1))
+                            Some(
+                                st_value.saturating_add(st_size as u32).saturating_sub(1)
+                                    / code_addr_div,
+                            )
                         } else {
                             None
                         };
-                        syms.insert_function(sym_name, st_value, end_pc);
+                        syms.insert_function(sym_name, start_pc, end_pc);
                     }
-                    // STT_OBJECT = 1 (Variables in .data/.bss) or STT_NOTYPE in RAM range
-                    else if sym_type == 1
+                    // STT_OBJECT = 1 (Variables in .data/.bss) or STT_NOTYPE in AVR RAM range
+                    else if (sym_type == 1 && st_value != 0)
                         || (sym_type == 0 && st_value >= 0x00800000 && st_value <= 0x0080FFFF)
                     {
-                        let (ram_addr, type_str) =
-                            if st_value >= 0x00800000 && st_value <= 0x0080FFFF {
-                                (
-                                    st_value - 0x00800000,
-                                    if st_size == 2 {
-                                        "uint16"
-                                    } else if st_size == 4 {
-                                        "uint32"
-                                    } else {
-                                        "uint8"
-                                    },
-                                )
-                            } else {
-                                (
-                                    st_value,
-                                    if st_size == 2 {
-                                        "uint16"
-                                    } else if st_size == 4 {
-                                        "uint32"
-                                    } else {
-                                        "uint8"
-                                    },
-                                )
-                            };
+                        let ram_addr = if st_value >= 0x00800000 && st_value <= 0x0080FFFF {
+                            st_value - 0x00800000
+                        } else {
+                            st_value
+                        };
+                        let type_str = if st_size == 2 {
+                            "uint16"
+                        } else if st_size == 4 {
+                            "uint32"
+                        } else {
+                            "uint8"
+                        };
                         let sz = if st_size == 0 { 1 } else { st_size };
                         syms.insert_variable(sym_name, type_str, ram_addr, sz, false);
                     }
@@ -799,8 +886,29 @@ impl ElfParser {
             && debug_line_size > 0
             && debug_line_offset + debug_line_size <= bytes.len()
         {
+            let debug_str = if debug_str_offset > 0
+                && debug_str_size > 0
+                && debug_str_offset + debug_str_size <= bytes.len()
+            {
+                &bytes[debug_str_offset..debug_str_offset + debug_str_size]
+            } else {
+                &[]
+            };
+            let debug_line_str = if debug_line_str_offset > 0
+                && debug_line_str_size > 0
+                && debug_line_str_offset + debug_line_str_size <= bytes.len()
+            {
+                &bytes[debug_line_str_offset..debug_line_str_offset + debug_line_str_size]
+            } else {
+                &[]
+            };
             Self::parse_dwarf_lines(
                 &bytes[debug_line_offset..debug_line_offset + debug_line_size],
+                debug_str,
+                debug_line_str,
+                is_64,
+                is_le,
+                code_addr_div,
                 &mut syms,
             );
         }
@@ -808,72 +916,288 @@ impl ElfParser {
         Some(syms)
     }
 
-    /// Basic DWARF `.debug_line` line program parser.
-    fn parse_dwarf_lines(dwarf: &[u8], syms: &mut DebugSymbols) {
-        if dwarf.len() < 30 {
-            return;
-        }
-        let mut pos = 0;
-        while pos + 10 < dwarf.len() {
-            let unit_len =
-                u32::from_le_bytes([dwarf[pos], dwarf[pos + 1], dwarf[pos + 2], dwarf[pos + 3]])
-                    as usize;
-            if unit_len == 0 || pos + 4 + unit_len > dwarf.len() {
+    /// DWARF `.debug_line` line number program parser supporting DWARF v2, v3, v4, and v5.
+    fn parse_dwarf_lines(
+        dwarf: &[u8],
+        debug_str: &[u8],
+        debug_line_str: &[u8],
+        elf_is_64: bool,
+        is_le: bool,
+        code_addr_div: u32,
+        syms: &mut DebugSymbols,
+    ) {
+        let r_u16 = |buf: &[u8], off: usize| -> u16 {
+            if off + 2 > buf.len() {
+                return 0;
+            }
+            if is_le {
+                u16::from_le_bytes([buf[off], buf[off + 1]])
+            } else {
+                u16::from_be_bytes([buf[off], buf[off + 1]])
+            }
+        };
+        let r_u32 = |buf: &[u8], off: usize| -> u32 {
+            if off + 4 > buf.len() {
+                return 0;
+            }
+            if is_le {
+                u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
+            } else {
+                u32::from_be_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
+            }
+        };
+        let r_u64 = |buf: &[u8], off: usize| -> u64 {
+            if off + 8 > buf.len() {
+                return 0;
+            }
+            if is_le {
+                u64::from_le_bytes([
+                    buf[off],
+                    buf[off + 1],
+                    buf[off + 2],
+                    buf[off + 3],
+                    buf[off + 4],
+                    buf[off + 5],
+                    buf[off + 6],
+                    buf[off + 7],
+                ])
+            } else {
+                u64::from_be_bytes([
+                    buf[off],
+                    buf[off + 1],
+                    buf[off + 2],
+                    buf[off + 3],
+                    buf[off + 4],
+                    buf[off + 5],
+                    buf[off + 6],
+                    buf[off + 7],
+                ])
+            }
+        };
+
+        let mut pos = 0usize;
+        while pos + 10 <= dwarf.len() {
+            let initial_len = r_u32(dwarf, pos);
+            if initial_len == 0 {
                 break;
             }
-            let _version = u16::from_le_bytes([dwarf[pos + 4], dwarf[pos + 5]]);
-            let header_len = u32::from_le_bytes([
-                dwarf[pos + 6],
-                dwarf[pos + 7],
-                dwarf[pos + 8],
-                dwarf[pos + 9],
-            ]) as usize;
-
-            let min_inst_len = dwarf[pos + 10] as u32;
-            let _default_is_stmt = dwarf[pos + 11] != 0;
-            let line_base = dwarf[pos + 12] as i8 as i32;
-            let line_range = dwarf[pos + 13] as u32;
-            let opcode_base = dwarf[pos + 14];
-
-            let program_start = pos + 10 + header_len;
-            let program_end = pos + 4 + unit_len;
-
-            // Extract file names from header
-            let mut file_names: Vec<PathBuf> = vec![PathBuf::from("main.c")];
-            let mut search_pos = pos + 15 + (opcode_base.saturating_sub(1) as usize);
-            // Skip include directories
-            while search_pos < program_start && dwarf[search_pos] != 0 {
-                while search_pos < program_start && dwarf[search_pos] != 0 {
-                    search_pos += 1;
+            let (is_dwarf64, unit_len, header_pos) = if initial_len == 0xFFFF_FFFF {
+                if pos + 12 > dwarf.len() {
+                    break;
                 }
-                search_pos += 1;
+                (true, r_u64(dwarf, pos + 4) as usize, pos + 12)
+            } else {
+                (false, initial_len as usize, pos + 4)
+            };
+            let Some(program_end) = header_pos.checked_add(unit_len) else {
+                break;
+            };
+            if program_end > dwarf.len() || header_pos + 6 > program_end {
+                break;
             }
-            search_pos += 1;
 
-            // Read file entries
-            while search_pos < program_start && dwarf[search_pos] != 0 {
-                let start_f = search_pos;
-                while search_pos < program_start && dwarf[search_pos] != 0 {
-                    search_pos += 1;
+            let mut cur = header_pos;
+            let version = r_u16(dwarf, cur);
+            cur += 2;
+            if !(2..=5).contains(&version) {
+                pos = program_end;
+                continue;
+            }
+
+            let address_size: u8 = if version >= 5 {
+                if cur + 2 > program_end {
+                    pos = program_end;
+                    continue;
                 }
-                if let Ok(name) = std::str::from_utf8(&dwarf[start_f..search_pos]) {
-                    file_names.push(PathBuf::from(name));
+                let addr_sz = dwarf[cur];
+                let _seg_sel_sz = dwarf[cur + 1];
+                cur += 2;
+                addr_sz
+            } else if elf_is_64 {
+                8
+            } else {
+                4
+            };
+
+            let header_len = if is_dwarf64 {
+                if cur + 8 > program_end {
+                    pos = program_end;
+                    continue;
                 }
-                search_pos += 1;
-                // Skip dir index, time, length (ULEB128)
-                for _ in 0..3 {
-                    while search_pos < program_start && (dwarf[search_pos] & 0x80) != 0 {
-                        search_pos += 1;
+                let v = r_u64(dwarf, cur) as usize;
+                cur += 8;
+                v
+            } else {
+                if cur + 4 > program_end {
+                    pos = program_end;
+                    continue;
+                }
+                let v = r_u32(dwarf, cur) as usize;
+                cur += 4;
+                v
+            };
+
+            let Some(program_start) = cur.checked_add(header_len) else {
+                pos = program_end;
+                continue;
+            };
+            if program_start > program_end || cur + 5 > program_start {
+                pos = program_end;
+                continue;
+            }
+
+            let min_inst_len = u64::from(dwarf[cur].max(1));
+            cur += 1;
+            let max_ops_per_inst = if version >= 4 {
+                if cur >= program_start {
+                    pos = program_end;
+                    continue;
+                }
+                let v = u64::from(dwarf[cur].max(1));
+                cur += 1;
+                v
+            } else {
+                1
+            };
+            if cur + 4 > program_start {
+                pos = program_end;
+                continue;
+            }
+            let default_is_stmt = dwarf[cur] != 0;
+            let line_base = i64::from(dwarf[cur + 1] as i8);
+            let line_range = u64::from(dwarf[cur + 2]);
+            let opcode_base = dwarf[cur + 3];
+            cur += 4;
+
+            let std_op_count = opcode_base.saturating_sub(1) as usize;
+            if cur + std_op_count > program_start {
+                pos = program_end;
+                continue;
+            }
+            let std_op_lens = &dwarf[cur..cur + std_op_count];
+            cur += std_op_count;
+
+            // Parse directory table and file name table
+            let mut file_names: Vec<PathBuf> = Vec::new();
+            if version <= 4 {
+                // DWARF v2-v4: 1-based directory & file indices (0 = none/compilation dir)
+                let mut dirs: Vec<String> = vec![String::new()];
+                while cur < program_start && dwarf[cur] != 0 {
+                    let s = read_cstr(dwarf, &mut cur, program_start);
+                    dirs.push(strip_verbatim_prefix(&s).to_string());
+                }
+                if cur < program_start && dwarf[cur] == 0 {
+                    cur += 1;
+                }
+
+                file_names.push(PathBuf::new()); // slot 0 unused in v2-v4
+                while cur < program_start && dwarf[cur] != 0 {
+                    let name = read_cstr(dwarf, &mut cur, program_start);
+                    let dir_idx = read_uleb128(dwarf, &mut cur, program_start) as usize;
+                    let _mtime = read_uleb128(dwarf, &mut cur, program_start);
+                    let _fsize = read_uleb128(dwarf, &mut cur, program_start);
+                    file_names.push(join_dwarf_path(
+                        dirs.get(dir_idx).map(String::as_str),
+                        &name,
+                    ));
+                }
+            } else {
+                // DWARF v5: format-described 0-based directory & file tables
+                let mut dirs: Vec<String> = Vec::new();
+                if cur < program_start {
+                    let dir_fmt_count = dwarf[cur] as usize;
+                    cur += 1;
+                    let mut dir_fmts = Vec::with_capacity(dir_fmt_count);
+                    for _ in 0..dir_fmt_count {
+                        let ct = read_uleb128(dwarf, &mut cur, program_start);
+                        let form = read_uleb128(dwarf, &mut cur, program_start);
+                        dir_fmts.push((ct, form));
                     }
-                    search_pos += 1;
+                    let dir_count = read_uleb128(dwarf, &mut cur, program_start) as usize;
+                    for _ in 0..dir_count {
+                        let mut dir_path = String::new();
+                        for &(ct, form) in &dir_fmts {
+                            let val = read_dwarf_form(
+                                dwarf,
+                                &mut cur,
+                                program_start,
+                                form,
+                                is_dwarf64,
+                                is_le,
+                                debug_str,
+                                debug_line_str,
+                            );
+                            if ct == 1 {
+                                // DW_LNCT_path
+                                if let DwarfVal::Str(s) = val {
+                                    dir_path = strip_verbatim_prefix(&s).to_string();
+                                }
+                            }
+                        }
+                        dirs.push(dir_path);
+                    }
                 }
+                if cur < program_start {
+                    let file_fmt_count = dwarf[cur] as usize;
+                    cur += 1;
+                    let mut file_fmts = Vec::with_capacity(file_fmt_count);
+                    for _ in 0..file_fmt_count {
+                        let ct = read_uleb128(dwarf, &mut cur, program_start);
+                        let form = read_uleb128(dwarf, &mut cur, program_start);
+                        file_fmts.push((ct, form));
+                    }
+                    let file_count = read_uleb128(dwarf, &mut cur, program_start) as usize;
+                    for _ in 0..file_count {
+                        let mut name = String::new();
+                        let mut dir_idx: usize = 0;
+                        for &(ct, form) in &file_fmts {
+                            let val = read_dwarf_form(
+                                dwarf,
+                                &mut cur,
+                                program_start,
+                                form,
+                                is_dwarf64,
+                                is_le,
+                                debug_str,
+                                debug_line_str,
+                            );
+                            match (ct, val) {
+                                (1, DwarfVal::Str(s)) => name = s,
+                                (2, DwarfVal::UInt(d)) => dir_idx = d as usize,
+                                _ => {}
+                            }
+                        }
+                        file_names.push(join_dwarf_path(
+                            dirs.get(dir_idx).map(String::as_str),
+                            &name,
+                        ));
+                    }
+                }
+            }
+
+            if line_range == 0 {
+                pos = program_end;
+                continue;
             }
 
             // Run line number state machine
-            let mut address: u32 = 0;
+            let mut address: u64 = 0;
+            let mut op_index: u64 = 0;
             let mut file_idx: usize = 1;
-            let mut line: u32 = 1;
-            let col: u32 = 0;
+            let mut line: i64 = 1;
+            let mut col: u32 = 0;
+            let mut _is_stmt = default_is_stmt;
+
+            let advance_op = |address: &mut u64, op_index: &mut u64, op_adv: u64| {
+                if max_ops_per_inst <= 1 {
+                    *address = address.wrapping_add(op_adv.wrapping_mul(min_inst_len));
+                } else {
+                    let total = *op_index + op_adv;
+                    *address =
+                        address.wrapping_add(min_inst_len.wrapping_mul(total / max_ops_per_inst));
+                    *op_index = total % max_ops_per_inst;
+                }
+            };
 
             let mut ip = program_start;
             while ip < program_end {
@@ -882,121 +1206,383 @@ impl ElfParser {
 
                 if op == 0 {
                     // Extended opcode
-                    if ip >= program_end {
-                        break;
-                    }
-                    let ext_len = dwarf[ip] as usize;
-                    ip += 1;
-                    if ip >= program_end {
-                        break;
+                    let ext_len = read_uleb128(dwarf, &mut ip, program_end) as usize;
+                    let ext_end = ip.saturating_add(ext_len).min(program_end);
+                    if ip >= ext_end {
+                        ip = ext_end;
+                        continue;
                     }
                     let ext_op = dwarf[ip];
                     ip += 1;
-                    if ext_op == 1 {
-                        // DW_LNE_end_sequence
-                        address = 0;
-                        line = 1;
-                    } else if ext_op == 2 && ext_len >= 5 {
-                        // DW_LNE_set_address
-                        if ip + 4 <= program_end {
-                            address = u32::from_le_bytes([
-                                dwarf[ip],
-                                dwarf[ip + 1],
-                                dwarf[ip + 2],
-                                dwarf[ip + 3],
-                            ]);
-                            ip += 4;
+                    match ext_op {
+                        1 => {
+                            // DW_LNE_end_sequence
+                            address = 0;
+                            op_index = 0;
+                            file_idx = 1;
+                            line = 1;
+                            col = 0;
+                            _is_stmt = default_is_stmt;
                         }
-                    } else {
-                        ip += ext_len.saturating_sub(1);
+                        2 => {
+                            // DW_LNE_set_address
+                            let rem = ext_end.saturating_sub(ip);
+                            if (address_size == 8 || rem == 8) && ip + 8 <= ext_end {
+                                address = r_u64(dwarf, ip);
+                            } else if ip + 4 <= ext_end {
+                                address = u64::from(r_u32(dwarf, ip));
+                            } else if ip + 2 <= ext_end {
+                                address = u64::from(r_u16(dwarf, ip));
+                            }
+                            op_index = 0;
+                        }
+                        3 => {
+                            // DW_LNE_define_file
+                            let name = read_cstr(dwarf, &mut ip, ext_end);
+                            let _dir_idx = read_uleb128(dwarf, &mut ip, ext_end);
+                            let _mtime = read_uleb128(dwarf, &mut ip, ext_end);
+                            let _fsize = read_uleb128(dwarf, &mut ip, ext_end);
+                            file_names.push(join_dwarf_path(None, &name));
+                        }
+                        _ => {}
                     }
+                    ip = ext_end;
                 } else if op < opcode_base {
                     // Standard opcode
                     match op {
                         1 => {
                             // DW_LNS_copy
-                            let file = file_names
-                                .get(file_idx)
-                                .cloned()
-                                .unwrap_or_else(|| PathBuf::from("main.c"));
-                            syms.insert_line(
-                                address,
-                                SourceLocation::with_col(file, line as usize, col as usize),
-                            );
+                            if line > 0 {
+                                if let Some(file) = file_names.get(file_idx) {
+                                    if !file.as_os_str().is_empty() {
+                                        let pc = (address as u32) / code_addr_div;
+                                        syms.insert_line(
+                                            pc,
+                                            SourceLocation::with_col(
+                                                file.clone(),
+                                                line as usize,
+                                                col as usize,
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
                         }
                         2 => {
                             // DW_LNS_advance_pc
-                            if ip < program_end {
-                                let mut uleb = 0u32;
-                                let mut shift = 0;
-                                loop {
-                                    if ip >= program_end {
-                                        break;
-                                    }
-                                    let b = dwarf[ip];
-                                    ip += 1;
-                                    uleb |= (u32::from(b & 0x7F)) << shift;
-                                    if (b & 0x80) == 0 {
-                                        break;
-                                    }
-                                    shift += 7;
-                                }
-                                address = address.wrapping_add(uleb.wrapping_mul(min_inst_len));
-                            }
+                            let op_adv = read_uleb128(dwarf, &mut ip, program_end);
+                            advance_op(&mut address, &mut op_index, op_adv);
                         }
                         3 => {
                             // DW_LNS_advance_line
-                            if ip < program_end {
-                                let mut sleb = 0i32;
-                                let mut shift = 0;
-                                loop {
-                                    if ip >= program_end {
-                                        break;
-                                    }
-                                    let b = dwarf[ip];
-                                    ip += 1;
-                                    sleb |= (i32::from(b & 0x7F)) << shift;
-                                    shift += 7;
-                                    if (b & 0x80) == 0 {
-                                        if shift < 32 && (b & 0x40) != 0 {
-                                            sleb |= !0 << shift;
-                                        }
-                                        break;
-                                    }
-                                }
-                                line = line.wrapping_add_signed(sleb);
-                            }
+                            let delta = read_sleb128(dwarf, &mut ip, program_end);
+                            line = line.wrapping_add(delta);
                         }
                         4 => {
                             // DW_LNS_set_file
-                            if ip < program_end {
-                                file_idx = dwarf[ip] as usize;
-                                ip += 1;
+                            file_idx = read_uleb128(dwarf, &mut ip, program_end) as usize;
+                        }
+                        5 => {
+                            // DW_LNS_set_column
+                            col = read_uleb128(dwarf, &mut ip, program_end) as u32;
+                        }
+                        6 => {
+                            // DW_LNS_negate_stmt
+                            _is_stmt = !_is_stmt;
+                        }
+                        7 => {
+                            // DW_LNS_set_basic_block (0 operands)
+                        }
+                        8 => {
+                            // DW_LNS_const_add_pc
+                            let adjusted = u64::from(255u8.saturating_sub(opcode_base));
+                            let op_adv = adjusted / line_range;
+                            advance_op(&mut address, &mut op_index, op_adv);
+                        }
+                        9 => {
+                            // DW_LNS_fixed_advance_pc (u16 operand)
+                            if ip + 2 <= program_end {
+                                let adv = u64::from(r_u16(dwarf, ip));
+                                ip += 2;
+                                address = address.wrapping_add(adv);
+                                op_index = 0;
                             }
                         }
-                        _ => {}
+                        10 | 11 => {
+                            // DW_LNS_set_prologue_end / DW_LNS_set_epilogue_begin (0 operands)
+                        }
+                        12 => {
+                            // DW_LNS_set_isa (1 ULEB128 operand)
+                            let _ = read_uleb128(dwarf, &mut ip, program_end);
+                        }
+                        _ => {
+                            // Unknown standard opcode: skip exact number of ULEB128 args from header.
+                            let argc =
+                                std_op_lens.get((op - 1) as usize).copied().unwrap_or(0) as usize;
+                            for _ in 0..argc {
+                                let _ = read_uleb128(dwarf, &mut ip, program_end);
+                            }
+                        }
                     }
                 } else {
                     // Special opcode
-                    let adjusted = (op - opcode_base) as u32;
-                    let addr_adv = (adjusted / line_range) * min_inst_len;
-                    let line_adv = line_base + (adjusted % line_range) as i32;
+                    let adjusted = u64::from(op - opcode_base);
+                    let op_adv = adjusted / line_range;
+                    let line_adv = line_base + (adjusted % line_range) as i64;
 
-                    address = address.wrapping_add(addr_adv);
-                    line = line.wrapping_add_signed(line_adv);
+                    advance_op(&mut address, &mut op_index, op_adv);
+                    line = line.wrapping_add(line_adv);
 
-                    let file = file_names
-                        .get(file_idx)
-                        .cloned()
-                        .unwrap_or_else(|| PathBuf::from("main.c"));
-                    syms.insert_line(
-                        address,
-                        SourceLocation::with_col(file, line as usize, col as usize),
-                    );
+                    if line > 0 {
+                        if let Some(file) = file_names.get(file_idx) {
+                            if !file.as_os_str().is_empty() {
+                                let pc = (address as u32) / code_addr_div;
+                                syms.insert_line(
+                                    pc,
+                                    SourceLocation::with_col(
+                                        file.clone(),
+                                        line as usize,
+                                        col as usize,
+                                    ),
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
-            pos += 4 + unit_len;
+            pos = program_end;
         }
     }
+}
+
+enum DwarfVal {
+    Str(String),
+    UInt(u64),
+    None,
+}
+
+fn read_cstr(buf: &[u8], pos: &mut usize, end: usize) -> String {
+    let start = *pos;
+    while *pos < end && buf[*pos] != 0 {
+        *pos += 1;
+    }
+    let s = str::from_utf8(&buf[start..*pos]).unwrap_or("").to_string();
+    if *pos < end && buf[*pos] == 0 {
+        *pos += 1;
+    }
+    s
+}
+
+fn read_cstr_at(buf: &[u8], offset: usize) -> String {
+    if offset >= buf.len() {
+        return String::new();
+    }
+    let slice = &buf[offset..];
+    let len = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
+    str::from_utf8(&slice[..len]).unwrap_or("").to_string()
+}
+
+fn read_uleb128(buf: &[u8], pos: &mut usize, end: usize) -> u64 {
+    let mut result = 0u64;
+    let mut shift = 0u32;
+    while *pos < end {
+        let b = buf[*pos];
+        *pos += 1;
+        if shift < 64 {
+            result |= u64::from(b & 0x7F) << shift;
+        }
+        if (b & 0x80) == 0 {
+            break;
+        }
+        shift = shift.saturating_add(7);
+    }
+    result
+}
+
+fn read_sleb128(buf: &[u8], pos: &mut usize, end: usize) -> i64 {
+    let mut result = 0i64;
+    let mut shift = 0u32;
+    while *pos < end {
+        let b = buf[*pos];
+        *pos += 1;
+        if shift < 64 {
+            result |= i64::from(b & 0x7F) << shift;
+        }
+        shift = shift.saturating_add(7);
+        if (b & 0x80) == 0 {
+            if shift < 64 && (b & 0x40) != 0 {
+                result |= !0i64 << shift;
+            }
+            break;
+        }
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn read_dwarf_form(
+    buf: &[u8],
+    pos: &mut usize,
+    end: usize,
+    form: u64,
+    is_dwarf64: bool,
+    is_le: bool,
+    debug_str: &[u8],
+    debug_line_str: &[u8],
+) -> DwarfVal {
+    let read_u16 = |b: &[u8], p: &mut usize| -> u16 {
+        if *p + 2 > end {
+            *p = end;
+            return 0;
+        }
+        let v = if is_le {
+            u16::from_le_bytes([b[*p], b[*p + 1]])
+        } else {
+            u16::from_be_bytes([b[*p], b[*p + 1]])
+        };
+        *p += 2;
+        v
+    };
+    let read_u32 = |b: &[u8], p: &mut usize| -> u32 {
+        if *p + 4 > end {
+            *p = end;
+            return 0;
+        }
+        let v = if is_le {
+            u32::from_le_bytes([b[*p], b[*p + 1], b[*p + 2], b[*p + 3]])
+        } else {
+            u32::from_be_bytes([b[*p], b[*p + 1], b[*p + 2], b[*p + 3]])
+        };
+        *p += 4;
+        v
+    };
+    let read_u64 = |b: &[u8], p: &mut usize| -> u64 {
+        if *p + 8 > end {
+            *p = end;
+            return 0;
+        }
+        let v = if is_le {
+            u64::from_le_bytes([
+                b[*p],
+                b[*p + 1],
+                b[*p + 2],
+                b[*p + 3],
+                b[*p + 4],
+                b[*p + 5],
+                b[*p + 6],
+                b[*p + 7],
+            ])
+        } else {
+            u64::from_be_bytes([
+                b[*p],
+                b[*p + 1],
+                b[*p + 2],
+                b[*p + 3],
+                b[*p + 4],
+                b[*p + 5],
+                b[*p + 6],
+                b[*p + 7],
+            ])
+        };
+        *p += 8;
+        v
+    };
+
+    match form {
+        0x08 => DwarfVal::Str(read_cstr(buf, pos, end)), // DW_FORM_string
+        0x0e => {
+            // DW_FORM_strp
+            let off = if is_dwarf64 {
+                read_u64(buf, pos) as usize
+            } else {
+                read_u32(buf, pos) as usize
+            };
+            DwarfVal::Str(read_cstr_at(debug_str, off))
+        }
+        0x1f => {
+            // DW_FORM_line_strp
+            let off = if is_dwarf64 {
+                read_u64(buf, pos) as usize
+            } else {
+                read_u32(buf, pos) as usize
+            };
+            DwarfVal::Str(read_cstr_at(debug_line_str, off))
+        }
+        0x0b => {
+            // DW_FORM_data1
+            if *pos < end {
+                let v = u64::from(buf[*pos]);
+                *pos += 1;
+                DwarfVal::UInt(v)
+            } else {
+                DwarfVal::None
+            }
+        }
+        0x05 => DwarfVal::UInt(u64::from(read_u16(buf, pos))), // DW_FORM_data2
+        0x06 => DwarfVal::UInt(u64::from(read_u32(buf, pos))), // DW_FORM_data4
+        0x07 => DwarfVal::UInt(read_u64(buf, pos)),            // DW_FORM_data8
+        0x0f => DwarfVal::UInt(read_uleb128(buf, pos, end)),   // DW_FORM_udata
+        0x0d => DwarfVal::UInt(read_sleb128(buf, pos, end) as u64), // DW_FORM_sdata
+        0x1e => {
+            // DW_FORM_data16 (16-byte MD5 digest)
+            *pos = (*pos + 16).min(end);
+            DwarfVal::None
+        }
+        0x1d => {
+            // DW_FORM_strp_sup
+            if is_dwarf64 {
+                let _ = read_u64(buf, pos);
+            } else {
+                let _ = read_u32(buf, pos);
+            }
+            DwarfVal::None
+        }
+        0x09 => {
+            // DW_FORM_block
+            let len = read_uleb128(buf, pos, end) as usize;
+            *pos = (*pos + len).min(end);
+            DwarfVal::None
+        }
+        0x0a => {
+            // DW_FORM_block1
+            if *pos < end {
+                let len = buf[*pos] as usize;
+                *pos = (*pos + 1 + len).min(end);
+            }
+            DwarfVal::None
+        }
+        0x03 => {
+            // DW_FORM_block2
+            let len = read_u16(buf, pos) as usize;
+            *pos = (*pos + len).min(end);
+            DwarfVal::None
+        }
+        0x04 => {
+            // DW_FORM_block4
+            let len = read_u32(buf, pos) as usize;
+            *pos = (*pos + len).min(end);
+            DwarfVal::None
+        }
+        _ => DwarfVal::None,
+    }
+}
+
+fn strip_verbatim_prefix(s: &str) -> &str {
+    s.strip_prefix(r"\\?\").unwrap_or(s)
+}
+
+fn join_dwarf_path(dir: Option<&str>, name: &str) -> PathBuf {
+    let clean_name = strip_verbatim_prefix(name);
+    let p = Path::new(clean_name);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    if let Some(d) = dir {
+        let clean_d = strip_verbatim_prefix(d);
+        if !clean_d.is_empty() {
+            return Path::new(clean_d).join(clean_name);
+        }
+    }
+    p.to_path_buf()
 }

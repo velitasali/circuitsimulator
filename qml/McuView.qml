@@ -387,6 +387,7 @@ Rectangle {
             Item { Layout.fillWidth: true }
 
             AppCheckBox {
+                visible: McuMonitor.flashTotalWords > 0 || McuMonitor.ramTotalRows > 0
                 text: I18n.tr( "Byte Mode" )
                 font: root.uiFont
                 checked: McuMonitor.byteMode
@@ -397,6 +398,7 @@ Rectangle {
             }
 
             AppCheckBox {
+                visible: McuMonitor.flashTotalWords > 0 || McuMonitor.ramTotalRows > 0
                 text: I18n.tr( "Jump to active address" )
                 font: root.uiFont
                 checked: McuMonitor.jumpToAddress
@@ -479,6 +481,7 @@ Rectangle {
                     }
 
                     Rectangle {
+                        visible: root.registersModel && root.registersModel.length > 0
                         SplitView.preferredHeight: 220
                         SplitView.minimumHeight: 100
                         color: appTheme.base
@@ -665,7 +668,7 @@ Rectangle {
                                     anchors.centerIn: parent
                                     width: parent.width - 16
                                     visible: !root.variablesModel || root.variablesModel.length === 0
-                                    text: I18n.tr( "No debug variables loaded.\nCompile the sketch (an ELF next to the .hex) to list program variables." )
+                                    text: I18n.tr( "No debug variables loaded.\nCompile the sketch to generate an ELF file with program variables." )
                                     horizontalAlignment: Text.AlignHCenter
                                     font.pixelSize: App.fontMicro
                                     color: root.mutedTextColor

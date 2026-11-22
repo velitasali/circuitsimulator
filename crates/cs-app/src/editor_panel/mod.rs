@@ -14,6 +14,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use crate::path_util::strip_file_url;
 use compiler::PendingCompile;
 use cs_engine::backup;
+use cs_engine::debug::DebugSession;
 use cs_engine::editor::{
     self, BoardEntry, CompilerSpec, FileWatcher, LspClient, LspEvent, WatchEvent,
     board_names_for_ui, calculate_newline, compiler_names, default_boards,
@@ -104,6 +105,11 @@ pub struct EditorPanel {
     board_rx: Option<Receiver<(String, Vec<BoardEntry>)>>,
     board_loading_path: Option<String>,
     compiling: bool,
+    compile_state: String,
+    compile_file: String,
+    compile_error_count: i32,
+    compile_warning_count: i32,
+    compile_cancel_requested: bool,
     compile_job: Option<PendingCompile>,
     last_debug_line: i32,
     pending_close_index: Option<usize>,
@@ -193,6 +199,11 @@ impl Default for EditorPanel {
             board_rx: None,
             board_loading_path: None,
             compiling: false,
+            compile_state: "idle".to_string(),
+            compile_file: String::new(),
+            compile_error_count: 0,
+            compile_warning_count: 0,
+            compile_cancel_requested: false,
             compile_job: None,
             last_debug_line: 0,
             pending_close_index: None,
@@ -324,9 +335,18 @@ impl EditorPanel {
         if doc.syntax.is_none() && doc.compiler.eq_ignore_ascii_case("arduino") {
             doc.syntax = Some("c.syntax".to_string());
         }
+        let initial_bps: Vec<usize> = doc
+            .breakpoints
+            .iter()
+            .filter(|&&l| l > 0)
+            .map(|&l| l as usize)
+            .collect();
         self.docs.push(doc);
         self.current = self.docs.len() as i32 - 1;
         if !path.is_empty() {
+            if !initial_bps.is_empty() {
+                DebugSession::global().set_breakpoints_for_file(Path::new(&path), &initial_bps);
+            }
             cs_engine::project::update_session(&self.project_path, |s| {
                 if !s.editor_files.contains(&path) {
                     s.editor_files.push(path.clone());
@@ -720,6 +740,11 @@ impl EditorPanel {
     );
     qproperty!("compiling", Read = compiling, Notify = compiling_changed);
     qproperty!(
+        "compileStatus",
+        Read = compile_status,
+        Notify = compiling_changed
+    );
+    qproperty!(
         "boardLoading",
         Read = board_loading,
         Notify = compiling_changed
@@ -816,6 +841,12 @@ impl EditorPanel {
     pub fn request_upload(&mut self);
     #[qsignal]
     pub fn request_power_on(&mut self);
+    #[qsignal]
+    pub fn request_restart_power_on(&mut self);
+    #[qsignal]
+    pub fn request_debug_run(&mut self);
+    #[qsignal]
+    pub fn debug_state_changed(&mut self);
     #[qsignal]
     pub fn request_save_before_close(&mut self);
     #[qsignal]
@@ -994,6 +1025,14 @@ impl EditorPanel {
     }
     pub fn compiling(&self) -> bool {
         self.compiling
+    }
+    pub fn compile_status(&self) -> Value {
+        json!({
+            "state": self.compile_state,
+            "file": self.compile_file,
+            "errors": self.compile_error_count,
+            "warnings": self.compile_warning_count,
+        })
     }
     pub fn board_loading(&self) -> bool {
         self.board_rx.is_some()
@@ -1307,7 +1346,11 @@ impl EditorPanel {
     }
 
     pub fn debug_line(&self) -> i32 {
-        if let Some(loc) = cs_engine::debug::DebugSession::global().active_location() {
+        let session = DebugSession::global();
+        if !session.is_active() {
+            return 0;
+        }
+        if let Some(loc) = session.active_location() {
             if let Some(d) = self.current_doc() {
                 if Path::new(&d.path).file_name() == loc.file.file_name() {
                     return loc.line as i32;
@@ -2047,6 +2090,17 @@ impl EditorPanel {
             d.syntax = highlighter::syntax_for_path(&path).map(|s| s.to_string());
         }
         if !path.is_empty() {
+            if let Some(d) = self.current_doc() {
+                if !d.breakpoints.is_empty() {
+                    let bp_lines: Vec<usize> = d
+                        .breakpoints
+                        .iter()
+                        .filter(|&&l| l > 0)
+                        .map(|&l| l as usize)
+                        .collect();
+                    DebugSession::global().set_breakpoints_for_file(Path::new(&path), &bp_lines);
+                }
+            }
             cs_engine::project::update_session(&self.project_path, |s| {
                 if !s.editor_files.contains(&path) {
                     s.editor_files.push(path.clone());
@@ -2334,8 +2388,21 @@ impl EditorPanel {
     #[qslot]
     fn cancel_compile(&mut self) {
         if let Some(pending) = &mut self.compile_job {
+            self.compile_cancel_requested = true;
             pending.job.cancel();
         }
+    }
+
+    #[qslot]
+    fn clear_compile_status(&mut self) {
+        if self.compiling || self.compile_state == "idle" {
+            return;
+        }
+        self.compile_state = "idle".to_string();
+        self.compile_file.clear();
+        self.compile_error_count = 0;
+        self.compile_warning_count = 0;
+        self.compiling_changed();
     }
 
     #[qslot]
@@ -2886,6 +2953,9 @@ impl EditorPanel {
         if cur_dl != self.last_debug_line {
             self.last_debug_line = cur_dl;
             self.marks_changed();
+            if cur_dl > 0 && DebugSession::is_paused_global() {
+                self.goto_1based(cur_dl);
+            }
         }
         if self.pending_flush {
             self.flush_dirty_drafts();
@@ -3127,47 +3197,67 @@ impl EditorPanel {
 
     #[qslot]
     fn debug_start(&mut self) {
-        cs_engine::debug::DebugSession::global().resume();
+        // Sync breakpoints from all open documents before starting debug.
+        let session = DebugSession::global();
+        for doc in &self.docs {
+            if !doc.path.is_empty() {
+                let bp_lines: Vec<usize> = doc
+                    .breakpoints
+                    .iter()
+                    .filter(|&&l| l > 0)
+                    .map(|&l| l as usize)
+                    .collect();
+                session.set_breakpoints_for_file(Path::new(&doc.path), &bp_lines);
+            }
+        }
+        session.resume();
+        self.debug_state_changed();
     }
 
     #[qslot]
     fn debug_pause(&mut self) {
-        cs_engine::debug::DebugSession::global().pause();
+        DebugSession::global().pause();
         self.marks_changed();
+        self.debug_state_changed();
     }
 
     #[qslot]
     fn debug_step(&mut self) {
-        cs_engine::debug::DebugSession::global().step_into();
+        DebugSession::global().step_into();
         self.marks_changed();
+        self.debug_state_changed();
     }
 
     #[qslot]
     fn debug_step_over(&mut self) {
-        cs_engine::debug::DebugSession::global().step_over();
+        DebugSession::global().step_over();
         self.marks_changed();
+        self.debug_state_changed();
     }
 
     #[qslot]
     fn debug_step_out(&mut self) {
-        cs_engine::debug::DebugSession::global().step_out();
+        DebugSession::global().step_out();
         self.marks_changed();
+        self.debug_state_changed();
     }
 
     #[qslot]
     fn debug_stop(&mut self) {
-        cs_engine::debug::DebugSession::global().stop();
+        DebugSession::global().stop();
+        self.last_debug_line = 0;
         self.marks_changed();
+        self.debug_state_changed();
     }
 
     #[qslot]
     fn debug_reset(&mut self) {
-        let session = cs_engine::debug::DebugSession::global();
+        let session = DebugSession::global();
         if session.is_active() {
             session.pause();
             self.marks_changed();
         }
-        self.request_power_on();
+        self.request_debug_run();
     }
 
     fn fire_edit(&mut self, action: &str) {

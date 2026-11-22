@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::macos_host;
 use crate::ui_icon::UiIcon;
 use cs_engine::canvas::scene::ProgrammableDevice;
+use cs_engine::debug::{BreakReason, DebugSession, DebugState};
 use cs_engine::overlays::{OverlayEntry, OverlaySnapshot, Overlays};
 use cs_engine::subcircuit::SubcTreeNode;
 use cs_engine::theme::{ColorId, ColorTheme};
@@ -133,6 +134,7 @@ pub struct CircuitPanel {
     zoom_menu_open: bool,
     running: bool,
     paused: bool,
+    debug_active: bool,
     sim_info_enabled: bool,
     subc_stack: Vec<NavEntry>,
     root_subc_children: Vec<SubcTreeNode>,
@@ -140,6 +142,10 @@ pub struct CircuitPanel {
     devices: Vec<ProgrammableDevice>,
     active_device_id: Option<String>,
     device_popup_open: bool,
+    compile_state: String,
+    compile_file: String,
+    compile_errors: i32,
+    compile_warnings: i32,
 }
 
 impl Default for CircuitPanel {
@@ -161,6 +167,7 @@ impl Default for CircuitPanel {
             zoom_menu_open: false,
             running: false,
             paused: false,
+            debug_active: false,
             sim_info_enabled: true,
             subc_stack: Vec::new(),
             root_subc_children: Vec::new(),
@@ -168,6 +175,10 @@ impl Default for CircuitPanel {
             devices: Vec::new(),
             active_device_id: None,
             device_popup_open: false,
+            compile_state: "idle".to_string(),
+            compile_file: String::new(),
+            compile_errors: 0,
+            compile_warnings: 0,
         }
     }
 }
@@ -247,6 +258,11 @@ impl CircuitPanel {
     qproperty!("deviceSel", Read = device_sel, Notify = device_sel_changed);
     qproperty!("simRunning", Read = sim_running, Notify = toolbar_changed);
     qproperty!("simPaused", Read = sim_paused, Notify = toolbar_changed);
+    qproperty!(
+        "compileStatus",
+        Read = compile_status,
+        Notify = toolbar_changed
+    );
 
     #[qsignal]
     fn overlay_layout_changed(&mut self);
@@ -526,10 +542,178 @@ impl CircuitPanel {
         })
     }
 
+    fn compile_status_visible(&self) -> bool {
+        !self.compile_state.is_empty() && self.compile_state != "idle"
+    }
+
+    fn compile_status(&self) -> Value {
+        let dark = macos_host::current_theme_dark();
+        let file = self.compile_file.as_str();
+        let view_hint = cs_engine::i18n::tr("Click to view compiler output");
+        match self.compile_state.as_str() {
+            "compiling" => {
+                let text = cs_engine::i18n::tr("Compiling...");
+                let tooltip = if file.is_empty() {
+                    format!("{text} — {view_hint}")
+                } else {
+                    format!("{} {file} — {view_hint}", cs_engine::i18n::tr("Compiling"))
+                };
+                json!({
+                    "visible": true,
+                    "state": "compiling",
+                    "text": text,
+                    "tooltip": tooltip,
+                    "icon": UiIcon::Refresh.as_str(),
+                    "bg": ColorTheme::get_hex(ColorId::MsgDebugRunningBg, dark),
+                    "fg": ColorTheme::get_hex(ColorId::MsgDebugRunningText, dark),
+                    "spinning": true,
+                    "cancellable": true,
+                    "dismissible": false,
+                    "autoHideMs": 0,
+                })
+            }
+            "ok" => {
+                let text = cs_engine::i18n::tr("Compiled");
+                let tooltip = if file.is_empty() {
+                    format!("{text} — {view_hint}")
+                } else {
+                    format!("{text}: {file} — {view_hint}")
+                };
+                json!({
+                    "visible": true,
+                    "state": "ok",
+                    "text": text,
+                    "tooltip": tooltip,
+                    "icon": UiIcon::Check.as_str(),
+                    "bg": ColorTheme::get_hex(ColorId::MsgOkBg, dark),
+                    "fg": ColorTheme::get_hex(ColorId::MsgOkText, dark),
+                    "spinning": false,
+                    "cancellable": false,
+                    "dismissible": true,
+                    "autoHideMs": 4000,
+                })
+            }
+            "warn" => {
+                let base = cs_engine::i18n::tr("Compiled");
+                let text = if self.compile_warnings > 0 {
+                    format!("{base} ({})", self.compile_warnings)
+                } else {
+                    base
+                };
+                let tooltip = if file.is_empty() {
+                    format!("{text} — {view_hint}")
+                } else {
+                    format!("{text}: {file} — {view_hint}")
+                };
+                json!({
+                    "visible": true,
+                    "state": "warn",
+                    "text": text,
+                    "tooltip": tooltip,
+                    "icon": UiIcon::Warning.as_str(),
+                    "bg": ColorTheme::get_hex(ColorId::MsgWarnBg, dark),
+                    "fg": ColorTheme::get_hex(ColorId::MsgWarnText, dark),
+                    "spinning": false,
+                    "cancellable": false,
+                    "dismissible": true,
+                    "autoHideMs": 6000,
+                })
+            }
+            "error" => {
+                let base = cs_engine::i18n::tr("Compile Failed");
+                let text = if self.compile_errors > 0 {
+                    format!("{base} ({})", self.compile_errors)
+                } else {
+                    base
+                };
+                let tooltip = if file.is_empty() {
+                    format!("{text} — {view_hint}")
+                } else {
+                    format!("{text}: {file} — {view_hint}")
+                };
+                json!({
+                    "visible": true,
+                    "state": "error",
+                    "text": text,
+                    "tooltip": tooltip,
+                    "icon": UiIcon::Warning.as_str(),
+                    "bg": ColorTheme::get_hex(ColorId::MsgErrorBg, dark),
+                    "fg": ColorTheme::get_hex(ColorId::MsgErrorText, dark),
+                    "spinning": false,
+                    "cancellable": false,
+                    "dismissible": true,
+                    "autoHideMs": 0,
+                })
+            }
+            "cancelled" => {
+                let text = cs_engine::i18n::tr("Compile Cancelled");
+                let tooltip = if file.is_empty() {
+                    format!("{text} — {view_hint}")
+                } else {
+                    format!("{text}: {file} — {view_hint}")
+                };
+                json!({
+                    "visible": true,
+                    "state": "cancelled",
+                    "text": text,
+                    "tooltip": tooltip,
+                    "icon": UiIcon::StopCircle.as_str(),
+                    "bg": ColorTheme::get_hex(ColorId::MsgWarnBg, dark),
+                    "fg": ColorTheme::get_hex(ColorId::MsgWarnText, dark),
+                    "spinning": false,
+                    "cancellable": false,
+                    "dismissible": true,
+                    "autoHideMs": 3000,
+                })
+            }
+            _ => json!({
+                "visible": false,
+                "state": "idle",
+                "text": "",
+                "tooltip": "",
+                "icon": "",
+                "bg": "",
+                "fg": "",
+                "spinning": false,
+                "cancellable": false,
+                "dismissible": false,
+                "autoHideMs": 0,
+            }),
+        }
+    }
+
+    fn set_compile_status_data(&mut self, status: Value) -> bool {
+        let state = status
+            .get("state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("idle")
+            .to_string();
+        let file = status
+            .get("file")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let errors = status.get("errors").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let warnings = status.get("warnings").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        if self.compile_state == state
+            && self.compile_file == file
+            && self.compile_errors == errors
+            && self.compile_warnings == warnings
+        {
+            return false;
+        }
+        self.compile_state = state;
+        self.compile_file = file;
+        self.compile_errors = errors;
+        self.compile_warnings = warnings;
+        true
+    }
+
     fn toolbar_items(&self) -> Value {
         let subc_vis = self.subc_nav_visible();
         let dev_vis = self.device_sel_visible();
-        let debug_vis = cs_engine::debug::DebugSession::global().is_active();
+        let debug_vis = DebugSession::global().is_active();
+        let compiling = self.compile_state == "compiling";
         let power_text = if self.running {
             cs_engine::i18n::tr("Stop Simulation")
         } else {
@@ -540,6 +724,19 @@ impl CircuitPanel {
         } else {
             cs_engine::i18n::tr("Pause Simulation")
         };
+        let mut debug_btn = action(
+            "debug",
+            &cs_engine::i18n::tr("Debug"),
+            UiIcon::BugReport,
+            dev_vis && !debug_vis,
+            false,
+            false,
+        );
+        if compiling {
+            if let Some(obj) = debug_btn.as_object_mut() {
+                obj.insert("enabled".into(), json!(false));
+            }
+        }
         let mut items = vec![
             widget("subcNav", subc_vis),
             separator(subc_vis),
@@ -583,6 +780,7 @@ impl CircuitPanel {
                 true,
                 self.paused,
             ),
+            debug_btn,
             separator(false),
             action(
                 "step",
@@ -625,6 +823,7 @@ impl CircuitPanel {
                 false,
             ),
             separator(false),
+            widget("compileStatus", self.compile_status_visible()),
             widget("msg", !self.message_text.is_empty()),
             widget("coords", true),
             separator(true),
@@ -807,22 +1006,25 @@ impl CircuitPanel {
             "power" => self.power_circ(),
             "pause" => self.pause_circ(),
             "simInfo" => self.toggle_info(),
-            "step" => {
-                cs_engine::debug::DebugSession::global().step_into();
-            }
-            "stepOver" => {
-                cs_engine::debug::DebugSession::global().step_over();
-            }
-            "reset" => {
-                cs_engine::debug::DebugSession::global().stop();
-                self.toolbar_changed();
-            }
-            "stop" => {
-                cs_engine::debug::DebugSession::global().stop();
-                self.toolbar_changed();
-            }
+            "step" => self.action("debugStep".into()),
+            "stepOver" => self.action("debugStepOver".into()),
+            "reset" => self.action("debugReset".into()),
+            "stop" => self.action("debugStop".into()),
             other if !other.is_empty() => self.action(other.to_string()),
             _ => {}
+        }
+    }
+
+    #[qslot]
+    fn refresh_debug_toolbar(&mut self) {
+        self.debug_active = DebugSession::global().is_active();
+        self.toolbar_changed();
+    }
+
+    #[qslot]
+    fn set_compile_status(&mut self, status: Value) {
+        if self.set_compile_status_data(status) {
+            self.toolbar_changed();
         }
     }
 
@@ -964,8 +1166,10 @@ impl CircuitPanel {
     }
 
     fn sync_sim_state_data(&mut self, running: bool, paused: bool) -> bool {
+        let debug_now = DebugSession::global().is_active();
         if self.running == running
             && self.paused == paused
+            && self.debug_active == debug_now
             && (!running || !self.message_text.is_empty())
         {
             return false;
@@ -976,11 +1180,21 @@ impl CircuitPanel {
             self.set_sim_running_state(running);
         }
         self.paused = paused;
+        self.debug_active = debug_now;
         let dark = macos_host::current_theme_dark();
         if !self.running {
             self.message_text.clear();
         } else if self.paused {
-            self.message_text = cs_engine::i18n::tr("Paused");
+            let at_bp = debug_now
+                && matches!(
+                    DebugSession::global().state(),
+                    DebugState::Paused(BreakReason::Breakpoint { .. })
+                );
+            self.message_text = if at_bp {
+                cs_engine::i18n::tr("Breakpoint")
+            } else {
+                cs_engine::i18n::tr("Paused")
+            };
             self.message_bg = ColorTheme::get_hex(ColorId::MsgWarnBg, dark);
             self.message_color = ColorTheme::get_hex(ColorId::MsgWarnText, dark);
         } else {
@@ -1660,5 +1874,113 @@ mod tests {
         assert_eq!(panel.message_text, "Running");
         assert!(!panel.info_visible());
         assert!(!panel.overlays.side_shown());
+    }
+
+    #[test]
+    fn test_overlay_debug_button_only_visible_with_debuggable_devices() {
+        let mut panel = CircuitPanel::default();
+        let has_visible_debug = |p: &CircuitPanel| {
+            p.toolbar_items()
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["id"] == "debug" && item["visible"] == true)
+        };
+
+        // Without programmable/debuggable components, Debug button is hidden.
+        assert!(!has_visible_debug(&panel));
+
+        // Add an ESP32 programmable device -> Debug button becomes visible.
+        panel.devices.push(ProgrammableDevice {
+            id: "Esp32-1".into(),
+            uid: "Esp32-1".into(),
+            label: "Esp32-1".into(),
+            display_text: "Esp32-1  (Esp32)".into(),
+            kind: "Esp32".into(),
+            is_active: true,
+        });
+        assert!(has_visible_debug(&panel));
+    }
+
+    #[test]
+    fn test_overlay_compile_status_transitions() {
+        let mut panel = CircuitPanel::default();
+        panel.devices.push(ProgrammableDevice {
+            id: "Esp32-1".into(),
+            uid: "Esp32-1".into(),
+            label: "Esp32-1".into(),
+            display_text: "Esp32-1  (Esp32)".into(),
+            kind: "Esp32".into(),
+            is_active: true,
+        });
+        let find_item = |p: &CircuitPanel, key: &str, val: &str| {
+            p.toolbar_items()
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item[key] == val)
+                .cloned()
+                .unwrap()
+        };
+
+        // Initially idle -> compileStatus widget hidden, debug enabled.
+        assert_eq!(
+            find_item(&panel, "widget", "compileStatus")["visible"],
+            false
+        );
+        assert_eq!(find_item(&panel, "id", "debug")["enabled"], true);
+
+        // Compiling -> widget visible, spinning, cancellable, debug button disabled.
+        assert!(panel.set_compile_status_data(json!({
+            "state": "compiling",
+            "file": "esp32_uart.ino",
+            "errors": 0,
+            "warnings": 0,
+        })));
+        assert_eq!(
+            find_item(&panel, "widget", "compileStatus")["visible"],
+            true
+        );
+        assert_eq!(find_item(&panel, "id", "debug")["enabled"], false);
+        let st = panel.compile_status();
+        assert_eq!(st["spinning"], true);
+        assert_eq!(st["cancellable"], true);
+        assert!(st["tooltip"].as_str().unwrap().contains("esp32_uart.ino"));
+
+        // Failed with 2 errors -> widget visible, error count shown, stays visible (autoHideMs == 0), debug re-enabled.
+        assert!(panel.set_compile_status_data(json!({
+            "state": "error",
+            "file": "esp32_uart.ino",
+            "errors": 2,
+            "warnings": 1,
+        })));
+        assert_eq!(find_item(&panel, "id", "debug")["enabled"], true);
+        let st = panel.compile_status();
+        assert_eq!(st["visible"], true);
+        assert_eq!(st["autoHideMs"], 0);
+        assert!(st["text"].as_str().unwrap().contains("(2)"));
+
+        // Compiled ok -> autoHideMs > 0.
+        assert!(panel.set_compile_status_data(json!({
+            "state": "ok",
+            "file": "esp32_uart.ino",
+            "errors": 0,
+            "warnings": 0,
+        })));
+        let st = panel.compile_status();
+        assert_eq!(st["visible"], true);
+        assert!(st["autoHideMs"].as_i64().unwrap() > 0);
+
+        // Cleared back to idle -> hidden.
+        assert!(panel.set_compile_status_data(json!({
+            "state": "idle",
+            "file": "",
+            "errors": 0,
+            "warnings": 0,
+        })));
+        assert_eq!(
+            find_item(&panel, "widget", "compileStatus")["visible"],
+            false
+        );
     }
 }

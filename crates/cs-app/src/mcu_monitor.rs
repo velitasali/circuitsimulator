@@ -22,6 +22,7 @@ pub struct McuMonitor {
     eeprom_revision: i32,
     watch_revision: i32,
     symbols_gen: Option<u64>,
+    remote_mem_gen: Option<u64>,
     jump_address: String,
     watch_eval: Vec<Value>,
     addr_names: HashMap<u16, String>,
@@ -45,6 +46,7 @@ impl Default for McuMonitor {
             eeprom_revision: 0,
             watch_revision: 0,
             symbols_gen: None,
+            remote_mem_gen: None,
             jump_address: String::new(),
             watch_eval: Vec::new(),
             addr_names: HashMap::new(),
@@ -424,11 +426,11 @@ impl McuMonitor {
         if self.snap.id.is_empty() {
             return json!([{ "title": cs_engine::i18n::tr("Watch"), "source": "watch" }]);
         }
-        let mut tabs = vec![
-            json!({ "title": cs_engine::i18n::tr("Watch"), "source": "watch" }),
-            json!({ "title": cs_engine::i18n::tr("RAM (Hex Table)"), "source": "ram_matrix" }),
-        ];
+        let mut tabs = vec![json!({ "title": cs_engine::i18n::tr("Watch"), "source": "watch" })];
         if !self.snap.ram.is_empty() {
+            tabs.push(
+                json!({ "title": cs_engine::i18n::tr("RAM (Hex Table)"), "source": "ram_matrix" }),
+            );
             tabs.push(json!({ "title": cs_engine::i18n::tr("RAM List"), "source": "ram" }));
         }
         if !self.snap.flash.is_empty() {
@@ -471,9 +473,14 @@ impl McuMonitor {
         let arr: Vec<Value> = vars
             .iter()
             .map(|v| {
+                let addr_str = if v.address > 0xFFFF {
+                    format!("0x{:08X}", v.address)
+                } else {
+                    format!("0x{:04X}", v.address)
+                };
                 json!({
                     "name": v.name,
-                    "address": format!("0x{:04X}", v.address),
+                    "address": addr_str,
                     "type": v.var_type,
                     "size": v.size,
                     "isSfr": v.is_sfr,
@@ -890,19 +897,35 @@ impl McuMonitor {
 
     fn rebuild_watches(&mut self) {
         let evaluated = DebugSession::global().evaluate_watches(&self.snap);
+        let ram_len = self.snap.ram.len();
         let json: Vec<Value> = evaluated
             .into_iter()
             .map(|v| {
+                let addr_str = v
+                    .address
+                    .map(|a| {
+                        if a > 0xFFFF {
+                            format!("0x{a:08X}")
+                        } else {
+                            format!("0x{a:04X}")
+                        }
+                    })
+                    .unwrap_or_else(|| "---".to_string());
+                let editable_addr = v
+                    .address
+                    .filter(|&a| (a as usize) < ram_len)
+                    .map(|a| a as i32)
+                    .unwrap_or(-1);
                 json!({
                     "name": v.name,
                     "expr": v.expr,
-                    "address": v.address.map(|a| format!("0x{a:04X}")).unwrap_or_else(|| "---".to_string()),
+                    "address": addr_str,
                     "value": v.formatted,
                     "type": v.type_name,
                     "hex": v.hex,
                     "dec": v.dec,
                     "bin": v.bin,
-                    "addr": v.address.map(|a| a as i32).unwrap_or(-1),
+                    "addr": editable_addr,
                 })
             })
             .collect();
@@ -914,11 +937,22 @@ impl McuMonitor {
     }
 
     fn poll_symbols(&mut self) {
-        let generation = DebugSession::global().symbols_generation();
+        let session = DebugSession::global();
+        let generation = session.symbols_generation();
+        let mut need_watches = false;
         if self.symbols_gen != Some(generation) {
             self.symbols_gen = Some(generation);
             self.rebuild_variables_cache();
             self.variables_changed();
+            need_watches = true;
+        }
+        let remote_gen = session.remote_mem_generation();
+        if self.remote_mem_gen != Some(remote_gen) {
+            self.remote_mem_gen = Some(remote_gen);
+            need_watches = true;
+        }
+        if need_watches {
+            self.rebuild_watches();
         }
     }
 
@@ -1003,6 +1037,7 @@ impl McuMonitor {
         self.registers_cache = Value::Array(Vec::new());
         self.variables_cache = Value::Array(Vec::new());
         self.symbols_gen = None;
+        self.remote_mem_gen = None;
         mcu::clear_monitor_snap();
     }
 

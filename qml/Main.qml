@@ -763,21 +763,42 @@ ApplicationWindow {
                 CircuitPanel.showEditor()
                 if (EditorPanel.documents.length === 0)
                     CircuitCanvas.editFirmware("")
-                EditorPanel.debug()
+                if (EditorPanel.documents.length > 0) {
+                    EditorPanel.debug()
+                } else {
+                    if (CircuitCanvas.simRunning)
+                        CircuitCanvas.powerOff()
+                    EditorPanel.debugStart()
+                    CircuitCanvas.powerOn()
+                    CircuitPanel.refreshDebugToolbar()
+                }
             } else if (id === "sim.run") {
                 if (EditorPanel.documents.length === 0 && !CircuitCanvas.simRunning)
                     CircuitCanvas.editFirmware("")
                 EditorPanel.run()
             } else if (id === "sim.step") {
                 EditorPanel.debugStep()
+                if (CircuitCanvas.simRunning && CircuitCanvas.simPaused)
+                    CircuitCanvas.pauseCirc()
             } else if (id === "sim.stepOver") {
                 EditorPanel.debugStepOver()
+                if (CircuitCanvas.simRunning && CircuitCanvas.simPaused)
+                    CircuitCanvas.pauseCirc()
             } else if (id === "sim.debugPause") {
                 EditorPanel.debugPause()
+                if (CircuitCanvas.simRunning && !CircuitCanvas.simPaused)
+                    CircuitCanvas.pauseCirc()
             } else if (id === "sim.stop") {
                 EditorPanel.debugStop()
+                CircuitPanel.refreshDebugToolbar()
+                if (CircuitCanvas.simRunning && CircuitCanvas.simPaused)
+                    CircuitCanvas.pauseCirc()
             } else if (id === "sim.reset") {
-                EditorPanel.debugReset()
+                if (CircuitCanvas.simRunning)
+                    CircuitCanvas.powerOff()
+                EditorPanel.debugStart()
+                CircuitCanvas.powerOn()
+                CircuitPanel.refreshDebugToolbar()
             } else if (id === "circ.addAllComponents") {
                 CircuitCanvas.addAllComponents()
             }
@@ -808,6 +829,9 @@ ApplicationWindow {
         }
         function onSimChanged() {
             AppMenuBar.setSimState(CircuitCanvas.simRunning, CircuitCanvas.simPaused)
+            if (CircuitCanvas.simPaused) {
+                EditorPanel.pollLsp()
+            }
         }
         function onFilePathChanged() {
             App.windowTitle = CircuitCanvas.fileName
@@ -1161,6 +1185,18 @@ ApplicationWindow {
                 CircuitCanvas.powerCirc()
             else if (CircuitCanvas.simPaused)
                 CircuitCanvas.pauseCirc()
+        }
+        function onRequestRestartPowerOn() {
+            if (CircuitCanvas.simRunning)
+                CircuitCanvas.powerOff()
+            CircuitCanvas.powerOn()
+        }
+        function onRequestDebugRun() {
+            if (CircuitCanvas.simRunning)
+                CircuitCanvas.powerOff()
+            EditorPanel.debugStart()
+            CircuitCanvas.powerOn()
+            CircuitPanel.refreshDebugToolbar()
         }
         function onFocusedChanged() {
             if (!CommandCenter.visible)

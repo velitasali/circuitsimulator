@@ -8,11 +8,14 @@
 pub mod periph;
 
 use std::collections::BTreeMap;
+use std::fs;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use cs_qemu::{Arena, CosimWake, QemuProcess, SharedArena, SimAction};
 
+use crate::debug::{DebugSession, ElfParser, QemuGdbClient};
 use crate::digital::{IoPin, PinAction, PinMode, SpiPins, TwiPins};
 use crate::package::{Package, PkgPin, convert_package, select_package};
 use crate::subcircuit::SubcSearch;
@@ -146,6 +149,7 @@ struct LiveQemu {
     shm: SharedArena,
     process: QemuProcess,
     wake: CosimWake,
+    gdb: Option<QemuGdbClient>,
 }
 
 /// Circuit wrapper around a QEMU co-sim device.
@@ -777,7 +781,12 @@ impl QemuComp {
 
     /// Kill the child (C++ `killQemuProcess`) and drop the shm.
     pub fn stop_live(&mut self) {
-        self.live = None;
+        if let Some(mut live) = self.live.take() {
+            live.process.kill();
+            if let Some(mut gdb) = live.gdb.take() {
+                gdb.shutdown();
+            }
+        }
         self.next_wake = None;
     }
 
@@ -785,7 +794,7 @@ impl QemuComp {
     /// On Windows freeze-on-pause is a no-op (`SIGSTOP` has no equivalent).
     pub fn pause(&mut self) {
         if let Some(live) = &mut self.live {
-            live.process.gdb = self.gdb_port != 0;
+            live.process.gdb = self.gdb_port != 0 || live.gdb.is_some();
             live.process.stop();
         }
     }
@@ -834,8 +843,26 @@ impl QemuComp {
         if self.shm_key.is_empty() {
             self.shm_key = next_shm_key(&self.uid);
         }
-        let (args, _) = self.build_args(&exe)?;
-        self.spawn_live(&exe, &args, timeout)
+        let debug_active = DebugSession::is_active_global();
+        let (mut args, firm_path) = self.build_args(&exe)?;
+
+        // When starting in Debug mode, automatically load companion ELF symbols
+        // if none are loaded yet, and attach an internal GDB client over an
+        // ephemeral loopback TCP port.
+        let mut internal_gdb_port: Option<u16> = None;
+        if debug_active {
+            load_companion_elf_if_needed(&firm_path);
+            if self.gdb_port > 0 && self.gdb_port <= i32::from(u16::MAX) {
+                internal_gdb_port = Some(self.gdb_port as u16);
+            } else if let Some(port) = pick_free_loopback_port() {
+                args.push("-gdb".into());
+                args.push(format!("tcp:127.0.0.1:{port}"));
+                args.push("-S".into());
+                internal_gdb_port = Some(port);
+            }
+        }
+
+        self.spawn_live_inner(&exe, &args, timeout, internal_gdb_port)
     }
 
     /// Spawn a specific binary (tests use the cosim stub / `/bin/true`).
@@ -845,14 +872,15 @@ impl QemuComp {
         args: &[String],
         timeout: Duration,
     ) -> Result<(), String> {
-        self.spawn_live(executable, args, timeout)
+        self.spawn_live_inner(executable, args, timeout, None)
     }
 
-    fn spawn_live(
+    fn spawn_live_inner(
         &mut self,
         executable: &Path,
         args: &[String],
         timeout: Duration,
+        internal_gdb_port: Option<u16>,
     ) -> Result<(), String> {
         self.stop_live();
         if self.shm_key.is_empty() {
@@ -872,7 +900,7 @@ impl QemuComp {
             CosimWake::sleeping()
         });
         let mut process = QemuProcess::spawn(executable, args).map_err(|e| e.to_string())?;
-        process.gdb = self.gdb_port != 0;
+        process.gdb = self.gdb_port != 0 || internal_gdb_port.is_some();
         let start = Instant::now();
         while shm.load_running() == 0 {
             if !process.is_running() {
@@ -896,8 +924,24 @@ impl QemuComp {
             "[QEMU] Attached and running successfully (startup took {:?})",
             start.elapsed()
         ));
+        let gdb = if let Some(port) = internal_gdb_port {
+            match QemuGdbClient::connect(port, self.family) {
+                Ok(client) => Some(client),
+                Err(e) => {
+                    crate::logging::log_sim_err(format!("[GDB] {e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         self.arena = *shm.as_ref();
-        self.live = Some(LiveQemu { shm, process, wake });
+        self.live = Some(LiveQemu {
+            shm,
+            process,
+            wake,
+            gdb,
+        });
         Ok(())
     }
 
@@ -2040,7 +2084,49 @@ impl QemuComp {
         args.push(format!("file={firmware},if=pflash,format=raw"));
         args.push("-icount".into());
         args.push("shift=0,align=off,sleep=off".into());
+        if self.gdb_port != 0 {
+            args.push("-gdb".into());
+            args.push(format!("tcp::{}", self.gdb_port));
+            args.push("-S".into());
+        }
         args
+    }
+}
+
+fn pick_free_loopback_port() -> Option<u16> {
+    TcpListener::bind(("127.0.0.1", 0))
+        .ok()
+        .and_then(|l| l.local_addr().ok())
+        .map(|a| a.port())
+}
+
+fn load_companion_elf_if_needed(firmware: &Path) {
+    let session = DebugSession::global();
+    if !session.symbols().is_empty() {
+        return;
+    }
+    let mut candidates = vec![
+        firmware.with_extension("elf"),
+        firmware.with_extension("ino.elf"),
+    ];
+    let s = firmware.to_string_lossy();
+    if let Some(prefix) = s.strip_suffix(".merged.bin") {
+        candidates.push(PathBuf::from(format!("{prefix}.elf")));
+    }
+    for cand in candidates {
+        if !cand.is_file() {
+            continue;
+        }
+        if let Ok(bytes) = fs::read(&cand) {
+            if let Some(syms) = ElfParser::parse(&bytes) {
+                crate::logging::log_sim(format!(
+                    "[GDB] Loaded debug symbols from {}",
+                    cand.display()
+                ));
+                session.load_symbols(syms);
+                return;
+            }
+        }
     }
 }
 

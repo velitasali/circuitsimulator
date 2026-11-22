@@ -254,6 +254,15 @@ impl EditorPanel {
             fqbn,
         };
         self.compiling = true;
+        self.compile_state = "compiling".to_string();
+        self.compile_file = Path::new(&src_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&src_path)
+            .to_string();
+        self.compile_error_count = 0;
+        self.compile_warning_count = 0;
+        self.compile_cancel_requested = false;
         self.compiling_changed();
         self.compile_job = Some(PendingCompile {
             job: CompileJob::spawn(spec, ctx),
@@ -289,6 +298,24 @@ impl EditorPanel {
         }
         if let Some(result) = finished {
             let pending = self.compile_job.take().expect("compile job just finished");
+            let was_cancelled = self.compile_cancel_requested
+                || result
+                    .log
+                    .iter()
+                    .any(|l| l.to_ascii_lowercase().contains("cancelled by user"));
+            self.compile_cancel_requested = false;
+            self.compile_error_count = result.errors.len() as i32;
+            self.compile_warning_count = result.warnings.len() as i32;
+            self.compile_state = if was_cancelled {
+                "cancelled"
+            } else if result.error != 0 {
+                "error"
+            } else if !result.warnings.is_empty() {
+                "warn"
+            } else {
+                "ok"
+            }
+            .to_string();
             self.compiling = false;
             self.compiling_changed();
             self.apply_compile_result(pending, result);
@@ -358,12 +385,14 @@ impl EditorPanel {
             }
             if let Some(syms) = loaded_syms {
                 let session = cs_engine::debug::DebugSession::global();
+                let bp_lines: Vec<usize> = pending
+                    .breakpoints
+                    .iter()
+                    .filter(|&&l| l > 0)
+                    .map(|&l| l as usize)
+                    .collect();
+                session.set_breakpoints_for_file(path_obj, &bp_lines);
                 session.load_symbols(syms);
-                if pending.debug {
-                    for bp in &pending.breakpoints {
-                        session.add_breakpoint(path_obj, *bp as usize);
-                    }
-                }
             }
         }
 
@@ -392,10 +421,11 @@ impl EditorPanel {
         {
             if pending.debug {
                 self.push_log(cs_engine::i18n::tr("Starting debug session…"));
-                self.debug_start();
+                self.request_debug_run();
+            } else {
+                self.push_log(cs_engine::i18n::tr("Starting simulation…"));
+                self.request_restart_power_on();
             }
-            self.push_log(cs_engine::i18n::tr("Starting simulation…"));
-            self.request_power_on();
         }
     }
 

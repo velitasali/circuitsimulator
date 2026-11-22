@@ -1,6 +1,8 @@
 //! Simulation synchronization, runtime stepping loop, MCU cosimulation, and instruments.
 
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::Circuit;
 use crate::canvas::dirty;
@@ -8,7 +10,7 @@ use crate::canvas::events::Change;
 use crate::canvas::scene::Part;
 use crate::canvas::{Canvas, Point, with_pin_id, with_pin_id_idx};
 use crate::components::{ShapeKind, Subcircuit};
-use crate::debug::DebugSession;
+use crate::debug::{DebugSession, ElfParser};
 use crate::elements::Kind;
 use crate::elements::pins::{
     PIN_IN0, PIN_IN1, PIN_IN2, PIN_IN3, PIN_IN4, PIN_IN5, PIN_INPIN, PIN_LEFT, PIN_RGB_B,
@@ -21,6 +23,11 @@ impl Canvas {
     pub fn power_on(&mut self) -> Change {
         if self.board_layout.is_some() {
             self.exit_board_layout();
+        }
+        if DebugSession::is_active_global() && DebugSession::global().symbols().is_empty() {
+            if let Some(firm) = self.firmware_path_for("") {
+                load_companion_elf(&firm);
+            }
         }
         self.sim_running = true;
         self.sim_paused = false;
@@ -78,6 +85,9 @@ impl Canvas {
             return Change::default();
         }
         self.sim_paused = true;
+        if DebugSession::is_active_global() && !DebugSession::is_paused_global() {
+            DebugSession::global().pause();
+        }
         self.pause_qemu();
         Change {
             sim: true,
@@ -91,6 +101,9 @@ impl Canvas {
             return Change::default();
         }
         self.sim_paused = false;
+        if DebugSession::is_active_global() && DebugSession::is_paused_global() {
+            DebugSession::global().resume();
+        }
         self.resume_qemu();
         Change {
             sim: true,
@@ -213,6 +226,9 @@ impl Canvas {
             c.merge(self.publish_instrument_views());
         }
         c.pause_sim |= self.check_probe_pause();
+        if DebugSession::is_active_global() && DebugSession::is_paused_global() {
+            c.pause_sim = true;
+        }
         c
     }
 
@@ -690,6 +706,15 @@ impl Canvas {
     pub fn sync_mcu(&mut self) -> Change {
         for p in crate::mcu::take_pokes() {
             self.apply_mcu_poke(p);
+        }
+        let session = DebugSession::global();
+        if session.is_remote_attached() {
+            session.request_remote_mem_refresh();
+        }
+        if session.symbols().is_empty() {
+            if let Some(firm) = self.firmware_path_for("") {
+                load_companion_elf(&firm);
+            }
         }
         self.publish_mcu_snap();
         Change::default()
@@ -2326,5 +2351,27 @@ fn eval_part_overload(
             overload::eval_meter(meter_val.abs())
         }
         _ => ItemOverloadState::default(),
+    }
+}
+
+fn load_companion_elf(firmware: &Path) {
+    let mut candidates = vec![
+        firmware.with_extension("elf"),
+        firmware.with_extension("ino.elf"),
+    ];
+    let s = firmware.to_string_lossy();
+    if let Some(prefix) = s.strip_suffix(".merged.bin") {
+        candidates.push(PathBuf::from(format!("{prefix}.elf")));
+    }
+    for cand in candidates {
+        if !cand.is_file() {
+            continue;
+        }
+        if let Ok(bytes) = fs::read(&cand) {
+            if let Some(syms) = ElfParser::parse(&bytes) {
+                DebugSession::global().load_symbols(syms);
+                return;
+            }
+        }
     }
 }

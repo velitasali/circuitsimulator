@@ -2999,3 +2999,42 @@ fn led_matrix_sub_logic_threshold_change_marks_dirty() {
         "LedMatrix must be marked dirty when a pixel lights below 2.5 V"
     );
 }
+
+#[test]
+fn zoom_scope_and_la_at_anchor_updates_time_pos_and_marks_dirty() {
+    let mut c = Canvas::empty();
+    let scope_id = c.scene.add_oscope(0.0, 0.0);
+    let la_id = c.scene.add_lanalizer(160.0, 0.0);
+    // 480 px wide => 480 / 48 = 10 horizontal scope divisions; 400x320 => 400*8/320 = 10 LA divisions.
+    c.set_scope_view(480.0, 480.0);
+    c.set_la_view(400.0, 320.0);
+    let _ = c.set_scope_time_div(1e-3);
+    let _ = c.set_scope_time_pos(0.0);
+    let _ = c.set_la_time_div(1e-3);
+    let _ = c.set_la_time_pos(0.0);
+    let _ = c.take_dirty();
+
+    // Zoom in 2x anchored at 25% from the left (untriggered):
+    // old_window = 10 ms, new_window = 5 ms, delta_pos = (1 - 0.25) * (10 - 5) ms = 3.75 ms.
+    let _ = c.zoom_scope_at(5e-4, 0.25);
+    assert!((c.scope_time_div() - 5e-4).abs() < 1e-12);
+    assert!((c.scope_time_pos() - 3.75e-3).abs() < 1e-12);
+    assert!(c.take_dirty().items.contains(&scope_id));
+
+    // Zoom back out to 1 ms at the same anchor restores time_pos = 0.
+    let _ = c.zoom_scope_at(1e-3, 0.25);
+    assert!((c.scope_time_div() - 1e-3).abs() < 1e-12);
+    assert!(c.scope_time_pos().abs() < 1e-12);
+
+    // Zoom LA anchored at right edge (1.0): time_pos stays 0.
+    let _ = c.zoom_la_at(5e-4, 1.0);
+    assert!((c.la_time_div() - 5e-4).abs() < 1e-12);
+    assert!(c.la_time_pos().abs() < 1e-12);
+    assert!(c.take_dirty().items.contains(&la_id));
+
+    // Zoom LA anchored at left edge (0.0) from 0.5 ms -> 0.25 ms:
+    // old_window = 5 ms, new_window = 2.5 ms, delta_pos = 1.0 * 2.5 ms = 2.5 ms.
+    let _ = c.zoom_la_at(2.5e-4, 0.0);
+    assert!((c.la_time_div() - 2.5e-4).abs() < 1e-12);
+    assert!((c.la_time_pos() - 2.5e-3).abs() < 1e-12);
+}

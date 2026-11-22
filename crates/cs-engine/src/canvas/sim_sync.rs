@@ -16,6 +16,7 @@ use crate::elements::pins::{
     PIN_IN0, PIN_IN1, PIN_IN2, PIN_IN3, PIN_IN4, PIN_IN5, PIN_INPIN, PIN_LEFT, PIN_RGB_B,
     PIN_RGB_G, PIN_RGB_R, PIN_RIGHT,
 };
+use crate::instruments;
 use crate::overload::{self, ItemOverloadState};
 use crate::subcircuit;
 
@@ -1435,6 +1436,44 @@ impl Canvas {
         c
     }
 
+    /// Change scope `time_div` while adjusting `time_pos` so the timestamp at
+    /// horizontal screen fraction `anchor_fraction` (`0.0`..=`1.0`) stays fixed.
+    pub fn zoom_scope_at(&mut self, new_time_div: f64, anchor_fraction: f64) -> Change {
+        if !new_time_div.is_finite() {
+            return Change::default();
+        }
+        let old_time_div = self.scope_time_div;
+        let clamped_new = new_time_div.max(1e-12);
+        let h_divs = instruments::scope_h_divs(self.scope_view_w);
+        let new_pos = match self
+            .running
+            .as_ref()
+            .and_then(|c| c.instruments.first_scope())
+        {
+            Some(sampler) => sampler.zoomed_time_pos(
+                old_time_div,
+                clamped_new,
+                self.scope_time_pos,
+                anchor_fraction,
+                self.scope_trigger,
+                self.scope_trig_level,
+                h_divs,
+            ),
+            None => instruments::zoomed_time_pos_untriggered(
+                old_time_div,
+                clamped_new,
+                self.scope_time_pos,
+                anchor_fraction,
+                h_divs,
+            ),
+        };
+        self.scope_time_div = clamped_new;
+        self.scope_time_pos = new_pos;
+        let c = self.publish_instrument_views_inner(true);
+        self.dirty_plot_items();
+        c
+    }
+
     pub fn set_scope_volt_div(&mut self, ch: usize, v: f64) -> Change {
         if ch < 4 {
             self.scope_volt_div[ch] = v.max(1e-12);
@@ -1501,6 +1540,42 @@ impl Canvas {
 
     pub fn set_la_time_pos(&mut self, v: f64) -> Change {
         self.la_time_pos = v;
+        let c = self.publish_instrument_views_inner(true);
+        self.dirty_plot_items();
+        c
+    }
+
+    /// Change logic-analyzer `time_div` while adjusting `time_pos` so the
+    /// timestamp at horizontal screen fraction `anchor_fraction` (`0.0`..=`1.0`)
+    /// stays fixed.
+    pub fn zoom_la_at(&mut self, new_time_div: f64, anchor_fraction: f64) -> Change {
+        if !new_time_div.is_finite() {
+            return Change::default();
+        }
+        let old_time_div = self.la_time_div;
+        let clamped_new = new_time_div.max(1e-12);
+        let h_divs = instruments::la_h_divs(self.la_view_w, self.la_view_h);
+        let la_thr = 0.5 * (self.la_threshold_r + self.la_threshold_f);
+        let new_pos = match self.running.as_ref().and_then(|c| c.instruments.first_la()) {
+            Some(sampler) => sampler.zoomed_time_pos(
+                old_time_div,
+                clamped_new,
+                self.la_time_pos,
+                anchor_fraction,
+                self.la_trigger,
+                la_thr,
+                h_divs,
+            ),
+            None => instruments::zoomed_time_pos_untriggered(
+                old_time_div,
+                clamped_new,
+                self.la_time_pos,
+                anchor_fraction,
+                h_divs,
+            ),
+        };
+        self.la_time_div = clamped_new;
+        self.la_time_pos = new_pos;
         let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c

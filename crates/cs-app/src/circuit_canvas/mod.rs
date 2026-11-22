@@ -3012,6 +3012,13 @@ impl CircuitCanvas {
     }
 
     #[qslot]
+    fn zoom_scope_at(&mut self, new_time_div: f64, anchor_fraction: f64) -> f64 {
+        let c = self.inner.zoom_scope_at(new_time_div, anchor_fraction);
+        self.apply_scope_view(c);
+        self.inner.scope_time_pos()
+    }
+
+    #[qslot]
     fn set_scope_volt_div(&mut self, ch: i32, v: f64) {
         if ch >= 0 && ch < 4 {
             let c = self.inner.set_scope_volt_div(ch as usize, v);
@@ -3130,6 +3137,13 @@ impl CircuitCanvas {
     fn set_la_time_pos(&mut self, v: f64) {
         let c = self.inner.set_la_time_pos(v);
         self.apply_la_view(c);
+    }
+
+    #[qslot]
+    fn zoom_la_at(&mut self, new_time_div: f64, anchor_fraction: f64) -> f64 {
+        let c = self.inner.zoom_la_at(new_time_div, anchor_fraction);
+        self.apply_la_view(c);
+        self.inner.la_time_pos()
     }
 
     #[qslot]

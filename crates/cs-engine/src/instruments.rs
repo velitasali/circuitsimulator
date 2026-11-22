@@ -125,6 +125,31 @@ pub fn display_columns(h_divs: f64) -> usize {
     n.clamp(2, 4096)
 }
 
+/// Compute the new `time_pos` when no live sampler is attached (`t_base` is
+/// constant), keeping the timestamp at horizontal screen fraction
+/// `anchor_fraction` (`0.0` = left edge, `1.0` = right edge) fixed.
+pub fn zoomed_time_pos_untriggered(
+    old_time_div: f64,
+    new_time_div: f64,
+    time_pos: f64,
+    anchor_fraction: f64,
+    h_divs: f64,
+) -> f64 {
+    let h_divs = if h_divs.is_finite() {
+        h_divs.max(1e-3)
+    } else {
+        10.0
+    };
+    let old_window = (old_time_div.max(1e-12) * h_divs).max(1e-12);
+    let new_window = (new_time_div.max(1e-12) * h_divs).max(1e-12);
+    let f = if anchor_fraction.is_finite() {
+        anchor_fraction.clamp(0.0, 1.0)
+    } else {
+        0.5
+    };
+    time_pos + (1.0 - f) * (old_window - new_window)
+}
+
 /// Volt/div and vertical center that fit `min_v..=max_v` in about 80% of
 /// `v_divs`. A flat signal uses about 40% of the rows.
 pub fn fit_volt_div(min_v: f64, max_v: f64, v_divs: f64) -> (f64, f64) {
@@ -659,6 +684,50 @@ impl ScopeSampler {
         )
     }
 
+    /// Right-edge reference timestamp for a window of `window` seconds before
+    /// subtracting `time_pos`.
+    pub fn window_t_base(&self, window: f64, trigger: i32, trig_level: f64) -> f64 {
+        let t_last = self.last_time();
+        if trigger >= 0 && (trigger as usize) < self.nch {
+            self.last_crossing(trigger as usize, trig_level)
+                .map(|t| (t + window * 0.5).min(t_last))
+                .unwrap_or(t_last)
+        } else {
+            t_last
+        }
+    }
+
+    /// Compute the new `time_pos` that keeps the timestamp at horizontal screen
+    /// fraction `anchor_fraction` (`0.0` = left edge, `1.0` = right edge) fixed
+    /// when `time_div` changes from `old_time_div` to `new_time_div`.
+    pub fn zoomed_time_pos(
+        &self,
+        old_time_div: f64,
+        new_time_div: f64,
+        time_pos: f64,
+        anchor_fraction: f64,
+        trigger: i32,
+        trig_level: f64,
+        h_divs: f64,
+    ) -> f64 {
+        let h_divs = if h_divs.is_finite() {
+            h_divs.max(1e-3)
+        } else {
+            10.0
+        };
+        let old_window = (old_time_div.max(1e-12) * h_divs).max(1e-12);
+        let new_window = (new_time_div.max(1e-12) * h_divs).max(1e-12);
+        let old_base = self.window_t_base(old_window, trigger, trig_level);
+        let new_base = self.window_t_base(new_window, trigger, trig_level);
+        zoomed_time_pos_untriggered(
+            old_time_div,
+            new_time_div,
+            time_pos,
+            anchor_fraction,
+            h_divs,
+        ) + (new_base - old_base)
+    }
+
     /// Window of `time_div * h_divs` seconds, `n_display` samples.
     /// The schematic screen passes 10 divisions. An expanded window passes
     /// however many divisions fit.
@@ -680,14 +749,7 @@ impl ScopeSampler {
             10.0
         };
         let window = (time_div.max(1e-12) * h_divs).max(1e-12);
-        let t_last = self.last_time();
-        let t_base = if trigger >= 0 && (trigger as usize) < self.nch {
-            self.last_crossing(trigger as usize, trig_level)
-                .map(|t| (t + window * 0.5).min(t_last))
-                .unwrap_or(t_last)
-        } else {
-            t_last
-        };
+        let t_base = self.window_t_base(window, trigger, trig_level);
         // time_pos shifts the window back/forward in time without buffer loss
         let t_end = t_base - time_pos;
         let t_start = t_end - window;
@@ -1607,5 +1669,61 @@ mod tests {
             ch.plot_x.last().copied().unwrap_or(0.0) > 0.9,
             "the band should finish on the right edge"
         );
+    }
+
+    #[test]
+    fn zoomed_time_pos_keeps_anchor_timestamp_fixed() {
+        let mut s = ScopeSampler::scope();
+        // Record a ramp from t = 0..=1.0 s with a rising crossing through 0.5 at t = 0.5 s.
+        for i in 0..=100 {
+            let t = i as f64 * 0.01;
+            let v = t;
+            s.push(
+                t,
+                &[v, 0.0, 0.0, 0.0],
+                &[true, false, false, false],
+                0,
+                0.5,
+                true,
+                0.0,
+            );
+        }
+
+        let time_at = |time_div: f64, time_pos: f64, trigger: i32, h_divs: f64, frac: f64| {
+            let window = time_div * h_divs;
+            let t_base = s.window_t_base(window, trigger, 0.5);
+            let t_end = t_base - time_pos;
+            let t_start = t_end - window;
+            t_start + frac * window
+        };
+
+        let h_divs = 12.0;
+        for &trigger in &[-1, 0] {
+            for &anchor in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+                let old_td = 0.02; // window = 0.24 s
+                let old_tp = 0.05;
+                let t_before = time_at(old_td, old_tp, trigger, h_divs, anchor);
+
+                // Zoom in
+                let new_td_in = 0.005; // window = 0.06 s
+                let tp_in =
+                    s.zoomed_time_pos(old_td, new_td_in, old_tp, anchor, trigger, 0.5, h_divs);
+                let t_after_in = time_at(new_td_in, tp_in, trigger, h_divs, anchor);
+                assert!(
+                    (t_after_in - t_before).abs() < 1e-12,
+                    "zoom in shifted anchor (trigger={trigger}, anchor={anchor}): {t_before} -> {t_after_in}"
+                );
+
+                // Zoom out across the t_last clamp boundary (t_trig + window * 0.5 > t_last = 1.0)
+                let new_td_out = 0.2; // window = 2.4 s
+                let tp_out =
+                    s.zoomed_time_pos(new_td_in, new_td_out, tp_in, anchor, trigger, 0.5, h_divs);
+                let t_after_out = time_at(new_td_out, tp_out, trigger, h_divs, anchor);
+                assert!(
+                    (t_after_out - t_before).abs() < 1e-12,
+                    "zoom out shifted anchor (trigger={trigger}, anchor={anchor}): {t_before} -> {t_after_out}"
+                );
+            }
+        }
     }
 }

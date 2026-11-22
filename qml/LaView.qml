@@ -39,10 +39,15 @@ Rectangle {
         return ( LogicAnalyzer.timeDiv || 1e-3 ) * CircuitCanvas.laHDivs( w, h )
     }
 
-    function stepTimeDiv( dir: int ): void {
+    function stepTimeDivAt( dir: int, anchorFraction: real ): void {
         var nextVal = UiUtils.stepLogList( UiUtils.timeDivSteps, LogicAnalyzer.timeDiv, dir )
+        if ( nextVal === LogicAnalyzer.timeDiv )
+            return
+        var frac = isFinite( anchorFraction ) ? Math.max( 0.0, Math.min( 1.0, anchorFraction ) ) : 0.5
         LogicAnalyzer.setTimeDiv( nextVal )
-        CircuitCanvas.setLaTimeDiv( nextVal )
+        var newPos = CircuitCanvas.zoomLaAt( nextVal, frac )
+        LogicAnalyzer.timePos = newPos
+        root.refreshCursor()
     }
 
     property bool laPaintQueued: false
@@ -326,15 +331,50 @@ Rectangle {
                         }
                         laMouseArea.canvasWheelAccumY += dy
 
+                        var anchor = Math.max( 0.0, Math.min( 1.0, wheel.x / Math.max( width, 1 ) ) )
                         var thresh = isTrackpad ? 20.0 : 1.0
                         if ( laMouseArea.canvasWheelAccumY >= thresh ) {
-                            root.stepTimeDiv( -1 )
+                            root.stepTimeDivAt( -1, anchor )
                             laMouseArea.canvasWheelAccumY = 0
                         } else if ( laMouseArea.canvasWheelAccumY <= -thresh ) {
-                            root.stepTimeDiv( 1 )
+                            root.stepTimeDivAt( 1, anchor )
                             laMouseArea.canvasWheelAccumY = 0
                         }
                         canvasWheelTimer.restart()
+                    }
+                }
+            }
+
+            PinchHandler {
+                id: laPinch
+                target: null
+                property real lastScale: 1
+                property real logAccum: 0
+                onActiveChanged: {
+                    laPinch.lastScale = laPinch.active ? laPinch.scale : 1
+                    laPinch.logAccum = 0
+                }
+                onScaleChanged: {
+                    if ( !laPinch.active )
+                        return
+                    var factor = laPinch.scale / laPinch.lastScale
+                    laPinch.lastScale = laPinch.scale
+                    if ( !( factor > 0 && isFinite( factor ) ) )
+                        return
+                    laPinch.logAccum += Math.log( factor )
+                    var stepLog = Math.log( 10 ) / 12.0
+                    var cpos = laPinch.centroid.position
+                    var px = ( cpos.x !== 0 || cpos.y !== 0 || root.cursorX < 0 )
+                             ? cpos.x
+                             : root.cursorX
+                    var anchor = Math.max( 0.0, Math.min( 1.0, px / Math.max( laScreen.width, 1 ) ) )
+                    while ( laPinch.logAccum >= stepLog ) {
+                        root.stepTimeDivAt( -1, anchor )
+                        laPinch.logAccum -= stepLog
+                    }
+                    while ( laPinch.logAccum <= -stepLog ) {
+                        root.stepTimeDivAt( 1, anchor )
+                        laPinch.logAccum += stepLog
                     }
                 }
             }

@@ -440,7 +440,7 @@ impl LogicAnalyzer {
         self.time_pos
     }
     fn set_time_pos(&mut self, p: f64) {
-        if (self.time_pos - p).abs() > 1e-9 {
+        if p.is_finite() && self.time_pos != p {
             self.time_pos = p;
             self.time_changed();
         }

@@ -89,10 +89,19 @@ Rectangle {
         }
     }
 
-    function stepTimeDiv( dir: int ): void {
+    function stepTimeDivAt( dir: int, anchorFraction: real ): void {
         var nextVal = UiUtils.stepLogList( UiUtils.timeDivSteps, Oscilloscope.timeDiv, dir )
+        if ( nextVal === Oscilloscope.timeDiv )
+            return
+        var frac = isFinite( anchorFraction ) ? Math.max( 0.0, Math.min( 1.0, anchorFraction ) ) : 0.5
         Oscilloscope.setTimeDiv( nextVal )
-        CircuitCanvas.setScopeTimeDiv( nextVal )
+        var newPos = CircuitCanvas.zoomScopeAt( nextVal, frac )
+        var ch = Oscilloscope.currentChannel
+        var copy = root.chTimePos.slice()
+        copy[ch] = newPos
+        root.chTimePos = copy
+        Oscilloscope.setChTimePos( ch, newPos )
+        root.refreshCursor()
     }
 
     function autoScale( ch: int ): void {
@@ -558,15 +567,50 @@ Rectangle {
                         }
                         plotMouseArea.canvasWheelAccumY += dy
 
+                        var anchor = Math.max( 0.0, Math.min( 1.0, wheel.x / Math.max( width, 1 ) ) )
                         var thresh = isTrackpad ? 20.0 : 1.0
                         if ( plotMouseArea.canvasWheelAccumY >= thresh ) {
-                            root.stepTimeDiv( -1 )
+                            root.stepTimeDivAt( -1, anchor )
                             plotMouseArea.canvasWheelAccumY = 0
                         } else if ( plotMouseArea.canvasWheelAccumY <= -thresh ) {
-                            root.stepTimeDiv( 1 )
+                            root.stepTimeDivAt( 1, anchor )
                             plotMouseArea.canvasWheelAccumY = 0
                         }
                         canvasWheelTimer.restart()
+                    }
+                }
+            }
+
+            PinchHandler {
+                id: scopePinch
+                target: null
+                property real lastScale: 1
+                property real logAccum: 0
+                onActiveChanged: {
+                    scopePinch.lastScale = scopePinch.active ? scopePinch.scale : 1
+                    scopePinch.logAccum = 0
+                }
+                onScaleChanged: {
+                    if ( !scopePinch.active )
+                        return
+                    var factor = scopePinch.scale / scopePinch.lastScale
+                    scopePinch.lastScale = scopePinch.scale
+                    if ( !( factor > 0 && isFinite( factor ) ) )
+                        return
+                    scopePinch.logAccum += Math.log( factor )
+                    var stepLog = Math.log( 10 ) / 12.0
+                    var cpos = scopePinch.centroid.position
+                    var px = ( cpos.x !== 0 || cpos.y !== 0 || root.cursorX < 0 )
+                             ? cpos.x
+                             : root.cursorX
+                    var anchor = Math.max( 0.0, Math.min( 1.0, px / Math.max( scopeScreen.width, 1 ) ) )
+                    while ( scopePinch.logAccum >= stepLog ) {
+                        root.stepTimeDivAt( -1, anchor )
+                        scopePinch.logAccum -= stepLog
+                    }
+                    while ( scopePinch.logAccum <= -stepLog ) {
+                        root.stepTimeDivAt( 1, anchor )
+                        scopePinch.logAccum += stepLog
                     }
                 }
             }

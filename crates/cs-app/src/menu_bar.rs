@@ -53,9 +53,20 @@ pub struct AppMenuBar {
     has_selection: bool,
     can_paste: bool,
     has_project: bool,
+    has_mcu: bool,
     circuit_path: String,
     project_dir: String,
 }
+
+const DEBUGGER_MENU_IDS: &[&str] = &[
+    "sim.debug",
+    "sim.run",
+    "sim.step",
+    "sim.stepOver",
+    "sim.debugPause",
+    "sim.stop",
+    "sim.reset",
+];
 
 fn t(s: &str) -> String {
     i18n::tr(s)
@@ -287,6 +298,7 @@ fn build_menus(
     has_selection: bool,
     can_paste: bool,
     has_project: bool,
+    has_mcu: bool,
     local_subcircuits: &[String],
 ) -> Vec<MenuNode> {
     let c = &st.shortcuts;
@@ -607,20 +619,20 @@ fn build_menus(
                 item("sim.compile", &t("Compile"), true, false, false, c),
                 item("sim.load", &t("Upload"), true, false, false, c),
                 sep(),
-                item("sim.debug", &t("Debug"), true, false, false, c),
-                item("sim.run", &t("Run"), true, false, false, c),
-                item("sim.step", &t("Step"), true, false, false, c),
-                item("sim.stepOver", &t("Step Over"), true, false, false, c),
+                item("sim.debug", &t("Debug"), has_mcu, false, false, c),
+                item("sim.run", &t("Run"), has_mcu, false, false, c),
+                item("sim.step", &t("Step"), has_mcu, false, false, c),
+                item("sim.stepOver", &t("Step Over"), has_mcu, false, false, c),
                 item(
                     "sim.debugPause",
                     &t("Pause Debugger"),
-                    true,
+                    has_mcu,
                     false,
                     false,
                     c,
                 ),
-                item("sim.stop", &t("Stop Debugger"), true, false, false, c),
-                item("sim.reset", &t("Reset Debugger"), true, false, false, c),
+                item("sim.stop", &t("Stop Debugger"), has_mcu, false, false, c),
+                item("sim.reset", &t("Reset Debugger"), has_mcu, false, false, c),
                 sep(),
                 item(
                     "sim.animateLogic",
@@ -684,6 +696,7 @@ impl Default for AppMenuBar {
             false,
             false,
             has_project,
+            false,
             &local_subcs,
         );
         let json = serialize_menus(&menus);
@@ -705,6 +718,7 @@ impl Default for AppMenuBar {
             has_selection: false,
             can_paste: false,
             has_project,
+            has_mcu: false,
             circuit_path: String::new(),
             project_dir,
         }
@@ -851,7 +865,7 @@ impl AppMenuBar {
     #[qslot]
     fn trigger(&mut self, path: String) {
         if let Some(e) = find_entry_mut(&mut self.menus, &path) {
-            if e.separator || e.submenu.is_some() || e.id.is_empty() {
+            if !e.enabled || e.separator || e.submenu.is_some() || e.id.is_empty() {
                 return;
             }
             let id = e.id.clone();
@@ -907,6 +921,7 @@ impl AppMenuBar {
             self.has_selection,
             self.can_paste,
             self.has_project,
+            self.has_mcu,
             &local_subcs,
         );
         self.republish();
@@ -1005,6 +1020,26 @@ impl AppMenuBar {
     }
 
     #[qslot]
+    fn set_has_mcu(&mut self, has: bool) {
+        self.has_mcu = has;
+        let mut changed = false;
+        for id in DEBUGGER_MENU_IDS {
+            for m in &mut self.menus {
+                if let Some(e) = find_by_id_mut(&mut m.entries, id) {
+                    if e.enabled != has {
+                        e.enabled = has;
+                        changed = true;
+                    }
+                    break;
+                }
+            }
+        }
+        if changed {
+            self.republish();
+        }
+    }
+
+    #[qslot]
     fn set_checked(&mut self, id: String, checked: bool) {
         if id == "view.showGrid" {
             self.show_grid = checked;
@@ -1083,6 +1118,7 @@ mod tests {
             false,
             true,
             true,
+            false,
             false,
             false,
             false,
@@ -1241,5 +1277,89 @@ mod tests {
             find_menu_shortcut("view.sidePanel").as_deref(),
             Some("Ctrl+B")
         );
+    }
+
+    #[test]
+    fn debugger_menu_items_disabled_without_mcu_and_enabled_with_mcu() {
+        let st = AppSettings::default();
+        let without_mcu = build_menus(
+            &st,
+            false,
+            false,
+            true,
+            false,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            &[],
+        );
+        let with_mcu = build_menus(
+            &st,
+            false,
+            false,
+            true,
+            false,
+            true,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
+            &[],
+        );
+        let find_enabled = |menus: &[MenuNode], id: &str| -> Option<bool> {
+            let json = serialize_menus(menus);
+            for m in &json {
+                if let Some(items) = m["items"].as_array() {
+                    for it in items {
+                        if it["id"] == id {
+                            return it["enabled"].as_bool();
+                        }
+                    }
+                }
+            }
+            None
+        };
+        for id in DEBUGGER_MENU_IDS {
+            assert_eq!(
+                find_enabled(&without_mcu, id),
+                Some(false),
+                "{id} must be disabled when no MCU is present"
+            );
+            assert_eq!(
+                find_enabled(&with_mcu, id),
+                Some(true),
+                "{id} must be enabled when an MCU is present"
+            );
+        }
+        // Shortcuts follow the enabled state as well.
+        let empty = BTreeMap::new();
+        let sc_without = qml_shortcuts_for(&without_mcu, false, &empty);
+        let sc_with = qml_shortcuts_for(&with_mcu, false, &empty);
+        for id in ["sim.debug", "sim.run", "sim.step", "sim.stepOver"] {
+            assert_eq!(
+                sc_without
+                    .iter()
+                    .find(|e| e["id"] == id)
+                    .and_then(|e| e["enabled"].as_bool()),
+                Some(false),
+                "shortcut for {id} must be disabled without MCU"
+            );
+            assert_eq!(
+                sc_with
+                    .iter()
+                    .find(|e| e["id"] == id)
+                    .and_then(|e| e["enabled"].as_bool()),
+                Some(true),
+                "shortcut for {id} must be enabled with MCU"
+            );
+        }
     }
 }

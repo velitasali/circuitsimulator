@@ -1895,6 +1895,49 @@ fn test_canvas_firmware_source_resolution() {
 }
 
 #[test]
+fn test_canvas_create_firmware_preset_and_assign_links_source() {
+    let dir = std::env::temp_dir().join(format!("cs-canvas-create-fw-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let circ = r#"<circuit version="1.0.0">
+<item itemtype="QemuDevice" CircId="ESP32-1" label="ESP32-1" device="ESP32" Pos="0,0" />
+</circuit>"#;
+    let circ_path = dir.join("demo.circ1");
+    std::fs::write(&circ_path, circ).unwrap();
+
+    let mut canvas = Canvas::empty();
+    canvas
+        .load_circ1(circ, Some(circ_path.to_string_lossy().into_owned()))
+        .unwrap();
+    canvas.select_only(0);
+
+    // Initially no firmware is set.
+    assert!(!canvas.selected_has_firmware());
+
+    // Preset resolves to Arduino + DOIT ESP32 DEVKIT V1.
+    let preset = canvas.firmware_preset_for("ESP32-1").unwrap();
+    assert_eq!(preset.compiler, "Arduino");
+    assert_eq!(preset.board, "DOIT ESP32 DEVKIT V1");
+    assert_eq!(preset.custom_board, "esp32:esp32:esp32doit-devkit-v1");
+    assert_eq!(preset.extension, "ino");
+
+    // Scaffold and assign to the MCU.
+    let created = crate::editor::create_firmware_scaffold(&dir, "blink", &preset).unwrap();
+    let ch =
+        canvas.assign_firmware_path("ESP32-1", &created.linked_firmware_path.to_string_lossy());
+    assert!(ch.items);
+    assert!(ch.history);
+    assert!(canvas.selected_has_firmware());
+    assert_eq!(
+        canvas.firmware_source_for("ESP32-1"),
+        Some(created.source_path.clone())
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_canvas_tick_respects_fps_setting() {
     let sim1 = r#"<circuit version="1.0.0">
 <item itemtype="FixedVolt" CircId="Fixed Voltage-1" Pos="0,0" Voltage="5 V" />

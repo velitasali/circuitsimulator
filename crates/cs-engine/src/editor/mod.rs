@@ -7,6 +7,7 @@ pub mod cfg;
 pub mod compiler;
 pub mod complete;
 pub mod find;
+pub mod firmware;
 pub mod format;
 pub mod lsp;
 pub mod newline;
@@ -28,6 +29,10 @@ pub use complete::{
     identifier_prefix,
 };
 pub use find::{FindOpts, Match, find_all, find_next, replace_all};
+pub use firmware::{
+    CreatedFirmware, FirmwarePreset, create_firmware_scaffold, preset_for_target, scaffold_paths,
+    suggest_firmware_name, validate_firmware_name,
+};
 pub use format::{detect_spacing_style, format_code};
 pub use lsp::{
     DiagnosticItem, LspClient, LspEvent, SignatureHelp, find_clangd, format_hover_markdown,

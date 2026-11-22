@@ -688,6 +688,11 @@ impl App {
     }
 
     #[qslot]
+    fn path_from_url(&self, url: String) -> String {
+        strip_file_url(&url)
+    }
+
+    #[qslot]
     fn request_close(&mut self) -> bool {
         self.flush_session();
         cs_engine::backup::end_session();

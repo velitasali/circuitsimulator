@@ -280,6 +280,7 @@ Item {
         readonly property bool hasMonitors: (CircuitCanvas.selectedItemMonitors && CircuitCanvas.selectedItemMonitors.length > 0)
         readonly property bool hasFlash: CircuitCanvas.selectedHasFlash
         readonly property bool hasEeprom: CircuitCanvas.selectedHasEeprom
+        readonly property bool hasFirmware: CircuitCanvas.selectedHasFirmware
         readonly property bool isActive: CircuitCanvas.selectedItemActive
         readonly property bool tunnelVisible: CircuitCanvas.selectedTunnelVisible
         readonly property bool tunnelHasName: CircuitCanvas.selectedTunnelName.length > 0
@@ -342,10 +343,19 @@ Item {
         }
 
         ContextMenuItem {
+            id: createFirmwareItem
+            text: I18n.tr("Create firmware...")
+            iconLigature: "note_add"
+            visible: itemMenu.showMcuActions
+            onTriggered: createFirmwareDialog.openFor(itemMenu.firmwareUid || "")
+        }
+
+        ContextMenuItem {
             id: editFirmwareItem
             text: I18n.tr("Edit firmware")
             iconLigature: "edit"
             visible: itemMenu.showMcuActions
+            enabled: itemMenu.hasFirmware
             onTriggered: CircuitCanvas.editFirmware(itemMenu.firmwareUid || "")
         }
 
@@ -369,6 +379,7 @@ Item {
             text: I18n.tr("Reload firmware")
             iconLigature: "refresh"
             visible: itemMenu.showMcuActions && (itemMenu.hasFlash || itemMenu.isQemu)
+            enabled: itemMenu.hasFirmware
             onTriggered: CircuitCanvas.reloadFirmware(itemMenu.firmwareUid)
         }
 
@@ -925,6 +936,9 @@ Item {
     }
     RenameTunnelDialog {
         id: renameTunnelDialog
+    }
+    CreateFirmwareDialog {
+        id: createFirmwareDialog
     }
 
     AppWindow {

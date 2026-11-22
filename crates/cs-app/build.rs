@@ -551,6 +551,7 @@ fn compile_resources() {
         "EditPinDialog.qml",
         "GeneratePinsDialog.qml",
         "RenameTunnelDialog.qml",
+        "CreateFirmwareDialog.qml",
         "CircuitTooltip.qml",
         "CommandCenterDialog.qml",
         "ShortcutDialog.qml",

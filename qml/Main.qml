@@ -827,6 +827,10 @@ ApplicationWindow {
                                         CircuitCanvas.hasSelection, CircuitCanvas.canPaste)
             CommandCenter.setCircuitItems(CircuitCanvas.items)
         }
+        function onDevicesChanged() {
+            var devs = CircuitCanvas.programmableDevices
+            AppMenuBar.setHasMcu(!!devs && devs.length > 0)
+        }
         function onSimChanged() {
             AppMenuBar.setSimState(CircuitCanvas.simRunning, CircuitCanvas.simPaused)
             if (CircuitCanvas.simPaused) {
@@ -1336,6 +1340,8 @@ ApplicationWindow {
         win.raise()
         win.requestActivate()
         AppMenuBar.setHasProject(FileBrowser.hasProject)
+        var initialDevs = CircuitCanvas.programmableDevices
+        AppMenuBar.setHasMcu(!!initialDevs && initialDevs.length > 0)
         AppMenuBar.installNativeMenus()
         CircuitCanvas.showGrid = AppDialog.drawGrid
         CircuitCanvas.showScroll = AppDialog.showScroll

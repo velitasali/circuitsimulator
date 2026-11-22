@@ -12,6 +12,7 @@ use crate::canvas::scene::{Part, Scene};
 use crate::canvas::{Canvas, Point};
 use crate::components::shape;
 use crate::components::{Shape, ShapeKind};
+use crate::editor::{self, FirmwarePreset};
 use crate::{mcu, subcircuit};
 
 #[derive(Clone, Debug)]
@@ -176,6 +177,143 @@ impl Canvas {
     pub fn firmware_source_for(&self, uid: &str) -> Option<std::path::PathBuf> {
         let firm_path = self.firmware_path_for(uid)?;
         crate::mcu::firmware_source(&firm_path)
+    }
+
+    /// Derive the default firmware compiler/board preset for an MCU, QEMU device,
+    /// or board subcircuit containing a nested MCU.
+    pub fn firmware_preset_for(&self, uid: &str) -> Option<FirmwarePreset> {
+        let resolved = self.resolve_item_uid(uid);
+        if resolved.is_empty() {
+            return None;
+        }
+        let base_id = resolved
+            .split_once('/')
+            .map(|(b, _)| b)
+            .unwrap_or(resolved.as_str());
+        let it = self
+            .scene
+            .item_by_id(&resolved)
+            .or_else(|| self.scene.item_by_id(base_id))?;
+
+        let label = if !it.label.is_empty() {
+            it.label.as_str()
+        } else {
+            it.id.as_str()
+        };
+
+        match &it.kind {
+            Part::Mcu(mcu) => {
+                let dev = if !mcu.device.is_empty() {
+                    mcu.device.clone()
+                } else {
+                    subcircuit::device_from_id(&it.id)
+                };
+                Some(editor::preset_for_target(
+                    label,
+                    &dev,
+                    None,
+                    Some(mcu.mcu.device.core),
+                ))
+            }
+            Part::QemuDevice(qemu) => {
+                let dev = if !qemu.qemu.device.is_empty() {
+                    qemu.qemu.device.clone()
+                } else {
+                    subcircuit::device_from_id(&it.id)
+                };
+                Some(editor::preset_for_target(label, &dev, None, None))
+            }
+            Part::Subcircuit(subc) => {
+                let devices = self.collect_programmable_devices(None);
+                let child_prefix = format!("{}/", it.id);
+                let nested = devices
+                    .iter()
+                    .find(|d| d.uid == resolved || d.id == resolved)
+                    .or_else(|| {
+                        devices
+                            .iter()
+                            .find(|d| d.id == it.id || d.id.starts_with(&child_prefix))
+                    });
+                let inner_dev = nested
+                    .map(|d| d.kind.clone())
+                    .filter(|k| !k.is_empty())
+                    .unwrap_or_else(|| subc.device.clone());
+                let display_label = nested
+                    .map(|d| d.label.as_str())
+                    .filter(|l| !l.is_empty())
+                    .unwrap_or(label);
+                Some(editor::preset_for_target(
+                    display_label,
+                    &inner_dev,
+                    Some(&subc.device),
+                    None,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Assign a firmware path on an MCU/QemuDevice/Subcircuit without parsing the
+    /// binary yet (used when scaffolding a brand-new firmware before first compile).
+    pub fn assign_firmware_path(&mut self, uid: &str, path: &str) -> Change {
+        let uid = self.resolve_item_uid(uid);
+        if uid.is_empty() || path.is_empty() {
+            return Change::default();
+        }
+        let rel = self.relative_to_circuit(path);
+        let firm_dir = self
+            .file_path
+            .as_deref()
+            .and_then(|cp| Path::new(cp).parent().map(Path::to_path_buf));
+        let (base_id, inner_id) = uid
+            .split_once('/')
+            .map(|(b, i)| (b, Some(i)))
+            .unwrap_or((&uid, None));
+        let lookup_id = if self.scene.item_by_id(&uid).is_some() {
+            uid.as_str()
+        } else {
+            base_id
+        };
+        if self.scene.item_by_id(lookup_id).is_none() {
+            return Change::default();
+        }
+        self.push_undo();
+        let mut updated = false;
+        if let Some(it) = self.scene.item_by_id_mut(lookup_id) {
+            match &mut it.kind {
+                Part::Mcu(mcu) => {
+                    mcu.mcu.firmware = Some(rel);
+                    mcu.mcu.firmware_dir = firm_dir;
+                    updated = true;
+                }
+                Part::QemuDevice(qemu) => {
+                    qemu.qemu.firmware = rel;
+                    qemu.qemu.firmware_dir = firm_dir;
+                    updated = true;
+                }
+                Part::Subcircuit(subc) => {
+                    subc.program = rel.clone();
+                    subc.firmware_dir = firm_dir;
+                    if !subc.nested_src.is_empty() {
+                        subc.nested_src =
+                            subcircuit::set_nested_mcu_program(&subc.nested_src, inner_id, &rel);
+                    }
+                    updated = true;
+                }
+                _ => {}
+            }
+        }
+        if !updated {
+            self.history.undo.pop();
+            return Change::default();
+        }
+        self.dirty_item_now(lookup_id);
+        Change {
+            items: true,
+            history: true,
+            props: true,
+            ..Change::default()
+        }
     }
 
     pub(crate) fn relative_to_circuit(&self, abs: &str) -> String {
@@ -989,11 +1127,16 @@ impl Canvas {
             return false;
         };
         match &it.kind {
-            Part::Mcu(mcu) => mcu.mcu.firmware.is_some(),
-            Part::QemuDevice(qemu) => !qemu.qemu.firmware.is_empty(),
+            Part::Mcu(mcu) => mcu
+                .mcu
+                .firmware
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty()),
+            Part::QemuDevice(qemu) => !qemu.qemu.firmware.trim().is_empty(),
             Part::Subcircuit(subc) => {
-                !subc.program.is_empty()
-                    || subcircuit::nested_mcu_program(&subc.nested_src).is_some()
+                !subc.program.trim().is_empty()
+                    || subcircuit::nested_mcu_program(&subc.nested_src)
+                        .is_some_and(|s| !s.trim().is_empty())
             }
             _ => false,
         }

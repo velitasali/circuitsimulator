@@ -11,12 +11,15 @@ mod scope_screen;
 mod screen;
 pub mod selection;
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::actions;
 use crate::path_util::strip_file_url;
 use cs_engine::backup;
 use cs_engine::canvas::{Canvas, Change, DirtySet, Palette};
+use cs_engine::editor;
+use cs_engine::i18n;
 use cs_engine::settings;
 use cs_engine::units;
 use files::PendingReplace;
@@ -546,6 +549,45 @@ impl CircuitCanvas {
         if force_full {
             self.inner.mark_full_dirty();
         }
+    }
+
+    fn default_firmware_dir(&self) -> PathBuf {
+        if let Some(cp) = self.inner.file_path() {
+            let p = Path::new(cp);
+            if let Some(parent) = p.parent().filter(|d| !d.as_os_str().is_empty()) {
+                return parent.to_path_buf();
+            }
+        }
+        if !self.project_path.is_empty() {
+            let proj = Path::new(&self.project_path);
+            if proj.is_dir() {
+                return proj.to_path_buf();
+            }
+        }
+        let st = settings::get();
+        if let Some(root) = st.last_project_dir.as_ref() {
+            let p = Path::new(root);
+            if !root.is_empty() && p.is_dir() {
+                return p.to_path_buf();
+            }
+        }
+        if let Some(first) = st.recent_projects.first() {
+            let p = Path::new(first);
+            if !first.is_empty() && p.is_dir() {
+                return p.to_path_buf();
+            }
+        }
+        dirs::home_dir().unwrap_or_default()
+    }
+
+    fn resolve_firmware_uid(&self, uid: &str) -> String {
+        if !uid.is_empty() {
+            return uid.to_string();
+        }
+        if let Some(nested) = self.inner.selected_nested_mcu_uid() {
+            return nested;
+        }
+        self.selected_item_uid()
     }
 }
 
@@ -3668,6 +3710,110 @@ impl CircuitCanvas {
             .firmware_source_for(&uid)
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default()
+    }
+
+    #[qslot]
+    fn firmware_create_info(&self, uid: String) -> Value {
+        let resolved_uid = self.resolve_firmware_uid(&uid);
+        let Some(preset) = self.inner.firmware_preset_for(&resolved_uid) else {
+            return Value::Null;
+        };
+        let default_dir = self.default_firmware_dir();
+        let suggested = editor::suggest_firmware_name(&default_dir, &preset);
+        json!({
+            "uid": resolved_uid,
+            "mcuLabel": preset.mcu_label,
+            "mcuDevice": preset.mcu_device,
+            "compiler": preset.compiler,
+            "board": preset.board,
+            "customBoard": preset.custom_board,
+            "device": preset.device,
+            "extension": preset.extension,
+            "defaultDir": default_dir.to_string_lossy().into_owned(),
+            "suggestedName": suggested,
+        })
+    }
+
+    #[qslot]
+    fn validate_new_firmware(&self, uid: String, dir: String, name: String) -> Value {
+        let resolved_uid = self.resolve_firmware_uid(&uid);
+        let Some(preset) = self.inner.firmware_preset_for(&resolved_uid) else {
+            return json!({
+                "valid": false,
+                "error": i18n::tr("No MCU selected."),
+                "previewPath": "",
+            });
+        };
+        let clean_dir = strip_file_url(&dir);
+        let dir_trimmed = clean_dir.trim();
+        if dir_trimmed.is_empty() {
+            return json!({
+                "valid": false,
+                "error": i18n::tr("Choose a directory to save the firmware."),
+                "previewPath": "",
+            });
+        }
+        match editor::validate_firmware_name(&name, &preset.extension) {
+            Ok(stem) => {
+                let (_, source_path, _) =
+                    editor::scaffold_paths(Path::new(dir_trimmed), &stem, &preset);
+                let preview = source_path.to_string_lossy().into_owned();
+                if source_path.exists() {
+                    json!({
+                        "valid": false,
+                        "error": i18n::tr("A firmware file with this name already exists in the selected directory."),
+                        "previewPath": preview,
+                    })
+                } else {
+                    json!({
+                        "valid": true,
+                        "error": "",
+                        "previewPath": preview,
+                    })
+                }
+            }
+            Err(err) => json!({
+                "valid": false,
+                "error": i18n::tr(&err),
+                "previewPath": "",
+            }),
+        }
+    }
+
+    #[qslot]
+    fn create_firmware(&mut self, uid: String, dir: String, name: String) -> Value {
+        let resolved_uid = self.resolve_firmware_uid(&uid);
+        let Some(preset) = self.inner.firmware_preset_for(&resolved_uid) else {
+            return json!({
+                "ok": false,
+                "path": "",
+                "error": i18n::tr("No MCU selected."),
+            });
+        };
+        let clean_dir = strip_file_url(&dir);
+        let dir_trimmed = clean_dir.trim();
+        match editor::create_firmware_scaffold(Path::new(dir_trimmed), &name, &preset) {
+            Ok(created) => {
+                let linked_str = created.linked_firmware_path.to_string_lossy().into_owned();
+                let c = self.inner.assign_firmware_path(&resolved_uid, &linked_str);
+                self.apply(c);
+                if !resolved_uid.is_empty() {
+                    self.set_active_device_id(resolved_uid);
+                }
+                let src_str = created.source_path.to_string_lossy().into_owned();
+                self.request_open_file(src_str.clone());
+                json!({
+                    "ok": true,
+                    "path": src_str,
+                    "error": "",
+                })
+            }
+            Err(err) => json!({
+                "ok": false,
+                "path": "",
+                "error": i18n::tr(&err),
+            }),
+        }
     }
 
     #[qslot]

@@ -110,7 +110,7 @@ ApplicationWindow {
         var state = CircuitCanvas.simRunning ? (CircuitCanvas.simPaused ? App.translate("[Paused] ") : App.translate("[Running] ")) : ""
         var proj = FileBrowser.rootPath ? ("[" + FileBrowser.rootPath.split("/").filter(Boolean).pop() + "] ") : ""
         var file = CircuitCanvas.fileName ? CircuitCanvas.fileName : App.translate("Untitled")
-        var changed = CircuitCanvas.modified ? "*" : ""
+        var changed = CircuitCanvas.modified ? " •" : ""
         return state + proj + file + changed + " - " + App.translate("Circuit Simulator")
     }
     font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSize })
@@ -1528,7 +1528,8 @@ ApplicationWindow {
             "id": CircuitCanvas.filePath || "",
             "icon": "account_tree",
             "badge": App.translate("Circuit"),
-            "tooltip": CircuitCanvas.filePath || curCirc
+            "tooltip": CircuitCanvas.filePath || curCirc,
+            "dirty": CircuitCanvas.modified
         })
 
         var docs = EditorPanel.documents || []
@@ -1541,7 +1542,8 @@ ApplicationWindow {
                 "index": i,
                 "icon": "code",
                 "badge": App.translate("Editor"),
-                "tooltip": d.path || d.title
+                "tooltip": d.path || d.title,
+                "dirty": Boolean(d.dirty)
             })
         }
 

@@ -56,6 +56,7 @@ define_ui_icons! {
     Check => "check",
     ChevronLeft => "chevron_left",
     ChevronRight => "chevron_right",
+    Circle => "circle",
     Close => "close",
     Code => "code",
     ContentCopy => "content_copy",

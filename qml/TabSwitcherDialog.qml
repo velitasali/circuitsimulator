@@ -116,6 +116,14 @@ Dialog {
                         Layout.fillWidth: true
                     }
 
+                    AppIcon {
+                        visible: Boolean(delegateItem.modelData.dirty)
+                        icon: "circle"
+                        size: 16
+                        color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.windowText
+                        Layout.preferredWidth: 8
+                    }
+
                     AppText {
                         visible: Boolean(delegateItem.modelData.badge)
                         text: delegateItem.modelData.badge || ""

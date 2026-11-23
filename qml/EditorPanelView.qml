@@ -46,15 +46,32 @@ Item {
                         required property var modelData
                         required property int index
                         text: modelData.title
-                        rightPadding: 24 + (modelData.hasSettings ? 18 : 0) + (modelData.hasCompiler ? 18 : 0)
+                        rightPadding: 24
+                            + (modelData.hasSettings ? 18 : 0)
+                            + (modelData.hasCompiler ? 18 : 0)
+                            + (modelData.dirty ? 10 : 0)
 
                         readonly property color itemColor: tabBtn.checked ? appTheme.highlightedText : appTheme.windowText
                         onClicked: codeEditor.focusEditor()
 
+                        AppIcon {
+                            id: dirtyIcon
+                            visible: tabBtn.modelData.dirty === true
+                            anchors.right: uploadRunBtn.visible
+                                           ? uploadRunBtn.left
+                                           : (settingsBtn.visible ? settingsBtn.left : closeBtn.left)
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.rightMargin: 3
+                            width: 8
+                            icon: "circle"
+                            size: 16
+                            color: tabBtn.itemColor
+                        }
+
                         AppToolButton {
                             id: uploadRunBtn
                             visible: tabBtn.modelData.hasCompiler === true
-                            anchors.right: settingsBtn.left
+                            anchors.right: settingsBtn.visible ? settingsBtn.left : closeBtn.left
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.rightMargin: 2
                             width: 16; height: 16

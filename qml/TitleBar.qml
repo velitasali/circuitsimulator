@@ -47,8 +47,7 @@ Item {
     readonly property string projectName: FileBrowser.rootPath
         ? (FileBrowser.rootPath.split("/").filter(Boolean).pop() || "")
         : ""
-    readonly property string fileLabel: (CircuitCanvas.fileName ? CircuitCanvas.fileName : I18n.tr("Untitled"))
-        + (CircuitCanvas.modified ? "*" : "")
+    readonly property string fileLabel: CircuitCanvas.fileName ? CircuitCanvas.fileName : I18n.tr("Untitled")
 
     readonly property int leftEdge: bar.leadingInset > 0 ? bar.leadingInset : 8
     readonly property int rightEdge: (captionCluster.visible ? captionCluster.width : 0) + 12
@@ -66,7 +65,7 @@ Item {
     // Floors of the title pill once the menu icon has moved onto the menu pill:
     // sim chip, project badge (48), file label (64), plus the pill's own padding.
     readonly property int titleContentMinWidth: {
-        var w = 12 + Math.min(Math.ceil(fileLabelText.implicitWidth) + 8, 64)
+        var w = 12 + Math.min(fileBtn.naturalWidth, 64)
         if (bar.projectName !== "")
             w += Math.min(Math.ceil(projText.implicitWidth) + 10, 48) + leftGroup.spacing
         if (CircuitCanvas.simRunning)
@@ -916,7 +915,8 @@ Item {
                         ? Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.10)
                         : "transparent"
                 Behavior on color { ColorAnimation { duration: 80 } }
-                readonly property int naturalWidth: Math.ceil(fileLabelText.implicitWidth) + 8
+                readonly property int modifiedExtra: CircuitCanvas.modified ? 10 : 0
+                readonly property int naturalWidth: Math.ceil(fileLabelText.implicitWidth) + 8 + modifiedExtra
                 implicitWidth: naturalWidth
                 implicitHeight: Math.ceil(fileLabelText.implicitHeight) + 4
                 Layout.fillWidth: true
@@ -924,15 +924,29 @@ Item {
                 Layout.maximumWidth: naturalWidth
                 Layout.minimumWidth: Math.min(naturalWidth, 64)
 
-                AppText {
-                    id: fileLabelText
+                Row {
                     anchors.centerIn: parent
-                    width: Math.min(Math.ceil(implicitWidth), Math.max(0, parent.width - 8))
-                    font.pixelSize: App.fontSmall
-                    text: bar.fileLabel
-                    color: appTheme.windowText
-                    elide: Text.ElideMiddle
-                    maximumLineCount: 1
+                    spacing: 2
+
+                    AppText {
+                        id: fileLabelText
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Math.min(Math.ceil(implicitWidth), Math.max(0, fileBtn.width - 8 - fileBtn.modifiedExtra))
+                        font.pixelSize: App.fontSmall
+                        text: bar.fileLabel
+                        color: appTheme.windowText
+                        elide: Text.ElideMiddle
+                        maximumLineCount: 1
+                    }
+
+                    AppIcon {
+                        visible: CircuitCanvas.modified
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 8
+                        icon: "circle"
+                        size: 16
+                        color: appTheme.windowText
+                    }
                 }
 
                 MouseArea {

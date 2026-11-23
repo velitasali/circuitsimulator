@@ -857,13 +857,10 @@ impl EditorPanel {
             .docs
             .iter()
             .map(|d| {
-                let title = if d.dirty {
-                    format!("{}*", d.title)
-                } else {
-                    d.title.clone()
-                };
                 json!({
-                    "title": title,
+                    "title": d.title,
+                    "path": d.path,
+                    "dirty": d.dirty,
                     "hasSettings": d.has_settings(),
                     "hasCompiler": d.has_compiler(),
                 })

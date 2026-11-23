@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -552,23 +553,15 @@ impl FileBrowser {
 
     #[qslot]
     fn open_externally(&self, path: String) {
-        let path = strip_file_url(&path);
-        let p = Path::new(&path);
-        if p.exists() {
-            open_in_system(p);
+        if let Some(target) = resolve_external_target(&self.root_path, &path) {
+            open_in_system(&target);
         }
     }
 
     #[qslot]
     fn open_parent_externally(&self, path: String) {
-        let path = strip_file_url(&path);
-        let p = Path::new(&path);
-        if let Some(parent) = p.parent() {
-            if parent.exists() {
-                open_in_system(parent);
-            }
-        } else if p.exists() {
-            open_in_system(p);
+        if let Some(target) = resolve_parent_target(&self.root_path, &path) {
+            open_in_system(&target);
         }
     }
 }
@@ -581,13 +574,54 @@ fn remove_path_permanently(p: &Path) -> bool {
     }
 }
 
-fn open_in_system(p: &Path) {
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(p).spawn();
+fn native_system_path(p: &Path) -> PathBuf {
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer").arg(p).spawn();
+    {
+        PathBuf::from(p.to_string_lossy().replace('/', "\\"))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        p.to_path_buf()
+    }
+}
+
+fn resolve_external_target(root_path: &str, path: &str) -> Option<PathBuf> {
+    let cleaned = strip_file_url(path);
+    let candidate = if cleaned.is_empty() {
+        strip_file_url(root_path)
+    } else {
+        cleaned
+    };
+    if candidate.is_empty() {
+        return None;
+    }
+    let native = native_system_path(Path::new(&candidate));
+    native.exists().then_some(native)
+}
+
+fn resolve_parent_target(root_path: &str, path: &str) -> Option<PathBuf> {
+    let target = resolve_external_target(root_path, path)?;
+    if let Some(parent) = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty() && p.exists())
+    {
+        Some(native_system_path(parent))
+    } else {
+        Some(target)
+    }
+}
+
+fn open_in_system(p: &Path) {
+    let native = native_system_path(p);
+    if macos_host::open_local_path(&native) {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    let _ = Command::new("open").arg(&native).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = Command::new("explorer").arg(&native).spawn();
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let _ = std::process::Command::new("xdg-open").arg(p).spawn();
+    let _ = Command::new("xdg-open").arg(&native).spawn();
 }
 
 fn copy_item_recursive(src: &Path, dst_dir: &Path) -> std::io::Result<()> {
@@ -1010,6 +1044,41 @@ mod tests {
 
         assert!(remove_path_permanently(&nested_dir));
         assert!(!nested_dir.exists());
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_resolve_external_and_parent_targets() {
+        let base = std::env::temp_dir().join("cs_test_external_targets");
+        let _ = fs::remove_dir_all(&base);
+        let nested_dir = base.join("sub");
+        fs::create_dir_all(&nested_dir).unwrap();
+        let nested_file = nested_dir.join("main.c");
+        fs::write(&nested_file, "int main() {}").unwrap();
+
+        let base_forward = base.to_string_lossy().replace('\\', "/");
+        let dir_forward = nested_dir.to_string_lossy().replace('\\', "/");
+        let file_forward = nested_file.to_string_lossy().replace('\\', "/");
+
+        let ext_file = resolve_external_target(&base_forward, &file_forward).unwrap();
+        assert_eq!(ext_file, native_system_path(&nested_file));
+
+        let parent_of_file = resolve_parent_target(&base_forward, &file_forward).unwrap();
+        assert_eq!(parent_of_file, native_system_path(&nested_dir));
+
+        let parent_of_dir = resolve_parent_target(&base_forward, &dir_forward).unwrap();
+        assert_eq!(parent_of_dir, native_system_path(&base));
+
+        let fallback_root = resolve_external_target(&base_forward, "").unwrap();
+        assert_eq!(fallback_root, native_system_path(&base));
+
+        #[cfg(target_os = "windows")]
+        {
+            assert!(!ext_file.to_string_lossy().contains('/'));
+            assert!(!parent_of_file.to_string_lossy().contains('/'));
+            assert!(!parent_of_dir.to_string_lossy().contains('/'));
+        }
 
         let _ = fs::remove_dir_all(&base);
     }

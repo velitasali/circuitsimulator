@@ -34,6 +34,7 @@ unsafe extern "C" {
     fn cs_qt_apply_palette(scheme_mode: i32, pal: *const QtPaletteColors);
     fn cs_qt_post_on_main(cb: extern "C" fn());
     fn cs_qt_move_to_trash(path_utf8: *const u8, len: usize) -> i32;
+    fn cs_qt_open_local_path(path_utf8: *const u8, len: usize) -> i32;
 }
 
 #[cfg(target_os = "macos")]
@@ -461,6 +462,14 @@ pub fn move_to_trash(path: &Path) -> bool {
         return false;
     }
     unsafe { cs_qt_move_to_trash(s.as_ptr(), s.len()) != 0 }
+}
+
+pub fn open_local_path(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    if s.is_empty() {
+        return false;
+    }
+    unsafe { cs_qt_open_local_path(s.as_ptr(), s.len()) != 0 }
 }
 
 #[cfg(all(test, not(target_os = "macos")))]

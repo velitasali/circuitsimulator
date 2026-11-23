@@ -43,6 +43,10 @@ void cs_qt_post_on_main(void (*cb)());
 /* Moves a UTF-8 path (file or directory) to the OS Trash / Recycle Bin via QFile::moveToTrash.
  * Returns 1 on success, 0 on failure. */
 int cs_qt_move_to_trash(const uint8_t* path_utf8, uintptr_t len);
+/* Opens a local file or directory in the OS desktop shell / default application
+ * via QDesktopServices::openUrl(QUrl::fromLocalFile(path)).
+ * Returns 1 on success, 0 on failure. */
+int cs_qt_open_local_path(const uint8_t* path_utf8, uintptr_t len);
 
 void cs_apply_app_icon();
 void cs_ensure_theme_filter();

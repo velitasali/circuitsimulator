@@ -1758,6 +1758,7 @@ Item {
 
                         TapHandler {
                             acceptedButtons: Qt.RightButton
+                            gesturePolicy: TapHandler.ReleaseWithinBounds
                             onTapped: {
                                 root.selectedPath = rowDelegate.model.path
                                 root.selectedIsDir = rowDelegate.model.isDir

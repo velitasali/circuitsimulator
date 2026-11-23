@@ -3,8 +3,10 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QFile>
 #include <QtCore/QMetaObject>
+#include <QtCore/QUrl>
 #include <QtCore/QtGlobal>
 #include <QtGui/QColor>
+#include <QtGui/QDesktopServices>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QPalette>
 #include <QtGui/QStyleHints>
@@ -652,6 +654,15 @@ int cs_qt_move_to_trash(const uint8_t* path_utf8, uintptr_t len)
     const QString path = QString::fromUtf8(reinterpret_cast<const char*>(path_utf8),
                                            static_cast<qsizetype>(len));
     return QFile::moveToTrash(path) ? 1 : 0;
+}
+
+int cs_qt_open_local_path(const uint8_t* path_utf8, uintptr_t len)
+{
+    if (!path_utf8 || len == 0 || !QGuiApplication::instance())
+        return 0;
+    const QString path = QString::fromUtf8(reinterpret_cast<const char*>(path_utf8),
+                                           static_cast<qsizetype>(len));
+    return QDesktopServices::openUrl(QUrl::fromLocalFile(path)) ? 1 : 0;
 }
 
 #ifndef Q_OS_MACOS

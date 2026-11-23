@@ -7,6 +7,7 @@ use std::ffi::CString;
 #[cfg(not(target_os = "macos"))]
 use std::ffi::c_void;
 use std::os::raw::c_char;
+use std::path::Path;
 use std::sync::Mutex;
 #[cfg(not(target_os = "macos"))]
 use std::sync::atomic::AtomicPtr;
@@ -32,6 +33,7 @@ unsafe extern "C" {
     fn cs_qt_query_system_dark(unset_scheme: i32) -> i32;
     fn cs_qt_apply_palette(scheme_mode: i32, pal: *const QtPaletteColors);
     fn cs_qt_post_on_main(cb: extern "C" fn());
+    fn cs_qt_move_to_trash(path_utf8: *const u8, len: usize) -> i32;
 }
 
 #[cfg(target_os = "macos")]
@@ -451,6 +453,14 @@ pub fn set_native_menu_json(_json: &str) {
     if let Ok(c) = CString::new(_json) {
         unsafe { cs_macos_set_menu(c.as_ptr()) };
     }
+}
+
+pub fn move_to_trash(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    if s.is_empty() {
+        return false;
+    }
+    unsafe { cs_qt_move_to_trash(s.as_ptr(), s.len()) != 0 }
 }
 
 #[cfg(all(test, not(target_os = "macos")))]

@@ -3074,6 +3074,10 @@ Can't find file:
         <translation>Are you sure you want to permanently delete the selected items?</translation>
     </message>
     <message>
+        <source>Are you sure you want to move the selected items to trash?</source>
+        <translation>Are you sure you want to move the selected items to trash?</translation>
+    </message>
+    <message>
         <location filename="../../src/gui/filebrowser/filebrowser.cpp" line="343" />
         <source>Open in editor</source>
         <translation>Open in editor</translation>

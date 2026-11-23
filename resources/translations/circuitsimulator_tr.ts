@@ -3078,6 +3078,10 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
         <translation>Seçilen öğeleri kalıcı olarak silmek istediğinizden emin misiniz?</translation>
     </message>
     <message>
+        <source>Are you sure you want to move the selected items to trash?</source>
+        <translation>Seçilen öğeleri çöp kutusuna taşımak istediğinizden emin misiniz?</translation>
+    </message>
+    <message>
         <location filename="../../src/gui/filebrowser/filebrowser.cpp" line="343" />
         <source>Open in editor</source>
         <translation>Düzenleyicide Aç</translation>

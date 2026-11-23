@@ -1,6 +1,7 @@
 #include "theme.h"
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QFile>
 #include <QtCore/QMetaObject>
 #include <QtCore/QtGlobal>
 #include <QtGui/QColor>
@@ -642,6 +643,15 @@ void cs_qt_post_on_main(void (*cb)())
         app,
         [cb]() { cb(); },
         Qt::QueuedConnection);
+}
+
+int cs_qt_move_to_trash(const uint8_t* path_utf8, uintptr_t len)
+{
+    if (!path_utf8 || len == 0)
+        return 0;
+    const QString path = QString::fromUtf8(reinterpret_cast<const char*>(path_utf8),
+                                           static_cast<qsizetype>(len));
+    return QFile::moveToTrash(path) ? 1 : 0;
 }
 
 #ifndef Q_OS_MACOS

@@ -8,6 +8,7 @@ Dialog {
     id: root
     modal: true
     dim: true
+    parent: Overlay.overlay
     anchors.centerIn: parent
     padding: 0
     closePolicy: Popup.CloseOnEscape

@@ -3053,6 +3053,10 @@ has been deleted or renamed by another program.
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Are you sure you want to move the selected items to trash?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location filename="../../src/gui/filebrowser/filebrowser.cpp" line="343"/>
         <source>Open in editor</source>
         <translation type="unfinished"></translation>

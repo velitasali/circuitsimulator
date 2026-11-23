@@ -14,6 +14,8 @@ Item {
 
     property string selectedPath: ""
     property bool selectedIsDir: false
+    property string trashTargetPath: ""
+    property bool trashTargetIsDir: false
     readonly property string projectName: FileBrowser.rootPath
         ? ( FileBrowser.rootPath.replace( /\\/g, "/" ).split( "/" ).filter( Boolean ).pop() || FileBrowser.rootPath )
         : ""
@@ -219,6 +221,19 @@ Item {
         renameDialog.open()
     }
 
+    function trashTargetName(): string {
+        if ( !root.trashTargetPath || root.trashTargetPath.length === 0 ) return ""
+        var parts = root.trashTargetPath.split( "/" )
+        return parts[parts.length - 1]
+    }
+
+    function openTrashDialog(): void {
+        if ( !root.selectedPath || root.selectedPath.length === 0 || root.selectedPath === FileBrowser.rootPath ) return
+        root.trashTargetPath = root.selectedPath
+        root.trashTargetIsDir = root.selectedIsDir
+        trashDialog.open()
+    }
+
     AppContextMenu {
         id: contextMenu
 
@@ -265,7 +280,7 @@ Item {
             text: I18n.tr( "Move to Trash" )
             iconLigature: "delete"
             enabled: root.selectedPath.length > 0 && root.selectedPath !== FileBrowser.rootPath
-            onTriggered: FileBrowser.trash( root.selectedPath )
+            onTriggered: root.openTrashDialog()
         }
         ContextMenuSeparator {}
         ContextMenuItem {
@@ -294,13 +309,14 @@ Item {
         id: createFileDialog
         modal: true
         dim: true
+        parent: Overlay.overlay
         closePolicy: Popup.CloseOnEscape
         padding: 0
         header: null
         footer: null
-        width: Math.min( Math.max( root.width - 16, 220 ), 300 )
-        x: Math.round( ( root.width - width ) / 2 )
-        y: Math.max( 16, Math.round( ( root.height - height ) / 3 ) )
+        width: Math.min( Math.max( ( parent ? parent.width : root.width ) - 32, 260 ), 340 )
+        x: parent ? Math.round( ( parent.width - width ) / 2 ) : 0
+        y: parent ? Math.max( 40, Math.round( ( parent.height - height ) / 2 ) ) : 16
 
         background: Rectangle {
             color: appTheme.window
@@ -575,13 +591,14 @@ Item {
         id: createFolderDialog
         modal: true
         dim: true
+        parent: Overlay.overlay
         closePolicy: Popup.CloseOnEscape
         padding: 0
         header: null
         footer: null
-        width: Math.min( Math.max( root.width - 16, 220 ), 300 )
-        x: Math.round( ( root.width - width ) / 2 )
-        y: Math.max( 16, Math.round( ( root.height - height ) / 3 ) )
+        width: Math.min( Math.max( ( parent ? parent.width : root.width ) - 32, 260 ), 340 )
+        x: parent ? Math.round( ( parent.width - width ) / 2 ) : 0
+        y: parent ? Math.max( 40, Math.round( ( parent.height - height ) / 2 ) ) : 16
 
         background: Rectangle {
             color: appTheme.window
@@ -811,13 +828,14 @@ Item {
         id: renameDialog
         modal: true
         dim: true
+        parent: Overlay.overlay
         closePolicy: Popup.CloseOnEscape
         padding: 0
         header: null
         footer: null
-        width: Math.min( Math.max( root.width - 16, 220 ), 300 )
-        x: Math.round( ( root.width - width ) / 2 )
-        y: Math.max( 16, Math.round( ( root.height - height ) / 3 ) )
+        width: Math.min( Math.max( ( parent ? parent.width : root.width ) - 32, 260 ), 340 )
+        x: parent ? Math.round( ( parent.width - width ) / 2 ) : 0
+        y: parent ? Math.max( 40, Math.round( ( parent.height - height ) / 2 ) ) : 16
 
         background: Rectangle {
             color: appTheme.window
@@ -1039,6 +1057,336 @@ Item {
             var trimmed = renameInput.text.trim()
             if ( trimmed.length > 0 && renameValidationText.text.length === 0 ) {
                 FileBrowser.renamePath( root.selectedPath, trimmed )
+            }
+        }
+    }
+
+    Dialog {
+        id: trashDialog
+        modal: true
+        dim: true
+        parent: Overlay.overlay
+        closePolicy: Popup.CloseOnEscape
+        padding: 0
+        header: null
+        footer: null
+        width: Math.min( Math.max( ( parent ? parent.width : root.width ) - 32, 260 ), 340 )
+        x: parent ? Math.round( ( parent.width - width ) / 2 ) : 0
+        y: parent ? Math.max( 40, Math.round( ( parent.height - height ) / 2 ) ) : 16
+
+        background: Rectangle {
+            color: appTheme.window
+            border.color: appTheme.mid
+            border.width: 1
+            radius: 14
+        }
+
+        Overlay.modal: Rectangle {
+            color: Qt.rgba( 0, 0, 0, 0.45 )
+        }
+
+        onOpened: confirmTrashBtn.forceActiveFocus()
+
+        Shortcut {
+            enabled: trashDialog.visible
+            sequences: [ "Return", "Enter" ]
+            onActivated: trashDialog.accept()
+        }
+
+        contentItem: Item {
+            implicitWidth: trashDialog.width
+            implicitHeight: trashCol.implicitHeight + 24
+
+            ColumnLayout {
+                id: trashCol
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Rectangle {
+                        implicitWidth: 26
+                        implicitHeight: 26
+                        radius: height / 2
+                        color: Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.18 )
+
+                        AppIcon {
+                            anchors.centerIn: parent
+                            icon: "delete"
+                            color: appTheme.highlight
+                            size: 16
+                        }
+                    }
+
+                    AppText {
+                        text: I18n.tr( "Move to Trash" )
+                        font.bold: true
+                        color: appTheme.windowText
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    AppToolButton {
+                        implicitWidth: 22
+                        implicitHeight: 22
+                        padding: 0
+                        contentItem: AppIcon {
+                            icon: "close"
+                            size: 16
+                            color: appTheme.windowText
+                            opacity: 0.6
+                        }
+                        onClicked: trashDialog.close()
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 22
+                    radius: 8
+                    color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.18 )
+                    border.color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.35 )
+                    border.width: 1
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 6
+                        anchors.rightMargin: 6
+                        spacing: 4
+
+                        AppIcon {
+                            icon: root.trashTargetIsDir ? "folder" : root.fileIconPreview( root.trashTargetName() )
+                            size: 16
+                            color: appTheme.windowText
+                            opacity: 0.7
+                        }
+
+                        AppText {
+                            text: I18n.tr( "Target: %1" ).arg( root.trashTargetName() )
+                            font.pixelSize: App.fontSmall
+                            color: appTheme.windowText
+                            opacity: 0.8
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+
+                AppText {
+                    Layout.fillWidth: true
+                    text: I18n.tr( "Are you sure you want to move the selected items to trash?" )
+                    font.pixelSize: App.fontSmall
+                    color: appTheme.windowText
+                    opacity: 0.88
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    spacing: 8
+
+                    Item { Layout.fillWidth: true }
+
+                    AppButton {
+                        text: I18n.tr( "Cancel" )
+                        Layout.minimumHeight: 26
+                        leftPadding: 12
+                        rightPadding: 12
+                        onClicked: trashDialog.close()
+                    }
+
+                    AppButton {
+                        id: confirmTrashBtn
+                        text: I18n.tr( "Move to Trash" )
+                        highlighted: true
+                        font.bold: true
+                        Layout.minimumHeight: 26
+                        leftPadding: 14
+                        rightPadding: 14
+                        onClicked: trashDialog.accept()
+                    }
+                }
+            }
+        }
+
+        onAccepted: {
+            if ( root.trashTargetPath.length > 0 ) {
+                if ( !FileBrowser.trash( root.trashTargetPath ) ) {
+                    deleteDialog.open()
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: deleteDialog
+        modal: true
+        dim: true
+        parent: Overlay.overlay
+        closePolicy: Popup.CloseOnEscape
+        padding: 0
+        header: null
+        footer: null
+        width: Math.min( Math.max( ( parent ? parent.width : root.width ) - 32, 260 ), 340 )
+        x: parent ? Math.round( ( parent.width - width ) / 2 ) : 0
+        y: parent ? Math.max( 40, Math.round( ( parent.height - height ) / 2 ) ) : 16
+
+        background: Rectangle {
+            color: appTheme.window
+            border.color: appTheme.mid
+            border.width: 1
+            radius: 14
+        }
+
+        Overlay.modal: Rectangle {
+            color: Qt.rgba( 0, 0, 0, 0.45 )
+        }
+
+        onOpened: confirmDeleteBtn.forceActiveFocus()
+
+        Shortcut {
+            enabled: deleteDialog.visible
+            sequences: [ "Return", "Enter" ]
+            onActivated: deleteDialog.accept()
+        }
+
+        contentItem: Item {
+            implicitWidth: deleteDialog.width
+            implicitHeight: deleteCol.implicitHeight + 24
+
+            ColumnLayout {
+                id: deleteCol
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Rectangle {
+                        id: deleteBadgeRect
+                        readonly property color errColor: CircuitCanvas.msgErrorBg || appTheme.highlight
+                        implicitWidth: 26
+                        implicitHeight: 26
+                        radius: height / 2
+                        color: Qt.rgba( errColor.r, errColor.g, errColor.b, 0.18 )
+
+                        AppIcon {
+                            anchors.centerIn: parent
+                            icon: "warning"
+                            color: deleteBadgeRect.errColor
+                            size: 16
+                        }
+                    }
+
+                    AppText {
+                        text: I18n.tr( "Delete" )
+                        font.bold: true
+                        color: appTheme.windowText
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    AppToolButton {
+                        implicitWidth: 22
+                        implicitHeight: 22
+                        padding: 0
+                        contentItem: AppIcon {
+                            icon: "close"
+                            size: 16
+                            color: appTheme.windowText
+                            opacity: 0.6
+                        }
+                        onClicked: deleteDialog.close()
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 22
+                    radius: 8
+                    color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.18 )
+                    border.color: Qt.rgba( appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.35 )
+                    border.width: 1
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 6
+                        anchors.rightMargin: 6
+                        spacing: 4
+
+                        AppIcon {
+                            icon: root.trashTargetIsDir ? "folder" : root.fileIconPreview( root.trashTargetName() )
+                            size: 16
+                            color: appTheme.windowText
+                            opacity: 0.7
+                        }
+
+                        AppText {
+                            text: I18n.tr( "Target: %1" ).arg( root.trashTargetName() )
+                            font.pixelSize: App.fontSmall
+                            color: appTheme.windowText
+                            opacity: 0.8
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+
+                AppText {
+                    Layout.fillWidth: true
+                    text: I18n.tr( "Failed to move to trash." )
+                    font.pixelSize: App.fontSmall
+                    color: deleteBadgeRect.errColor
+                    wrapMode: Text.WordWrap
+                }
+
+                AppText {
+                    Layout.fillWidth: true
+                    text: I18n.tr( "Are you sure you want to permanently delete the selected items?" )
+                    font.pixelSize: App.fontSmall
+                    color: appTheme.windowText
+                    opacity: 0.88
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    spacing: 8
+
+                    Item { Layout.fillWidth: true }
+
+                    AppButton {
+                        text: I18n.tr( "Cancel" )
+                        Layout.minimumHeight: 26
+                        leftPadding: 12
+                        rightPadding: 12
+                        onClicked: deleteDialog.close()
+                    }
+
+                    AppButton {
+                        id: confirmDeleteBtn
+                        text: I18n.tr( "Delete" )
+                        highlighted: true
+                        font.bold: true
+                        Layout.minimumHeight: 26
+                        leftPadding: 14
+                        rightPadding: 14
+                        onClicked: deleteDialog.accept()
+                    }
+                }
+            }
+        }
+
+        onAccepted: {
+            if ( root.trashTargetPath.length > 0 ) {
+                FileBrowser.deletePath( root.trashTargetPath )
             }
         }
     }

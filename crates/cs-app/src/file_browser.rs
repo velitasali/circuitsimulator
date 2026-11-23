@@ -520,19 +520,34 @@ impl FileBrowser {
     }
 
     #[qslot]
-    fn trash(&mut self, path: String) {
+    fn trash(&mut self, path: String) -> bool {
         let path = strip_file_url(&path);
         let p = PathBuf::from(&path);
-        if p.exists() {
-            if p.is_dir() {
-                let _ = fs::remove_dir_all(p);
-            } else {
-                let _ = fs::remove_file(p);
-            }
+        if !p.exists() {
+            return true;
+        }
+        if macos_host::move_to_trash(&p) {
             self.expanded_paths.retain(|p| Path::new(p).is_dir());
             self.sync_watcher();
             self.notify_entries_changed();
+            true
+        } else {
+            false
         }
+    }
+
+    #[qslot]
+    fn delete_path(&mut self, path: String) -> bool {
+        let path = strip_file_url(&path);
+        let p = PathBuf::from(&path);
+        if !p.exists() {
+            return true;
+        }
+        let ok = remove_path_permanently(&p);
+        self.expanded_paths.retain(|p| Path::new(p).is_dir());
+        self.sync_watcher();
+        self.notify_entries_changed();
+        ok
     }
 
     #[qslot]
@@ -555,6 +570,14 @@ impl FileBrowser {
         } else if p.exists() {
             open_in_system(p);
         }
+    }
+}
+
+fn remove_path_permanently(p: &Path) -> bool {
+    if p.is_dir() {
+        fs::remove_dir_all(p).is_ok()
+    } else {
+        fs::remove_file(p).is_ok()
     }
 }
 
@@ -967,6 +990,26 @@ mod tests {
         // Recent section contains external.sim1 only (b_root.sim1 deduped, missing skipped).
         assert_eq!(items[3]["name"], "external.sim1");
         assert_eq!(items[3]["current"], false);
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_remove_path_permanently_deletes_files_and_dirs() {
+        let base = std::env::temp_dir().join("cs_test_remove_path_permanently");
+        let _ = fs::remove_dir_all(&base);
+        let nested_dir = base.join("sub");
+        fs::create_dir_all(&nested_dir).unwrap();
+        let file = base.join("a.txt");
+        let nested_file = nested_dir.join("b.txt");
+        fs::write(&file, "a").unwrap();
+        fs::write(&nested_file, "b").unwrap();
+
+        assert!(remove_path_permanently(&file));
+        assert!(!file.exists());
+
+        assert!(remove_path_permanently(&nested_dir));
+        assert!(!nested_dir.exists());
 
         let _ = fs::remove_dir_all(&base);
     }

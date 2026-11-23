@@ -50,7 +50,9 @@ Item {
     readonly property string fileLabel: CircuitCanvas.fileName ? CircuitCanvas.fileName : I18n.tr("Untitled")
 
     readonly property int leftEdge: bar.leadingInset > 0 ? bar.leadingInset : 8
-    readonly property int rightEdge: (captionCluster.visible ? captionCluster.width : 0) + 12
+    readonly property int updatePillWidth: 26
+    readonly property int rightEdge: (captionCluster.visible ? captionCluster.width : 0)
+        + (Updater.updateAvailable ? (bar.updatePillWidth + bar.pillGap) : 0) + 12
     readonly property int usableWidth: Math.max(0, bar.width - bar.leftEdge - bar.rightEdge)
     readonly property int pillGap: 8
     // 2px padding on each side + two 22px icon buttons + 2px spacing.
@@ -965,6 +967,56 @@ Item {
                         if (path !== "")
                             CircuitCanvas.loadPath(path)
                     }
+                }
+            }
+        }
+    }
+
+    // Update available indicator pill on the right side of the title bar
+    // (just to the left of the caption buttons on Windows/Linux, or at the right edge on macOS).
+    Rectangle {
+        id: updatePill
+        property bool titleBarInteractive: true
+        visible: Updater.updateAvailable
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.right: captionCluster.visible ? captionCluster.left : parent.right
+        anchors.rightMargin: 8
+        width: bar.updatePillWidth
+        height: 26
+        radius: height / 2
+        color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
+        opacity: bar.windowActive ? 1.0 : 0.7
+
+        // Absorb presses on pill padding so they do not drag the window.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+        }
+
+        AppToolButton {
+            id: updateBtn
+            property bool titleBarInteractive: true
+            anchors.centerIn: parent
+            width: 22
+            height: 22
+            padding: 0
+            focusPolicy: Qt.NoFocus
+            checked: Updater.dialogVisible
+            ToolTip.visible: hovered
+            ToolTip.text: I18n.tr("Update available: %1").replace("%1", Updater.latestVersion)
+            onClicked: {
+                bar.closeAllMenus()
+                Updater.openUpdateDialog()
+            }
+
+            contentItem: Item {
+                implicitWidth: 16
+                implicitHeight: 16
+                AppIcon {
+                    anchors.centerIn: parent
+                    icon: "file_download"
+                    size: 16
+                    color: appTheme.highlight
                 }
             }
         }

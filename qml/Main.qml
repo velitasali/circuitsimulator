@@ -506,6 +506,30 @@ ApplicationWindow {
         }
     }
 
+    OwnedWindow {
+        id: updateWin
+        title: I18n.tr("Software Update")
+        maximizable: false
+        width: 520
+        height: 460
+        contentMinWidth: 440
+        contentMinHeight: 340
+        panelSource: "UpdateDialog.qml"
+        openRequested: Updater.dialogVisible
+
+        onClosing: (close) => {
+            if (!win.isQuitting) {
+                close.accepted = false
+                Updater.dialogVisible = false
+            }
+        }
+    }
+
+    Connections {
+        target: Updater
+        function onRequestShowDialog(): void { updateWin.bringToFront() }
+    }
+
     Connections {
         target: App
         function onRequestShowAbout() { aboutWin.bringToFront() }
@@ -645,6 +669,8 @@ ApplicationWindow {
                 win.insertComponent(subcName + ",Subcircuit")
             } else if (id === "help.about") {
                 App.showAbout()
+            } else if (id === "help.checkUpdates") {
+                Updater.checkForUpdates()
             } else if (id === "help.info") {
                 CircuitPanel.toggleInfo()
             } else if (id === "sim.power") {
@@ -1369,7 +1395,7 @@ ApplicationWindow {
         }
         CircuitCanvas.restoreDraft()
         EditorPanel.restoreDrafts()
-
+        Qt.callLater(Updater.checkOnStartup)
     }
 
     function openCommandPalette() {

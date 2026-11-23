@@ -172,6 +172,7 @@ pub const ACTIONS: &[ActionDef] = &[
     act("sim.bode", "AC Sweep...", "", UiIcon::ShowChart),
     act("sim.dcSweep", "DC Parameter Sweep...", "", UiIcon::Insights),
     act("help.info", "Simulation Info", "", UiIcon::Info),
+    act("help.checkUpdates", "Check for Updates...", "", UiIcon::Refresh),
     act("help.about", "About Circuit Simulator", "", UiIcon::Help),
     act("debug.toggleRepaintOverlay", "Toggle Canvas Repaint Debug Overlay", "Ctrl+Alt+D", UiIcon::BugReport),
     act("debug.toggleComponentRects", "Show Component Rect", "Ctrl+Alt+C", UiIcon::CropFree),

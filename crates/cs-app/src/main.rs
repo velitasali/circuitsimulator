@@ -26,6 +26,7 @@ mod plots;
 mod serial;
 mod tab_switcher;
 mod ui_icon;
+mod updater;
 mod vello_preview;
 #[cfg(any(windows, target_os = "linux"))]
 mod vello_share;
@@ -57,6 +58,7 @@ use plots::{LogicAnalyzer, Oscilloscope};
 use qtbridge::QApp;
 use serial::{SerialMonitor, SerialTerminal};
 use tab_switcher::TabSwitcher;
+use updater::Updater;
 
 #[cfg(windows)]
 fn attach_parent_console() {
@@ -197,6 +199,7 @@ fn gui_main() {
         .register::<SerialMonitor>()
         .register::<SerialTerminal>()
         .register::<Installer>()
+        .register::<Updater>()
         .register::<AppMenuBar>()
         .register::<TabSwitcher>()
         .load_qml_from_file("qrc:/qt/qml/cs_app/Main.qml")

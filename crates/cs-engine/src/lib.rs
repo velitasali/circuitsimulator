@@ -51,6 +51,7 @@ pub mod sim_log;
 pub mod subcircuit;
 pub mod theme;
 pub mod units;
+pub mod updater;
 pub mod wav;
 pub mod xml_util;
 

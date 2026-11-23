@@ -561,6 +561,7 @@ fn compile_resources() {
         "OverloadPanel.qml",
         "CanvasOverflowPanel.qml",
         "installer.qml",
+        "UpdateDialog.qml",
         "RepaintDebugOverlay.qml",
         "grid.frag.qsb",
     ];

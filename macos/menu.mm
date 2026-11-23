@@ -165,6 +165,9 @@ static CSMenuTarget* g_menu_target = nil;
 static BOOL CSIsAboutItem(NSString* idStr) {
     return [idStr isEqualToString:@"help.about"];
 }
+static BOOL CSIsCheckUpdatesItem(NSString* idStr) {
+    return [idStr isEqualToString:@"help.checkUpdates"];
+}
 static BOOL CSIsPreferencesItem(NSString* idStr) {
     return [idStr isEqualToString:@"file.settings"];
 }
@@ -176,6 +179,7 @@ static BOOL CSIsQuitItem(NSString* idStr) {
 // what is left. Only arrays are rebuilt; the item dicts themselves are shared.
 static NSArray* CSCollectRoleItems(NSArray* items,
                                    NSMutableArray* about,
+                                   NSMutableArray* updates,
                                    NSMutableArray* prefs,
                                    NSMutableArray* quit) {
     NSMutableArray* kept = [NSMutableArray array];
@@ -188,7 +192,7 @@ static NSArray* CSCollectRoleItems(NSArray* items,
         NSString* idStr = d[@"id"] ?: @"";
         NSArray* sub = [d[@"submenu"] isKindOfClass:[NSArray class]] ? d[@"submenu"] : nil;
         if (sub) {
-            NSArray* newSub = CSCollectRoleItems(sub, about, prefs, quit);
+            NSArray* newSub = CSCollectRoleItems(sub, about, updates, prefs, quit);
             if (newSub.count != sub.count) {
                 NSMutableDictionary* m = [d mutableCopy];
                 m[@"submenu"] = newSub;
@@ -197,6 +201,8 @@ static NSArray* CSCollectRoleItems(NSArray* items,
         }
         if (CSIsAboutItem(idStr)) {
             [about addObject:d];
+        } else if (CSIsCheckUpdatesItem(idStr)) {
+            [updates addObject:d];
         } else if (CSIsPreferencesItem(idStr)) {
             [prefs addObject:d];
         } else if (CSIsQuitItem(idStr)) {
@@ -289,6 +295,7 @@ void cs_macos_set_menu(const char* json) {
         return;
 
     NSMutableArray* about = [NSMutableArray array];
+    NSMutableArray* updates = [NSMutableArray array];
     NSMutableArray* prefs = [NSMutableArray array];
     NSMutableArray* quit = [NSMutableArray array];
     NSMutableArray* menus = [NSMutableArray array];
@@ -299,16 +306,17 @@ void cs_macos_set_menu(const char* json) {
         NSArray* items = d[@"items"];
         if (![items isKindOfClass:[NSArray class]])
             items = @[];
-        items = CSCollapseSeparators(CSCollectRoleItems(items, about, prefs, quit));
+        items = CSCollapseSeparators(CSCollectRoleItems(items, about, updates, prefs, quit));
         d[@"items"] = items;
         [menus addObject:d];
     }
 
-    // The application menu: About items, Preferences, Quit. macOS ignores the
-    // title of the first submenu and shows the app name instead. Item paths
-    // are unchanged, so triggers still route to AppMenuBar.
+    // The application menu: About items, Check for Updates, Preferences, Quit.
+    // macOS ignores the title of the first submenu and shows the app name
+    // instead. Item paths are unchanged, so triggers still route to AppMenuBar.
     NSMutableArray* appItems = [NSMutableArray array];
     [appItems addObjectsFromArray:about];
+    [appItems addObjectsFromArray:updates];
     if (appItems.count && prefs.count)
         [appItems addObject:@{@"separator" : @YES}];
     [appItems addObjectsFromArray:prefs];

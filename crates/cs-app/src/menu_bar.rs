@@ -657,6 +657,15 @@ fn build_menus(
             entries: vec![
                 item("help.info", &t("Simulation Info"), true, false, false, c),
                 item(
+                    "help.checkUpdates",
+                    &t("Check for &Updates..."),
+                    true,
+                    false,
+                    false,
+                    c,
+                ),
+                sep(),
+                item(
                     "help.about",
                     &t("&About Circuit Simulator"),
                     true,

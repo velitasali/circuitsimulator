@@ -2932,8 +2932,8 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     </message>
     <message>
         <location filename="../../src/components/micro/esp01.cpp" line="397" />
-        <source>Open Serial Monitor.</source>
-        <translation>Seri Monitörü açın.</translation>
+        <source>Open Serial Monitor</source>
+        <translation>Seri Monitörü Aç</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/esp01.cpp" line="62" />
@@ -5195,13 +5195,13 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     </message>
     <message>
         <location filename="../../src/microsim/mcu.cpp" line="621" />
-        <source>Open Mcu Monitor.</source>
-        <translation>Mcu Monitor'u açın.</translation>
+        <source>Open Mcu Monitor</source>
+        <translation>MCU Monitörünü Aç</translation>
     </message>
     <message>
         <location filename="../../src/microsim/mcu.cpp" line="625" />
-        <source>Open Monitor.</source>
-        <translation>Monitörü açın.</translation>
+        <source>Open Monitor</source>
+        <translation>Monitörü Aç</translation>
     </message>
     <message>
         <source>Other Monitors</source>
@@ -6183,8 +6183,8 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     </message>
     <message>
         <location filename="../../src/microsim/cores/qemu/qemudevice.cpp" line="473" />
-        <source>Open Serial Monitor.</source>
-        <translation>Seri Monitörü açın.</translation>
+        <source>Open Serial Monitor</source>
+        <translation>Seri Monitörü Aç</translation>
     </message>
 </context>
 <context>
@@ -6614,8 +6614,8 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     </message>
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="236" />
-        <source>Open Serial Monitor.</source>
-        <translation>Seri Monitörü açın.</translation>
+        <source>Open Serial Monitor</source>
+        <translation>Seri Monitörü Aç</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="87" />
@@ -6667,8 +6667,8 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     </message>
     <message>
         <location filename="../../src/components/micro/serialterm.cpp" line="213" />
-        <source>Open Serial Monitor.</source>
-        <translation>Seri Monitörü açın.</translation>
+        <source>Open Serial Monitor</source>
+        <translation>Seri Monitörü Aç</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/serialterm.cpp" line="65" />

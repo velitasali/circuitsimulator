@@ -2907,7 +2907,7 @@ has been deleted or renamed by another program.
     </message>
     <message>
         <location filename="../../src/components/micro/esp01.cpp" line="397"/>
-        <source>Open Serial Monitor.</source>
+        <source>Open Serial Monitor</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5169,12 +5169,12 @@ has been deleted or renamed by another program.
     </message>
     <message>
         <location filename="../../src/microsim/mcu.cpp" line="621"/>
-        <source>Open Mcu Monitor.</source>
+        <source>Open Mcu Monitor</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../src/microsim/mcu.cpp" line="625"/>
-        <source>Open Monitor.</source>
+        <source>Open Monitor</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6157,7 +6157,7 @@ has been deleted or renamed by another program.
     </message>
     <message>
         <location filename="../../src/microsim/cores/qemu/qemudevice.cpp" line="473"/>
-        <source>Open Serial Monitor.</source>
+        <source>Open Serial Monitor</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -6586,7 +6586,7 @@ has been deleted or renamed by another program.
     </message>
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="236"/>
-        <source>Open Serial Monitor.</source>
+        <source>Open Serial Monitor</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6639,7 +6639,7 @@ has been deleted or renamed by another program.
     </message>
     <message>
         <location filename="../../src/components/micro/serialterm.cpp" line="213"/>
-        <source>Open Serial Monitor.</source>
+        <source>Open Serial Monitor</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

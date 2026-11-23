@@ -2928,8 +2928,8 @@ Can't find file:
     </message>
     <message>
         <location filename="../../src/components/micro/esp01.cpp" line="397" />
-        <source>Open Serial Monitor.</source>
-        <translation>Open Serial Monitor.</translation>
+        <source>Open Serial Monitor</source>
+        <translation>Open Serial Monitor</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/esp01.cpp" line="62" />
@@ -5163,13 +5163,13 @@ Can't find file:
     </message>
     <message>
         <location filename="../../src/microsim/mcu.cpp" line="621" />
-        <source>Open Mcu Monitor.</source>
-        <translation>Open Mcu Monitor.</translation>
+        <source>Open Mcu Monitor</source>
+        <translation>Open Mcu Monitor</translation>
     </message>
     <message>
         <location filename="../../src/microsim/mcu.cpp" line="625" />
-        <source>Open Monitor.</source>
-        <translation>Open Monitor.</translation>
+        <source>Open Monitor</source>
+        <translation>Open Monitor</translation>
     </message>
     <message>
         <source>Other Monitors</source>
@@ -6181,8 +6181,8 @@ Can't find file:
     </message>
     <message>
         <location filename="../../src/microsim/cores/qemu/qemudevice.cpp" line="473" />
-        <source>Open Serial Monitor.</source>
-        <translation>Open Serial Monitor.</translation>
+        <source>Open Serial Monitor</source>
+        <translation>Open Serial Monitor</translation>
     </message>
 </context>
 <context>
@@ -6596,8 +6596,8 @@ Can't find file:
     </message>
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="236" />
-        <source>Open Serial Monitor.</source>
-        <translation>Open Serial Monitor.</translation>
+        <source>Open Serial Monitor</source>
+        <translation>Open Serial Monitor</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="67" />
@@ -6665,8 +6665,8 @@ Can't find file:
     </message>
     <message>
         <location filename="../../src/components/micro/serialterm.cpp" line="213" />
-        <source>Open Serial Monitor.</source>
-        <translation>Open Serial Monitor.</translation>
+        <source>Open Serial Monitor</source>
+        <translation>Open Serial Monitor</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/serialterm.cpp" line="65" />

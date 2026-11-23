@@ -402,7 +402,7 @@ Item {
 
         ContextMenuItem {
             id: openMcuMonitorItem
-            text: I18n.tr("Open Mcu Monitor.")
+            text: I18n.tr("Open Mcu Monitor")
             iconLigature: "terminal"
             visible: itemMenu.showMcuActions
             onTriggered: {
@@ -414,7 +414,7 @@ Item {
 
         ContextMenuItem {
             id: directSerialMonItem
-            text: itemMenu.isQemu ? I18n.tr("Open Serial Monitor.") : I18n.tr("Open Monitor.")
+            text: itemMenu.isQemu ? I18n.tr("Open Serial Monitor") : I18n.tr("Open Monitor")
             iconLigature: "terminal"
             visible: itemMenu.showMcuActions && itemMenu.hasMonitors
             onTriggered: {
@@ -486,7 +486,7 @@ Item {
             onTriggered: App.showLa()
         }
         ContextMenuItem {
-            text: I18n.tr("Open Serial Monitor.")
+            text: I18n.tr("Open Serial Monitor")
             iconLigature: "terminal"
             visible: itemMenu.isSerial
             onTriggered: {

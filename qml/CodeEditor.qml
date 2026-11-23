@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import cs_app
 import cs_ui
 
@@ -891,51 +892,224 @@ Item {
     Dialog {
         id: diskPromptDialog
         visible: EditorPanel.diskPromptVisible
-        x: Math.round((parent.width - width) / 2)
-        y: Math.round((parent.height - height) / 2)
+        parent: Overlay.overlay
         modal: true
-        title: EditorPanel.diskPromptKind === "deleted" ? "File Deleted on Disk" : "File Changed on Disk"
+        dim: true
+        padding: 0
+        header: null
+        footer: null
         standardButtons: Dialog.NoButton
+        closePolicy: Popup.NoAutoClose
+        width: Math.min(Math.max((parent ? parent.width : root.width) - 32, 300), 420)
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.max(40, Math.round((parent.height - height) / 2)) : 0
+
+        readonly property bool isDeleted: EditorPanel.diskPromptKind === "deleted"
+        readonly property color accentColor: isDeleted
+            ? (CircuitCanvas.msgErrorBg || appTheme.highlight)
+            : (CircuitCanvas.msgWarnBg || appTheme.highlight)
+
+        function fileNameForPath(path: string): string {
+            if (!path || path.length === 0)
+                return ""
+            var parts = path.replace(/\\/g, "/").split("/")
+            return parts[parts.length - 1] || path
+        }
+
+        function fileIconForPath(path: string): string {
+            var name = fileNameForPath(path)
+            if (App.isCircuitPath(name))
+                return "memory"
+            var ext = name.split(".").pop().toLowerCase()
+            if (ext === "c" || ext === "cpp" || ext === "h" || ext === "hpp" || ext === "ino" || ext === "rs" || ext === "py")
+                return "code"
+            if (ext === "asm" || ext === "s" || ext === "inc")
+                return "terminal"
+            if (ext === "hex" || ext === "bin")
+                return "data_object"
+            if (ext === "xml" || ext === "json" || ext === "txt" || ext === "md")
+                return "article"
+            return "description"
+        }
+
+        function triggerSecondary(): void {
+            if (isDeleted) {
+                EditorPanel.diskPromptKeep()
+            } else {
+                EditorPanel.diskPromptReload()
+            }
+        }
+
+        function triggerPrimary(): void {
+            if (isDeleted) {
+                EditorPanel.diskPromptClose()
+            } else {
+                EditorPanel.diskPromptKeep()
+            }
+        }
+
+        background: Rectangle {
+            color: appTheme.window
+            border.color: appTheme.mid
+            border.width: 1
+            radius: 14
+        }
+
+        Overlay.modal: Rectangle {
+            color: Qt.rgba(0, 0, 0, 0.45)
+        }
+
+        onOpened: primaryDiskPromptBtn.forceActiveFocus()
+
+        Shortcut {
+            enabled: diskPromptDialog.visible
+            sequences: ["Return", "Enter"]
+            onActivated: diskPromptDialog.triggerPrimary()
+        }
+
+        Shortcut {
+            enabled: diskPromptDialog.visible
+            sequences: ["Escape"]
+            onActivated: EditorPanel.diskPromptKeep()
+        }
 
         contentItem: Item {
-            implicitWidth: 380
-            implicitHeight: col.implicitHeight
+            implicitWidth: diskPromptDialog.width
+            implicitHeight: diskPromptCol.implicitHeight + 32
 
-            Column {
-                id: col
-                width: parent.width
+            ColumnLayout {
+                id: diskPromptCol
+                anchors.fill: parent
+                anchors.margins: 16
                 spacing: 12
-                AppText {
-                    width: parent.width
-                    text: EditorPanel.diskPromptKind === "deleted"
-                        ? "\n" + EditorPanel.diskPromptPath + "\n\nhas been deleted or renamed by another program."
-                        : "\n" + EditorPanel.diskPromptPath + "\n\nhas been changed by another program,\nand you have unsaved changes here."
-                    color: appTheme.windowText
-                    wrapMode: Text.Wrap
-                }
-                Row {
+
+                RowLayout {
+                    Layout.fillWidth: true
                     spacing: 10
-                    anchors.right: parent.right
-                    AppButton {
-                        text: EditorPanel.diskPromptKind === "deleted" ? "Keep in Editor" : "Reload"
-                        onClicked: {
-                            if (EditorPanel.diskPromptKind === "deleted") {
-                                EditorPanel.diskPromptKeep()
-                            } else {
-                                EditorPanel.diskPromptReload()
+
+                    Rectangle {
+                        implicitWidth: 28
+                        implicitHeight: 28
+                        radius: height / 2
+                        color: Qt.alpha(diskPromptDialog.accentColor, 0.18)
+
+                        AppIcon {
+                            anchors.centerIn: parent
+                            icon: "warning"
+                            color: diskPromptDialog.accentColor
+                            size: 16
+                        }
+                    }
+
+                    AppText {
+                        text: diskPromptDialog.isDeleted
+                            ? I18n.tr("File Deleted on Disk")
+                            : I18n.tr("File Changed on Disk")
+                        font.pixelSize: App.fontTitle
+                        font.bold: true
+                        color: appTheme.windowText
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    AppToolButton {
+                        implicitWidth: 24
+                        implicitHeight: 24
+                        padding: 0
+                        contentItem: AppIcon {
+                            icon: "close"
+                            size: 16
+                            color: appTheme.windowText
+                            opacity: 0.65
+                        }
+                        onClicked: EditorPanel.diskPromptKeep()
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: Math.max(32, diskTargetRow.implicitHeight + 12)
+                    radius: 8
+                    color: Qt.rgba(appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.16)
+                    border.color: Qt.rgba(appTheme.mid.r, appTheme.mid.g, appTheme.mid.b, 0.32)
+                    border.width: 1
+
+                    RowLayout {
+                        id: diskTargetRow
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        spacing: 8
+
+                        AppIcon {
+                            icon: diskPromptDialog.fileIconForPath(EditorPanel.diskPromptPath)
+                            size: 16
+                            color: appTheme.windowText
+                            opacity: 0.7
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+
+                            AppText {
+                                Layout.fillWidth: true
+                                text: diskPromptDialog.fileNameForPath(EditorPanel.diskPromptPath)
+                                font.pixelSize: App.fontSmall
+                                font.bold: true
+                                color: appTheme.windowText
+                                elide: Text.ElideMiddle
+                            }
+
+                            AppText {
+                                visible: text.length > 0
+                                Layout.fillWidth: true
+                                text: EditorPanel.diskPromptPath
+                                font.pixelSize: App.fontMicro
+                                color: appTheme.windowText
+                                opacity: 0.65
+                                elide: Text.ElideMiddle
                             }
                         }
                     }
+                }
+
+                AppText {
+                    Layout.fillWidth: true
+                    text: diskPromptDialog.isDeleted
+                        ? I18n.tr("This file has been deleted or renamed on disk by another program.")
+                        : I18n.tr("This file has been modified on disk by another program, and you have unsaved changes in the editor.")
+                    color: appTheme.windowText
+                    opacity: 0.88
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.2
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 2
+                    spacing: 8
+
+                    Item { Layout.fillWidth: true }
+
                     AppButton {
-                        text: EditorPanel.diskPromptKind === "deleted" ? "Close Tab" : "Keep my Changes"
+                        id: secondaryDiskPromptBtn
+                        text: diskPromptDialog.isDeleted ? I18n.tr("Keep in Editor") : I18n.tr("Reload")
+                        Layout.minimumHeight: 28
+                        leftPadding: 14
+                        rightPadding: 14
+                        onClicked: diskPromptDialog.triggerSecondary()
+                    }
+
+                    AppButton {
+                        id: primaryDiskPromptBtn
+                        text: diskPromptDialog.isDeleted ? I18n.tr("Close Tab") : I18n.tr("Keep My Changes")
                         highlighted: true
-                        onClicked: {
-                            if (EditorPanel.diskPromptKind === "deleted") {
-                                EditorPanel.diskPromptClose()
-                            } else {
-                                EditorPanel.diskPromptKeep()
-                            }
-                        }
+                        font.bold: true
+                        Layout.minimumHeight: 28
+                        leftPadding: 16
+                        rightPadding: 16
+                        onClicked: diskPromptDialog.triggerPrimary()
                     }
                 }
             }

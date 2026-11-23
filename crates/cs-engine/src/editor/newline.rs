@@ -163,8 +163,8 @@ fn calculate_newline_bytes(
         }
     }
 
-    // If cursor is positioned within leading whitespace, split the line at cursor
-    if pos_in_line < current_indent.len() {
+    // If cursor is at the start of the line or within leading whitespace, split the line at cursor
+    if pos_in_line == 0 || pos_in_line < current_indent.len() {
         return NewlineEdit {
             valid: true,
             replace_start: cursor_byte,
@@ -186,20 +186,19 @@ fn calculate_newline_bytes(
 
     let trimmed_before = trimmed_text_before.trim();
     let trimmed_after = text_after.trim();
-    let trimmed_line = line_text.trim();
 
     // Check 1: Inside multiline comment /* ... */
     let mut in_block_comment = false;
     let mut comment_prefix = "";
-    if (trimmed_line.starts_with("/*") || trimmed_line.starts_with('*'))
+    if (trimmed_before.starts_with("/*") || trimmed_before.starts_with('*'))
         && !trimmed_before.contains("*/")
     {
         in_block_comment = true;
-        if trimmed_line.starts_with("/*") {
+        if trimmed_before.starts_with("/*") {
             comment_prefix = " * ";
-        } else if trimmed_line.starts_with("* ") {
+        } else if trimmed_before.starts_with("* ") {
             comment_prefix = "* ";
-        } else if trimmed_line.starts_with('*') {
+        } else if trimmed_before.starts_with('*') {
             comment_prefix = "* ";
         }
     }
@@ -431,5 +430,22 @@ mod tests {
         let edit = calculate_newline(text, cursor, cursor, cursor, true, 4);
         assert!(edit.valid);
         assert_eq!(edit.insert_text, "\n\t\t");
+    }
+
+    #[test]
+    fn test_newline_at_start_of_file() {
+        let text = "/* Header */\nint x = 1;";
+        let edit = calculate_newline(text, 0, 0, 0, true, 4);
+        assert!(edit.valid);
+        assert_eq!(edit.replace_start, 0);
+        assert_eq!(edit.replace_end, 0);
+        assert_eq!(edit.insert_text, "\n");
+        assert_eq!(edit.new_cursor_pos, 1);
+
+        let text2 = "    /* Indented comment */";
+        let edit2 = calculate_newline(text2, 4, 4, 4, true, 4);
+        assert!(edit2.valid);
+        assert_eq!(edit2.insert_text, "\n    /* Indented comment */");
+        assert_eq!(edit2.new_cursor_pos, 9);
     }
 }

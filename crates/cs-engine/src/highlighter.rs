@@ -459,10 +459,12 @@ fn pre_open(font_family: &str, font_size: i32, dark: bool) -> String {
     // Qt's rich-text default stylesheet sets `pre { font-family: fixed }`,
     // which ignores Text.font. C++ never hit this: QSyntaxHighlighter painted
     // the same QTextDocument whose defaultFont was the user's editor QFont.
+    // Trailing '\n' is consumed by QTextHtmlParser's `<pre>\n` stripping rule
+    // so a leading newline in the document itself is never eaten.
     let family = sanitize_font_family(font_family);
     let size = font_size.clamp(6, 72);
     let fg = ColorTheme::rgb_u32(ColorId::EditorText, dark);
-    format!("<pre style=\"margin:0;font-family:'{family}';font-size:{size}px;color:#{fg:06x};\">")
+    format!("<pre style=\"margin:0;font-family:'{family}';font-size:{size}px;color:#{fg:06x};\">\n")
 }
 
 fn cached_syntax(name: &str, src: &str, dark: bool, show_spaces: bool) -> Arc<Syntax> {
@@ -540,7 +542,7 @@ pub fn highlight_html(
             html.push('\n');
         }
     }
-    html.push_str("</pre>");
+    html.push_str("\n</pre>");
     html
 }
 
@@ -592,7 +594,7 @@ fn html_escape(s: &str) -> String {
 
 fn escape_pre(text: &str, font_family: &str, font_size: i32, dark: bool) -> String {
     format!(
-        "{}{}</pre>",
+        "{}{}\n</pre>",
         pre_open(font_family, font_size, dark),
         html_escape(text)
     )
@@ -702,5 +704,24 @@ mod tests {
         assert!(!html.contains("#202060"), "{html}");
         assert!(html.contains("#9f9fdf"), "{html}");
         assert!(html.contains("color:#dcdcdc"), "{html}");
+    }
+
+    #[test]
+    fn pre_framing_preserves_leading_and_trailing_newlines() {
+        let highlighted = highlight_html(
+            "\nint a;\n",
+            Some("cpp.syntax"),
+            false,
+            false,
+            "Ubuntu Mono",
+            14,
+        );
+        // QTextHtmlParser strips one '\n' right after <pre...> and one before </pre>,
+        // so the document's leading/trailing '\n' requires two '\n' at each boundary.
+        assert!(highlighted.contains("\">\n\n<span"), "{highlighted}");
+        assert!(highlighted.ends_with("a;\n\n</pre>"), "{highlighted}");
+
+        let plain = highlight_html("\nhello\n", None, false, false, "Ubuntu Mono", 14);
+        assert!(plain.contains("\">\n\nhello\n\n</pre>"), "{plain}");
     }
 }

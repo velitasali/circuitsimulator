@@ -54,6 +54,7 @@ pub use viewport::{
 };
 pub use wire::{Wire, WireHit};
 
+use crate::{package, subcircuit};
 use drag::Drag;
 use history::{History, Snapshot};
 use viewport::Viewport as Vp;
@@ -424,23 +425,36 @@ impl Canvas {
     }
 
     pub fn mcu_info(&self) -> (String, String, bool) {
-        for it in self.scene.items() {
-            if matches!(&it.kind, Part::Mcu(_) | Part::QemuDevice(_)) {
-                let clean = crate::package::clean_chip_label(it.pkg_name());
-                let device = if !clean.is_empty() {
-                    clean.to_string()
-                } else {
-                    it.kind.type_name().to_string()
-                };
-                let name = it.label.clone();
-                return (
-                    device,
-                    if name.is_empty() { it.id.clone() } else { name },
-                    true,
-                );
-            }
+        if let Some(aid) = self.active_device_id.as_deref()
+            && let Some(it) = self.scene.item_by_id(aid)
+            && let Some((device, name)) = mcu_info_for_item(it)
+        {
+            return (device, name, true);
         }
-        (String::new(), String::new(), false)
+
+        let devices = self.collect_programmable_devices(self.active_device_id.as_deref());
+        let Some(dev) = devices.iter().find(|d| d.is_active).or(devices.first()) else {
+            return (String::new(), String::new(), false);
+        };
+
+        if let Some(it) = self.scene.item_by_id(&dev.id)
+            && let Some((device, name)) = mcu_info_for_item(it)
+        {
+            return (device, name, true);
+        }
+
+        let clean = package::clean_chip_label(&dev.kind);
+        let device = if !clean.is_empty() {
+            clean.to_string()
+        } else {
+            dev.kind.clone()
+        };
+        let name = if dev.label.is_empty() {
+            dev.id.clone()
+        } else {
+            dev.label.clone()
+        };
+        (device, name, true)
     }
 
     pub fn set_circ_settings(&mut self, s: crate::CircSettings) -> Change {
@@ -1091,6 +1105,33 @@ impl Canvas {
         c.merge(self.update_hover(self.last_scene, 0));
         c
     }
+}
+
+fn mcu_info_for_item(it: &Item) -> Option<(String, String)> {
+    if !matches!(&it.kind, Part::Mcu(_) | Part::QemuDevice(_)) {
+        return None;
+    }
+    let clean = package::clean_chip_label(it.pkg_name());
+    let device = if !clean.is_empty() {
+        clean.to_string()
+    } else if let Part::QemuDevice(qemu) = &it.kind
+        && !qemu.qemu.device.is_empty()
+    {
+        qemu.qemu.device.clone()
+    } else {
+        let from_id = subcircuit::device_from_id(&it.id);
+        if !from_id.is_empty() {
+            from_id
+        } else {
+            it.kind.type_name().to_string()
+        }
+    };
+    let name = if it.label.is_empty() {
+        it.id.clone()
+    } else {
+        it.label.clone()
+    };
+    Some((device, name))
 }
 
 #[cfg(test)]

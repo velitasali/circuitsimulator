@@ -1127,26 +1127,6 @@ Item {
         }
     }
 
-    Timer {
-        id: infoTimer
-        interval: 100
-        repeat: true
-        running: CircuitCanvas.simRunning && !CircuitCanvas.simPaused && CircuitPanel.infoVisible
-        onTriggered: {
-            InfoWidget.syncSim(
-                CircuitCanvas.simCircTime,
-                CircuitCanvas.speedPercent,
-                CircuitCanvas.simRealSpeed,
-                CircuitCanvas.simLoad,
-                CircuitCanvas.simGuiLoad,
-                CircuitCanvas.simFps,
-                CircuitCanvas.simMcuDevice,
-                CircuitCanvas.simMcuName,
-                CircuitCanvas.simHasMcu
-            )
-        }
-    }
-
     PinchHandler {
         id: pinch
         target: null

@@ -13,6 +13,7 @@ pub mod selection;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use crate::actions;
 use crate::path_util::strip_file_url;
@@ -101,12 +102,16 @@ pub struct CircuitCanvas {
     pub(crate) gui_load: f64,
     pub(crate) real_speed: f64,
     pub(crate) real_fps: i32,
-    pub(crate) last_ref_time: Option<std::time::Instant>,
+    pub(crate) last_ref_time: Option<Instant>,
+    pub(crate) last_telemetry_emit: Option<Instant>,
     pub(crate) last_circ_time: u64,
     pub(crate) gui_time_ns: u64,
     pub(crate) frame_count: u32,
     pub(crate) pending_sim_log: Vec<String>,
     pub(crate) active_device_id: Option<String>,
+    pub(crate) mcu_device: String,
+    pub(crate) mcu_name: String,
+    pub(crate) has_mcu: bool,
     pub(crate) pending_replace: PendingReplace,
     pub(crate) project_path: String,
     pub(crate) initial_loaded: bool,
@@ -126,11 +131,15 @@ impl Default for CircuitCanvas {
             inner,
             dark: false,
             active_device_id: None,
+            mcu_device: String::new(),
+            mcu_name: String::new(),
+            has_mcu: false,
             sim_load: 0.0,
             gui_load: 0.0,
             real_speed: 0.0,
-            real_fps: st.fps.clamp(1, 100) as i32,
+            real_fps: 0,
             last_ref_time: None,
+            last_telemetry_emit: None,
             last_circ_time: 0,
             gui_time_ns: 0,
             frame_count: 0,
@@ -337,6 +346,28 @@ impl CircuitCanvas {
         }
     }
 
+    fn reset_sim_telemetry(&mut self) {
+        self.sim_load = 0.0;
+        self.gui_load = 0.0;
+        self.real_speed = 0.0;
+        self.real_fps = 0;
+        self.last_ref_time = None;
+        self.last_telemetry_emit = None;
+        self.last_circ_time = 0;
+        self.gui_time_ns = 0;
+        self.frame_count = 0;
+    }
+
+    fn refresh_mcu_info(&mut self) {
+        let (device, name, has) = self.inner.mcu_info();
+        if self.mcu_device != device || self.mcu_name != name || self.has_mcu != has {
+            self.mcu_device = device;
+            self.mcu_name = name;
+            self.has_mcu = has;
+            self.mcu_info_changed();
+        }
+    }
+
     fn apply(&mut self, mut c: Change) {
         self.flush_sim_logs();
         if c.zoom {
@@ -378,7 +409,11 @@ impl CircuitCanvas {
             self.cursor_changed();
         }
         if c.sim {
+            if !self.inner.sim_running() {
+                self.reset_sim_telemetry();
+            }
             self.sim_changed();
+            self.sim_telemetry_changed();
         }
         if c.anim {
             self.anim_changed();
@@ -391,6 +426,7 @@ impl CircuitCanvas {
             self.props_changed();
         }
         if c.items || c.props {
+            self.refresh_mcu_info();
             self.subcircuits_changed();
         }
         if c.open_props {
@@ -1221,18 +1257,34 @@ impl CircuitCanvas {
         Notify = circ_settings_changed
     );
     qproperty!("resets", Read = resets, Notify = circ_settings_changed);
-    qproperty!("simCircTime", Read = sim_circ_time, Notify = sim_changed);
-    qproperty!("simMcuDevice", Read = sim_mcu_device, Notify = sim_changed);
-    qproperty!("simMcuName", Read = sim_mcu_name, Notify = sim_changed);
-    qproperty!("simHasMcu", Read = sim_has_mcu, Notify = sim_changed);
-    qproperty!("simLoad", Read = sim_load_val, Notify = sim_changed);
-    qproperty!("simGuiLoad", Read = sim_gui_load_val, Notify = sim_changed);
+    qproperty!(
+        "simCircTime",
+        Read = sim_circ_time,
+        Notify = sim_telemetry_changed
+    );
+    qproperty!(
+        "simMcuDevice",
+        Read = sim_mcu_device,
+        Notify = mcu_info_changed
+    );
+    qproperty!("simMcuName", Read = sim_mcu_name, Notify = mcu_info_changed);
+    qproperty!("simHasMcu", Read = sim_has_mcu, Notify = mcu_info_changed);
+    qproperty!(
+        "simLoad",
+        Read = sim_load_val,
+        Notify = sim_telemetry_changed
+    );
+    qproperty!(
+        "simGuiLoad",
+        Read = sim_gui_load_val,
+        Notify = sim_telemetry_changed
+    );
     qproperty!(
         "simRealSpeed",
         Read = sim_real_speed_val,
-        Notify = sim_changed
+        Notify = sim_telemetry_changed
     );
-    qproperty!("simFps", Read = sim_fps_val, Notify = sim_changed);
+    qproperty!("simFps", Read = sim_fps_val, Notify = sim_telemetry_changed);
     qproperty!("hoverHtml", Read = hover_html, Notify = hover_changed);
     qproperty!("hoverVisible", Read = hover_visible, Notify = hover_changed);
     qproperty!("hoverX", Read = hover_x, Notify = hover_pos_changed);
@@ -1286,6 +1338,10 @@ impl CircuitCanvas {
     fn wires_changed(&mut self);
     #[qsignal]
     fn sim_changed(&mut self);
+    #[qsignal]
+    fn sim_telemetry_changed(&mut self);
+    #[qsignal]
+    fn mcu_info_changed(&mut self);
     #[qsignal]
     fn anim_changed(&mut self);
     #[qsignal]
@@ -1366,11 +1422,12 @@ impl CircuitCanvas {
     }
 
     fn set_active_device_id(&mut self, id: String) {
-        let changed = self.active_device_id.as_deref() != Some(&id);
-        if changed {
-            self.active_device_id = if id.is_empty() { None } else { Some(id) };
+        let next = if id.is_empty() { None } else { Some(id) };
+        if self.active_device_id != next {
+            self.active_device_id = next;
             self.inner
                 .set_active_device_id(self.active_device_id.clone());
+            self.refresh_mcu_info();
             self.active_device_changed();
             self.devices_changed();
             self.items_changed();
@@ -1386,6 +1443,7 @@ impl CircuitCanvas {
             self.active_device_id = target;
             self.inner
                 .set_active_device_id(self.active_device_id.clone());
+            self.refresh_mcu_info();
             self.active_device_changed();
             self.devices_changed();
             self.redraw_or_mark_full();
@@ -2127,15 +2185,15 @@ impl CircuitCanvas {
     }
 
     fn sim_mcu_device(&self) -> String {
-        self.inner.mcu_info().0
+        self.mcu_device.clone()
     }
 
     fn sim_mcu_name(&self) -> String {
-        self.inner.mcu_info().1
+        self.mcu_name.clone()
     }
 
     fn sim_has_mcu(&self) -> bool {
-        self.inner.mcu_info().2
+        self.has_mcu
     }
 
     #[qslot]
@@ -2639,6 +2697,7 @@ impl CircuitCanvas {
 
     #[qslot]
     fn power_on(&mut self) {
+        self.reset_sim_telemetry();
         let c = self.inner.power_on();
         self.apply(c);
         self.warnings_changed();
@@ -2646,19 +2705,18 @@ impl CircuitCanvas {
 
     #[qslot]
     fn power_off(&mut self) {
+        self.reset_sim_telemetry();
         let c = self.inner.power_off();
+        let emitted = c.sim;
         self.apply(c);
+        if !emitted {
+            self.sim_telemetry_changed();
+        }
         let cur_count = self.inner.overload_log().len();
         let cur_crashed = self.inner.overload_log().iter().any(|e| e.crashed);
         self.last_warnings_count = cur_count;
         self.last_warnings_crashed = cur_crashed;
         self.warnings_changed();
-        self.sim_load = 0.0;
-        self.gui_load = 0.0;
-        self.real_speed = 0.0;
-        self.last_ref_time = None;
-        self.last_circ_time = 0;
-        self.frame_count = 0;
     }
 
     #[qslot]
@@ -2693,9 +2751,10 @@ impl CircuitCanvas {
 
     #[qslot]
     fn tick(&mut self) {
-        let t0 = std::time::Instant::now();
+        let t0 = Instant::now();
         let c = self.inner.tick();
         let t_sim = t0.elapsed();
+        let sim_emitted = c.sim;
         self.apply(c);
         let cur_count = self.inner.overload_log().len();
         let cur_crashed = self.inner.overload_log().iter().any(|e| e.crashed);
@@ -2711,6 +2770,9 @@ impl CircuitCanvas {
             let last_item = self.inner.last_item();
             self.update_hover_tooltip(last_item.x, last_item.y);
         }
+        if !self.inner.sim_running() {
+            return;
+        }
         let total = t0.elapsed();
 
         // Calculate Simulation Load & GUI Load matching C++ SimulIDE
@@ -2721,10 +2783,11 @@ impl CircuitCanvas {
         self.gui_time_ns = self.gui_time_ns.saturating_add(total.as_nanos() as u64);
         self.frame_count = self.frame_count.saturating_add(1);
 
-        let now = std::time::Instant::now();
+        let now = Instant::now();
+        let mut metrics_updated = false;
         if let Some(last_ref) = self.last_ref_time {
             let elapsed = last_ref.elapsed();
-            if elapsed >= std::time::Duration::from_secs(1) {
+            if elapsed >= Duration::from_secs(1) {
                 let elapsed_secs = elapsed.as_secs_f64();
                 self.gui_load = ((self.gui_time_ns as f64 / 1e9) / elapsed_secs) * 100.0;
                 self.gui_time_ns = 0;
@@ -2736,10 +2799,21 @@ impl CircuitCanvas {
                 self.real_fps = (self.frame_count as f64 / elapsed_secs).round() as i32;
                 self.frame_count = 0;
                 self.last_ref_time = Some(now);
+                metrics_updated = true;
             }
         } else {
             self.last_ref_time = Some(now);
             self.last_circ_time = self.inner.circ_time();
+        }
+
+        let throttle_elapsed = self
+            .last_telemetry_emit
+            .is_none_or(|t| now.saturating_duration_since(t) >= Duration::from_millis(100));
+        if metrics_updated || (!sim_emitted && throttle_elapsed) {
+            self.last_telemetry_emit = Some(now);
+            self.sim_telemetry_changed();
+        } else if sim_emitted {
+            self.last_telemetry_emit = Some(now);
         }
     }
 

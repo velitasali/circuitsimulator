@@ -1,6 +1,8 @@
 //! Simulation info card. Colours are hex strings, not `QColor`.
 
 use crate::macos_host;
+use cs_engine::i18n;
+use cs_engine::theme::{ColorId, ColorTheme};
 use qtbridge::qobject;
 
 pub struct InfoWidget {
@@ -166,17 +168,13 @@ impl InfoWidget {
     fn theme_changed(&mut self);
 
     #[qslot]
-    fn sync_sim(
+    fn sync_telemetry(
         &mut self,
         circ_time_ps: f64,
-        target_speed: f64,
         rate: f64,
         sim_load: f64,
         gui_load: f64,
         fps: i32,
-        mcu_device: String,
-        mcu_name: String,
-        has_mcu: bool,
     ) {
         let new_time = format_circ_time(circ_time_ps.max(0.0) as u64);
         if self.sim_time != new_time {
@@ -184,17 +182,11 @@ impl InfoWidget {
             self.sim_time_changed();
         }
 
-        let new_target = format_percent(target_speed);
-        if self.target_speed != new_target {
-            self.target_speed = new_target;
-            self.target_speed_changed();
-        }
-
         let (r_speed, s_load, g_load, f_str, o_load, is_overloaded) = if rate < 0.0 {
             let msg = if (rate + 1.0).abs() < 1e-3 {
-                cs_engine::i18n::tr("Speed: Debugger")
+                i18n::tr("Speed: Debugger")
             } else {
-                cs_engine::i18n::tr("Circuit ERROR!!!")
+                i18n::tr("Circuit ERROR!!!")
             };
             (
                 msg,
@@ -235,7 +227,19 @@ impl InfoWidget {
             self.over_loaded = is_overloaded;
             self.rate_changed();
         }
+    }
 
+    #[qslot]
+    fn sync_target_speed(&mut self, target_speed: f64) {
+        let new_target = format_percent(target_speed);
+        if self.target_speed != new_target {
+            self.target_speed = new_target;
+            self.target_speed_changed();
+        }
+    }
+
+    #[qslot]
+    fn sync_mcu(&mut self, mcu_device: String, mcu_name: String, has_mcu: bool) {
         let dev = if has_mcu { mcu_device } else { "---".into() };
         let nm = if has_mcu { mcu_name } else { "---".into() };
         if self.mcu_device != dev || self.mcu_name != nm || self.has_mcu != has_mcu {
@@ -247,7 +251,6 @@ impl InfoWidget {
     }
 
     fn compute_theme_colors(&mut self, dark: bool) {
-        use cs_engine::theme::{ColorId, ColorTheme};
         let (bg_r, bg_g, bg_b, _) = ColorTheme::get_rgba(ColorId::TreeItemBg1, dark);
         self.panel_background = format!("#dc{bg_r:02x}{bg_g:02x}{bg_b:02x}");
 

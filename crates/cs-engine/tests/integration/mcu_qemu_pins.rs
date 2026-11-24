@@ -548,3 +548,68 @@ fn test_many_non_mcu_subcircuits_render_and_resolve_active_fast() {
     let svg = export::svg_string(&canvas, &pal);
     assert!(svg.contains("#ffff00"));
 }
+
+#[test]
+fn test_mcu_info_tracks_active_device_and_board_mcus() {
+    let mut canvas = Canvas::empty();
+    assert_eq!(canvas.mcu_info(), (String::new(), String::new(), false));
+
+    assert!(canvas.scene_add_component_spec("mega328,MCU", Point::zero()));
+    assert!(canvas.scene_add_component_spec("ESP32,QemuDevice", Point::new(200.0, 0.0)));
+    let board_sim1 = r#"<circuit version="2.0.0" >
+<item itemtype="MCU" CircId="atmega328-1" label="atmega328" />
+</circuit>"#;
+    let board_item = Item::subcircuit(
+        "Arduino-1",
+        400.0,
+        0.0,
+        "Arduino_Uno",
+        Package::default(),
+        board_sim1,
+        None,
+        false,
+    );
+    canvas.scene_mut().add_saved_item(board_item);
+
+    let mcu = canvas
+        .scene()
+        .items()
+        .iter()
+        .find(|it| matches!(it.kind, Part::Mcu(_)))
+        .expect("MCU must be present")
+        .clone();
+    let esp = canvas
+        .scene()
+        .items()
+        .iter()
+        .find(|it| matches!(it.kind, Part::QemuDevice(_)))
+        .expect("ESP32 must be present")
+        .clone();
+
+    // Activating the ESP32 updates mcu_info to ESP32
+    canvas.set_active_device_id(Some(esp.id.clone()));
+    let (dev, name, has) = canvas.mcu_info();
+    assert!(has);
+    assert!(
+        dev.to_lowercase().contains("esp32"),
+        "expected ESP32 device, got {dev:?}"
+    );
+    assert_eq!(name, esp.label);
+
+    // Switching to the standalone mega328 updates mcu_info to mega328
+    canvas.set_active_device_id(Some(mcu.id.clone()));
+    let (dev, name, has) = canvas.mcu_info();
+    assert!(has);
+    assert!(
+        dev.to_lowercase().contains("mega328"),
+        "expected mega328 device, got {dev:?}"
+    );
+    assert_eq!(name, mcu.label);
+
+    // Switching to the board-mounted MCU updates mcu_info to the nested MCU
+    canvas.set_active_device_id(Some("Arduino-1/atmega328-1".to_string()));
+    let (dev, name, has) = canvas.mcu_info();
+    assert!(has);
+    assert_eq!(dev, "atmega328");
+    assert_eq!(name, "Arduino-1 / atmega328");
+}

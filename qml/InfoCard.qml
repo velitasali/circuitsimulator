@@ -20,6 +20,49 @@ Rectangle {
     border.width: 1
     radius: 16
 
+    function syncMcu(): void {
+        InfoWidget.syncMcu(
+            CircuitCanvas.simMcuDevice,
+            CircuitCanvas.simMcuName,
+            CircuitCanvas.simHasMcu
+        )
+    }
+
+    function syncTargetSpeed(): void {
+        InfoWidget.syncTargetSpeed(CircuitCanvas.speedPercent)
+    }
+
+    function syncTelemetry(): void {
+        InfoWidget.syncTelemetry(
+            CircuitCanvas.simCircTime,
+            CircuitCanvas.simRealSpeed,
+            CircuitCanvas.simLoad,
+            CircuitCanvas.simGuiLoad,
+            CircuitCanvas.simFps
+        )
+    }
+
+    Component.onCompleted: {
+        syncMcu()
+        syncTargetSpeed()
+        syncTelemetry()
+    }
+
+    onVisibleChanged: {
+        if (root.visible)
+            syncTelemetry()
+    }
+
+    Connections {
+        target: CircuitCanvas
+        function onMcuInfoChanged(): void { root.syncMcu() }
+        function onCircSettingsChanged(): void { root.syncTargetSpeed() }
+        function onSimTelemetryChanged(): void {
+            if (root.visible)
+                root.syncTelemetry()
+        }
+    }
+
     Connections {
         target: InfoWidget
         function onSpeedChanged() {

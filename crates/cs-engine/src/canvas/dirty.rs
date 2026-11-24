@@ -13,7 +13,7 @@ use super::geom::{Point, Rect, map_local};
 use super::pin::Pin;
 use super::scene::wires::pin_belongs;
 use super::scene::{Item, Part};
-use super::wire::Wire;
+use super::wire::{Wire, WireHit};
 use crate::elements::pins;
 
 /// Pin stem / wire logic colour threshold. Matches `paint_pin` / `paint_wire`.
@@ -291,10 +291,10 @@ impl Canvas {
         true
     }
 
-    pub(crate) fn close_wire(&mut self, pin: &Pin, at: Point) -> bool {
+    pub(crate) fn close_wire(&mut self, pin: &Pin, at: Point, shift: bool) -> bool {
         let draft = self.draft_wire_ids();
         self.dirty_draft_wire_now();
-        if !self.scene.close_wire(pin, at) {
+        if !self.scene.close_wire_with_shift(pin, at, shift) {
             return false;
         }
         self.dirty_closed_wire(draft, &pin.id);
@@ -331,11 +331,11 @@ impl Canvas {
         true
     }
 
-    pub(crate) fn splice_and_close(&mut self, wire_idx: usize, at: Point) -> bool {
+    pub(crate) fn splice_and_close(&mut self, wire_idx: usize, at: Point, shift: bool) -> bool {
         let draft = self.draft_wire_ids();
         self.dirty_draft_wire_now();
         self.dirty_wire_index(wire_idx);
-        if !self.scene.splice_and_close(wire_idx, at) {
+        if !self.scene.splice_and_close_with_shift(wire_idx, at, shift) {
             return false;
         }
         self.dirty_closed_wire(draft, "");
@@ -433,16 +433,20 @@ impl Canvas {
         changed
     }
 
-    pub(crate) fn drag_wire_segment(
+    pub(crate) fn drag_wire_segment_at(
         &mut self,
         idx: usize,
         seg: usize,
         delta: Point,
-    ) -> Option<usize> {
+        grab_pos: Point,
+        free: bool,
+    ) -> Option<WireHit> {
         self.dirty_wire_index(idx);
-        let new_seg = self.scene.drag_wire_segment(idx, seg, delta)?;
+        let outcome = self
+            .scene
+            .drag_wire_segment_at(idx, seg, delta, grab_pos, free)?;
         self.dirty_wire_index(idx);
-        Some(new_seg)
+        Some(outcome)
     }
 
     pub(crate) fn drag_wire_corner(

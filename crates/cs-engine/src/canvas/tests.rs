@@ -1036,6 +1036,279 @@ fn wire_drag_is_undoable() {
 }
 
 #[test]
+fn splice_node_lands_on_wire_when_clicking_off_center() {
+    let mut c = two_resistors_wired();
+    c.scene.add_default_resistor(40.0, 48.0);
+    // Start a wire from R3's left pin (24, 48).
+    let r3_l = item_of(&c, Point::new(24.0, 48.0));
+    c.mouse_press(BUTTON_LEFT, r3_l.x, r3_l.y, 0);
+    c.mouse_release(BUTTON_LEFT, r3_l.x, r3_l.y, 0);
+    assert!(c.scene.drawing());
+
+    // Click at (40, 3.0) — within WIRE_HIT (3.5) of the horizontal wire at y=0,
+    // even though to_grid((40, 3.0)) is (40, 4.0) (4px off the wire!).
+    let click = item_of(&c, Point::new(40.0, 3.0));
+    c.mouse_move(click.x, click.y, 0, 0);
+    // Live preview must snap onto the wire at y=0.
+    let draft_end = *c
+        .scene
+        .wires()
+        .iter()
+        .find(|w| w.drawing())
+        .unwrap()
+        .points
+        .last()
+        .unwrap();
+    assert_eq!(draft_end, Point::new(40.0, 0.0));
+
+    c.mouse_press(BUTTON_LEFT, click.x, click.y, 0);
+    assert!(!c.scene.drawing());
+    let node = c
+        .scene
+        .items()
+        .iter()
+        .find(|it| it.is_node())
+        .expect("junction node created");
+    assert_eq!(node.position(), Point::new(40.0, 0.0));
+    // All 3 wires connected to the node must meet at (40, 0).
+    let node_id = node.id.clone();
+    let attached = c.scene.wires().iter().filter(|w| {
+        w.start_pin.starts_with(&node_id)
+            || w.end_pin
+                .as_deref()
+                .is_some_and(|e| e.starts_with(&node_id))
+    });
+    assert_eq!(attached.clone().count(), 3);
+    for w in attached {
+        if w.start_pin.starts_with(&node_id) {
+            assert_eq!(w.points[0], Point::new(40.0, 0.0));
+        }
+        if w.end_pin
+            .as_deref()
+            .is_some_and(|e| e.starts_with(&node_id))
+        {
+            assert_eq!(*w.points.last().unwrap(), Point::new(40.0, 0.0));
+        }
+    }
+}
+
+#[test]
+fn splice_node_lands_and_stays_on_angled_wire() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+    c.scene.add_default_resistor(0.0, 0.0);
+    c.scene.add_default_resistor(80.0, 24.0);
+    c.scene.add_default_resistor(40.0, 64.0);
+
+    // Draw an angled wire with Shift from R1 rPin (16, 0) to R2 lPin (64, 24).
+    let a = item_of(&c, Point::new(16.0, 0.0));
+    let b = item_of(&c, Point::new(64.0, 24.0));
+    c.mouse_press(BUTTON_LEFT, a.x, a.y, 0);
+    c.mouse_release(BUTTON_LEFT, a.x, a.y, 0);
+    c.mouse_move(b.x, b.y, 0, MOD_SHIFT);
+    c.mouse_press(BUTTON_LEFT, b.x, b.y, MOD_SHIFT);
+    assert_eq!(
+        c.scene.wires()[0].points,
+        vec![Point::new(16.0, 0.0), Point::new(64.0, 24.0)]
+    );
+
+    // Connect R3 lPin (24, 64) onto the angled wire near its midpoint (40, 12) with slight offset.
+    let r3 = item_of(&c, Point::new(24.0, 64.0));
+    c.mouse_press(BUTTON_LEFT, r3.x, r3.y, 0);
+    c.mouse_release(BUTTON_LEFT, r3.x, r3.y, 0);
+    let splice_pt = item_of(&c, Point::new(40.0, 13.5));
+    c.mouse_move(splice_pt.x, splice_pt.y, 0, 0);
+    c.mouse_press(BUTTON_LEFT, splice_pt.x, splice_pt.y, 0);
+    assert!(!c.scene.drawing());
+
+    let node = c
+        .scene
+        .items()
+        .iter()
+        .find(|it| it.is_node())
+        .expect("node created on angled wire");
+    let np = node.position();
+    // Line equation from (16, 0) to (64, 24): y = 0.5 * (x - 16)
+    assert!(
+        (np.y - 0.5 * (np.x - 16.0)).abs() < 1e-6,
+        "node {np:?} is not on angled wire"
+    );
+    let node_id = node.id.clone();
+    for w in c.scene.wires() {
+        if w.start_pin.starts_with(&node_id) {
+            assert_eq!(w.points[0], np);
+        }
+        if w.end_pin
+            .as_deref()
+            .is_some_and(|e| e.starts_with(&node_id))
+        {
+            assert_eq!(*w.points.last().unwrap(), np);
+        }
+    }
+}
+
+#[test]
+fn draft_wire_snaps_live_to_pin_without_overflow() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+    c.scene.add_default_resistor(0.0, 0.0);
+    c.scene.add_default_resistor(80.0, 0.0);
+    let a = item_of(&c, Point::new(16.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, a.x, a.y, 0);
+    c.mouse_release(BUTTON_LEFT, a.x, a.y, 0);
+
+    // Move past R2's lPin (64, 0) onto (68, 2) — still within PIN_HIT_RADIUS (6.0).
+    let overshoot = item_of(&c, Point::new(68.0, 2.0));
+    c.mouse_move(overshoot.x, overshoot.y, 0, 0);
+    let pts = &c.scene.wires()[0].points;
+    assert_eq!(
+        pts,
+        &vec![Point::new(16.0, 0.0), Point::new(64.0, 0.0)],
+        "draft wire must snap to pin tip (64, 0) without overflowing onto stem"
+    );
+}
+
+#[test]
+fn key_shift_toggles_draft_wire_angle_live() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+    c.scene.add_default_resistor(0.0, 0.0);
+    let a = item_of(&c, Point::new(16.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, a.x, a.y, 0);
+    c.mouse_release(BUTTON_LEFT, a.x, a.y, 0);
+
+    let dest = item_of(&c, Point::new(56.0, 24.0));
+    c.mouse_move(dest.x, dest.y, 0, 0);
+    assert_eq!(c.scene.wires()[0].points.len(), 3);
+
+    // Pressing Shift toggles to angled immediately without mouse move.
+    let ch = c.key_press_with_text(KEY_SHIFT, MOD_SHIFT, "", false);
+    assert!(ch.wires);
+    assert_eq!(
+        c.scene.wires()[0].points,
+        vec![Point::new(16.0, 0.0), Point::new(56.0, 24.0)]
+    );
+
+    // Releasing Shift snaps back to 90° immediately without mouse move.
+    let ch = c.key_release(KEY_SHIFT, 0, "", false);
+    assert!(ch.wires);
+    assert_eq!(c.scene.wires()[0].points.len(), 3);
+    for seg in c.scene.wires()[0].points.windows(2) {
+        assert!(
+            (seg[0].x - seg[1].x).abs() < 1e-6 || (seg[0].y - seg[1].y).abs() < 1e-6,
+            "unexpected diagonal after Shift release: {:?}",
+            c.scene.wires()[0].points
+        );
+    }
+}
+
+#[test]
+fn rotated_component_wire_stays_orthogonal() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+    c.scene.add_default_resistor(0.0, 0.0);
+    c.scene.add_default_resistor(0.0, 80.0);
+    c.scene.select_only(0);
+    c.rotate_selected(90.0);
+    c.scene.select_only(1);
+    c.rotate_selected(90.0);
+
+    let r1_r = c.scene.pin_scene("Resistor-1-rPin").unwrap();
+    let r2_l = c.scene.pin_scene("Resistor-2-lPin").unwrap();
+    assert_eq!(r1_r, Point::new(0.0, 16.0));
+    assert_eq!(r2_l, Point::new(0.0, 64.0));
+
+    let a = item_of(&c, r1_r);
+    let b = item_of(&c, r2_l);
+    c.mouse_press(BUTTON_LEFT, a.x, a.y, 0);
+    c.mouse_release(BUTTON_LEFT, a.x, a.y, 0);
+    c.mouse_move(b.x, b.y, 0, 0);
+    c.mouse_press(BUTTON_LEFT, b.x, b.y, 0);
+    assert!(c.scene.wires()[0].segment_is_vertical(0));
+
+    // Move rotated R1 horizontally by 16px — wire must stay strictly orthogonal.
+    let r1_body = item_of(&c, Point::new(0.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, r1_body.x, r1_body.y, 0);
+    let moved = item_of(&c, Point::new(16.0, 0.0));
+    c.mouse_move(moved.x, moved.y, BUTTON_LEFT, 0);
+    for seg in c.scene.wires()[0].points.windows(2) {
+        assert!(
+            (seg[0].x - seg[1].x).abs() < 1e-6 || (seg[0].y - seg[1].y).abs() < 1e-6,
+            "rotated component drag produced diagonal: {:?}",
+            c.scene.wires()[0].points
+        );
+    }
+    c.mouse_release(BUTTON_LEFT, moved.x, moved.y, 0);
+}
+
+#[test]
+fn group_drag_keeps_wire_anchored_to_node_live() {
+    let mut c = two_resistors_wired();
+    c.scene.add_default_resistor(40.0, 48.0);
+    let r3_l = item_of(&c, Point::new(24.0, 48.0));
+    c.mouse_press(BUTTON_LEFT, r3_l.x, r3_l.y, 0);
+    c.mouse_release(BUTTON_LEFT, r3_l.x, r3_l.y, 0);
+    let mid = item_of(&c, Point::new(40.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, mid.x, mid.y, 0);
+
+    let node_pos = c
+        .scene
+        .items()
+        .iter()
+        .find(|it| it.is_node())
+        .unwrap()
+        .position();
+    assert_eq!(node_pos, Point::new(40.0, 0.0));
+
+    // Select R1 and the wire from R1 to Node (without selecting Node), then drag R1.
+    c.scene.clear_selection();
+    c.scene.items_mut()[0].selected = true;
+    c.scene.wires_mut()[0].selected = true;
+    let r1 = item_of(&c, Point::new(0.0, 0.0));
+    c.mouse_press(BUTTON_LEFT, r1.x, r1.y, 0);
+    let down = item_of(&c, Point::new(0.0, 16.0));
+    c.mouse_move(down.x, down.y, BUTTON_LEFT, 0);
+    // Live during mouse_move (before mouse_release!), wire must stay anchored at Node (40, 0).
+    assert_eq!(*c.scene.wires()[0].points.last().unwrap(), node_pos);
+    c.mouse_release(BUTTON_LEFT, down.x, down.y, 0);
+    assert_eq!(*c.scene.wires()[0].points.last().unwrap(), node_pos);
+}
+
+#[test]
+fn drag_angled_wire_bends_and_keeps_pins_anchored() {
+    let mut c = Canvas::empty();
+    c.set_view_size(800.0, 600.0);
+    c.scene.add_default_resistor(0.0, 0.0);
+    c.scene.add_default_resistor(80.0, 24.0);
+    let a = item_of(&c, Point::new(16.0, 0.0));
+    let b = item_of(&c, Point::new(64.0, 24.0));
+    c.mouse_press(BUTTON_LEFT, a.x, a.y, 0);
+    c.mouse_release(BUTTON_LEFT, a.x, a.y, 0);
+    c.mouse_move(b.x, b.y, 0, MOD_SHIFT);
+    c.mouse_press(BUTTON_LEFT, b.x, b.y, MOD_SHIFT);
+    assert_eq!(
+        c.scene.wires()[0].points,
+        vec![Point::new(16.0, 0.0), Point::new(64.0, 24.0)]
+    );
+
+    // Grab the angled wire near its midpoint and drag down 16px.
+    let mid = item_of(&c, Point::new(40.0, 12.0));
+    c.mouse_press(BUTTON_LEFT, mid.x, mid.y, 0);
+    let dragged = item_of(&c, Point::new(40.0, 28.0));
+    c.mouse_move(dragged.x, dragged.y, BUTTON_LEFT, 0);
+    c.mouse_release(BUTTON_LEFT, dragged.x, dragged.y, 0);
+    let pts = &c.scene.wires()[0].points;
+    assert_eq!(
+        pts.len(),
+        3,
+        "angled wire should bend into 2 segments: {pts:?}"
+    );
+    assert_eq!(pts[0], Point::new(16.0, 0.0));
+    assert_eq!(pts[2], Point::new(64.0, 24.0));
+    assert_eq!(pts[1], Point::new(40.0, 28.0));
+}
+
+#[test]
 fn circuit_header_roundtrip() {
     let mut c = Canvas::empty();
     c.update_circ_settings(|s| {

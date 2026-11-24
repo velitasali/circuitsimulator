@@ -43,12 +43,30 @@ impl Point {
     }
 }
 
+/// Exact `(sin, cos)` for multiples of 90°, falling back to `to_radians()`.
+/// Avoids `cos(90°) ≈ 6.12e-17` drift on rotated component pins.
+#[inline]
+fn sin_cos_deg(deg: f64) -> (f64, f64) {
+    let rem = deg.rem_euclid(360.0);
+    if (rem - 0.0).abs() < 1e-9 || (rem - 360.0).abs() < 1e-9 {
+        (0.0, 1.0)
+    } else if (rem - 90.0).abs() < 1e-9 {
+        (1.0, 0.0)
+    } else if (rem - 180.0).abs() < 1e-9 {
+        (0.0, -1.0)
+    } else if (rem - 270.0).abs() < 1e-9 {
+        (-1.0, 0.0)
+    } else {
+        let rad = deg.to_radians();
+        (rad.sin(), rad.cos())
+    }
+}
+
 /// QGraphicsItem order: `transform()` (scale hflip/vflip) then `rotation`,
 /// then `pos`. Y-down, so a positive angle is clockwise.
 pub fn map_local(origin: Point, local: Point, rotation_deg: f64, hflip: i32, vflip: i32) -> Point {
     let p = Point::new(local.x * hflip as f64, local.y * vflip as f64);
-    let rad = rotation_deg.to_radians();
-    let (s, c) = (rad.sin(), rad.cos());
+    let (s, c) = sin_cos_deg(rotation_deg);
     Point::new(origin.x + p.x * c - p.y * s, origin.y + p.x * s + p.y * c)
 }
 
@@ -56,8 +74,7 @@ pub fn map_local(origin: Point, local: Point, rotation_deg: f64, hflip: i32, vfl
 pub fn map_scene(origin: Point, scene: Point, rotation_deg: f64, hflip: i32, vflip: i32) -> Point {
     let dx = scene.x - origin.x;
     let dy = scene.y - origin.y;
-    let rad = rotation_deg.to_radians();
-    let (s, c) = (rad.sin(), rad.cos());
+    let (s, c) = sin_cos_deg(rotation_deg);
     let lx = dx * c + dy * s;
     let ly = -dx * s + dy * c;
     Point::new(lx * hflip as f64, ly * vflip as f64)

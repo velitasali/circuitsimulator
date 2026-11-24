@@ -33,7 +33,8 @@ pub use draw::{Align, Color, Draw, PaintCtx, Palette};
 pub use events::{
     BUTTON_LEFT, BUTTON_MIDDLE, BUTTON_RIGHT, Change, CursorKind, KEY_0, KEY_A, KEY_BACKSPACE,
     KEY_C, KEY_DELETE, KEY_DOWN, KEY_EQUAL, KEY_ESCAPE, KEY_L, KEY_LEFT, KEY_MINUS, KEY_PLUS,
-    KEY_R, KEY_RIGHT, KEY_UP, KEY_V, KEY_X, KEY_Y, KEY_Z, MOD_ALT, MOD_CTRL, MOD_META, MOD_SHIFT,
+    KEY_R, KEY_RIGHT, KEY_SHIFT, KEY_UP, KEY_V, KEY_X, KEY_Y, KEY_Z, MOD_ALT, MOD_CTRL, MOD_META,
+    MOD_SHIFT,
 };
 pub use export::{
     Pixmap, RegionRenderStatus, parse_hex, png_bytes, render_viewport, render_viewport_mut,

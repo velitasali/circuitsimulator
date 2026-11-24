@@ -31,7 +31,9 @@ pub(crate) enum Drag {
         start_pos: Point,
         last_scene: Point,
     },
-    Wire,
+    Wire {
+        add_corner_on_release: bool,
+    },
     WireEdit {
         last_scene: Point,
         origin: Point,

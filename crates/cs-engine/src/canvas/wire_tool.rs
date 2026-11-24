@@ -3,6 +3,7 @@
 use crate::canvas::drag::{Drag, WireEditMode};
 use crate::canvas::events::{Change, CursorKind};
 use crate::canvas::geom::to_grid as snap_point;
+use crate::canvas::scene::wires::pin_belongs;
 use crate::canvas::{Canvas, Point};
 
 impl Canvas {
@@ -43,12 +44,26 @@ impl Canvas {
 
     pub(crate) fn finish_selected_wires(&mut self) {
         self.dirty_move_footprint();
+        let selected_items: Vec<String> = self
+            .scene
+            .items()
+            .iter()
+            .filter(|it| it.selected)
+            .map(|it| it.id.clone())
+            .collect();
         let idxs: Vec<usize> = self
             .scene
             .wires()
             .iter()
             .enumerate()
-            .filter(|(_, w)| w.selected && w.closed())
+            .filter(|(_, w)| {
+                w.closed()
+                    && (w.selected
+                        || pin_belongs(&w.start_pin, &selected_items)
+                        || w.end_pin
+                            .as_ref()
+                            .is_some_and(|e| pin_belongs(e, &selected_items)))
+            })
             .map(|(i, _)| i)
             .collect();
         for i in idxs {

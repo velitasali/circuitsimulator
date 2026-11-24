@@ -22,6 +22,7 @@ pub const MOD_ALT: u32 = 0x0800_0000;
 pub const KEY_ESCAPE: i32 = 0x0100_0000;
 pub const KEY_BACKSPACE: i32 = 0x0100_0003;
 pub const KEY_DELETE: i32 = 0x0100_0007;
+pub const KEY_SHIFT: i32 = 0x0100_0020;
 pub const KEY_PLUS: i32 = 0x2b;
 pub const KEY_MINUS: i32 = 0x2d;
 pub const KEY_0: i32 = 0x30;
@@ -307,7 +308,7 @@ impl Canvas {
                     Some(HitTarget::Pin { pin, .. }) => {
                         if !pin.unused {
                             let at = self.scene.pin_scene(&pin.id).unwrap_or(scene);
-                            if self.close_wire(pin, at) {
+                            if self.close_wire(pin, at, shift) {
                                 self.drag = Drag::None;
                                 if self.commit_pending() {
                                     c.history = true;
@@ -321,7 +322,7 @@ impl Canvas {
                         return c;
                     }
                     Some(HitTarget::Wire { index, .. }) => {
-                        if self.splice_and_close(*index, snap_point(scene)) {
+                        if self.splice_and_close(*index, scene, shift) {
                             self.drag = Drag::None;
                             if self.commit_pending() {
                                 c.history = true;
@@ -337,7 +338,9 @@ impl Canvas {
                     None => {}
                 }
                 // Empty click while drawing: corner is added on release.
-                self.drag = Drag::Wire;
+                self.drag = Drag::Wire {
+                    add_corner_on_release: true,
+                };
                 c.wires = true;
             }
             return c;
@@ -424,7 +427,9 @@ impl Canvas {
                         let snap = self.snapshot();
                         if self.start_wire(&p, at) {
                             self.pending = Some(snap);
-                            self.drag = Drag::Wire;
+                            self.drag = Drag::Wire {
+                                add_corner_on_release: false,
+                            };
                             c.wires = true;
                             c.items = true;
                             c.merge(self.update_hover(scene, mods));
@@ -456,7 +461,9 @@ impl Canvas {
                 let snap = self.snapshot();
                 if self.start_wire(&pin, at) {
                     self.pending = Some(snap);
-                    self.drag = Drag::Wire;
+                    self.drag = Drag::Wire {
+                        add_corner_on_release: false,
+                    };
                     c.wires = true;
                     c.items = true;
                     c.merge(self.update_hover(scene, mods));
@@ -489,8 +496,10 @@ impl Canvas {
             Some(HitTarget::Wire { index, at }) => {
                 if alt {
                     self.pending = Some(self.snapshot());
-                    if self.splice_and_start(index, snap_point(scene)) {
-                        self.drag = Drag::Wire;
+                    if self.splice_and_start(index, scene) {
+                        self.drag = Drag::Wire {
+                            add_corner_on_release: false,
+                        };
                         c.wires = true;
                         c.items = true;
                         c.merge(self.update_hover(scene, mods));
@@ -592,7 +601,7 @@ impl Canvas {
                     last_scene: scene,
                 };
             }
-            Drag::Wire => {
+            Drag::Wire { .. } => {
                 let shift = mods & MOD_SHIFT != 0;
                 if self.route_draft(scene, shift) {
                     c.wires = true;
@@ -616,8 +625,13 @@ impl Canvas {
                             self.move_selected(dx, dy);
                         }
                         WireEditMode::Segment(seg) => {
-                            if let Some(new_seg) = self.drag_wire_segment(wire, seg, delta) {
-                                mode = WireEditMode::Segment(new_seg);
+                            if let Some(outcome) =
+                                self.drag_wire_segment_at(wire, seg, delta, last_scene, free)
+                            {
+                                mode = match outcome {
+                                    WireHit::Segment(new_seg) => WireEditMode::Segment(new_seg),
+                                    WireHit::Corner(new_v) => WireEditMode::Corner(new_v),
+                                };
                                 c.wires = true;
                             }
                         }
@@ -653,7 +667,7 @@ impl Canvas {
         c
     }
 
-    pub fn mouse_release(&mut self, _button: u32, item_x: f64, item_y: f64, mods: u32) -> Change {
+    pub fn mouse_release(&mut self, button: u32, item_x: f64, item_y: f64, mods: u32) -> Change {
         let item = Point::new(item_x, item_y);
         self.last_item = item;
         self.last_scene = self.viewport.map_to_circuit(item);
@@ -669,11 +683,18 @@ impl Canvas {
                 c.band = true;
                 self.drag = Drag::None;
             }
-            Drag::Wire => {
-                // C++ `incActLine` on left-release while a wire is being drawn.
+            Drag::Wire {
+                add_corner_on_release,
+            } => {
+                // C++ `incActLine` on empty-canvas left-release while a wire is being drawn.
                 if self.scene.drawing() {
-                    self.inc_draft_corner();
-                    c.wires = true;
+                    if button == BUTTON_LEFT && add_corner_on_release {
+                        self.inc_draft_corner();
+                        c.wires = true;
+                    }
+                    self.drag = Drag::Wire {
+                        add_corner_on_release: false,
+                    };
                     return c;
                 }
                 self.drag = Drag::None;
@@ -801,7 +822,7 @@ impl Canvas {
             self.set_push_down(&uid, false);
             self.merge_sim_raster(&mut c, &uid);
         }
-        if !matches!(self.drag, Drag::Wire) {
+        if !matches!(self.drag, Drag::Wire { .. }) {
             self.drag = Drag::None;
         }
         c
@@ -822,7 +843,7 @@ impl Canvas {
                 self.band_rect = Rect::default();
                 c.band = true;
             }
-            Drag::Wire => {
+            Drag::Wire { .. } => {
                 self.pending = None;
                 if self.cancel_wire() {
                     c.wires = true;
@@ -1016,6 +1037,15 @@ impl Canvas {
                 return c;
             }
         }
+        if key == KEY_SHIFT && !auto_repeat && self.scene.drawing() {
+            if self.route_draft(self.last_scene, true) {
+                return Change {
+                    wires: true,
+                    ..Change::default()
+                };
+            }
+            return Change::default();
+        }
         if key == KEY_ESCAPE {
             if self.board_layout.is_some() {
                 return self.exit_board_layout();
@@ -1054,6 +1084,15 @@ impl Canvas {
 
     pub fn key_release(&mut self, key: i32, mods: u32, text: &str, auto_repeat: bool) -> Change {
         if auto_repeat {
+            return Change::default();
+        }
+        if key == KEY_SHIFT && self.scene.drawing() {
+            if self.route_draft(self.last_scene, false) {
+                return Change {
+                    wires: true,
+                    ..Change::default()
+                };
+            }
             return Change::default();
         }
         let resolved = shortcut_char(key, mods, text);

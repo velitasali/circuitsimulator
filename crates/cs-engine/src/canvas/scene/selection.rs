@@ -300,13 +300,28 @@ impl Scene {
             }
         }
         for (i, start_moved, end_moved, wire_sel) in moved_wires {
-            if (start_moved && end_moved) || wire_sel {
+            if start_moved && end_moved {
                 self.wires[i].translate(dx, dy);
                 changed = true;
                 continue;
             }
             let start_id = self.wires[i].start_pin.clone();
             let end_id = self.wires[i].end_pin.clone();
+            if wire_sel {
+                let anchor_start = if start_moved {
+                    None
+                } else {
+                    self.pin_scene(&start_id)
+                };
+                let anchor_end = if end_moved {
+                    None
+                } else {
+                    end_id.as_ref().and_then(|e| self.pin_scene(e))
+                };
+                self.wires[i].translate_with_anchors(dx, dy, anchor_start, anchor_end);
+                changed = true;
+                continue;
+            }
             if start_moved {
                 if let Some(at) = self.pin_scene(&start_id) {
                     self.wires[i].set_start(at);

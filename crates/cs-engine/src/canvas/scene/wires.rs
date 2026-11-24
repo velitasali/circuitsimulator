@@ -1,6 +1,7 @@
 //! Wire management, routing, drafting, splicing, and node cleanup.
 
 use super::Scene;
+use super::selection::HitTarget;
 use crate::canvas::geom::Point;
 use crate::canvas::pin::{PIN_HIT_RADIUS, Pin};
 use crate::canvas::wire::{Wire, WireHit};
@@ -220,6 +221,10 @@ impl Scene {
     }
 
     pub fn close_wire(&mut self, pin: &Pin, at: Point) -> bool {
+        self.close_wire_with_shift(pin, at, false)
+    }
+
+    pub fn close_wire_with_shift(&mut self, pin: &Pin, at: Point, shift: bool) -> bool {
         if pin.unused || self.pin_connected(&pin.id) {
             return false;
         }
@@ -233,7 +238,7 @@ impl Scene {
         if draft.is_bus != is_bus {
             return false;
         }
-        draft.close(pin.id.clone(), at);
+        draft.close_with_shift(pin.id.clone(), at, shift);
         true
     }
 
@@ -244,9 +249,39 @@ impl Scene {
         self.wires.len() != before || cleaned
     }
 
+    /// Resolve a live snap target while drawing a draft wire: if `cursor` hits
+    /// a valid target pin or closed wire, return the exact endpoint where the
+    /// wire (or junction Node) will land on click.
+    pub fn draft_snap_target(&self, cursor: Point) -> Option<Point> {
+        let draft = self.wires.iter().rev().find(|w| w.drawing())?;
+        match self.hit_top(cursor) {
+            Some(HitTarget::Pin { pin, .. })
+                if !pin.unused
+                    && !self.pin_connected(&pin.id)
+                    && pin.id != draft.start_pin
+                    && self.pin_is_bus(&pin.id) == draft.is_bus =>
+            {
+                self.pin_scene(&pin.id)
+            }
+            Some(HitTarget::Wire { index, .. }) => {
+                let w = self.wires.get(index)?;
+                if w.closed() && w.is_bus == draft.is_bus {
+                    w.project_splice_point(cursor).map(|(_, pt)| pt)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub fn route_draft(&mut self, cursor: Point, shift: bool) -> bool {
+        let snapped = self.draft_snap_target(cursor);
         if let Some(w) = self.draft_mut() {
-            w.route_end(cursor, shift);
+            match snapped {
+                Some(target) => w.route_end_exact(target, shift),
+                None => w.route_end(cursor, shift),
+            }
             return true;
         }
         false
@@ -403,6 +438,10 @@ impl Scene {
     }
 
     pub fn splice_and_close(&mut self, wire_idx: usize, at: Point) -> bool {
+        self.splice_and_close_with_shift(wire_idx, at, false)
+    }
+
+    pub fn splice_and_close_with_shift(&mut self, wire_idx: usize, at: Point, shift: bool) -> bool {
         if wire_idx >= self.wires.len() || self.wires[wire_idx].drawing() {
             return false;
         }
@@ -416,7 +455,7 @@ impl Scene {
         {
             return false;
         }
-        let Some((node_id, _p0, p1, _p2)) = self.splice_wire(wire_idx, at) else {
+        let Some((node_id, _p0, p1, _p2, split_pt)) = self.splice_wire(wire_idx, at) else {
             return false;
         };
         let pin = Pin {
@@ -430,7 +469,7 @@ impl Scene {
             unused: false,
             direction: None,
         };
-        self.close_wire(&pin, at)
+        self.close_wire_with_shift(&pin, split_pt, shift)
     }
 
     /// Alt-click on a closed wire: splice a Node and start a new wire from it
@@ -443,7 +482,7 @@ impl Scene {
             return false;
         }
         let is_bus = self.wires[wire_idx].is_bus;
-        let Some((node_id, _p0, p1, _p2)) = self.splice_wire(wire_idx, at) else {
+        let Some((node_id, _p0, p1, _p2, split_pt)) = self.splice_wire(wire_idx, at) else {
             return false;
         };
         let pin = Pin {
@@ -457,27 +496,27 @@ impl Scene {
             unused: false,
             direction: None,
         };
-        self.start_wire(&pin, at)
+        self.start_wire(&pin, split_pt)
     }
 
     fn splice_wire(
         &mut self,
         wire_idx: usize,
         at: Point,
-    ) -> Option<(String, String, String, String)> {
+    ) -> Option<(String, String, String, String, Point)> {
         let node_id = self.peek_unique_id("Node");
         let p0 = format!("{node_id}-0");
         let p1 = format!("{node_id}-1");
         let p2 = format!("{node_id}-2");
         let new_id = self.peek_wire_id();
         let old = self.wires[wire_idx].clone();
-        let (a, b) = old.split(at, new_id, p0.clone(), p2.clone())?;
-        let actual_node_id = self.add_node(at.x, at.y);
+        let (a, b, split_pt) = old.split(at, new_id, p0.clone(), p2.clone())?;
+        let actual_node_id = self.add_node(split_pt.x, split_pt.y);
         debug_assert_eq!(actual_node_id, node_id);
         let _ = self.alloc_wire_id();
         self.wires[wire_idx] = a;
         self.wires.push(b);
-        Some((node_id, p0, p1, p2))
+        Some((node_id, p0, p1, p2, split_pt))
     }
 
     pub fn drag_wire_segment(&mut self, idx: usize, seg: usize, delta: Point) -> Option<usize> {
@@ -486,6 +525,21 @@ impl Scene {
             return None;
         }
         Some(w.drag_segment(seg, delta))
+    }
+
+    pub fn drag_wire_segment_at(
+        &mut self,
+        idx: usize,
+        seg: usize,
+        delta: Point,
+        grab_pos: Point,
+        free: bool,
+    ) -> Option<WireHit> {
+        let w = self.wires.get_mut(idx)?;
+        if w.drawing() {
+            return None;
+        }
+        Some(w.drag_segment_at(seg, delta, grab_pos, free))
     }
 
     pub fn drag_wire_corner(

@@ -205,6 +205,25 @@ fn nibble(h: &str, i: usize) -> u8 {
     v * 17
 }
 
+/// Local `(sx, sy)` scale signs (`±1.0`) applied around a text box's center so
+/// that text renders un-mirrored (`det > 0`) and right-reading: left-to-right
+/// when horizontal or diagonal, or bottom-to-top (`-90°`) when vertical.
+///
+/// The matrix columns are `(a, b)` for the image of local `+X` and `(c, d)` for
+/// the image of local `+Y` in Y-down screen coordinates.
+pub fn upright_text_signs(a: f64, b: f64, c: f64, d: f64) -> (f64, f64) {
+    let scale = a.hypot(b);
+    if scale <= 1e-12 {
+        return (1.0, 1.0);
+    }
+    let eps = scale * 1e-6;
+    let flip_x = a < -eps || (a.abs() <= eps && b > eps);
+    let sx = if flip_x { -1.0 } else { 1.0 };
+    let det = a * d - b * c;
+    let sy = if det < 0.0 { -sx } else { sx };
+    (sx, sy)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Align {
     TopLeft,
@@ -240,6 +259,12 @@ pub trait Draw {
     fn grid_dots(&mut self, scene: Rect, step: i32, c: Color);
     fn push(&mut self, x: f64, y: f64, rot: f64, sx: f64, sy: f64);
     fn pop(&mut self);
+    /// Push a transform anchored at local `(cx, cy)` that cancels reflection and
+    /// flips 180° when the current transform would render text upside-down or
+    /// top-to-bottom. Must be paired with [`Draw::pop`].
+    fn push_upright(&mut self, _cx: f64, _cy: f64) {
+        self.push(0.0, 0.0, 0.0, 1.0, 1.0);
+    }
     fn push_clip_rect(&mut self, _x: f64, _y: f64, _w: f64, _h: f64) {}
     fn pop_clip(&mut self) {}
     fn device_scale(&self) -> f64 {

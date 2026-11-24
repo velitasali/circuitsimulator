@@ -2,6 +2,7 @@
 
 use std::sync::{Arc, OnceLock};
 
+use super::draw;
 use super::export::arc;
 use super::export::paint;
 use super::export::text;
@@ -452,6 +453,19 @@ impl Draw for VelloDraw<'_> {
         }
     }
 
+    fn push_upright(&mut self, cx: f64, cy: f64) {
+        let [a, b, c, d, _, _] = self.xf().as_coeffs();
+        let (sx, sy) = draw::upright_text_signs(a, b, c, d);
+        let extra = if sx == 1.0 && sy == 1.0 {
+            Affine::IDENTITY
+        } else {
+            Affine::translate((cx, cy))
+                * Affine::scale_non_uniform(sx, sy)
+                * Affine::translate((-cx, -cy))
+        };
+        self.stack.push(self.xf() * extra);
+    }
+
     fn push_clip_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
         if let Some(r) = krect(x, y, w, h) {
             self.scene.push_layer(Mix::Clip, 1.0, self.xf(), &r);
@@ -669,14 +683,18 @@ fn draw_text(
         px
     };
     let line_height = (ascent - metrics.descent + metrics.leading).max(px);
+    let [a, b, c_col, d_col, _, _] = xf.as_coeffs();
+    let (sx, sy) = draw::upright_text_signs(a, b, c_col, d_col);
+    let need_upright = sx != 1.0 || sy != 1.0;
     let lines: Vec<&str> = clean.split('\n').collect();
     let num_lines = lines.len();
+    let mut max_width = 0.0f32;
     let mut glyphs = Vec::new();
     for (line_idx, line) in lines.into_iter().enumerate() {
         if line.is_empty() {
             continue;
         }
-        let width = if align != Align::TopLeft {
+        let width = if align != Align::TopLeft || need_upright {
             line.chars()
                 .map(|ch| {
                     let gid = charmap.map(u32::from(ch)).unwrap_or(GlyphId::NOTDEF);
@@ -686,6 +704,7 @@ fn draw_text(
         } else {
             0.0
         };
+        max_width = max_width.max(width);
         let line_y = match align {
             Align::Center => {
                 y as f32 - (num_lines as f32 - 1.0) * line_height * 0.5
@@ -712,9 +731,28 @@ fn draw_text(
     if glyphs.is_empty() {
         return;
     }
+    let draw_xf = if need_upright {
+        let cx = match align {
+            Align::TopLeft => x + f64::from(max_width) * 0.5,
+            Align::HCenter | Align::Center => x,
+            Align::Right => x - f64::from(max_width) * 0.5,
+        };
+        let cy = match align {
+            Align::Center => y,
+            Align::TopLeft | Align::HCenter | Align::Right => {
+                y + (num_lines as f64 - 1.0) * f64::from(line_height) * 0.5
+                    + f64::from(ascent) * 0.65
+            }
+        };
+        xf * Affine::translate((cx, cy))
+            * Affine::scale_non_uniform(sx, sy)
+            * Affine::translate((-cx, -cy))
+    } else {
+        xf
+    };
     scene
         .draw_glyphs(font_data(bold))
-        .transform(xf)
+        .transform(draw_xf)
         .font_size(px)
         .brush(color_of(c))
         .draw(Fill::NonZero, glyphs.into_iter());

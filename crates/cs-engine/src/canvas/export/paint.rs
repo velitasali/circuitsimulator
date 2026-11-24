@@ -456,13 +456,7 @@ pub fn paint_item(
         && !it.label.is_empty()
     {
         let (lx, ly) = it.label_pos();
-        d.push(
-            lx,
-            ly,
-            it.label_rot as f64,
-            it.hflip as f64,
-            it.vflip as f64,
-        );
+        d.push(lx, ly, it.label_rot as f64, 1.0, 1.0);
         d.text(
             0.0,
             0.0,
@@ -477,7 +471,7 @@ pub fn paint_item(
         let val_text = it.val_label_text();
         if !val_text.is_empty() {
             let (vx, vy) = it.val_pos();
-            d.push(vx, vy, it.val_rot as f64, it.hflip as f64, it.vflip as f64);
+            d.push(vx, vy, it.val_rot as f64, 1.0, 1.0);
             d.text(
                 0.0,
                 0.0,

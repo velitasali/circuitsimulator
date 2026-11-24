@@ -4,7 +4,8 @@ use image::ImageEncoder;
 use image::codecs::png::PngEncoder;
 
 use super::arc;
-use crate::canvas::draw::{Align, Color, Draw};
+use super::text;
+use crate::canvas::draw::{self, Align, Color, Draw};
 use crate::canvas::geom::Rect;
 use crate::canvas::image_buf::ImageBuf;
 
@@ -12,6 +13,8 @@ pub struct Svg {
     out: String,
     clip_count: usize,
     clip_stack: Vec<String>,
+    /// Linear 2×2 stack `[a, b, c, d]` where local `+X -> (a, b)` and `+Y -> (c, d)`.
+    linear_stack: Vec<[f64; 4]>,
 }
 
 impl Svg {
@@ -37,7 +40,78 @@ impl Svg {
             out,
             clip_count: 0,
             clip_stack: Vec::new(),
+            linear_stack: vec![[1.0, 0.0, 0.0, 1.0]],
         }
+    }
+
+    fn linear(&self) -> [f64; 4] {
+        self.linear_stack
+            .last()
+            .copied()
+            .unwrap_or([1.0, 0.0, 0.0, 1.0])
+    }
+
+    fn emit_text(
+        &mut self,
+        x: f64,
+        y: f64,
+        s: &str,
+        size: f64,
+        c: Color,
+        align: Align,
+        bold: bool,
+    ) {
+        if s.is_empty() {
+            return;
+        }
+        let (anchor, baseline) = match align {
+            Align::TopLeft => ("start", "hanging"),
+            Align::HCenter => ("middle", "hanging"),
+            Align::Center => ("middle", "middle"),
+            Align::Right => ("end", "hanging"),
+        };
+        let m = self.linear();
+        let (sx, sy) = draw::upright_text_signs(m[0], m[1], m[2], m[3]);
+        let weight_attr = if bold { " font-weight=\"bold\"" } else { "" };
+        let transform_attr = if sx != 1.0 || sy != 1.0 {
+            let clean = text::strip_tags(s);
+            let max_width = clean
+                .split('\n')
+                .map(|line| text::text_width(line, size, bold))
+                .fold(0.0_f64, f64::max);
+            let num_lines = clean.split('\n').count().max(1);
+            let cx = match align {
+                Align::TopLeft => x + max_width * 0.5,
+                Align::HCenter | Align::Center => x,
+                Align::Right => x - max_width * 0.5,
+            };
+            let cy = match align {
+                Align::Center => y,
+                Align::TopLeft | Align::HCenter | Align::Right => {
+                    y + (num_lines as f64 - 1.0) * size * 1.12 * 0.5 + size * 0.60
+                }
+            };
+            format!(
+                " transform=\"translate({},{}) scale({},{}) translate({},{})\"",
+                f(cx),
+                f(cy),
+                f(sx),
+                f(sy),
+                f(-cx),
+                f(-cy),
+            )
+        } else {
+            String::new()
+        };
+        let _ = write!(
+            self.out,
+            "<text x=\"{}\" y=\"{}\" font-size=\"{}\"{weight_attr} font-family=\"Ubuntu, sans-serif\" fill=\"{}\" text-anchor=\"{anchor}\" dominant-baseline=\"{baseline}\"{transform_attr}>{}</text>\n",
+            f(x),
+            f(y),
+            f(size),
+            c.css(),
+            xml_escape(s),
+        );
     }
 
     pub fn finish(mut self) -> String {
@@ -222,45 +296,11 @@ impl Draw for Svg {
     }
 
     fn text(&mut self, x: f64, y: f64, s: &str, size: f64, c: Color, align: Align) {
-        if s.is_empty() {
-            return;
-        }
-        let (anchor, baseline, dx) = match align {
-            Align::TopLeft => ("start", "hanging", 0.0),
-            Align::HCenter => ("middle", "hanging", 0.0),
-            Align::Center => ("middle", "middle", 0.0),
-            Align::Right => ("end", "hanging", 0.0),
-        };
-        let _ = write!(
-            self.out,
-            "<text x=\"{}\" y=\"{}\" font-size=\"{}\" font-family=\"Ubuntu, sans-serif\" fill=\"{}\" text-anchor=\"{anchor}\" dominant-baseline=\"{baseline}\"",
-            f(x + dx),
-            f(y),
-            f(size),
-            c.css()
-        );
-        let _ = write!(self.out, ">{}</text>\n", xml_escape(s));
+        self.emit_text(x, y, s, size, c, align, false);
     }
 
     fn text_bold(&mut self, x: f64, y: f64, s: &str, size: f64, c: Color, align: Align) {
-        if s.is_empty() {
-            return;
-        }
-        let (anchor, baseline, dx) = match align {
-            Align::TopLeft => ("start", "hanging", 0.0),
-            Align::HCenter => ("middle", "hanging", 0.0),
-            Align::Center => ("middle", "middle", 0.0),
-            Align::Right => ("end", "hanging", 0.0),
-        };
-        let _ = write!(
-            self.out,
-            "<text x=\"{}\" y=\"{}\" font-size=\"{}\" font-weight=\"bold\" font-family=\"Ubuntu, sans-serif\" fill=\"{}\" text-anchor=\"{anchor}\" dominant-baseline=\"{baseline}\"",
-            f(x + dx),
-            f(y),
-            f(size),
-            c.css()
-        );
-        let _ = write!(self.out, ">{}</text>\n", xml_escape(s));
+        self.emit_text(x, y, s, size, c, align, true);
     }
 
     fn grid_dots(&mut self, scene: Rect, step: i32, c: Color) {
@@ -282,6 +322,17 @@ impl Draw for Svg {
     }
 
     fn push(&mut self, x: f64, y: f64, rot: f64, sx: f64, sy: f64) {
+        let m = self.linear();
+        let rad = rot.to_radians();
+        let (sin, cos) = rad.sin_cos();
+        let local = [cos * sx, sin * sx, -sin * sy, cos * sy];
+        let next = [
+            m[0] * local[0] + m[2] * local[1],
+            m[1] * local[0] + m[3] * local[1],
+            m[0] * local[2] + m[2] * local[3],
+            m[1] * local[2] + m[3] * local[3],
+        ];
+        self.linear_stack.push(next);
         let _ = write!(
             self.out,
             "<g transform=\"translate({},{}) rotate({}) scale({},{})\">\n",
@@ -294,7 +345,32 @@ impl Draw for Svg {
     }
 
     fn pop(&mut self) {
+        if self.linear_stack.len() > 1 {
+            self.linear_stack.pop();
+        }
         self.out.push_str("</g>\n");
+    }
+
+    fn push_upright(&mut self, cx: f64, cy: f64) {
+        let m = self.linear();
+        let (sx, sy) = draw::upright_text_signs(m[0], m[1], m[2], m[3]);
+        if sx == 1.0 && sy == 1.0 {
+            self.linear_stack.push(m);
+            self.out.push_str("<g>\n");
+        } else {
+            self.linear_stack
+                .push([m[0] * sx, m[1] * sx, m[2] * sy, m[3] * sy]);
+            let _ = write!(
+                self.out,
+                "<g transform=\"translate({},{}) scale({},{}) translate({},{})\">\n",
+                f(cx),
+                f(cy),
+                f(sx),
+                f(sy),
+                f(-cx),
+                f(-cy),
+            );
+        }
     }
 
     fn push_clip_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {

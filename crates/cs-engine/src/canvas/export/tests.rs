@@ -614,3 +614,99 @@ fn test_current_animation_chevrons_drawn_on_top_of_everything() {
         rec.calls
     );
 }
+
+#[test]
+fn upright_text_signs_normalizes_all_rotations_and_flips() {
+    use crate::canvas::draw;
+
+    for deg in [
+        0.0_f64, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0, -45.0, -90.0,
+    ] {
+        let rad = deg.to_radians();
+        let (sin, cos) = rad.sin_cos();
+        for hflip in [1.0_f64, -1.0] {
+            for vflip in [1.0_f64, -1.0] {
+                let a = cos * hflip;
+                let b = sin * hflip;
+                let c = -sin * vflip;
+                let d = cos * vflip;
+
+                let (sx, sy) = draw::upright_text_signs(a, b, c, d);
+                assert!(sx == 1.0 || sx == -1.0);
+                assert!(sy == 1.0 || sy == -1.0);
+
+                let a2 = a * sx;
+                let b2 = b * sx;
+                let c2 = c * sy;
+                let d2 = d * sy;
+                let det2 = a2 * d2 - b2 * c2;
+                assert!(
+                    det2 > 0.5,
+                    "deg={deg} hflip={hflip} vflip={vflip}: det2={det2} must be positive (un-mirrored)"
+                );
+                let right_reading = a2 > 1e-6 || (a2.abs() <= 1e-6 && b2 < -1e-6);
+                assert!(
+                    right_reading,
+                    "deg={deg} hflip={hflip} vflip={vflip}: baseline=({a2:.3}, {b2:.3}) must be right-reading"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn svg_keeps_rotated_and_flipped_text_readable() {
+    use crate::canvas::scene::Item;
+    use crate::components::{Tunnel, Voltmeter};
+
+    let render_tunnel = |rot: f64, hflip: i32, vflip: i32| {
+        let mut c = Canvas::empty();
+        let mut item = Item::new(
+            "T-1",
+            0.0,
+            0.0,
+            Tunnel {
+                name: "NET1".into(),
+                ..Default::default()
+            },
+        );
+        item.rotation = rot;
+        item.hflip = hflip;
+        item.vflip = vflip;
+        c.scene_mut().add_saved_item(item);
+        svg_string(&c, &Palette::light())
+    };
+
+    let svg_0 = render_tunnel(0.0, 1, 1);
+    let text_line = |svg: &str| {
+        svg.lines()
+            .find(|l| l.contains(">NET1</text>"))
+            .expect("NET1 text element")
+            .to_string()
+    };
+
+    assert!(!text_line(&svg_0).contains("transform="));
+    assert!(text_line(&render_tunnel(90.0, 1, 1)).contains("scale(-1,-1)"));
+    assert!(text_line(&render_tunnel(180.0, 1, 1)).contains("scale(-1,-1)"));
+    assert!(!text_line(&render_tunnel(270.0, 1, 1)).contains("transform="));
+    assert!(text_line(&render_tunnel(0.0, -1, 1)).contains("scale(-1,1)"));
+    assert!(text_line(&render_tunnel(0.0, 1, -1)).contains("scale(1,-1)"));
+
+    // Voltmeter uses push_upright around its readout box so compound lines stay grouped
+    // and inner <text> elements don't double-flip.
+    let mut c = Canvas::empty();
+    let mut vm = Item::new("V-1", 0.0, 0.0, Voltmeter::default());
+    vm.rotation = 180.0;
+    c.scene_mut().add_saved_item(vm);
+    let svg_vm = svg_string(&c, &Palette::light());
+    assert!(
+        svg_vm.contains("<g transform=\"translate(0,-8) scale(-1,-1) translate(0,8)\">"),
+        "expected upright group for rotated voltmeter:\n{svg_vm}"
+    );
+    for line in svg_vm.lines().filter(|l| l.starts_with("<text ")) {
+        assert!(
+            !line.contains("transform="),
+            "voltmeter inner text should already be upright inside push_upright group: {line}"
+        );
+    }
+}

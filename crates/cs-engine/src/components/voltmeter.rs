@@ -117,6 +117,7 @@ impl Drawable for Voltmeter {
             .filter(|s| !s.is_empty())
             .unwrap_or("AVG 0.00 V");
 
+        d.push_upright(0.0, -8.0);
         d.text_bold(
             -20.0,
             -22.0,
@@ -195,6 +196,7 @@ impl Drawable for Voltmeter {
                 Align::TopLeft,
             );
         }
+        d.pop();
         true
     }
 }

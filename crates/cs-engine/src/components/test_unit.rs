@@ -247,8 +247,10 @@ impl Drawable for TestUnit {
             ctx.pal.border,
             COMPONENT_BORDER_WIDTH,
         );
+        d.push_upright(0.0, 0.0);
         d.text(0.0, -4.0, "TEST", 6.0, ctx.pal.border, Align::Center);
         d.text(0.0, 4.0, "UNIT", 6.0, ctx.pal.border, Align::Center);
+        d.pop();
         true
     }
 }

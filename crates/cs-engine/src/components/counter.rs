@@ -1,7 +1,7 @@
 //! Binary counter / frequency divider component.
 
 use super::drawable::{Drawable, paint_chip_body};
-use super::props::{PropDef, PropError, PropValue, expect_int};
+use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
 use crate::canvas::PinDirection;
@@ -20,11 +20,21 @@ const MAX_BITS: usize = 32;
 pub struct Counter {
     pub bits: usize,
     pub max_count: u32,
+    pub use_set: bool,
 }
 
 impl crate::canvas::Item {
     pub fn counter(id: impl Into<String>, x: f64, y: f64, bits: usize, max_count: u32) -> Self {
-        Self::new(id, x, y, Counter { bits, max_count })
+        Self::new(
+            id,
+            x,
+            y,
+            Counter {
+                bits,
+                max_count,
+                use_set: false,
+            },
+        )
     }
 }
 
@@ -33,6 +43,7 @@ impl Default for Counter {
         Self {
             bits: 4,
             max_count: 15,
+            use_set: false,
         }
     }
 }
@@ -40,7 +51,7 @@ impl Default for Counter {
 impl Counter {
     pub const TYPE_ID: &'static str = "Counter";
     pub fn to_element_kind(&self) -> Kind {
-        Kind::Counter(CounterState::new("", self.bits, self.max_count))
+        Kind::Counter(CounterState::new("", self.bits, self.max_count).with_set(self.use_set))
     }
 
     fn get_bits(&self) -> PropValue {
@@ -58,6 +69,14 @@ impl Counter {
         self.max_count = expect_int("MaxCount", v)?.max(0) as u32;
         Ok(())
     }
+
+    fn get_use_set(&self) -> PropValue {
+        PropValue::Bool(self.use_set)
+    }
+    fn set_use_set(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.use_set = expect_bool("UseSet", v)?;
+        Ok(())
+    }
 }
 
 impl Component for Counter {
@@ -68,6 +87,17 @@ impl Component for Counter {
     const DESCRIPTION: &'static str = "Binary Counter.";
 
     fn props() -> &'static [PropDef<Self>] {
+        const USE_SET: PropDef<Counter> = {
+            let mut p = PropDef::bool(
+                "UseSet",
+                "Use Set Pin",
+                Counter::get_use_set,
+                Counter::set_use_set,
+            )
+            .with_info("Exposes the asynchronous Set pin.");
+            p.structural = true;
+            p
+        };
         static PROPS: &[PropDef<Counter>] = &[
             PropDef::int(
                 "Bits",
@@ -87,12 +117,13 @@ impl Component for Counter {
                 Counter::set_max_count,
             )
             .with_info("Maximum counter value before wrapping or resetting to zero."),
+            USE_SET,
         ];
         PROPS
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
-        counter_pins("", false)
+        counter_pins("", self.use_set)
             .into_iter()
             .map(CompPin::from)
             .collect()

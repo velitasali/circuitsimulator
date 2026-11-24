@@ -1,7 +1,7 @@
 //! Shift register with parallel outputs (74164 / 74595).
 
 use super::drawable::{Drawable, paint_chip_body};
-use super::props::{PropDef, PropError, PropValue, expect_int};
+use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
 use crate::canvas::PinDirection;
@@ -15,28 +15,47 @@ use crate::matrix::CircMatrix;
 const MIN_BITS: usize = 1;
 const MAX_BITS: usize = 32;
 
-/// Shift register with parallel outputs.
+/// Shift register with parallel outputs (optional parallel load and bidirectional shifting).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShiftReg {
     pub bits: usize,
+    pub parallel_input: bool,
+    pub bidirectional: bool,
 }
 
 impl crate::canvas::Item {
     pub fn shift_reg(id: impl Into<String>, x: f64, y: f64, bits: usize) -> Self {
-        Self::new(id, x, y, ShiftReg { bits })
+        Self::new(
+            id,
+            x,
+            y,
+            ShiftReg {
+                bits,
+                ..ShiftReg::default()
+            },
+        )
     }
 }
 
 impl Default for ShiftReg {
     fn default() -> Self {
-        Self { bits: 8 }
+        Self {
+            bits: 8,
+            parallel_input: false,
+            bidirectional: false,
+        }
     }
 }
 
 impl ShiftReg {
     pub const TYPE_ID: &'static str = "ShiftReg";
     pub fn to_element_kind(&self) -> Kind {
-        Kind::ShiftReg(ShiftRegState::new("", self.bits))
+        Kind::ShiftReg(ShiftRegState::new_configured(
+            "",
+            self.bits,
+            self.parallel_input,
+            self.bidirectional,
+        ))
     }
 
     fn get_bits(&self) -> PropValue {
@@ -44,6 +63,22 @@ impl ShiftReg {
     }
     fn set_bits(&mut self, v: PropValue) -> Result<(), PropError> {
         self.bits = expect_int("Bits", v)?.clamp(MIN_BITS as i64, MAX_BITS as i64) as usize;
+        Ok(())
+    }
+
+    fn get_parallel_input(&self) -> PropValue {
+        PropValue::Bool(self.parallel_input)
+    }
+    fn set_parallel_input(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.parallel_input = expect_bool("ParallelInput", v)?;
+        Ok(())
+    }
+
+    fn get_bidirectional(&self) -> PropValue {
+        PropValue::Bool(self.bidirectional)
+    }
+    fn set_bidirectional(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.bidirectional = expect_bool("Bidirectional", v)?;
         Ok(())
     }
 }
@@ -69,12 +104,34 @@ impl Component for ShiftReg {
             p.structural = true;
             p
         };
-        static PROPS: &[PropDef<ShiftReg>] = &[BITS];
+        const PARALLEL_INPUT: PropDef<ShiftReg> = {
+            let mut p = PropDef::bool(
+                "ParallelInput",
+                "Parallel Input",
+                ShiftReg::get_parallel_input,
+                ShiftReg::set_parallel_input,
+            )
+            .with_info("Exposes parallel load (in4) and parallel data input pins (in10..).");
+            p.structural = true;
+            p
+        };
+        const BIDIRECTIONAL: PropDef<ShiftReg> = {
+            let mut p = PropDef::bool(
+                "Bidirectional",
+                "Bidirectional",
+                ShiftReg::get_bidirectional,
+                ShiftReg::set_bidirectional,
+            )
+            .with_info("Exposes shift-left serial input (in5) and direction select (in6) pins.");
+            p.structural = true;
+            p
+        };
+        static PROPS: &[PropDef<ShiftReg>] = &[BITS, PARALLEL_INPUT, BIDIRECTIONAL];
         PROPS
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
-        shift_reg_pins("", self.bits)
+        shift_reg_pins("", self.bits, self.parallel_input, self.bidirectional)
             .into_iter()
             .map(CompPin::from)
             .collect()
@@ -130,9 +187,9 @@ mod tests {
     }
 }
 
-fn shift_reg_pins(id: &str, bits: usize) -> Vec<Pin> {
+fn shift_reg_pins(id: &str, bits: usize, parallel_in: bool, bidirectional: bool) -> Vec<Pin> {
     let b = bits.max(1);
-    let mut pins = Vec::with_capacity(b + 4);
+    let mut pins = Vec::with_capacity(b * 2 + 7);
     // Left DI pos 3
     pins.push(Pin {
         direction: Some(PinDirection::In),
@@ -181,6 +238,57 @@ fn shift_reg_pins(id: &str, bits: usize) -> Vec<Pin> {
         label: "OE".into(),
         unused: false,
     });
+    if parallel_in {
+        pins.push(Pin {
+            direction: Some(PinDirection::In),
+            id: format!("{id}-in4"),
+            item_id: id.to_string(),
+            local: Point::new(-24.0, 16.0),
+            angle: 180,
+            length: 8.0,
+            is_bus: false,
+            label: "LD".into(),
+            unused: false,
+        });
+        let y0 = -((b as f64) * 4.0) + 4.0;
+        for i in 0..b {
+            pins.push(Pin {
+                direction: Some(PinDirection::In),
+                id: format!("{id}-in{}", 10 + i),
+                item_id: id.to_string(),
+                local: Point::new(-24.0, y0 + (i as f64) * 8.0),
+                angle: 180,
+                length: 8.0,
+                is_bus: false,
+                label: format!("D{i}"),
+                unused: false,
+            });
+        }
+    }
+    if bidirectional {
+        pins.push(Pin {
+            direction: Some(PinDirection::In),
+            id: format!("{id}-in5"),
+            item_id: id.to_string(),
+            local: Point::new(-24.0, 24.0),
+            angle: 180,
+            length: 8.0,
+            is_bus: false,
+            label: "DSL".into(),
+            unused: false,
+        });
+        pins.push(Pin {
+            direction: Some(PinDirection::In),
+            id: format!("{id}-in6"),
+            item_id: id.to_string(),
+            local: Point::new(-24.0, 32.0),
+            angle: 180,
+            length: 8.0,
+            is_bus: false,
+            label: "Dir".into(),
+            unused: false,
+        });
+    }
     // Right outputs: Q0..Q(b-1)
     let y0 = -((b as f64) * 4.0) + 4.0;
     for i in 0..b {

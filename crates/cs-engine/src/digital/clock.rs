@@ -23,7 +23,7 @@ impl Trigger {
     pub fn from_str_name(s: &str) -> Self {
         match s {
             "None" => Trigger::None,
-            "Enable" => Trigger::Enable,
+            "Enable" | "InEnable" => Trigger::Enable,
             _ => Trigger::Clock,
         }
     }

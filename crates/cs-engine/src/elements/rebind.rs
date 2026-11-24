@@ -54,7 +54,12 @@ impl Kind {
                 one(comp_id, &mut l.oe);
             }
             Kind::McuPin(p) => one(comp_id, &mut p.pin),
-            Kind::Mcu(m) => each(comp_id, &mut m.pins),
+            Kind::Mcu(m) => {
+                each(comp_id, &mut m.pins);
+                if let Some(rst) = &mut m.reset_pin {
+                    one(comp_id, rst);
+                }
+            }
             Kind::QemuDevice(q) => {
                 if q.uid.is_empty() {
                     q.uid = comp_id.to_string();
@@ -108,6 +113,7 @@ impl Kind {
                 one(comp_id, &mut b.lt);
                 one(comp_id, &mut b.rbi);
                 one(comp_id, &mut b.bi_rbo);
+                one(comp_id, &mut b.rst);
                 each(comp_id, &mut b.segments);
             }
             Kind::I2CToParallel(p) => {
@@ -127,17 +133,23 @@ impl Kind {
                 each(comp_id, &mut c.outputs);
                 one(comp_id, &mut c.clock);
                 one(comp_id, &mut c.reset);
+                one(comp_id, &mut c.set);
                 one(comp_id, &mut c.enable);
                 one(comp_id, &mut c.output);
             }
             Kind::BinCounter(b) => {
                 each(comp_id, &mut b.outputs);
+                each(comp_id, &mut b.data_inputs);
                 one(comp_id, &mut b.clk_a);
                 one(comp_id, &mut b.clk_b);
                 one(comp_id, &mut b.r0_1);
                 one(comp_id, &mut b.r0_2);
                 one(comp_id, &mut b.r9_1);
                 one(comp_id, &mut b.r9_2);
+                one(comp_id, &mut b.pin_ldp);
+                one(comp_id, &mut b.pin_dir);
+                one(comp_id, &mut b.pin_rco);
+                one(comp_id, &mut b.pin_rbo);
             }
             Kind::FullAdder(fa) | Kind::HalfAdder(fa) => {
                 each(comp_id, &mut fa.a_inputs);
@@ -158,11 +170,15 @@ impl Kind {
             }
             Kind::ShiftReg(sr) => {
                 each(comp_id, &mut sr.outputs);
+                each(comp_id, &mut sr.data_inputs);
                 one(comp_id, &mut sr.ser_in);
                 one(comp_id, &mut sr.clk_shift);
                 one(comp_id, &mut sr.clk_latch);
                 one(comp_id, &mut sr.master_reset);
                 one(comp_id, &mut sr.oe);
+                one(comp_id, &mut sr.load);
+                one(comp_id, &mut sr.ser_in_left);
+                one(comp_id, &mut sr.dir);
                 one(comp_id, &mut sr.ser_out);
             }
             Kind::Function(f) => {

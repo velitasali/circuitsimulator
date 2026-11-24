@@ -32,6 +32,11 @@ pub struct McuComp {
     pub device: Device,
     pub pins: Vec<IoPin>,
     pub node_indices: Vec<Option<usize>>,
+    /// Dedicated active-low reset pin from the MCU package (`<pin type="rst" />`),
+    /// when not already exposed as a GPIO port pin (e.g. ATmega2560 `RST`).
+    pub reset_pin: Option<IoPin>,
+    pub reset_node_idx: Option<usize>,
+    pub reset_held: bool,
     /// C++ `m_autoLoad`: reload `firmware` at simulation start.
     pub auto_load: bool,
     /// C++ `ForceFreq` (default true).
@@ -215,6 +220,9 @@ impl McuComp {
             device,
             pins,
             node_indices: vec![None; n_pins],
+            reset_pin: None,
+            reset_node_idx: None,
+            reset_held: false,
             auto_load: false,
             force_freq: true,
             save_pgm: false,
@@ -277,20 +285,33 @@ impl McuComp {
                 n
             })
             .collect();
+        self.reset_node_idx = self.reset_pin.as_mut().and_then(|p| {
+            let n = pin_net.get(&p.id).copied();
+            p.node_idx = n;
+            n
+        });
     }
 
     pub fn pin_ids(&self) -> Vec<String> {
-        self.pins.iter().map(|p| p.id.clone()).collect()
+        let mut ids: Vec<String> = self.pins.iter().map(|p| p.id.clone()).collect();
+        if let Some(rst) = &self.reset_pin {
+            ids.push(rst.id.clone());
+        }
+        ids
     }
 
     pub fn stamp_init(&mut self, slope_steps: i32) {
         crate::logging::log_sim(format!("Initializing MCU '{}'", self.device.id));
         self.device.reset();
+        self.reset_held = false;
         if let Some(path) = self.firmware_path() {
             let _ = self.load_firmware_file(&path);
         }
         for p in &mut self.pins {
             p.initialize(slope_steps);
+        }
+        if let Some(rst) = &mut self.reset_pin {
+            rst.initialize(slope_steps);
         }
         self.sync_gpio_to_pins();
     }
@@ -459,6 +480,19 @@ impl McuComp {
                 }
             }
         }
+        if let (Some(rst), Some(node_idx)) = (&mut self.reset_pin, self.reset_node_idx) {
+            if let Some(n) = nodes.get(node_idx) {
+                let high = rst.get_inp_state(n.volt);
+                if !high {
+                    if !self.reset_held {
+                        self.device.reset();
+                        self.reset_held = true;
+                    }
+                } else {
+                    self.reset_held = false;
+                }
+            }
+        }
     }
 
     /// `None` means the pin is not on a net; keep the stamp default (6502 RDY
@@ -468,6 +502,19 @@ impl McuComp {
             if let Some(v) = v_of(&p.id) {
                 let high = p.get_inp_state(v);
                 self.device.set_gpio_input(i, high);
+            }
+        }
+        if let Some(rst) = &mut self.reset_pin {
+            if let Some(v) = v_of(&rst.id) {
+                let high = rst.get_inp_state(v);
+                if !high {
+                    if !self.reset_held {
+                        self.device.reset();
+                        self.reset_held = true;
+                    }
+                } else {
+                    self.reset_held = false;
+                }
             }
         }
     }
@@ -870,8 +917,34 @@ pub fn instantiate_any(
     let mut mcu = McuComp::from_device(
         Device::from_desc(id, desc).map_err(|e| crate::Error::Parse(e.to_string()))?,
     );
+    attach_package_reset_pin(&mut mcu, id, spec, search);
     apply_item_props(&mut mcu, spec, search);
     Ok(InstantiatedMcu::Native(mcu))
+}
+
+fn attach_package_reset_pin(mcu: &mut McuComp, id: &str, spec: &McuItemSpec, search: &SubcSearch) {
+    let packages = load_packages(&spec.device, search);
+    let pkg = select_package(&packages, spec.logic_symbol, spec.package_name.as_deref())
+        .or_else(|| packages.values().next());
+    let Some(pkg) = pkg else {
+        return;
+    };
+    let Some(rst) = pkg
+        .pins
+        .iter()
+        .find(|p| p.pin_type.eq_ignore_ascii_case("rst") && !p.id.is_empty())
+    else {
+        return;
+    };
+    if match_gpio(mcu, id, &rst.id).is_some() {
+        return;
+    }
+    let vdd = mcu.device.vdd;
+    let mut pin = IoPin::input(format!("{id}-{}", rst.id));
+    pin.set_levels(vdd, 0.0);
+    pin.set_thresholds(vdd / 2.0, vdd / 2.0);
+    pin.set_pullup(1e5);
+    mcu.reset_pin = Some(pin);
 }
 
 /// Native cores only (canvas chip / tests). Scripted `.mcu` files error.

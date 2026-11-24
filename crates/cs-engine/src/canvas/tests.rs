@@ -2272,6 +2272,7 @@ fn test_node_drawing_and_color_matching() {
         link_highlight: Color::rgb(37, 130, 235),
         exposed_highlight: Color::rgb(235, 190, 20),
         link_badge_text: Color::rgb(255, 255, 255),
+        chip_label_text: Color::rgb(160, 160, 180),
     };
 
     let pctx = PaintCtx {

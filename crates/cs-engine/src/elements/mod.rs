@@ -406,6 +406,7 @@ pub enum Kind {
         size: usize,
         resistance: f64,
         bussed: bool,
+        pu_volt: f64,
     },
     Ldr {
         resistance: f64,

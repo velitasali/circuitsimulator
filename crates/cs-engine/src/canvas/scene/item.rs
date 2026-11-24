@@ -3,6 +3,7 @@ use crate::canvas::geom::{Point, Rect, map_local, map_rect, map_scene};
 use crate::canvas::pin::Pin;
 use crate::circ1::BoardPlacement;
 pub use crate::components::*;
+use crate::package::SubcType;
 
 /// Canvas overflow status and required dimensions.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -244,6 +245,23 @@ impl Item {
 
     pub fn body_rect(&self) -> Rect {
         self.kind.body()
+    }
+
+    /// Returns `true` for a package-backed pin whose contact point sits inside the component body
+    /// (such as header/point pins on Arduino and custom Board/Shield subcircuits).
+    pub fn is_interior_pin(&self, pin: &Pin) -> bool {
+        self.kind.package().is_some() && self.body_rect().contains_point(pin.local)
+    }
+
+    /// Returns `true` for Board/Shield subcircuits rendered in the base layer beneath wires
+    /// so wires routed to interior header pins remain visible over the board face.
+    pub fn is_board_layer(&self) -> bool {
+        matches!(
+            &self.kind,
+            Part::Subcircuit(subc)
+                if !subc.logic_symbol
+                    && matches!(subc.package.subc_type, SubcType::Board | SubcType::Shield)
+        )
     }
 
     pub fn local_hit_rect(&self) -> Rect {

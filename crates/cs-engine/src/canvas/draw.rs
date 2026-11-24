@@ -70,6 +70,7 @@ pub struct Palette {
     pub link_highlight: Color,
     pub exposed_highlight: Color,
     pub link_badge_text: Color,
+    pub chip_label_text: Color,
 }
 
 impl Palette {
@@ -98,6 +99,7 @@ impl Palette {
             link_highlight: to_color(ColorId::LinkHighlight),
             exposed_highlight: to_color(ColorId::ExposedHighlight),
             link_badge_text: to_color(ColorId::LinkBadgeText),
+            chip_label_text: to_color(ColorId::ChipLabelText),
         }
     }
 
@@ -126,6 +128,7 @@ impl Palette {
             link_highlight: to_color(ColorId::LinkHighlight),
             exposed_highlight: to_color(ColorId::ExposedHighlight),
             link_badge_text: to_color(ColorId::LinkBadgeText),
+            chip_label_text: to_color(ColorId::ChipLabelText),
         }
     }
 
@@ -164,6 +167,7 @@ impl Palette {
             link_highlight: to_color(ColorId::LinkHighlight),
             exposed_highlight: to_color(ColorId::ExposedHighlight),
             link_badge_text: to_color(ColorId::LinkBadgeText),
+            chip_label_text: to_color(ColorId::ChipLabelText),
         }
     }
 }

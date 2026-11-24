@@ -651,6 +651,7 @@ impl Comp {
                 .inputs
                 .iter()
                 .chain(std::iter::once(&b.bi_rbo))
+                .chain(b.use_reset.then_some(&b.rst))
                 .chain(b.segments.iter())
                 .map(|p| p.id.clone())
                 .collect(),
@@ -679,10 +680,30 @@ impl Comp {
                 .map(|p| p.id.clone())
                 .chain(std::iter::once(format!("{}-out0", self.id)))
                 .collect(),
-            Kind::Counter(c) => vec![c.clock.id.clone(), c.reset.id.clone(), c.output.id.clone()],
+            Kind::Counter(c) => {
+                let mut ids = vec![c.clock.id.clone(), c.reset.id.clone()];
+                if c.use_set {
+                    ids.push(c.set.id.clone());
+                }
+                ids.push(c.output.id.clone());
+                ids
+            }
             Kind::BinCounter(b) => {
                 let mut ids = vec![b.clk_a.id.clone(), b.r0_1.id.clone()];
+                if b.bidirectional {
+                    ids.push(b.pin_dir.id.clone());
+                }
+                if b.parallel_in {
+                    ids.push(b.pin_ldp.id.clone());
+                    ids.extend(b.data_inputs.iter().map(|p| p.id.clone()));
+                }
                 ids.extend(b.outputs.iter().map(|p| p.id.clone()));
+                if b.use_rco {
+                    ids.push(b.pin_rco.id.clone());
+                    if b.bidirectional {
+                        ids.push(b.pin_rbo.id.clone());
+                    }
+                }
                 ids
             }
             Kind::FullAdder(fa) => fa
@@ -721,6 +742,14 @@ impl Comp {
                     sr.master_reset.id.clone(),
                     sr.oe.id.clone(),
                 ];
+                if sr.parallel_in {
+                    ids.push(sr.load.id.clone());
+                    ids.extend(sr.data_inputs.iter().map(|p| p.id.clone()));
+                }
+                if sr.bidirectional {
+                    ids.push(sr.ser_in_left.id.clone());
+                    ids.push(sr.dir.id.clone());
+                }
                 ids.extend(sr.outputs.iter().map(|p| p.id.clone()));
                 ids
             }

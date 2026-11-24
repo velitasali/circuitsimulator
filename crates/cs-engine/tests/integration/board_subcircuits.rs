@@ -5,12 +5,20 @@
 //! - Legacy `.sim1` board fixtures (`Uno.sim1`, `Encoder.sim1`)
 //! - Interactive board-mounted controls (`Push`, `Switch`) in a parent circuit.
 
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use cs_engine::canvas::draw::{Align, Color, Draw, PaintCtx, Palette};
 use cs_engine::canvas::export::paint::paint_scene;
+use cs_engine::canvas::scene::HitTarget;
 use cs_engine::canvas::{BUTTON_LEFT, Canvas, KEY_ESCAPE, Part, Point, Rect, Scene};
+use cs_engine::catalog::Catalog;
 use cs_engine::circ1::BoardPlacement;
+use cs_engine::elements::Kind;
+use cs_engine::mcu;
 use cs_engine::package::{PkgPin, SubcType};
-use cs_engine::subcircuit::SubcSearch;
+use cs_engine::subcircuit::{self, SubcSearch};
 
 #[derive(Default)]
 struct PaintRecorder {
@@ -526,4 +534,430 @@ fn board_subpackage_named_ls_still_renders_board_children_even_with_stale_logic_
     assert!(!subc2.logic_symbol);
     assert_eq!(subc2.board_children.len(), 1);
     assert_eq!(subc2.board_children[0].inner_id, "Led-1");
+}
+
+#[derive(Default)]
+struct OrderRecorder {
+    events: Vec<&'static str>,
+    pin_circle_colors: Vec<Color>,
+    small_stem_rects: usize,
+}
+
+impl Draw for OrderRecorder {
+    fn fill_rect(&mut self, _x: f64, _y: f64, w: f64, h: f64, _c: Color) {
+        if w <= 2.0 && h <= 2.0 {
+            self.small_stem_rects += 1;
+        }
+    }
+    fn stroke_rect(&mut self, _x: f64, _y: f64, _w: f64, _h: f64, _c: Color, _width: f64) {}
+    fn fill_round_rect(&mut self, _x: f64, _y: f64, w: f64, h: f64, _r: f64, _c: Color) {
+        if w >= 60.0 && h >= 100.0 {
+            self.events.push("board_body");
+        }
+    }
+    fn stroke_round_rect(
+        &mut self,
+        _x: f64,
+        _y: f64,
+        _w: f64,
+        _h: f64,
+        _r: f64,
+        _c: Color,
+        _width: f64,
+    ) {
+    }
+    fn fill_circle(&mut self, _cx: f64, _cy: f64, _r: f64, _c: Color) {}
+    fn stroke_circle(&mut self, _cx: f64, _cy: f64, r: f64, c: Color, _width: f64) {
+        if (r - 2.0).abs() < 0.01 {
+            self.events.push("pin_ring");
+            self.pin_circle_colors.push(c);
+        }
+    }
+    fn fill_ellipse(&mut self, _cx: f64, _cy: f64, _rx: f64, _ry: f64, _c: Color) {}
+    fn stroke_ellipse(&mut self, _cx: f64, _cy: f64, _rx: f64, _ry: f64, _c: Color, _width: f64) {}
+    fn fill_poly(&mut self, _pts: &[[f64; 2]], _c: Color) {}
+    fn stroke_poly(&mut self, _pts: &[[f64; 2]], _c: Color, _width: f64, _closed: bool) {}
+    fn arc(
+        &mut self,
+        _cx: f64,
+        _cy: f64,
+        _r: f64,
+        _start: f64,
+        _span: f64,
+        _c: Color,
+        _width: f64,
+    ) {
+    }
+    fn line(&mut self, _x1: f64, _y1: f64, _x2: f64, _y2: f64, _c: Color, _width: f64) {}
+    fn polyline(&mut self, _pts: &[[f64; 2]], _c: Color, _width: f64, _dashed: bool) {
+        self.events.push("wire");
+    }
+    fn text(&mut self, _x: f64, _y: f64, _s: &str, _size: f64, _c: Color, _align: Align) {}
+    fn grid_dots(&mut self, _scene: Rect, _step: i32, _c: Color) {}
+    fn push(&mut self, _x: f64, _y: f64, _rot: f64, _sx: f64, _sy: f64) {}
+    fn pop(&mut self) {}
+}
+
+#[test]
+fn arduino_boards_paint_hit_test_and_wire_interior_pins() {
+    let boards = [
+        (
+            "Uno",
+            include_str!("../fixtures/components/Arduino/arduino/Uno/Uno.sim1"),
+            Point::new(8.0, 16.0),
+            "0",
+            Point::new(80.0, 112.0),
+        ),
+        (
+            "Mega",
+            include_str!("../fixtures/components/Arduino/arduino/Mega/Mega.sim1"),
+            Point::new(16.0, 24.0),
+            "22",
+            Point::new(80.0, 160.0),
+        ),
+        (
+            "Nano",
+            include_str!("../fixtures/components/Arduino/arduino/Nano/Nano.sim1"),
+            Point::new(8.0, 16.0),
+            "1",
+            Point::new(32.0, 76.0),
+        ),
+        (
+            "Duemilanove",
+            include_str!("../fixtures/components/Arduino/arduino/Duemilanove/Duemilanove.sim1"),
+            Point::new(152.0, 16.0),
+            "A5",
+            Point::new(80.0, 112.0),
+        ),
+    ];
+
+    for (device, src, pin_pt, pin_suffix, body_pt) in boards {
+        let search = SubcSearch::empty().with_memory(device, src);
+        let mut canvas = Canvas::empty();
+        canvas.set_view_size(800.0, 600.0);
+        let id = canvas
+            .scene_mut()
+            .add_subcircuit(device, 0.0, 0.0, &search)
+            .unwrap();
+
+        // Interior header pin must be hit before the board body.
+        let expected_pin = format!("{id}-{pin_suffix}");
+        match canvas.scene().hit_top(pin_pt) {
+            Some(HitTarget::Pin { pin, .. }) => assert_eq!(pin.id, expected_pin),
+            other => panic!("{device}: expected HitTarget::Pin at {pin_pt:?}, got {other:?}"),
+        }
+
+        // Open PCB area still hits the board body so the board can be selected and dragged.
+        match canvas.scene().hit_top(body_pt) {
+            Some(HitTarget::Body { index }) => assert_eq!(canvas.scene().items()[index].id, id),
+            other => panic!("{device}: expected HitTarget::Body at {body_pt:?}, got {other:?}"),
+        }
+    }
+
+    // Paint order & interactive wiring on Arduino Uno.
+    let uno_src = include_str!("../fixtures/components/Arduino/arduino/Uno/Uno.sim1");
+    let search = SubcSearch::empty().with_memory("Uno", uno_src);
+    let mut canvas = Canvas::empty();
+    canvas.set_view_size(800.0, 600.0);
+    let uno_id = canvas
+        .scene_mut()
+        .add_subcircuit("Uno", 0.0, 0.0, &search)
+        .unwrap();
+    let r_id = canvas.scene_mut().add_resistor(-64.0, 16.0, 1000.0);
+
+    // Click Uno pin 0 at (8, 16) to start a wire, then close onto resistor rPin at (-48, 16).
+    let p0_screen = canvas.viewport().map_from_circuit(Point::new(8.0, 16.0));
+    canvas.mouse_press(BUTTON_LEFT, p0_screen.x, p0_screen.y, 0);
+    assert!(
+        canvas.scene().drawing(),
+        "clicking an Arduino interior pin must start drawing a wire"
+    );
+    let r_pin = canvas
+        .scene()
+        .pin_scene(&format!("{r_id}-rPin"))
+        .expect("resistor rPin");
+    let r_screen = canvas.viewport().map_from_circuit(r_pin);
+    canvas.mouse_press(BUTTON_LEFT, r_screen.x, r_screen.y, 0);
+    assert!(
+        !canvas.scene().drawing(),
+        "clicking resistor pin should close the wire"
+    );
+    assert!(
+        canvas.scene().pin_connected(&format!("{uno_id}-0")),
+        "Uno pin 0 should be connected"
+    );
+
+    // Paint the scene and check: board body paints BEFORE interior pin rings and BEFORE wires,
+    // point pins draw no stray stem rects, and idle interior pins use chip_label_text contrast.
+    let pal = Palette::light();
+    let mut rec = OrderRecorder::default();
+    paint_scene(
+        &mut rec,
+        &PaintCtx {
+            canvas: &canvas,
+            pal: &pal,
+            scale: 1.0,
+            item_id: "",
+            on_board: false,
+            active_item_id: None,
+        },
+    );
+
+    let body_idx = rec
+        .events
+        .iter()
+        .position(|&e| e == "board_body")
+        .expect("board body should be painted");
+    let first_ring_idx = rec
+        .events
+        .iter()
+        .position(|&e| e == "pin_ring")
+        .expect("unconnected Arduino pins should paint rings");
+    let wire_idx = rec
+        .events
+        .iter()
+        .position(|&e| e == "wire")
+        .expect("connected wire should be painted");
+    assert!(
+        body_idx < first_ring_idx,
+        "interior pin rings must paint after board body: {:?}",
+        rec.events
+    );
+    assert!(
+        body_idx < wire_idx,
+        "wires must paint after board body so interior header wires stay visible: {:?}",
+        rec.events
+    );
+    assert_eq!(
+        rec.small_stem_rects, 0,
+        "point pins (length=1) must not emit stray stem rectangles"
+    );
+    // 26 unconnected non-directional Uno pins draw rings with chip_label_text contrast
+    // (pin 0 is connected, RST draws a directional chevron).
+    let board_ring_count = rec
+        .pin_circle_colors
+        .iter()
+        .filter(|&&c| c == pal.chip_label_text)
+        .count();
+    assert_eq!(
+        board_ring_count, 26,
+        "expected 26 unconnected non-directional Uno interior pins with chip_label_text contrast"
+    );
+}
+
+#[test]
+fn socket_body_remains_draggable_and_unaffected_by_interior_package_pin_rule() {
+    let mut canvas = Canvas::empty();
+    canvas.set_view_size(800.0, 600.0);
+    let sock_id = canvas.scene_mut().add_socket(0.0, 0.0);
+    match canvas.scene().hit_top(Point::new(0.0, 0.0)) {
+        Some(HitTarget::Body { index }) => assert_eq!(canvas.scene().items()[index].id, sock_id),
+        other => panic!("expected Socket body hit at (0, 0), got {other:?}"),
+    }
+}
+
+#[test]
+fn arduino_uno_onboard_ledbar_wire_is_connected_in_scene_and_simulation() {
+    let uno_src = include_str!("../fixtures/components/Arduino/arduino/Uno/Uno.sim1");
+    let scene = Scene::from_circ1(uno_src).unwrap();
+    let led_wire = scene
+        .wires()
+        .iter()
+        .find(|w| {
+            w.start_pin.starts_with("LedBar-9-")
+                || w.end_pin
+                    .as_deref()
+                    .is_some_and(|p| p.starts_with("LedBar-9-"))
+        })
+        .expect("Uno should contain wire to LedBar-9");
+    assert_eq!(led_wire.start_pin, "LedBar-9-lPin0");
+    assert!(
+        scene.pin_scene(&led_wire.start_pin).is_some(),
+        "LedBar-9-lPin0 must resolve on canvas"
+    );
+    assert!(
+        scene
+            .pin_scene(led_wire.end_pin.as_deref().unwrap())
+            .is_some(),
+        "Buffer-10-out must resolve on canvas"
+    );
+
+    // Driving Uno pin 13 high in a parent circuit drives 1@LedBar-9-lPin0 high through Buffer-10.
+    let search = SubcSearch::empty()
+        .with_standard_catalog()
+        .with_memory("Uno", uno_src);
+    let mut canvas = Canvas::empty();
+    let v_id = canvas.scene_mut().add_fixed_volt(0.0, 0.0, 5.0);
+    let uno_id = canvas
+        .scene_mut()
+        .add_subcircuit("Uno", 80.0, 0.0, &search)
+        .unwrap();
+    wire(
+        canvas.scene_mut(),
+        &format!("{v_id}-outnod"),
+        &format!("{uno_id}-13"),
+    );
+    canvas.power_on();
+    let v_led = canvas
+        .pin_voltage("1@LedBar-9-lPin0")
+        .expect("on-board LedBar-9 anode pin should be wired in simulation");
+    assert!(
+        v_led > 2.5,
+        "driving Uno pin 13 high must drive LedBar-9-lPin0 high (got {v_led} V)"
+    );
+}
+
+#[test]
+fn all_bundled_simulide_subcircuits_have_zero_dangling_pins_and_compile_scripts() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/components");
+    let mut cat = Catalog::new();
+    cat.load_dir(&root);
+    let mut subdirs: Vec<PathBuf> = fs::read_dir(&root)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    subdirs.sort();
+    for d in subdirs {
+        cat.load_dir(&d);
+    }
+    let search = SubcSearch::empty().with_catalog(cat.clone());
+    let subc_items: Vec<_> = cat
+        .items()
+        .iter()
+        .filter(|it| it.typ == "Subcircuit")
+        .collect();
+    assert!(
+        subc_items.len() >= 150,
+        "expected full bundled SimulIDE subcircuit catalog, found {}",
+        subc_items.len()
+    );
+
+    let mut sim_dangling = Vec::new();
+    let mut canvas_dangling = Vec::new();
+    let mut script_errors = Vec::new();
+
+    for item in subc_items {
+        let name = &item.name;
+        let inst_id = format!("{name}-1");
+        let view = subcircuit::load_view(&inst_id, name, &search, false, None)
+            .unwrap_or_else(|e| panic!("load_view failed for {name}: {e}"));
+        let child_search = view
+            .nested_path
+            .as_deref()
+            .map(|p| search.child_for(Path::new(p)))
+            .unwrap_or_else(|| search.clone());
+
+        let scene = Scene::from_circ1_with(&view.nested_src, &child_search)
+            .unwrap_or_else(|e| panic!("Scene::from_circ1_with failed for {name}: {e}"));
+        for w in scene.wires() {
+            if scene.pin_scene(&w.start_pin).is_none() {
+                canvas_dangling.push(format!("{name}: {}", w.start_pin));
+            }
+            if let Some(ep) = &w.end_pin {
+                if scene.pin_scene(ep).is_none() {
+                    canvas_dangling.push(format!("{name}: {ep}"));
+                }
+            }
+        }
+
+        let mut inst = subcircuit::instantiate(
+            &inst_id,
+            name,
+            &view.nested_src,
+            &child_search,
+            false,
+            None,
+            0,
+            None,
+        )
+        .unwrap_or_else(|e| panic!("instantiate failed for {name}: {e}"));
+
+        let mut known: HashSet<String> = inst.components.iter().flat_map(|c| c.pin_ids()).collect();
+        for (a, b) in &inst.connectors {
+            for p in [a, b] {
+                if p.contains("Node-") {
+                    known.insert(p.clone());
+                }
+            }
+        }
+        for (a, b) in &inst.connectors {
+            for ep in [a, b] {
+                if known.contains(ep) {
+                    continue;
+                }
+                let is_mcu_gpio = inst.components.iter().any(|c| {
+                    if let Kind::Mcu(m) = &c.kind {
+                        if let Some(local) = ep.strip_prefix(&format!("{}-", c.id)) {
+                            return mcu::match_gpio(m, &c.id, local).is_some();
+                        }
+                    }
+                    false
+                });
+                if !is_mcu_gpio {
+                    sim_dangling.push(format!("{name}: {ep}"));
+                }
+            }
+        }
+        for c in &mut inst.components {
+            if let Kind::ScriptCpu(s) = &mut c.kind {
+                if let Err(e) = s.compile() {
+                    script_errors.push(format!("{name} ({}): {e}", c.id));
+                }
+            }
+        }
+    }
+
+    assert!(
+        sim_dangling.is_empty(),
+        "dangling simulation connector pins: {sim_dangling:?}"
+    );
+    assert!(
+        canvas_dangling.is_empty(),
+        "dangling canvas wire pins: {canvas_dangling:?}"
+    );
+    assert!(
+        script_errors.is_empty(),
+        "AngelScript compile errors: {script_errors:?}"
+    );
+}
+
+#[test]
+fn simulide_compat_pullup_resistor_dip_and_demux_decoder_simulate() {
+    let src = r#"<circuit version="1.1.0-RC1" >
+<item itemtype="ResistorDip" CircId="ResistorDip-1" Resistance="10 kΩ" Size="2" PullUp="true" PuVolt="5 V" Pos="0,0" />
+<item itemtype="Resistor" CircId="R-1" Resistance="10 kΩ" Pos="40,0" />
+<item itemtype="Ground" CircId="G-1" Pos="80,0" />
+<item itemtype="Demux" CircId="Demux-1" Address_Bits="2 _bits" Inverted="false" Pos="120,0" />
+<item itemtype="Fixed Voltage" CircId="V-1" Voltage="5 V" Pos="100,40" />
+<item itemtype="Connector" uid="c1" startpinid="ResistorDip-1-resistor0-ePin0" endpinid="R-1-lPin" />
+<item itemtype="Connector" uid="c2" startpinid="R-1-rPin" endpinid="G-1-Gnd" />
+<item itemtype="Connector" uid="c3" startpinid="V-1-outnod" endpinid="Demux-1-in0" />
+<item itemtype="Connector" uid="c4" startpinid="G-1-Gnd" endpinid="Demux-1-in1" />
+<item itemtype="Connector" uid="c5" startpinid="G-1-Gnd" endpinid="Demux-1-in3" />
+<item itemtype="Connector" uid="c6" startpinid="Demux-1-out1" endpinid="ResistorDip-1-resistor1-ePin2" />
+</circuit>
+"#;
+    let mut canvas = Canvas::empty();
+    canvas.load_circ1(src, None).unwrap();
+    canvas.power_on();
+
+    // 10k internal pull-up to 5V with 10k to GND => 2.5 V divider on pin0.
+    let v_div = canvas
+        .pin_voltage("ResistorDip-1-pin0")
+        .expect("ResistorDip-1-pin0 should be wired");
+    assert!(
+        (v_div - 2.5).abs() < 0.05,
+        "expected ~2.5 V from PullUp=true PuVolt=5V divider, got {v_div} V"
+    );
+
+    // Demux addr=0b01 (in0=5V, in1=0V), enable=0V, unwired data input -> out1 asserts HIGH (~5V).
+    let v_out1 = canvas
+        .pin_voltage("Demux-1-out1")
+        .expect("Demux-1-out1 should be wired");
+    assert!(
+        v_out1 > 4.0,
+        "expected Demux decoder out1 HIGH when addr=1 and enabled, got {v_out1} V"
+    );
 }

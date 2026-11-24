@@ -16,11 +16,20 @@ use crate::matrix::CircMatrix;
 #[derive(Clone, Debug, PartialEq)]
 pub struct BcdTo7Segment {
     pub common_anode: bool,
+    pub use_reset: bool,
 }
 
 impl crate::canvas::Item {
     pub fn bcd_to_7s(id: impl Into<String>, x: f64, y: f64, common_anode: bool) -> Self {
-        Self::new(id, x, y, BcdTo7Segment { common_anode })
+        Self::new(
+            id,
+            x,
+            y,
+            BcdTo7Segment {
+                common_anode,
+                use_reset: false,
+            },
+        )
     }
 }
 
@@ -28,6 +37,7 @@ impl Default for BcdTo7Segment {
     fn default() -> Self {
         Self {
             common_anode: false,
+            use_reset: false,
         }
     }
 }
@@ -35,7 +45,7 @@ impl Default for BcdTo7Segment {
 impl BcdTo7Segment {
     pub const TYPE_ID: &'static str = "BcdTo7Segment";
     pub fn to_element_kind(&self) -> Kind {
-        Kind::BcdTo7S(BcdTo7SState::new("", self.common_anode))
+        Kind::BcdTo7S(BcdTo7SState::new("", self.common_anode).with_reset(self.use_reset))
     }
 
     fn get_common_anode(&self) -> PropValue {
@@ -43,6 +53,14 @@ impl BcdTo7Segment {
     }
     fn set_common_anode(&mut self, v: PropValue) -> Result<(), PropError> {
         self.common_anode = expect_bool("CommonAnode", v)?;
+        Ok(())
+    }
+
+    fn get_use_reset(&self) -> PropValue {
+        PropValue::Bool(self.use_reset)
+    }
+    fn set_use_reset(&mut self, v: PropValue) -> Result<(), PropError> {
+        self.use_reset = expect_bool("UseReset", v)?;
         Ok(())
     }
 }
@@ -55,18 +73,34 @@ impl Component for BcdTo7Segment {
     const DESCRIPTION: &'static str = "BCD to 7-Segment Decoder.";
 
     fn props() -> &'static [PropDef<Self>] {
-        static PROPS: &[PropDef<BcdTo7Segment>] = &[PropDef::bool(
-            "CommonAnode",
-            "Common Anode",
-            BcdTo7Segment::get_common_anode,
-            BcdTo7Segment::set_common_anode,
-        )
-        .with_info("Determines common anode (true) or common cathode (false) pin configuration.")];
+        const USE_RESET: PropDef<BcdTo7Segment> = {
+            let mut p = PropDef::bool(
+                "UseReset",
+                "Use Reset",
+                BcdTo7Segment::get_use_reset,
+                BcdTo7Segment::set_use_reset,
+            )
+            .with_info("Exposes the reset/blanking pin.");
+            p.structural = true;
+            p
+        };
+        static PROPS: &[PropDef<BcdTo7Segment>] = &[
+            PropDef::bool(
+                "CommonAnode",
+                "Common Anode",
+                BcdTo7Segment::get_common_anode,
+                BcdTo7Segment::set_common_anode,
+            )
+            .with_info(
+                "Determines common anode (true) or common cathode (false) pin configuration.",
+            ),
+            USE_RESET,
+        ];
         PROPS
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
-        bcd_to_7s_pins("", false)
+        bcd_to_7s_pins("", self.use_reset)
             .into_iter()
             .map(CompPin::from)
             .collect()

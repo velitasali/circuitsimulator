@@ -25,6 +25,8 @@ pub struct CounterState {
     pub count: u32,
     pub clock: IoPin,
     pub reset: IoPin,
+    pub set: IoPin,
+    pub use_set: bool,
     pub enable: IoPin,
     pub output: IoPin,
     pub outputs: Vec<IoPin>, // Q0..Qn-1 binary outputs
@@ -43,6 +45,7 @@ impl CounterState {
         }
         let clock = IoPin::input(format!("{id}-in0"));
         let reset = IoPin::input(format!("{id}-in1"));
+        let set = IoPin::input(format!("{id}-in2"));
         // Enable is not a schematic pin. The queue treats it as tied high.
         let enable = IoPin::input(format!("{id}-en"));
         let output = IoPin::output(format!("{id}-out0"));
@@ -57,6 +60,8 @@ impl CounterState {
             count: 0,
             clock,
             reset,
+            set,
+            use_set: false,
             enable,
             output,
             outputs,
@@ -68,9 +73,15 @@ impl CounterState {
         st
     }
 
+    pub fn with_set(mut self, use_set: bool) -> Self {
+        self.use_set = use_set;
+        self
+    }
+
     pub fn apply_family(&mut self) {
         self.family.apply(&mut self.clock);
         self.family.apply(&mut self.reset);
+        self.family.apply(&mut self.set);
         self.family.apply(&mut self.enable);
         self.family.apply(&mut self.output);
         for pin in &mut self.outputs {
@@ -79,6 +90,14 @@ impl CounterState {
     }
 
     pub fn eval(&mut self) {
+        if self.use_set && self.set.inp_state() {
+            self.count = self.max_count;
+            for (i, p) in self.outputs.iter_mut().enumerate() {
+                p.set_out_state(((self.count >> i) & 1) != 0);
+            }
+            self.output.set_out_state(true);
+            return;
+        }
         if self.reset.inp_state() {
             self.count = 0;
             self.output.set_out_state(false);
@@ -115,15 +134,26 @@ impl CounterState {
 #[derive(Clone, Debug)]
 pub struct BinCounterState {
     pub is_decade: bool, // 7490 (decade) vs 7493 (4-bit binary)
+    pub bits: usize,
+    pub max_value: u32, // 0 = use default (9 if is_decade else (1<<bits)-1)
+    pub parallel_in: bool,
+    pub use_rco: bool,
+    pub bidirectional: bool,
+    pub count: u32,
     pub count_a: u8,
     pub count_b: u8,
-    pub clk_a: IoPin,        // Input A
-    pub clk_b: IoPin,        // Input B
-    pub r0_1: IoPin,         // Reset 0 (1)
-    pub r0_2: IoPin,         // Reset 0 (2)
-    pub r9_1: IoPin,         // Set 9 (1) - for decade counter
-    pub r9_2: IoPin,         // Set 9 (2) - for decade counter
-    pub outputs: Vec<IoPin>, // Q0, Q1, Q2, Q3
+    pub clk_a: IoPin,            // Input A (`Pin_clk`)
+    pub clk_b: IoPin,            // Input B (internal)
+    pub r0_1: IoPin,             // Reset (`Pin_rst`)
+    pub r0_2: IoPin,             // Reset 0 (2)
+    pub r9_1: IoPin,             // Set 9 (1) - for decade counter
+    pub r9_2: IoPin,             // Set 9 (2) - for decade counter
+    pub pin_ldp: IoPin,          // Parallel load (`Pin_ldp`)
+    pub pin_dir: IoPin,          // Direction (`Pin_dir`)
+    pub pin_rco: IoPin,          // Ripple carry out (`Pin_rco`)
+    pub pin_rbo: IoPin,          // Ripple borrow out (`Pin_rbo`)
+    pub data_inputs: Vec<IoPin>, // Parallel data inputs (`in10..in(10+bits-1)`)
+    pub outputs: Vec<IoPin>,     // Q0..Q(bits-1) (`out0..out(bits-1)`)
     pub last_clk_a: bool,
     pub last_clk_b: bool,
     pub family: LogicFamily,
@@ -132,9 +162,24 @@ pub struct BinCounterState {
 
 impl BinCounterState {
     pub fn new(id: &str, is_decade: bool) -> Self {
-        let mut outputs = Vec::with_capacity(4);
-        for i in 0..4 {
+        Self::new_configured(id, is_decade, 4, 0, false, false, false)
+    }
+
+    pub fn new_configured(
+        id: &str,
+        is_decade: bool,
+        bits: usize,
+        max_value: u32,
+        parallel_in: bool,
+        use_rco: bool,
+        bidirectional: bool,
+    ) -> Self {
+        let bits = bits.clamp(1, 32);
+        let mut outputs = Vec::with_capacity(bits);
+        let mut data_inputs = Vec::with_capacity(bits);
+        for i in 0..bits {
             outputs.push(IoPin::output(format!("{id}-out{i}")));
+            data_inputs.push(IoPin::input(format!("{id}-in{}", 10 + i)));
         }
         // One schematic clock. Section B is clocked internally by QA so the
         // part binary-counts (or decade-counts) without an external QA→CLKB jumper.
@@ -144,9 +189,19 @@ impl BinCounterState {
         let r0_2 = IoPin::input(format!("{id}-r0_2"));
         let r9_1 = IoPin::input(format!("{id}-r9_1"));
         let r9_2 = IoPin::input(format!("{id}-r9_2"));
+        let pin_ldp = IoPin::input(format!("{id}-Pin_ldp"));
+        let pin_dir = IoPin::input(format!("{id}-Pin_dir"));
+        let pin_rco = IoPin::output(format!("{id}-Pin_rco"));
+        let pin_rbo = IoPin::output(format!("{id}-Pin_rbo"));
 
         let mut st = Self {
             is_decade,
+            bits,
+            max_value,
+            parallel_in,
+            use_rco,
+            bidirectional,
+            count: 0,
             count_a: 0,
             count_b: 0,
             clk_a,
@@ -155,6 +210,11 @@ impl BinCounterState {
             r0_2,
             r9_1,
             r9_2,
+            pin_ldp,
+            pin_dir,
+            pin_rco,
+            pin_rbo,
+            data_inputs,
             outputs,
             last_clk_a: false,
             last_clk_b: false,
@@ -172,51 +232,81 @@ impl BinCounterState {
         self.family.apply(&mut self.r0_2);
         self.family.apply(&mut self.r9_1);
         self.family.apply(&mut self.r9_2);
+        self.family.apply(&mut self.pin_ldp);
+        self.family.apply(&mut self.pin_dir);
+        self.family.apply(&mut self.pin_rco);
+        self.family.apply(&mut self.pin_rbo);
+        for p in &mut self.data_inputs {
+            self.family.apply(p);
+        }
         for p in &mut self.outputs {
             self.family.apply(p);
         }
     }
 
     pub fn eval(&mut self) {
+        let mask = bit_mask(self.bits);
+        let max_val = if self.max_value > 0 {
+            self.max_value.min(mask)
+        } else if self.is_decade {
+            9u32.min(mask)
+        } else {
+            mask
+        };
+        let count_down = self.bidirectional && self.pin_dir.inp_state();
+
         // Set 9 override (if both R9 inputs are high on decade counter)
         if self.is_decade && self.r9_1.inp_state() && self.r9_2.inp_state() {
-            self.count_a = 1;
-            self.count_b = 4; // Q3=1, Q2=0, Q1=0 -> binary 1001 (9)
+            self.count = 9u32.min(mask);
         } else if self.r0_1.inp_state() && self.r0_2.inp_state() {
-            self.count_a = 0;
-            self.count_b = 0;
+            self.count = 0;
+        } else if self.parallel_in && self.pin_ldp.inp_state() {
+            let mut val = 0u32;
+            for (i, p) in self.data_inputs.iter().enumerate() {
+                if p.inp_state() {
+                    val |= 1u32 << i;
+                }
+            }
+            self.count = val & mask;
         } else {
-            // Negative-edge clock. QA falling edge clocks section B (the
-            // datasheet cascade, done inside the part for the single clock pin).
+            // Negative-edge clock.
             let clk_a = self.clk_a.inp_state();
             if !clk_a && self.last_clk_a {
-                let q0_was_high = self.count_a != 0;
-                self.count_a = (self.count_a + 1) & 1;
-                if q0_was_high {
-                    if self.is_decade {
-                        self.count_b = if self.count_b >= 4 {
-                            0
-                        } else {
-                            self.count_b + 1
-                        };
+                if count_down {
+                    self.count = if self.count == 0 {
+                        max_val
                     } else {
-                        self.count_b = (self.count_b + 1) & 7;
-                    }
+                        self.count - 1
+                    };
+                } else {
+                    self.count = if self.count >= max_val {
+                        0
+                    } else {
+                        self.count + 1
+                    };
                 }
             }
             self.last_clk_a = clk_a;
-            self.last_clk_b = self.count_a != 0;
         }
 
-        let q0 = self.count_a != 0;
-        let q1 = (self.count_b & 1) != 0;
-        let q2 = ((self.count_b >> 1) & 1) != 0;
-        let q3 = ((self.count_b >> 2) & 1) != 0;
+        self.count_a = (self.count & 1) as u8;
+        self.count_b = ((self.count >> 1) & 7) as u8;
+        self.last_clk_b = self.count_a != 0;
 
-        self.outputs[0].set_out_state(q0);
-        self.outputs[1].set_out_state(q1);
-        self.outputs[2].set_out_state(q2);
-        self.outputs[3].set_out_state(q3);
+        for (i, out) in self.outputs.iter_mut().enumerate() {
+            out.set_out_state(((self.count >> i) & 1) != 0);
+        }
+        if self.use_rco {
+            let rco = if count_down {
+                self.count == 0
+            } else {
+                self.count == max_val
+            };
+            self.pin_rco.set_out_state(rco);
+            if self.bidirectional {
+                self.pin_rbo.set_out_state(self.count == 0);
+            }
+        }
     }
 }
 
@@ -404,15 +494,21 @@ impl MagnitudeCompState {
 #[derive(Clone, Debug)]
 pub struct ShiftRegState {
     pub bits: usize,
+    pub parallel_in: bool,
+    pub bidirectional: bool,
     pub shift_reg: u32,
     pub latch_reg: u32,
-    pub ser_in: IoPin,       // Serial data input (DS)
-    pub clk_shift: IoPin,    // Shift clock (SH_CP)
-    pub clk_latch: IoPin,    // Storage / Latch clock (ST_CP)
-    pub master_reset: IoPin, // Reset (MR, active low)
-    pub oe: IoPin,           // Output enable (OE, active low)
-    pub outputs: Vec<IoPin>, // Q0..Q7 parallel outputs
-    pub ser_out: IoPin,      // Serial cascade output (Q7')
+    pub ser_in: IoPin,           // Serial data input (`in0`, DSR)
+    pub clk_shift: IoPin,        // Shift clock (`in1`)
+    pub clk_latch: IoPin,        // Storage / Latch clock (internal)
+    pub master_reset: IoPin,     // Reset (`in2`, active low)
+    pub oe: IoPin,               // Output enable (`in3`, active low)
+    pub load: IoPin,             // Parallel load (`in4`)
+    pub ser_in_left: IoPin,      // Shift-left serial data input (`in5`, DSL)
+    pub dir: IoPin,              // Direction select (`in6`: high = shift left)
+    pub data_inputs: Vec<IoPin>, // Parallel data inputs (`in10..in(10+bits-1)`)
+    pub outputs: Vec<IoPin>,     // Q0..Q(bits-1) parallel outputs
+    pub ser_out: IoPin,          // Serial cascade output (Q(bits-1)')
     pub last_clk_shift: bool,
     pub last_clk_latch: bool,
     pub family: LogicFamily,
@@ -421,15 +517,24 @@ pub struct ShiftRegState {
 
 impl ShiftRegState {
     pub fn new(id: &str, bits: usize) -> Self {
+        Self::new_configured(id, bits, false, false)
+    }
+
+    pub fn new_configured(id: &str, bits: usize, parallel_in: bool, bidirectional: bool) -> Self {
         let bits = bits.clamp(1, 32);
         let mut outputs = Vec::with_capacity(bits);
+        let mut data_inputs = Vec::with_capacity(bits);
         for i in 0..bits {
             outputs.push(IoPin::output(format!("{id}-out{i}")));
+            data_inputs.push(IoPin::input(format!("{id}-in{}", 10 + i)));
         }
         let ser_in = IoPin::input(format!("{id}-in0"));
         let clk_shift = IoPin::input(format!("{id}-in1"));
         let master_reset = IoPin::input(format!("{id}-in2"));
         let oe = IoPin::input(format!("{id}-in3"));
+        let load = IoPin::input(format!("{id}-in4"));
+        let ser_in_left = IoPin::input(format!("{id}-in5"));
+        let dir = IoPin::input(format!("{id}-in6"));
         // Storage clock and cascade output are not schematic pins.
         // The queue copies the shift clock onto the latch clock.
         let clk_latch = IoPin::input(format!("{id}-st_cp"));
@@ -437,6 +542,8 @@ impl ShiftRegState {
 
         let mut st = Self {
             bits,
+            parallel_in,
+            bidirectional,
             shift_reg: 0,
             latch_reg: 0,
             ser_in,
@@ -444,6 +551,10 @@ impl ShiftRegState {
             clk_latch,
             master_reset,
             oe,
+            load,
+            ser_in_left,
+            dir,
+            data_inputs,
             outputs,
             ser_out,
             last_clk_shift: false,
@@ -461,6 +572,12 @@ impl ShiftRegState {
         self.family.apply(&mut self.clk_latch);
         self.family.apply(&mut self.master_reset);
         self.family.apply(&mut self.oe);
+        self.family.apply(&mut self.load);
+        self.family.apply(&mut self.ser_in_left);
+        self.family.apply(&mut self.dir);
+        for p in &mut self.data_inputs {
+            self.family.apply(p);
+        }
         for p in &mut self.outputs {
             self.family.apply(p);
         }
@@ -468,15 +585,32 @@ impl ShiftRegState {
     }
 
     pub fn eval(&mut self) {
+        let mask = bit_mask(self.bits);
         // Master reset: active low
         if !self.master_reset.inp_state() {
             self.shift_reg = 0;
         } else {
             let clk_s = self.clk_shift.inp_state();
             if clk_s && !self.last_clk_shift {
-                let bit = if self.ser_in.inp_state() { 1 } else { 0 };
-                let mask = bit_mask(self.bits);
-                self.shift_reg = ((self.shift_reg << 1) | bit) & mask;
+                if self.parallel_in && self.load.inp_state() {
+                    let mut val = 0u32;
+                    for (i, p) in self.data_inputs.iter().enumerate() {
+                        if p.inp_state() {
+                            val |= 1u32 << i;
+                        }
+                    }
+                    self.shift_reg = val & mask;
+                } else if self.bidirectional && self.dir.inp_state() {
+                    let msb = if self.ser_in_left.inp_state() {
+                        1u32 << (self.bits - 1)
+                    } else {
+                        0
+                    };
+                    self.shift_reg = ((self.shift_reg >> 1) | msb) & mask;
+                } else {
+                    let bit = if self.ser_in.inp_state() { 1 } else { 0 };
+                    self.shift_reg = ((self.shift_reg << 1) | bit) & mask;
+                }
             }
             self.last_clk_shift = clk_s;
         }

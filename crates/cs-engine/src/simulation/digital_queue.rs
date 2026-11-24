@@ -753,7 +753,13 @@ impl Circuit {
                     continue;
                 }
                 Kind::Demux(d) => {
-                    let v = v_of(&d.input.id);
+                    // SimulIDE's Demux acts as a pure decoder with no wired data input pin;
+                    // tie an unconnected data input high so selected outputs assert normally.
+                    let v = if pin_net.contains_key(&d.input.id) {
+                        v_of(&d.input.id)
+                    } else {
+                        d.family.out_high_v
+                    };
                     d.input.get_inp_state(v);
                     for p in &mut d.addr_pins {
                         let v = v_of(&p.id);
@@ -814,6 +820,10 @@ impl Circuit {
                     b.rbi.get_inp_state(5.0);
                     let v_bi = v_of(&b.bi_rbo.id);
                     b.bi_rbo.get_inp_state(v_bi);
+                    if b.use_reset {
+                        let v_rst = v_of(&b.rst.id);
+                        b.rst.get_inp_state(v_rst);
+                    }
                     let before = snap_nortons(&b.segments);
                     b.eval();
                     if nortons_moved(&before, &b.segments) {
@@ -876,6 +886,10 @@ impl Circuit {
                     let v_rst = v_of(&c.reset.id);
                     c.clock.get_inp_state(v_clk);
                     c.reset.get_inp_state(v_rst);
+                    if c.use_set {
+                        let v_set = v_of(&c.set.id);
+                        c.set.get_inp_state(v_set);
+                    }
                     // Enable is not an external pin. An unconnected sample would stay low.
                     c.enable.get_inp_state(5.0);
                     let before_qs = snap_nortons(&c.outputs);
@@ -897,9 +911,26 @@ impl Circuit {
                     b.r0_2.get_inp_state(v_rst);
                     b.r9_1.get_inp_state(0.0);
                     b.r9_2.get_inp_state(0.0);
+                    if b.bidirectional {
+                        let v_dir = v_of(&b.pin_dir.id);
+                        b.pin_dir.get_inp_state(v_dir);
+                    }
+                    if b.parallel_in {
+                        let v_ldp = v_of(&b.pin_ldp.id);
+                        b.pin_ldp.get_inp_state(v_ldp);
+                        for p in &mut b.data_inputs {
+                            let v = v_of(&p.id);
+                            p.get_inp_state(v);
+                        }
+                    }
                     let before = snap_nortons(&b.outputs);
+                    let before_rco = b.pin_rco.norton();
+                    let before_rbo = b.pin_rbo.norton();
                     b.eval();
-                    if nortons_moved(&before, &b.outputs) {
+                    if nortons_moved(&before, &b.outputs)
+                        || (b.use_rco && norton_moved(before_rco, &b.pin_rco))
+                        || (b.use_rco && b.bidirectional && norton_moved(before_rbo, &b.pin_rbo))
+                    {
                         stamp_changed = true;
                     }
                     continue;
@@ -971,7 +1002,12 @@ impl Circuit {
                 Kind::ShiftReg(sr) => {
                     let v_ds = v_of(&sr.ser_in.id);
                     let v_sh = v_of(&sr.clk_shift.id);
-                    let v_mr = v_of(&sr.master_reset.id);
+                    // Hold active-low master reset inactive when unwired (e.g. 7495 / 74178).
+                    let v_mr = if pin_net.contains_key(&sr.master_reset.id) {
+                        v_of(&sr.master_reset.id)
+                    } else {
+                        sr.family.out_high_v
+                    };
                     let v_oe = v_of(&sr.oe.id);
                     sr.ser_in.get_inp_state(v_ds);
                     sr.clk_shift.get_inp_state(v_sh);
@@ -979,6 +1015,20 @@ impl Circuit {
                     sr.clk_latch.get_inp_state(v_sh);
                     sr.master_reset.get_inp_state(v_mr);
                     sr.oe.get_inp_state(v_oe);
+                    if sr.parallel_in {
+                        let v_ld = v_of(&sr.load.id);
+                        sr.load.get_inp_state(v_ld);
+                        for p in &mut sr.data_inputs {
+                            let v = v_of(&p.id);
+                            p.get_inp_state(v);
+                        }
+                    }
+                    if sr.bidirectional {
+                        let v_sl = v_of(&sr.ser_in_left.id);
+                        let v_dir = v_of(&sr.dir.id);
+                        sr.ser_in_left.get_inp_state(v_sl);
+                        sr.dir.get_inp_state(v_dir);
+                    }
                     let before = snap_nortons(&sr.outputs);
                     let before_ser = sr.ser_out.norton();
                     sr.eval();

@@ -212,13 +212,21 @@ fn record_scene(
         paint::paint_board_layout_overlay(&mut draw, &ctx, circuit);
     } else {
         let connected = circuit.connected_pins_set();
+        for item in circuit.items() {
+            if item.is_board_layer() && cull.intersects(&item.total_bounding_rect()) {
+                paint::paint_item(&mut draw, &ctx, circuit, item, &connected);
+                if canvas.show_component_rect() {
+                    paint::paint_component_rect(&mut draw, &ctx, item);
+                }
+            }
+        }
         for wire in circuit.wires() {
             if wire.points.len() >= 2 && cull.intersects(&wire.bounding_rect()) {
                 paint::paint_wire(&mut draw, &ctx, wire);
             }
         }
         for item in circuit.items() {
-            if cull.intersects(&item.total_bounding_rect()) {
+            if !item.is_board_layer() && cull.intersects(&item.total_bounding_rect()) {
                 paint::paint_item(&mut draw, &ctx, circuit, item, &connected);
                 if canvas.show_component_rect() {
                     paint::paint_component_rect(&mut draw, &ctx, item);

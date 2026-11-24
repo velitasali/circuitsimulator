@@ -26,6 +26,7 @@ fn register_mcu_types(
     script_cpu: *mut c_void,
 ) -> Result<(), cs_script::Error> {
     for ty in [
+        "eElement",
         "IoPin",
         "IoPort",
         "ScriptCpu",
@@ -90,6 +91,11 @@ fn register_mcu_types(
             iopin_set_impedance as *const c_void,
         ),
         (
+            "IoPin",
+            "void changeCallBack(eElement@ e, bool en)",
+            iopin_change_callback as *const c_void,
+        ),
+        (
             "IoPort",
             "void setPinMode(uint m)",
             ioport_set_pin_mode as *const c_void,
@@ -113,6 +119,11 @@ fn register_mcu_types(
             "IoPort",
             "void trigger(uint n)",
             ioport_trigger as *const c_void,
+        ),
+        (
+            "IoPort",
+            "void changeCallBack(eElement@ e, bool en)",
+            ioport_change_callback as *const c_void,
         ),
         (
             "ScriptCpu",
@@ -230,6 +241,11 @@ fn register_mcu_types(
             iopin_set_voltage as *const c_void,
         ),
         (
+            "McuPin",
+            "void changeCallBack(eElement@ e, bool en)",
+            iopin_change_callback as *const c_void,
+        ),
+        (
             "McuPort",
             "void controlPort(bool o, bool d)",
             mcuport_control_port as *const c_void,
@@ -248,6 +264,11 @@ fn register_mcu_types(
             "McuPort",
             "void setOutState(uint s)",
             mcuport_set_out_state as *const c_void,
+        ),
+        (
+            "McuPort",
+            "void changeCallBack(eElement@ e, bool en)",
+            ioport_change_callback as *const c_void,
         ),
         (
             "Uart",
@@ -288,6 +309,7 @@ fn register_mcu_types(
     }
     if !script_cpu.is_null() {
         engine.register_global("ScriptCpu component", script_cpu)?;
+        engine.register_global("eElement element", script_cpu)?;
     }
     Ok(())
 }
@@ -1116,6 +1138,9 @@ unsafe extern "C" fn iopin_set_impedance(pin: *mut c_void, imp: f64) {
     }
     unsafe { (*(pin as *mut IoPin)).set_output_imp(imp) };
 }
+unsafe extern "C" fn iopin_change_callback(_pin: *mut c_void, _elem: *mut c_void, _en: bool) {
+    // ScriptCpu::volt_changed already dispatches `voltChanged()` when any input pin changes.
+}
 
 unsafe extern "C" fn ioport_set_pin_mode(port: *mut c_void, m: u32) {
     if port.is_null() {
@@ -1146,6 +1171,9 @@ unsafe extern "C" fn ioport_trigger(port: *mut c_void, n: u32) {
         return;
     }
     let _ = unsafe { (*(port as *mut IoPort)).trigger(n) };
+}
+unsafe extern "C" fn ioport_change_callback(_port: *mut c_void, _elem: *mut c_void, _en: bool) {
+    // ScriptCpu::volt_changed already dispatches `voltChanged()` when any port input changes.
 }
 
 unsafe extern "C" fn cpu_get_pin(cpu: *mut c_void, name: *const c_void) -> *mut c_void {

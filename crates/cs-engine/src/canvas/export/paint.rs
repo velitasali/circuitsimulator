@@ -1,4 +1,4 @@
-use crate::canvas::draw::{Align, Color, Draw, PaintCtx, parse_hex};
+use crate::canvas::draw::{Align, Color, Draw, PaintCtx, Palette, parse_hex};
 use crate::canvas::geom::{Point, Rect};
 use crate::canvas::pin::Pin;
 use crate::canvas::scene::Item;
@@ -27,14 +27,24 @@ pub fn paint_scene(d: &mut dyn Draw, ctx: &PaintCtx<'_>) {
         paint_board_layout_overlay(d, ctx, scene);
         return;
     }
+    let connected_pins = scene.connected_pins_set();
+    for it in scene.items() {
+        if it.is_board_layer() {
+            paint_item(d, ctx, scene, it, &connected_pins);
+            if ctx.canvas.show_component_rect() {
+                paint_component_rect(d, ctx, it);
+            }
+        }
+    }
     for w in scene.wires() {
         paint_wire(d, ctx, w);
     }
-    let connected_pins = scene.connected_pins_set();
     for it in scene.items() {
-        paint_item(d, ctx, scene, it, &connected_pins);
-        if ctx.canvas.show_component_rect() {
-            paint_component_rect(d, ctx, it);
+        if !it.is_board_layer() {
+            paint_item(d, ctx, scene, it, &connected_pins);
+            if ctx.canvas.show_component_rect() {
+                paint_component_rect(d, ctx, it);
+            }
         }
     }
     for w in scene.wires() {
@@ -422,10 +432,18 @@ pub fn paint_item(
     } else {
         it.pins()
     };
+    let mut interior_pins = Vec::new();
     for pin in &pins {
-        paint_pin(d, ctx, scene, it, pin, connected_pins.contains(&pin.id));
+        if it.is_interior_pin(pin) {
+            interior_pins.push(pin);
+        } else {
+            paint_pin(d, ctx, scene, it, pin, connected_pins.contains(&pin.id));
+        }
     }
     it.kind.paint(d, &item_ctx);
+    for pin in interior_pins {
+        paint_pin(d, ctx, scene, it, pin, connected_pins.contains(&pin.id));
+    }
     if !hide_pins_in_board_layout
         && !matches!(
             it.kind,
@@ -523,15 +541,22 @@ pub fn paint_chip_pin_labels(d: &mut dyn Draw, it: &Item) {
     } else {
         parse_hex("#cccccc")
     };
-    for pin in it.pins() {
+    let pkg = it.kind.package();
+    let pins = it.pins();
+    for (idx, pin) in pins.iter().enumerate() {
         if pin.label.is_empty() {
             continue;
         }
         let len = if pin.length == 0.0 { 8.0 } else { pin.length };
+        let space = pkg
+            .and_then(|p| p.pins.get(idx))
+            .map(|p| p.space.max(0) as f64)
+            .unwrap_or(0.0);
+        let offset = len + space.max(2.0);
         match pin.angle {
             0 => {
                 d.text(
-                    pin.local.x - len - 2.0,
+                    pin.local.x - offset,
                     pin.local.y - 3.5,
                     &pin.label,
                     5.0,
@@ -541,7 +566,7 @@ pub fn paint_chip_pin_labels(d: &mut dyn Draw, it: &Item) {
             }
             180 => {
                 d.text(
-                    pin.local.x + len + 2.0,
+                    pin.local.x + offset,
                     pin.local.y - 3.5,
                     &pin.label,
                     5.0,
@@ -550,12 +575,12 @@ pub fn paint_chip_pin_labels(d: &mut dyn Draw, it: &Item) {
                 );
             }
             90 => {
-                d.push(pin.local.x + 3.0, pin.local.y + len + 2.0, 90.0, 1.0, 1.0);
+                d.push(pin.local.x + 3.0, pin.local.y + offset, 90.0, 1.0, 1.0);
                 d.text(0.0, 0.0, &pin.label, 5.0, color, Align::TopLeft);
                 d.pop();
             }
             270 => {
-                d.push(pin.local.x - 3.0, pin.local.y - len - 2.0, -90.0, 1.0, 1.0);
+                d.push(pin.local.x - 3.0, pin.local.y - offset, -90.0, 1.0, 1.0);
                 d.text(0.0, 0.0, &pin.label, 5.0, color, Align::TopLeft);
                 d.pop();
             }
@@ -573,6 +598,22 @@ pub fn paint_chip_pin_labels(d: &mut dyn Draw, it: &Item) {
     }
 }
 
+fn interior_pin_idle_color(it: &Item, pal: &Palette) -> Color {
+    if it.logic_symbol() {
+        return pal.border;
+    }
+    if let Some(pkg) = it.kind.package() {
+        if pkg.custom_color && !pkg.bckgndcolor.is_empty() {
+            let bg = parse_hex(&pkg.bckgndcolor);
+            let luma = 0.299 * f64::from(bg.r) + 0.587 * f64::from(bg.g) + 0.114 * f64::from(bg.b);
+            if luma > 140.0 {
+                return pal.border;
+            }
+        }
+    }
+    pal.chip_label_text
+}
+
 pub fn paint_pin(
     d: &mut dyn Draw,
     ctx: &PaintCtx<'_>,
@@ -581,14 +622,21 @@ pub fn paint_pin(
     pin: &Pin,
     connected: bool,
 ) {
+    let is_interior = it.is_interior_pin(pin);
+    let is_point = pin.length <= 1.5;
+    let idle_stroke = if is_interior {
+        interior_pin_idle_color(it, ctx.pal)
+    } else {
+        ctx.pal.border
+    };
     let stroke = if ctx.canvas.sim_running() {
         match ctx.canvas.pin_voltage(&pin.id) {
             Some(v) if v > 2.5 => ctx.pal.pin_high,
             Some(_) => ctx.pal.pin_low,
-            None => ctx.pal.border,
+            None => idle_stroke,
         }
     } else {
-        ctx.pal.border
+        idle_stroke
     };
     // Derive local pin id directly from the owning item — no O(N) scan.
     let pin_id_local = pin
@@ -607,9 +655,11 @@ pub fn paint_pin(
         || it.kind.is_pin_default_pullup(pin_id_local);
 
     d.push(pin.local.x, pin.local.y, (180 - pin.angle) as f64, 1.0, 1.0);
-    let x = if connected { 0.0 } else { 2.0 };
-    let w = (pin.length - if connected { 0.0 } else { 2.0 }).max(0.5);
-    d.fill_rect(x, -0.5, w, COMPONENT_BORDER_WIDTH, stroke);
+    if !is_point {
+        let x = if connected { 0.0 } else { 2.0 };
+        let w = (pin.length - if connected { 0.0 } else { 2.0 }).max(0.5);
+        d.fill_rect(x, -0.5, w, COMPONENT_BORDER_WIDTH, stroke);
+    }
 
     let is_directional =
         !pin.unused && ctx.canvas.circ_settings().animate_logic && direction.is_some();
@@ -633,11 +683,17 @@ pub fn paint_pin(
         if pin.unused {
             d.fill_circle(0.0, 0.0, 0.8, stroke);
         }
+    } else if is_point {
+        d.fill_circle(0.0, 0.0, 1.5, stroke);
     }
 
     if has_pullup {
-        let px = (pin.length - 3.9).max(0.0) + 1.5;
-        d.fill_circle(px, 0.0, 1.5, ctx.pal.pin_open_high);
+        if is_point {
+            d.fill_circle(0.0, 0.0, 1.2, ctx.pal.pin_open_high);
+        } else {
+            let px = (pin.length - 3.9).max(0.0) + 1.5;
+            d.fill_circle(px, 0.0, 1.5, ctx.pal.pin_open_high);
+        }
     }
 
     d.pop();

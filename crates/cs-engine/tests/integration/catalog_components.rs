@@ -87,6 +87,7 @@ fn test_switch_dip_and_resistor_dip() {
             size: 4,
             resistance: 1000.0,
             bussed: false,
+            pu_volt: 5.0,
         },
     });
     c.connect("V1-outnod", "Dip1-pin0");

@@ -71,7 +71,7 @@ impl Circuit {
         for c in &self.components {
             match &c.kind {
                 Kind::Mcu(m) => {
-                    for p in &m.pins {
+                    for p in m.pins.iter().chain(m.reset_pin.iter()) {
                         if p.id == pin {
                             return Some(p.voltage());
                         }

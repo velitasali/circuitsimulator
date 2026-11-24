@@ -2005,7 +2005,8 @@ impl Part {
                 });
             }
             Self::BcdTo7Segment(p) => {
-                let b = crate::digital::BcdTo7SState::new(id, p.common_anode);
+                let b =
+                    crate::digital::BcdTo7SState::new(id, p.common_anode).with_reset(p.use_reset);
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
                     kind: crate::elements::Kind::BcdTo7S(b),
@@ -2096,14 +2097,23 @@ impl Part {
                 });
             }
             Self::Counter(p) => {
-                let cnt = crate::digital::CounterState::new(id, p.bits, p.max_count);
+                let cnt =
+                    crate::digital::CounterState::new(id, p.bits, p.max_count).with_set(p.use_set);
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
                     kind: crate::elements::Kind::Counter(cnt),
                 });
             }
             Self::BinCounter(p) => {
-                let b = crate::digital::BinCounterState::new(id, p.is_decade);
+                let b = crate::digital::BinCounterState::new_configured(
+                    id,
+                    p.is_decade,
+                    p.bits,
+                    p.max_value,
+                    p.parallel_input,
+                    p.use_rco,
+                    p.bidirectional,
+                );
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
                     kind: crate::elements::Kind::BinCounter(b),
@@ -2131,7 +2141,12 @@ impl Part {
                 });
             }
             Self::ShiftReg(p) => {
-                let sr = crate::digital::ShiftRegState::new(id, p.bits);
+                let sr = crate::digital::ShiftRegState::new_configured(
+                    id,
+                    p.bits,
+                    p.parallel_input,
+                    p.bidirectional,
+                );
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
                     kind: crate::elements::Kind::ShiftReg(sr),

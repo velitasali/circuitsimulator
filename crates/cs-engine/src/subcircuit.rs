@@ -334,6 +334,25 @@ fn instantiate_resolved(
     let expanded = expand_parsed(parsed, &child_search, depth + 1, logic)?;
 
     let mut components = expanded.components;
+    if let Some(parent_dir) = search.circuit_dir.as_deref() {
+        for comp in &mut components {
+            if let Kind::Mcu(mcu) = &mut comp.kind {
+                let missing = mcu.firmware_path().is_none_or(|p| !p.is_file());
+                if missing {
+                    if let Some(fw) = mcu.firmware.as_deref() {
+                        if let Some(resolved_fw) =
+                            crate::mcu::resolve_firmware(Some(parent_dir), fw)
+                        {
+                            if resolved_fw.is_file() {
+                                mcu.firmware_dir = Some(parent_dir.to_path_buf());
+                                let _ = mcu.load_firmware_file(&resolved_fw);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     let connectors = expanded.connectors;
     let links = expanded.links;
     let skipped = expanded.skipped;

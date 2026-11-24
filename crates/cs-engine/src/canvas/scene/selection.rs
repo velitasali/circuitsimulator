@@ -31,12 +31,52 @@ impl Scene {
             .map(|(i, _)| i)
     }
 
-    /// Topmost painted target. Parts cover wires. Within a part, a label covers
-    /// the body, and the body covers that part's pin stems.
+    /// Topmost painted target. Non-board parts cover wires, wires cover board bodies,
+    /// and interior package pins sit above their owning body so header pins remain
+    /// hoverable, clickable, and wirable.
     pub fn hit_top(&self, scene: Point) -> Option<HitTarget> {
+        // 1. Top layer: non-board parts (labels, interior package pins, body, exterior pins).
         for (index, it) in self.items.iter().enumerate().rev() {
+            if it.is_board_layer() {
+                continue;
+            }
             if let Some(is_val) = it.hit_label(scene) {
                 return Some(HitTarget::Label { index, is_val });
+            }
+            let pin = item_pin_at(it, scene);
+            if let Some(p) = pin.as_ref().filter(|p| it.is_interior_pin(p)) {
+                return Some(HitTarget::Pin {
+                    index,
+                    pin: p.clone(),
+                });
+            }
+            if it.contains(scene) {
+                return Some(HitTarget::Body { index });
+            }
+            if let Some(pin) = pin {
+                return Some(HitTarget::Pin { index, pin });
+            }
+        }
+        // 2. Board/Shield labels & interior pins take precedence over wire endpoints at the pin.
+        for (index, it) in self.items.iter().enumerate().rev() {
+            if !it.is_board_layer() {
+                continue;
+            }
+            if let Some(is_val) = it.hit_label(scene) {
+                return Some(HitTarget::Label { index, is_val });
+            }
+            if let Some(pin) = item_pin_at(it, scene).filter(|p| it.is_interior_pin(p)) {
+                return Some(HitTarget::Pin { index, pin });
+            }
+        }
+        // 3. Wires (drawn above board bodies).
+        if let Some((index, at)) = self.hit_wire_detail(scene) {
+            return Some(HitTarget::Wire { index, at });
+        }
+        // 4. Board/Shield bodies & exterior pins.
+        for (index, it) in self.items.iter().enumerate().rev() {
+            if !it.is_board_layer() {
+                continue;
             }
             if it.contains(scene) {
                 return Some(HitTarget::Body { index });
@@ -45,8 +85,7 @@ impl Scene {
                 return Some(HitTarget::Pin { index, pin });
             }
         }
-        self.hit_wire_detail(scene)
-            .map(|(index, at)| HitTarget::Wire { index, at })
+        None
     }
 
     pub fn rotate_item_label(&mut self, uid: &str, angle_deg: i32) -> bool {

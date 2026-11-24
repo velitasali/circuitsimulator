@@ -4,12 +4,15 @@
 //! `.circ1` XML text). All legacy itemtype aliases, split-type discriminators, legacy
 //! attribute names/default units, and legacy pin-id remappings live exclusively here.
 
+use std::collections::{BTreeMap, HashMap};
+
 use crate::circ1::{
     self, FORMAT_VERSION, GraphicAttrs, ParsedCirc1, ParsedCirc1Item, ParsedConnector,
 };
 use crate::components::*;
 use crate::elements::pins::{PIN_LEFT, PIN_POT_W, PIN_RIGHT};
 use crate::settings::CircSettings;
+use crate::subcircuit;
 use crate::xml_util::{
     parse_bool, parse_flip, parse_point, parse_point_list, parse_xml_props, prop,
 };
@@ -409,11 +412,182 @@ fn legacy_itemtype_discriminators(
     }
 }
 
+fn strip_legacy_count_unit(v: &str) -> String {
+    let trimmed = v.trim();
+    let Some((num, unit)) = trimmed.split_once(char::is_whitespace) else {
+        return trimmed.to_string();
+    };
+    let num = num.trim();
+    let unit = unit.trim();
+    if num.parse::<f64>().is_ok()
+        && (unit.starts_with('_')
+            || matches!(
+                unit.to_ascii_lowercase().as_str(),
+                "bits"
+                    | "bit"
+                    | "pixels"
+                    | "pixel"
+                    | "px"
+                    | "leds"
+                    | "led"
+                    | "poles"
+                    | "pole"
+                    | "cells"
+                    | "cell"
+                    | "inputs"
+                    | "rpm"
+                    | "steps"
+                    | "rows"
+                    | "cols"
+                    | "digits"
+            ))
+    {
+        num.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn normalize_legacy_freq_unit(v: &str) -> String {
+    let trimmed = v.trim();
+    if let Some((num, unit)) = trimmed.split_once(char::is_whitespace) {
+        let num = num.trim();
+        let unit = unit.trim();
+        if let Some(rest) = unit.strip_prefix('_') {
+            if num.parse::<f64>().is_ok() {
+                let canon_unit = match rest.to_ascii_lowercase().as_str() {
+                    "hz" => "Hz",
+                    "khz" => "kHz",
+                    "mhz" => "MHz",
+                    "ghz" => "GHz",
+                    _ => rest,
+                };
+                return format!("{num} {canon_unit}");
+            }
+        }
+    }
+    trimmed.to_string()
+}
+
+fn infer_legacy_type_from_comp_id(comp_id: &str) -> Option<&'static str> {
+    // Strip optional subcircuit nesting prefix (`1@Mux-18` -> `Mux-18`) and trailing `-<num>`.
+    let unnested = comp_id.rsplit_once('@').map(|(_, r)| r).unwrap_or(comp_id);
+    let base = match unnested.rsplit_once('-') {
+        Some((head, tail)) if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) => head,
+        _ => unnested,
+    };
+    let (mapped, _) = legacy_itemtype_discriminators(base);
+    if !mapped.is_empty() {
+        Some(mapped)
+    } else {
+        circ1::registered_itemtypes().find(|&t| t == base || t.eq_ignore_ascii_case(base))
+    }
+}
+
 /// Remap legacy pin IDs from `.sim1` / `.sim2` XML files to canonical `.circ1` pin IDs.
 pub fn canonicalize_legacy_pin_id(pin_id: &str) -> String {
+    canonicalize_legacy_pin_id_with_context(pin_id, None)
+}
+
+fn canonicalize_legacy_pin_id_with_context(
+    pin_id: &str,
+    item_info: Option<&HashMap<String, (&'static str, bool)>>,
+) -> String {
     let Some((prefix, suffix)) = pin_id.rsplit_once('-') else {
         return pin_id.to_string();
     };
+    // SimulIDE LedBar segment pins: `{comp_id}-led{i}-pinP` / `pinN` -> `{comp_id}-lPin{i}` / `rPin{i}`.
+    if matches!(suffix, "pinP" | "pinN") {
+        if let Some((comp_id, seg)) = prefix.rsplit_once('-') {
+            if let Some(idx) = seg.strip_prefix("led") {
+                if !idx.is_empty() && idx.chars().all(|c| c.is_ascii_digit()) {
+                    let side = if suffix == "pinP" { "lPin" } else { "rPin" };
+                    return format!("{comp_id}-{side}{idx}");
+                }
+            }
+        }
+    }
+    // SimulIDE ResistorDip element pins: `{comp_id}-resistor{i}-ePin{k}`.
+    if let Some(epin_str) = suffix.strip_prefix("ePin") {
+        if let Ok(epin_idx) = epin_str.parse::<usize>() {
+            if let Some((comp_id, seg)) = prefix.rsplit_once('-') {
+                if let Some(idx_str) = seg.strip_prefix("resistor") {
+                    if let Ok(idx) = idx_str.parse::<usize>() {
+                        let bussed = item_info
+                            .and_then(|m| m.get(comp_id))
+                            .map(|&(_, b)| b)
+                            .unwrap_or(false);
+                        if bussed {
+                            return format!("{comp_id}-pin{idx}");
+                        }
+                        let side = if epin_idx == 2 * idx { "lPin" } else { "rPin" };
+                        return format!("{comp_id}-{side}{idx}");
+                    }
+                }
+            }
+        }
+    }
+
+    let comp_type = item_info
+        .and_then(|m| m.get(prefix))
+        .map(|&(ty, _)| ty)
+        .or_else(|| infer_legacy_type_from_comp_id(prefix));
+
+    if let Some(ty) = comp_type {
+        match ty {
+            Latch::TYPE_ID => match suffix {
+                "Pin_clock" => return format!("{prefix}-clk"),
+                "Pin_outEnable" => return format!("{prefix}-oe"),
+                "Pin_reset" => return format!("{prefix}-rst"),
+                _ => {}
+            },
+            BcdTo7Segment::TYPE_ID => {
+                if suffix == "Pin_reset" {
+                    return format!("{prefix}-rst");
+                }
+            }
+            Mux::TYPE_ID => match suffix {
+                "in8" => return format!("{prefix}-addr0"),
+                "in9" => return format!("{prefix}-addr1"),
+                "in10" => return format!("{prefix}-addr2"),
+                "in11" => return format!("{prefix}-enable"),
+                "out0" => return format!("{prefix}-out"),
+                "out1" => return format!("{prefix}-out_inv"),
+                _ => {}
+            },
+            Demux::TYPE_ID => match suffix {
+                "in0" => return format!("{prefix}-addr0"),
+                "in1" => return format!("{prefix}-addr1"),
+                "in2" => return format!("{prefix}-addr2"),
+                "in3" => return format!("{prefix}-enable"),
+                _ => {}
+            },
+            FullAdder::TYPE_ID => {
+                if let Some(n) = suffix
+                    .strip_prefix("in")
+                    .and_then(|s| s.parse::<usize>().ok())
+                {
+                    if n >= 11 {
+                        return format!("{prefix}-in{}", n - 10);
+                    }
+                }
+                if let Some(n) = suffix
+                    .strip_prefix("out")
+                    .and_then(|s| s.parse::<usize>().ok())
+                {
+                    if n >= 11 {
+                        return format!("{prefix}-out{}", n - 10);
+                    }
+                }
+            }
+            BinCounter::TYPE_ID => match suffix {
+                "Pin_ser" => return format!("{prefix}-Pin_ldp"),
+                "Pin_rso" => return format!("{prefix}-Pin_rco"),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
     let canonical_suffix = match suffix {
         "PinS" | "PinSDA" => "PinSDA",
         "PinC" => {
@@ -452,10 +626,13 @@ pub fn canonicalize_legacy_pin_id(pin_id: &str) -> String {
         s if s.starts_with("pinY") => {
             return format!("{prefix}-ch{}", &s[4..]);
         }
-        s if s.starts_with("pinP") => {
+        s if s.starts_with("pinP") && comp_type != Some(Switch::TYPE_ID) => {
             return format!("{prefix}-lPin{}", &s[4..]);
         }
-        s if s.starts_with("switch") && s.ends_with("pinN") => {
+        s if s.starts_with("switch")
+            && s.ends_with("pinN")
+            && comp_type != Some(Switch::TYPE_ID) =>
+        {
             return format!("{prefix}-rPin{}", &s[6..s.len() - 4]);
         }
         _ => suffix,
@@ -531,11 +708,62 @@ fn normalize_legacy_attrs(
             "Min" if canonical_type == "Dial" => "MinVal",
             "Max" if canonical_type == "Dial" => "MaxVal",
             "Baudrate" if is_serial => "Baud",
+            "Num_Bits" if canonical_type == Bus::TYPE_ID => "Width",
+            "_16_Bits" | "16_Bits" if canonical_type == BcdToDec::TYPE_ID => "Sixteen",
+            "UseRS" if matches!(canonical_type, Latch::TYPE_ID | BcdTo7Segment::TYPE_ID) => {
+                "UseReset"
+            }
+            "Inverted" if canonical_type == BcdTo7Segment::TYPE_ID => "CommonAnode",
+            "Invert_Inputs" if canonical_type == Latch::TYPE_ID => "InvertInputs",
+            "Address_Bits" if matches!(canonical_type, Mux::TYPE_ID | Demux::TYPE_ID) => "AddrBits",
+            "Pin_SET" if canonical_type == Counter::TYPE_ID => "UseSet",
+            "Max_Value" if canonical_type == Counter::TYPE_ID => "MaxCount",
+            "Max_Value" if canonical_type == BinCounter::TYPE_ID => "MaxValue",
+            "Parallel_input"
+                if matches!(canonical_type, BinCounter::TYPE_ID | ShiftReg::TYPE_ID) =>
+            {
+                "ParallelInput"
+            }
+            "RCO" if canonical_type == BinCounter::TYPE_ID => "UseRco",
+            "Bidir" if canonical_type == BinCounter::TYPE_ID => "Bidirectional",
+            "PullUp" if canonical_type == ResistorDip::TYPE_ID => "Bussed",
+            "Size" if canonical_type == LedBar::TYPE_ID => "Segments",
+            "Font_Size" => "FontSize",
+            "Font_Color" => "FontColor",
             _ if canonical_type == "Mcu" && k.eq_ignore_ascii_case("mhz") => "Frequency",
             _ => k.as_str(),
         };
 
         let mut norm_v = v.clone();
+        if matches!(
+            norm_k,
+            "AddrBits"
+                | "Bits"
+                | "Channels"
+                | "Width"
+                | "Height"
+                | "H_size"
+                | "V_size"
+                | "Border"
+                | "Margin"
+                | "FontSize"
+                | "Poles"
+                | "Segments"
+                | "Size"
+                | "Num_Inputs"
+                | "RPM_Nominal"
+                | "RpmNominal"
+                | "Z_Value"
+                | "Rows"
+                | "Cols"
+                | "Steps"
+                | "Digits"
+        ) {
+            norm_v = strip_legacy_count_unit(&norm_v);
+        }
+        if canonical_type == Latch::TYPE_ID && norm_k == "Trigger" && norm_v.trim() == "InEnable" {
+            norm_v = "Enable".to_string();
+        }
         // Legacy SimulIDE bare-number unit defaults that differ from canonical circ1 base units.
         if canonical_type == "Clock" && k == "Freq" && is_bare_number(&norm_v) {
             norm_v = format!("{} kHz", norm_v.trim());
@@ -549,12 +777,12 @@ fn normalize_legacy_attrs(
         {
             norm_v = format!("{} MHz", norm_v.trim());
         } else if canonical_type == "Ssd1306" && norm_k == "Frequency" {
-            let trimmed = norm_v.trim();
-            if let Some(stripped) = trimmed.strip_suffix("_kHz") {
-                norm_v = format!("{} kHz", stripped.trim());
-            } else if is_bare_number(trimmed) {
-                norm_v = format!("{trimmed} kHz");
+            norm_v = normalize_legacy_freq_unit(&norm_v);
+            if is_bare_number(&norm_v) {
+                norm_v = format!("{} kHz", norm_v.trim());
             }
+        } else if norm_k == "Frequency" {
+            norm_v = normalize_legacy_freq_unit(&norm_v);
         } else if canonical_type == "WaveGen" && norm_k == "Duty" {
             // SimulIDE sometimes writes Duty as a fraction (0..1) or percentage (0..100).
             if let Ok(d) = norm_v.trim().parse::<f64>() {
@@ -584,6 +812,51 @@ fn normalize_legacy_attrs(
     out
 }
 
+struct PendingSubcItem {
+    circ_id: String,
+    graphic: GraphicAttrs,
+    normalized_attrs: Vec<(String, String)>,
+    exposed_overrides: BTreeMap<(String, String), String>,
+    program: Option<String>,
+}
+
+fn finalize_pending_subc(
+    mut pending: PendingSubcItem,
+    items: &mut Vec<ParsedCirc1Item>,
+    item_info: &mut HashMap<String, (&'static str, bool)>,
+) -> Result<()> {
+    if let Some(prog) = pending.program {
+        let has_prog = pending
+            .normalized_attrs
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("Program"));
+        if !has_prog {
+            pending.normalized_attrs.push(("Program".to_string(), prog));
+        }
+    }
+    if !pending.exposed_overrides.is_empty() {
+        pending.normalized_attrs.push((
+            "ExposedProps".to_string(),
+            subcircuit::encode_exposed_overrides(&pending.exposed_overrides),
+        ));
+    }
+    let part = circ1::create_part_lenient(
+        Subcircuit::TYPE_ID,
+        pending.circ_id.clone(),
+        &pending.normalized_attrs,
+    )?;
+    let type_id = part.type_id();
+    item_info.insert(pending.circ_id.clone(), (type_id, false));
+    items.push(ParsedCirc1Item {
+        itemtype: type_id.to_string(),
+        circ_id: pending.circ_id,
+        attrs: pending.normalized_attrs,
+        graphic: pending.graphic,
+        part,
+    });
+    Ok(())
+}
+
 /// Parse a legacy SimulIDE `.sim1` / `.sim2` document into canonical [`ParsedCirc1`].
 ///
 /// Unknown legacy itemtypes are recorded in `ParsedCirc1::skipped` rather than failing the load,
@@ -591,12 +864,46 @@ fn normalize_legacy_attrs(
 pub fn parse_to_circ1(src: &str) -> Result<ParsedCirc1> {
     let mut circ = CircSettings::default();
     let mut items = Vec::new();
-    let mut connectors = Vec::new();
+    let mut raw_connectors: Vec<(String, String, String, Vec<(f64, f64)>)> = Vec::new();
+    let mut item_info: HashMap<String, (&'static str, bool)> = HashMap::new();
+    let mut pending_subc: Option<PendingSubcItem> = None;
     let mut skipped = Vec::new();
     let mut saw_circuit = false;
 
     for raw in src.lines() {
         let line = raw.trim();
+        if let Some(subc) = pending_subc.as_mut() {
+            if line.starts_with("<mainCompProps") {
+                let mut child_props = parse_xml_props(line);
+                if let Some(pos) = child_props.iter().position(|(k, _)| k == "MainCompId") {
+                    let (_, main_comp_id) = child_props.remove(pos);
+                    let inferred_type = infer_legacy_type_from_comp_id(&main_comp_id).unwrap_or(
+                        if child_props
+                            .iter()
+                            .any(|(k, _)| k == "Program" || k == "Frequency")
+                        {
+                            "Mcu"
+                        } else {
+                            ""
+                        },
+                    );
+                    let norm_child = normalize_legacy_attrs(inferred_type, &child_props, &[]);
+                    for (k, v) in norm_child {
+                        if k == "Program" && !v.is_empty() {
+                            subc.program = Some(v.clone());
+                        }
+                        subc.exposed_overrides.insert((main_comp_id.clone(), k), v);
+                    }
+                }
+                continue;
+            }
+            if line.starts_with("</item") {
+                if let Some(done) = pending_subc.take() {
+                    finalize_pending_subc(done, &mut items, &mut item_info)?;
+                }
+                continue;
+            }
+        }
         if line.starts_with("<circuit") {
             saw_circuit = true;
             let props = parse_xml_props(line);
@@ -658,14 +965,9 @@ pub fn parse_to_circ1(src: &str) -> Result<ParsedCirc1> {
                 match (start, end) {
                     (Some(s), Some(e)) => {
                         if id.is_empty() {
-                            id = format!("Connector-{}", connectors.len() + 1);
+                            id = format!("Connector-{}", raw_connectors.len() + 1);
                         }
-                        connectors.push(ParsedConnector {
-                            id,
-                            start: canonicalize_legacy_pin_id(&s),
-                            end: canonicalize_legacy_pin_id(&e),
-                            points,
-                        });
+                        raw_connectors.push((id, s, e, points));
                     }
                     _ => {
                         return Err(Error::Parse(
@@ -688,9 +990,28 @@ pub fn parse_to_circ1(src: &str) -> Result<ParsedCirc1> {
                 let graphic = parse_legacy_graphic_attrs(&properties);
                 let normalized_attrs =
                     normalize_legacy_attrs(canonical_type, &properties, discriminators);
+                if canonical_type == Subcircuit::TYPE_ID && !line.ends_with("/>") {
+                    if let Some(prev) = pending_subc.take() {
+                        finalize_pending_subc(prev, &mut items, &mut item_info)?;
+                    }
+                    pending_subc = Some(PendingSubcItem {
+                        circ_id,
+                        graphic,
+                        normalized_attrs,
+                        exposed_overrides: BTreeMap::new(),
+                        program: None,
+                    });
+                    continue;
+                }
                 let part =
                     circ1::create_part_lenient(canonical_type, circ_id.clone(), &normalized_attrs)?;
-                let emitted_type = part.type_id().to_string();
+                let bussed = match &part {
+                    Part::ResistorDip(r) => r.bussed,
+                    _ => false,
+                };
+                let type_id = part.type_id();
+                item_info.insert(circ_id.clone(), (type_id, bussed));
+                let emitted_type = type_id.to_string();
                 items.push(ParsedCirc1Item {
                     itemtype: emitted_type,
                     circ_id,
@@ -701,6 +1022,20 @@ pub fn parse_to_circ1(src: &str) -> Result<ParsedCirc1> {
             }
         }
     }
+
+    if let Some(done) = pending_subc.take() {
+        finalize_pending_subc(done, &mut items, &mut item_info)?;
+    }
+
+    let connectors: Vec<ParsedConnector> = raw_connectors
+        .into_iter()
+        .map(|(id, s, e, points)| ParsedConnector {
+            id,
+            start: canonicalize_legacy_pin_id_with_context(&s, Some(&item_info)),
+            end: canonicalize_legacy_pin_id_with_context(&e, Some(&item_info)),
+            points,
+        })
+        .collect();
 
     if !saw_circuit && items.is_empty() && connectors.is_empty() && skipped.is_empty() {
         return Err(Error::Parse("missing <circuit> element".into()));
@@ -1042,5 +1377,66 @@ mod tests {
         );
         assert_eq!(strict.connectors.len(), 1);
         assert_eq!(strict.connectors[0].id, "c1");
+    }
+
+    #[test]
+    fn parse_simulide_1_1_unit_suffixes_main_comp_props_and_switch_pins() {
+        let src = r##"<circuit version="1.1.0-RC1" >
+<item itemtype="Rectangle" CircId="Rectangle-1" H_size="680 _Pixels" V_size="400 Pixels" Border="2 _Pixels" Color="#a0a0a4" Opacity="0" Pos="0,0" />
+<item itemtype="TextComponent" CircId="TextComponent-1" Margin="0 Pixels" Border="1 Pixels" Font_Size="9 _Pixels" Font_Color="#ffff00" Text="Hello" Pos="10,10" />
+<item itemtype="Switch" CircId="Switch-1" Norm_Close="true" DT="false" Poles="1 _Poles" Pos="20,20" />
+<item itemtype="Push" CircId="Push-1" Poles="1 _Poles" Pos="30,20" />
+<item itemtype="DcMotor" CircId="DcMotor-1" RPM_Nominal="60 _RPM" Volt_Nominal="5 V" Resistance="100 Ω" Pos="40,20" />
+<item itemtype="LedBar" CircId="LedBar-1" Color="Yellow" Size="1 Leds" Grounded="false" Pos="50,20" />
+<item itemtype="Ssd1306" CircId="Ssd1306-1" Width="128 _Pixels" Height="64 _Pixels" Frequency="100 _KHz" Pos="60,20" />
+<item itemtype="Subcircuit" CircId="UNO-1" Pos="70,20">
+<mainCompProps MainCompId="mega328-519" Frequency="16 MHz" Program="app.hex" />
+<mainCompProps MainCompId="LedBar-2" Size="1 _Leds" Color="Yellow" />
+</item>
+<item itemtype="Connector" uid="c1" startpinid="Switch-1-pinP0" endpinid="Switch-1-switch0pinN" />
+<item itemtype="Connector" uid="c2" startpinid="Push-1-pinP0" endpinid="Push-1-switch0pinN" />
+</circuit>
+"##;
+        let parsed = parse_to_circ1(src).expect("SimulIDE 1.1.0-RC1 circuit must parse");
+        assert_eq!(parsed.items.len(), 8);
+        assert_eq!(
+            parsed.items[0].part.get_prop_text("H_size").as_deref(),
+            Some("680")
+        );
+        assert_eq!(
+            parsed.items[1].part.get_prop_text("FontSize").as_deref(),
+            Some("9")
+        );
+        assert_eq!(
+            parsed.items[4].part.get_prop_text("RpmNominal").as_deref(),
+            Some("60")
+        );
+        assert_eq!(
+            parsed.items[5].part.get_prop_text("Segments").as_deref(),
+            Some("1")
+        );
+        match &parsed.items[7].part {
+            Part::Subcircuit(s) => {
+                assert_eq!(s.program, "app.hex");
+                assert_eq!(
+                    s.exposed_overrides
+                        .get(&("mega328-519".to_string(), "Program".to_string()))
+                        .map(String::as_str),
+                    Some("app.hex")
+                );
+                assert_eq!(
+                    s.exposed_overrides
+                        .get(&("LedBar-2".to_string(), "Segments".to_string()))
+                        .map(String::as_str),
+                    Some("1")
+                );
+            }
+            other => panic!("expected Subcircuit, got {other:?}"),
+        }
+        // Switch preserves pinP0 / switch0pinN; Push remaps to lPin0 / rPin0.
+        assert_eq!(parsed.connectors[0].start, "Switch-1-pinP0");
+        assert_eq!(parsed.connectors[0].end, "Switch-1-switch0pinN");
+        assert_eq!(parsed.connectors[1].start, "Push-1-lPin0");
+        assert_eq!(parsed.connectors[1].end, "Push-1-rPin0");
     }
 }

@@ -1149,6 +1149,67 @@ impl Comp {
                 if b.bi_rbo.id == pin_id {
                     b.bi_rbo.set_inverted(inverted);
                 }
+                if b.rst.id == pin_id {
+                    b.rst.set_inverted(inverted);
+                }
+            }
+            Kind::Counter(c) => {
+                if c.clock.id == pin_id {
+                    c.clock.set_inverted(inverted);
+                }
+                if c.reset.id == pin_id {
+                    c.reset.set_inverted(inverted);
+                }
+                if c.set.id == pin_id {
+                    c.set.set_inverted(inverted);
+                }
+                if c.output.id == pin_id {
+                    c.output.set_inverted(inverted);
+                }
+            }
+            Kind::BinCounter(b) => {
+                if b.clk_a.id == pin_id {
+                    b.clk_a.set_inverted(inverted);
+                }
+                if b.r0_1.id == pin_id {
+                    b.r0_1.set_inverted(inverted);
+                }
+                if b.pin_dir.id == pin_id {
+                    b.pin_dir.set_inverted(inverted);
+                }
+                if b.pin_ldp.id == pin_id {
+                    b.pin_ldp.set_inverted(inverted);
+                }
+                if b.pin_rco.id == pin_id {
+                    b.pin_rco.set_inverted(inverted);
+                }
+                if b.pin_rbo.id == pin_id {
+                    b.pin_rbo.set_inverted(inverted);
+                }
+                for p in b.data_inputs.iter_mut().chain(b.outputs.iter_mut()) {
+                    if p.id == pin_id {
+                        p.set_inverted(inverted);
+                    }
+                }
+            }
+            Kind::ShiftReg(sr) => {
+                for p in [
+                    &mut sr.ser_in,
+                    &mut sr.clk_shift,
+                    &mut sr.master_reset,
+                    &mut sr.oe,
+                    &mut sr.load,
+                    &mut sr.ser_in_left,
+                    &mut sr.dir,
+                ]
+                .into_iter()
+                .chain(sr.data_inputs.iter_mut())
+                .chain(sr.outputs.iter_mut())
+                {
+                    if p.id == pin_id {
+                        p.set_inverted(inverted);
+                    }
+                }
             }
             _ => {}
         }

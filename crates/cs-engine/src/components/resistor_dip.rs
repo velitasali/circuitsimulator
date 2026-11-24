@@ -80,6 +80,7 @@ impl ResistorDip {
             size: self.size,
             resistance: self.resistance,
             bussed: self.bussed,
+            pu_volt: self.pu_volt,
         }
     }
 

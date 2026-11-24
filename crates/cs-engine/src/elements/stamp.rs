@@ -354,6 +354,9 @@ impl Comp {
                 for p in &m.pins {
                     stamp_iopin(pin_net, nodes, p);
                 }
+                if let Some(rst) = &m.reset_pin {
+                    stamp_iopin(pin_net, nodes, rst);
+                }
             }
             Kind::QemuDevice(q) => {
                 for p in &q.pins {
@@ -639,6 +642,9 @@ impl Comp {
                 for p in &m.pins {
                     stamp_iopin(pin_net, nodes, p);
                 }
+                if let Some(rst) = &m.reset_pin {
+                    stamp_iopin(pin_net, nodes, rst);
+                }
             }
             Kind::QemuDevice(q) => {
                 for p in &q.pins {
@@ -738,6 +744,7 @@ impl Comp {
                     .chain(std::iter::once(&b.lt))
                     .chain(std::iter::once(&b.rbi))
                     .chain(std::iter::once(&b.bi_rbo))
+                    .chain(b.use_reset.then_some(&b.rst))
                     .chain(b.segments.iter())
                 {
                     stamp_iopin(pin_net, nodes, p);
@@ -777,6 +784,7 @@ impl Comp {
                     .iter()
                     .chain(std::iter::once(&c.clock))
                     .chain(std::iter::once(&c.reset))
+                    .chain(c.use_set.then_some(&c.set))
                     .chain(std::iter::once(&c.enable))
                     .chain(std::iter::once(&c.output))
                 {
@@ -793,6 +801,15 @@ impl Comp {
                     .chain(std::iter::once(&b.r0_2))
                     .chain(std::iter::once(&b.r9_1))
                     .chain(std::iter::once(&b.r9_2))
+                    .chain(b.bidirectional.then_some(&b.pin_dir))
+                    .chain(b.parallel_in.then_some(&b.pin_ldp))
+                    .chain(if b.parallel_in {
+                        b.data_inputs.as_slice()
+                    } else {
+                        &[]
+                    })
+                    .chain(b.use_rco.then_some(&b.pin_rco))
+                    .chain((b.use_rco && b.bidirectional).then_some(&b.pin_rbo))
                 {
                     stamp_iopin(pin_net, nodes, pin);
                 }
@@ -844,6 +861,14 @@ impl Comp {
                     .chain(std::iter::once(&sr.clk_latch))
                     .chain(std::iter::once(&sr.master_reset))
                     .chain(std::iter::once(&sr.oe))
+                    .chain(sr.parallel_in.then_some(&sr.load))
+                    .chain(if sr.parallel_in {
+                        sr.data_inputs.as_slice()
+                    } else {
+                        &[]
+                    })
+                    .chain(sr.bidirectional.then_some(&sr.ser_in_left))
+                    .chain(sr.bidirectional.then_some(&sr.dir))
                     .chain(std::iter::once(&sr.ser_out))
                 {
                     stamp_iopin(pin_net, nodes, pin);
@@ -1575,18 +1600,27 @@ impl Comp {
                 size,
                 resistance,
                 bussed,
+                pu_volt,
             } => {
                 let g = 1.0 / resistance.max(RESISTOR_MIN_OHMS);
                 if *bussed {
-                    for i in 0..*size {
-                        stamp_between(
-                            pin_net,
-                            nodes,
-                            &format!("{}-com", self.id),
-                            &format!("{}-pin{i}", self.id),
-                            g,
-                            0.0,
-                        );
+                    let com_id = format!("{}-com", self.id);
+                    if pin_net.contains_key(&com_id) {
+                        for i in 0..*size {
+                            stamp_between(
+                                pin_net,
+                                nodes,
+                                &com_id,
+                                &format!("{}-pin{i}", self.id),
+                                g,
+                                0.0,
+                            );
+                        }
+                    } else {
+                        for i in 0..*size {
+                            let node = pin_net.get(&format!("{}-pin{i}", self.id)).copied();
+                            stamp_cached_pin_to_gnd(node, nodes, *pu_volt, g);
+                        }
                     }
                 } else {
                     for i in 0..*size {

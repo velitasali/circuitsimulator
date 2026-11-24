@@ -365,6 +365,8 @@ pub struct BcdTo7SState {
     pub lt: IoPin,            // Lamp test (active-low)
     pub rbi: IoPin,           // Ripple blanking input (active-low)
     pub bi_rbo: IoPin,        // Blanking input / Ripple blanking output
+    pub rst: IoPin,           // Optional reset / blanking pin (`rst`)
+    pub use_reset: bool,      // Expose and evaluate `rst`
     pub segments: Vec<IoPin>, // 7 segment outputs: a, b, c, d, e, f, g
     pub common_anode: bool,
     pub family: LogicFamily,
@@ -387,6 +389,7 @@ impl BcdTo7SState {
         let rbi = IoPin::input(format!("{id}-rbi"));
         // Blanking / output-enable pin is schematic `in4`.
         let bi_rbo = IoPin::input(format!("{id}-in4"));
+        let rst = IoPin::input(format!("{id}-rst"));
 
         let mut segments = Vec::with_capacity(7);
         for i in 0..7 {
@@ -402,6 +405,8 @@ impl BcdTo7SState {
             lt,
             rbi,
             bi_rbo,
+            rst,
+            use_reset: false,
             segments,
             common_anode,
             family: LogicFamily::default(),
@@ -411,6 +416,11 @@ impl BcdTo7SState {
         st
     }
 
+    pub fn with_reset(mut self, use_reset: bool) -> Self {
+        self.use_reset = use_reset;
+        self
+    }
+
     pub fn apply_family(&mut self) {
         for pin in &mut self.inputs {
             self.family.apply(pin);
@@ -418,12 +428,20 @@ impl BcdTo7SState {
         self.family.apply(&mut self.lt);
         self.family.apply(&mut self.rbi);
         self.family.apply(&mut self.bi_rbo);
+        self.family.apply(&mut self.rst);
         for pin in &mut self.segments {
             self.family.apply(pin);
         }
     }
 
     pub fn eval(&mut self) {
+        // Optional reset blanks all segments when asserted.
+        if self.use_reset && self.rst.inp_state() {
+            for seg in &mut self.segments {
+                seg.set_out_state(false);
+            }
+            return;
+        }
         // Lamp test: active-low, turns on all segments
         if !self.lt.inp_state() && self.lt.last_inp_state() != self.lt.inp_state() {
             // Checked below

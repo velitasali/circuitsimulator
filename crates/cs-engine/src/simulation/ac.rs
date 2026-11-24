@@ -331,6 +331,7 @@ fn stamp_comp(
             size,
             resistance,
             bussed,
+            ..
         } => {
             let g = 1.0 / resistance.max(OHM_FLOOR);
             if *bussed {

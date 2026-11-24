@@ -226,6 +226,7 @@ impl Kind {
                 next.last_clk = prev.last_clk;
             }
             (Kind::BinCounter(next), Kind::BinCounter(prev)) => {
+                next.count = prev.count;
                 next.count_a = prev.count_a;
                 next.count_b = prev.count_b;
                 next.last_clk_a = prev.last_clk_a;

@@ -3350,3 +3350,70 @@ fn zoom_scope_and_la_at_anchor_updates_time_pos_and_marks_dirty() {
     assert!((c.la_time_div() - 2.5e-4).abs() < 1e-12);
     assert!((c.la_time_pos() - 2.5e-3).abs() < 1e-12);
 }
+
+#[test]
+fn upload_firmware_to_explicit_missing_target_does_not_overwrite_other_mcu() {
+    let dir = std::env::temp_dir().join("cs_test_upload_explicit_target");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let hex1 = dir.join("fw1.hex");
+    let hex2 = dir.join("fw2.hex");
+    std::fs::write(&hex1, ":00000001FF\n").unwrap();
+    std::fs::write(&hex2, ":00000001FF\n").unwrap();
+    let circ_path = dir.join("test.circ1");
+
+    let circ = r#"<circuit version="1.0.0">
+  <item itemtype="MCU" CircId="mega328-1" label="MCU1" Pos="0,0" Program="fw1.hex"/>
+  <item itemtype="MCU" CircId="mega328-2" label="MCU2" Pos="200,0" Program="fw2.hex"/>
+</circuit>"#;
+    std::fs::write(&circ_path, circ).unwrap();
+
+    let mut canvas = Canvas::empty();
+    canvas
+        .load_circ1(circ, Some(circ_path.to_string_lossy().into_owned()))
+        .unwrap();
+
+    // Uploading with an explicit nonexistent target must NOT fall through and overwrite MCU1.
+    let ch = canvas.upload_firmware_to(&hex2.to_string_lossy(), Some("mega328-missing"));
+    assert!(!ch.items);
+    assert_eq!(canvas.firmware_path_for("mega328-1"), Some(hex1.clone()));
+    assert_eq!(canvas.firmware_path_for("mega328-2"), Some(hex2.clone()));
+
+    // Uploading with an explicit valid target only updates that target.
+    let ch2 = canvas.upload_firmware_to(&hex2.to_string_lossy(), Some("mega328-2"));
+    assert!(ch2.items);
+    assert_eq!(canvas.firmware_path_for("mega328-1"), Some(hex1));
+    assert_eq!(canvas.firmware_path_for("mega328-2"), Some(hex2));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn power_on_sets_debug_target_mcu_to_active_device() {
+    let circ = r#"<circuit version="1.0.0">
+  <item itemtype="MCU" CircId="mega328-1" label="MCU1" Pos="0,0"/>
+  <item itemtype="MCU" CircId="mega328-2" label="MCU2" Pos="200,0"/>
+</circuit>"#;
+    let mut canvas = Canvas::empty();
+    canvas.load_circ1(circ, None).unwrap();
+    canvas.set_active_device_id(Some("mega328-2".to_string()));
+    canvas.power_on();
+    assert_eq!(
+        canvas
+            .running
+            .as_ref()
+            .and_then(|c| c.debug_target_mcu.as_deref()),
+        Some("mega328-2")
+    );
+
+    // Switching active device while running updates the debug target immediately.
+    canvas.set_active_device_id(Some("mega328-1".to_string()));
+    assert_eq!(
+        canvas
+            .running
+            .as_ref()
+            .and_then(|c| c.debug_target_mcu.as_deref()),
+        Some("mega328-1")
+    );
+    canvas.power_off();
+}

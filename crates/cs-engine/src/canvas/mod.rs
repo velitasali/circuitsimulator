@@ -323,8 +323,37 @@ impl Canvas {
     pub fn set_active_device_id(&mut self, id: Option<String>) {
         if self.active_device_id != id {
             self.active_device_id = id;
+            let sim_target = self.active_sim_mcu_id();
+            if let Some(c) = self.running.as_mut() {
+                c.debug_target_mcu = sim_target;
+            }
             self.dirty.mark_full();
         }
+    }
+
+    pub(crate) fn resolve_sim_mcu_id(&self, uid: &str) -> String {
+        if let Some((subc_id, inner_id)) = uid.split_once('/') {
+            if let Some(it) = self.scene.item_by_id(subc_id)
+                && let Part::Subcircuit(subc) = &it.kind
+            {
+                return subc.child_sim_id(subc_id, inner_id);
+            }
+        }
+        uid.to_string()
+    }
+
+    pub(crate) fn active_sim_mcu_id(&self) -> Option<String> {
+        if let Some(aid) = self.active_device_id.as_deref() {
+            if !aid.is_empty() {
+                return Some(self.resolve_sim_mcu_id(aid));
+            }
+        }
+        let devices = self.collect_programmable_devices(None);
+        let active_dev = devices
+            .iter()
+            .find(|d| d.is_active)
+            .or_else(|| devices.first())?;
+        Some(self.resolve_sim_mcu_id(&active_dev.uid))
     }
 
     pub fn active_top_level_item_id(&self) -> Option<String> {

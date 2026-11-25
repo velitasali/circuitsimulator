@@ -1233,7 +1233,8 @@ impl Circuit {
             EventTarget::Device(i) => {
                 let is_mcu = matches!(self.components.get(i).map(|c| &c.kind), Some(Kind::Mcu(_)));
                 let mcu_step = if is_mcu {
-                    let is_debug = crate::debug::DebugSession::is_active_global();
+                    let is_debug = crate::debug::DebugSession::is_active_global()
+                        && self.is_debug_target_mcu(i);
                     if is_debug {
                         let session = crate::debug::DebugSession::global();
                         let bp_gen = session.breakpoints_generation();

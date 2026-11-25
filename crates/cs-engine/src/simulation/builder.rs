@@ -1097,6 +1097,7 @@ impl Circuit {
             debug_state_gen: u64::MAX,
             debug_break_pcs: Vec::new(),
             debug_batch_state: crate::debug::BatchDebugState::Idle,
+            debug_target_mcu: None,
         })
     }
 

@@ -91,6 +91,9 @@ pub struct Circuit {
     debug_state_gen: u64,
     debug_break_pcs: Vec<u32>,
     debug_batch_state: crate::debug::BatchDebugState,
+    /// When set, only the MCU whose component ID matches this string interacts with
+    /// the global `DebugSession` (single active debug target in multi-MCU circuits).
+    pub debug_target_mcu: Option<String>,
 }
 
 impl Default for Circuit {
@@ -135,6 +138,7 @@ impl Default for Circuit {
             debug_state_gen: u64::MAX,
             debug_break_pcs: Vec::new(),
             debug_batch_state: crate::debug::BatchDebugState::Idle,
+            debug_target_mcu: None,
         }
     }
 }
@@ -142,6 +146,16 @@ impl Default for Circuit {
 impl Circuit {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(super) fn is_debug_target_mcu(&self, comp_idx: usize) -> bool {
+        match self.debug_target_mcu.as_deref() {
+            Some(target) => self
+                .components
+                .get(comp_idx)
+                .is_some_and(|c| c.id == target),
+            None => true,
+        }
     }
 
     pub fn solve(&mut self) -> Result<()> {

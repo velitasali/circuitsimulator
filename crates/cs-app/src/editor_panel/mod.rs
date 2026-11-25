@@ -81,6 +81,7 @@ pub struct EditorPanel {
     last_firmware: String,
     last_upload_target: String,
     firmware_mcus: BTreeMap<String, Vec<String>>,
+    firmware_device_uids: BTreeMap<String, Vec<String>>,
     pending_log: Vec<String>,
     compiler_list: Vec<String>,
     specs: BTreeMap<String, CompilerSpec>,
@@ -185,6 +186,7 @@ impl Default for EditorPanel {
             last_firmware: String::new(),
             last_upload_target: String::new(),
             firmware_mcus: BTreeMap::new(),
+            firmware_device_uids: BTreeMap::new(),
             pending_log: Vec::new(),
             compiler_list,
             specs,
@@ -2176,7 +2178,9 @@ impl EditorPanel {
 
     #[qslot]
     fn set_firmware_devices(&mut self, devices: Value) {
+        let next_uids = build_firmware_device_uid_map(&devices);
         let next = build_firmware_mcu_map(devices);
+        self.firmware_device_uids = next_uids;
         if self.firmware_mcus != next {
             self.firmware_mcus = next;
             self.documents_changed();
@@ -2208,6 +2212,22 @@ impl EditorPanel {
 
     #[qslot]
     fn compile_devices_for_sim(&mut self, devices: Value) -> bool {
+        self.compile_devices_for_sim_inner(devices, false)
+    }
+
+    #[qslot]
+    fn debug_devices(&mut self, devices: Value) -> bool {
+        self.request_show();
+        self.compile_devices_for_sim_inner(devices, true)
+    }
+
+    #[qslot]
+    fn run_devices(&mut self, devices: Value) -> bool {
+        if DebugSession::global().is_active() {
+            self.debug_start();
+            self.request_power_on();
+            return true;
+        }
         self.compile_devices_for_sim_inner(devices, false)
     }
 
@@ -3617,6 +3637,35 @@ impl EditorPanel {
     }
 }
 
+fn build_firmware_device_uid_map(devices: &Value) -> BTreeMap<String, Vec<String>> {
+    let mut next: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    if let Value::Array(arr) = devices {
+        for item in arr {
+            let src = item
+                .get("firmwareSource")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let uid = item
+                .get("uid")
+                .and_then(|v| v.as_str())
+                .or_else(|| item.get("id").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            if src.is_empty() || uid.is_empty() {
+                continue;
+            }
+            let norm = normalize_debug_path(Path::new(src));
+            if norm.is_empty() {
+                continue;
+            }
+            let entry = next.entry(norm).or_default();
+            if !entry.iter().any(|existing| existing == uid) {
+                entry.push(uid.to_string());
+            }
+        }
+    }
+    next
+}
+
 fn build_firmware_mcu_map(devices: Value) -> BTreeMap<String, Vec<String>> {
     let mut next: BTreeMap<String, Vec<String>> = BTreeMap::new();
     if let Value::Array(arr) = devices {
@@ -3978,5 +4027,34 @@ mod tests {
         assert_eq!(edit["replaceEnd"], 4);
         assert!(!panel.completion_visible());
         assert!(panel.completion_prefix().is_empty());
+    }
+
+    #[test]
+    fn firmware_device_uid_map_resolves_assigned_mcus_per_source() {
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
+        panel.set_firmware_devices(json!([
+            { "uid": "mega328-1", "label": "MasterMCU", "firmwareSource": "/tmp/proj/master/master.ino", "isActive": true },
+            { "uid": "mega328-2", "label": "SlaveMCU", "firmwareSource": "/tmp/proj/slave/slave.ino", "isActive": false },
+            { "uid": "Uno-3/mega328-1", "label": "Uno-3 / mega328-1", "firmwareSource": "/tmp/proj/slave/slave.ino", "isActive": false },
+            { "uid": "mega328-4", "label": "EmptyMCU", "firmwareSource": "", "isActive": false },
+        ]));
+
+        let norm_master = normalize_debug_path(Path::new("/tmp/proj/master/master.ino"));
+        let norm_slave = normalize_debug_path(Path::new("/tmp/proj/slave/slave.ino"));
+        let norm_unassigned = normalize_debug_path(Path::new("/tmp/proj/new/new.ino"));
+
+        assert_eq!(
+            panel.firmware_device_uids.get(&norm_master),
+            Some(&vec!["mega328-1".to_string()])
+        );
+        assert_eq!(
+            panel.firmware_device_uids.get(&norm_slave),
+            Some(&vec![
+                "mega328-2".to_string(),
+                "Uno-3/mega328-1".to_string()
+            ])
+        );
+        assert_eq!(panel.firmware_device_uids.get(&norm_unassigned), None);
     }
 }

@@ -798,19 +798,42 @@ ApplicationWindow {
                 CircuitPanel.showEditor()
                 if (EditorPanel.documents.length === 0)
                     CircuitCanvas.editFirmware("")
-                if (EditorPanel.documents.length > 0) {
-                    EditorPanel.debug()
-                } else {
-                    if (CircuitCanvas.simRunning)
-                        CircuitCanvas.powerOff()
-                    EditorPanel.debugStart()
-                    CircuitCanvas.powerOn()
-                    CircuitPanel.refreshDebugToolbar()
+                var dbgDevs = CircuitCanvas.firmwareDevices || []
+                if (!EditorPanel.debugDevices(dbgDevs)) {
+                    var anyDbgAssigned = false
+                    for (var i = 0; i < dbgDevs.length; ++i) {
+                        if (dbgDevs[i] && dbgDevs[i].firmwareSource) {
+                            anyDbgAssigned = true
+                            break
+                        }
+                    }
+                    if (!anyDbgAssigned && EditorPanel.documents.length > 0) {
+                        EditorPanel.debug()
+                    } else {
+                        if (CircuitCanvas.simRunning)
+                            CircuitCanvas.powerOff()
+                        EditorPanel.debugStart()
+                        CircuitCanvas.powerOn()
+                        CircuitPanel.refreshDebugToolbar()
+                    }
                 }
             } else if (id === "sim.run") {
                 if (EditorPanel.documents.length === 0 && !CircuitCanvas.simRunning)
                     CircuitCanvas.editFirmware("")
-                EditorPanel.run()
+                var runDevs = CircuitCanvas.firmwareDevices || []
+                if (!EditorPanel.runDevices(runDevs)) {
+                    var anyRunAssigned = false
+                    for (var j = 0; j < runDevs.length; ++j) {
+                        if (runDevs[j] && runDevs[j].firmwareSource) {
+                            anyRunAssigned = true
+                            break
+                        }
+                    }
+                    if (!anyRunAssigned && EditorPanel.documents.length > 0)
+                        EditorPanel.run()
+                    else
+                        CircuitCanvas.powerOn()
+                }
             } else if (id === "sim.step") {
                 EditorPanel.debugStep()
                 if (CircuitCanvas.simRunning && CircuitCanvas.simPaused)

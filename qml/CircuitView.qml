@@ -152,10 +152,11 @@ Item {
                 CircuitCanvas.pauseCirc()
         }
         function onRequestUploadRun(debug: bool): void {
-            if (debug)
-                EditorPanel.debug()
-            else
+            if (debug) {
+                AppMenuBar.triggerAction("sim.debug")
+            } else if (!EditorPanel.compileDevicesForSim(CircuitCanvas.firmwareDevices)) {
                 EditorPanel.uploadRun()
+            }
         }
     }
 

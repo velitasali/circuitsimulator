@@ -341,6 +341,13 @@ impl EditorPanel {
             String::new()
         };
 
+        let norm_src = normalize_debug_path(Path::new(&src_path));
+        let target_device_ids = self
+            .firmware_device_uids
+            .get(&norm_src)
+            .cloned()
+            .unwrap_or_default();
+
         // Fast path for Debug / Upload+Run: if this Arduino sketch's build artifacts
         // (and companion .elf when debugging) are already up to date for this exact
         // board/FQBN, skip re-running `arduino-cli compile` so debugging starts immediately.
@@ -354,7 +361,7 @@ impl EditorPanel {
                 let fw_str = cached_fw.to_string_lossy().into_owned();
                 self.push_log(format!(
                     "     {} ({})",
-                    cs_engine::i18n::tr("Build up to date, skipping recompile"),
+                    i18n::tr("Build up to date, skipping recompile"),
                     fw_str
                 ));
                 self.compile_state = "ok".to_string();
@@ -375,7 +382,7 @@ impl EditorPanel {
                     then_upload,
                     then_run,
                     breakpoints,
-                    Vec::new(),
+                    target_device_ids,
                     true,
                     res,
                 );
@@ -413,7 +420,7 @@ impl EditorPanel {
             then_upload,
             then_run,
             breakpoints,
-            target_device_ids: Vec::new(),
+            target_device_ids,
             load_debug_symbols: true,
         });
     }

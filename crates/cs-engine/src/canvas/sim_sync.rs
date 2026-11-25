@@ -25,7 +25,8 @@ impl Canvas {
             self.exit_board_layout();
         }
         if DebugSession::is_active_global() && !DebugSession::global().has_symbols() {
-            if let Some(firm) = self.firmware_path_for("") {
+            let uid = self.active_device_id.as_deref().unwrap_or("");
+            if let Some(firm) = self.firmware_path_for(uid) {
                 load_companion_elf(&firm);
             }
         }
@@ -33,6 +34,7 @@ impl Canvas {
         self.sim_paused = false;
         let mut circuit = self.scene.to_circuit();
         circuit.slope_steps = crate::settings::get().slope_steps;
+        circuit.debug_target_mcu = self.active_sim_mcu_id();
         crate::logging::log_sim(format!(
             "Simulation started: {} components, {} wires",
             self.scene.items().len(),
@@ -371,6 +373,7 @@ impl Canvas {
         }
         let mut circuit = self.scene.to_circuit();
         circuit.slope_steps = crate::settings::get().slope_steps;
+        circuit.debug_target_mcu = self.active_sim_mcu_id();
         if circuit.has_audio_out() {
             if let Some(sink) = &self.audio_sink {
                 if let Ok(mut s) = sink.lock() {
@@ -735,7 +738,8 @@ impl Canvas {
             session.request_remote_mem_refresh();
         }
         if !session.has_symbols() {
-            if let Some(firm) = self.firmware_path_for("") {
+            let uid = self.active_device_id.as_deref().unwrap_or("");
+            if let Some(firm) = self.firmware_path_for(uid) {
                 load_companion_elf(&firm);
             }
         }

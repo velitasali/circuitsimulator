@@ -41,10 +41,13 @@ impl Canvas {
     pub fn upload_firmware_to(&mut self, path: &str, target_id: Option<&str>) -> Change {
         let p = std::path::Path::new(path);
         let mut ok = self.scene.upload_firmware_to(p, target_id);
+        let resolved_sim_target = target_id.map(|t| self.resolve_sim_mcu_id(t));
         if let Some(c) = self.running.as_mut() {
             if let Some(target) = target_id {
+                let sim_target = resolved_sim_target.as_deref().unwrap_or(target);
                 for (id, m) in c.mcus_mut() {
                     if id == target
+                        || id == sim_target
                         || target.strip_suffix(id).is_some_and(|p| p.ends_with('/'))
                         || id.strip_prefix(target).is_some_and(|s| s.starts_with('/'))
                     {

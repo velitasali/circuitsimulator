@@ -316,6 +316,7 @@ impl Scene {
                     }
                 }
             }
+            return false;
         }
         for it in &mut self.items {
             if let Part::Mcu(mcu) = &mut it.kind {

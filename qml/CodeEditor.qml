@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import cs_app
 import cs_ui
 
@@ -15,6 +16,7 @@ Item {
     property var _panePool: ({})
     property int activeDocId: -1
     property CodeEditorPane activePane: null
+    readonly property var hostWindow: Window.window
     readonly property Flickable activeFlick: activePane ? activePane.flick : null
     readonly property TextArea activeArea: activePane ? activePane.area : null
     readonly property int activeLineCount: activeArea ? activeArea.lineCount : 1
@@ -24,6 +26,30 @@ Item {
     readonly property real activeContentX: activeFlick ? activeFlick.contentX : 0
     readonly property real activeContentY: activeFlick ? activeFlick.contentY : 0
     readonly property rect activeCursorRect: activeArea ? activeArea.cursorRectangle : Qt.rect(0, 0, 0, root.lineHeight)
+    readonly property bool cursorInView: {
+        var f = root.activeFlick
+        var a = root.activeArea
+        if (!f || !a || f.width <= 0 || f.height <= 0)
+            return false
+        var r = a.cursorRectangle
+        var vx = r.x - f.contentX
+        var vy = r.y - f.contentY
+        var cw = Math.max(1, r.width)
+        var ch = r.height > 0 ? r.height : root.lineHeight
+        return vy + ch > 0 && vy < f.height && vx + cw > 0 && vx < f.width
+    }
+
+    function _hideCompletionIfCursorOutOfView(): void {
+        if (!root.cursorInView && EditorPanel.completionVisible) {
+            EditorPanel.hideCompletion()
+        }
+    }
+
+    onCursorInViewChanged: {
+        if (!cursorInView && EditorPanel.completionVisible) {
+            Qt.callLater(root._hideCompletionIfCursorOutOfView)
+        }
+    }
 
     function _doFocusEditor(): void {
         if (root.visible && EditorPanel.currentDocument >= 0 && root.activeArea) {
@@ -43,6 +69,8 @@ Item {
                 root.activePane = null
             }
             root.activeDocId = -1
+            root.hideHover()
+            EditorPanel.hideCompletion()
             EditorPanel.focused = false
             return
         }
@@ -59,6 +87,8 @@ Item {
             pane.syncTextFromModel(EditorPanel.currentText)
         }
         if (switched) {
+            root.hideHover()
+            EditorPanel.hideCompletion()
             if (root.activePane && root.activePane !== pane) {
                 root.activePane.isActive = false
             }
@@ -192,6 +222,9 @@ Item {
         if (visible && EditorPanel.currentDocument >= 0) {
             root.syncActivePane()
             root.focusEditor()
+        } else if (!visible) {
+            root.hideHover()
+            EditorPanel.hideCompletion()
         }
     }
     Component.onCompleted: {
@@ -199,6 +232,7 @@ Item {
         root.syncActivePane()
     }
     Component.onDestruction: {
+        EditorPanel.hideCompletion()
         var keys = Object.keys(root._panePool)
         for (var k = 0; k < keys.length; ++k) {
             var pane = root._panePool[keys[k]] as CodeEditorPane
@@ -211,6 +245,14 @@ Item {
     Connections {
         target: CircuitCanvas
         function onAppearanceChanged() { EditorPanel.dark = CircuitCanvas.dark }
+    }
+    Connections {
+        target: root.hostWindow
+        function onActiveChanged(): void {
+            if (root.hostWindow && !root.hostWindow.active) {
+                EditorPanel.hideCompletion()
+            }
+        }
     }
 
     Timer {
@@ -888,11 +930,55 @@ Item {
 
     Popup {
         id: completionPopup
-        visible: EditorPanel.completionVisible
-        x: gutter.width + root.activeCursorRect.x + root.activeLeftPadding - root.activeContentX
-        y: root.activeCursorRect.y + root.activeCursorRect.height + root.activeTopPadding - root.activeContentY
-        width: 380
-        height: Math.min(240, Math.max(24, completionList.count * 22 + 2))
+        visible: root.visible && root.activePane !== null && root.cursorInView && EditorPanel.completionVisible
+        focus: false
+        readonly property real edgeMargin: 8
+        readonly property real cursorGap: 2
+        readonly property real windowW: root.Overlay.overlay ? root.Overlay.overlay.width : (root.hostWindow ? root.hostWindow.width : root.width)
+        readonly property real windowH: root.Overlay.overlay ? root.Overlay.overlay.height : (root.hostWindow ? root.hostWindow.height : root.height)
+        readonly property point rootOrigin: {
+            var _rects = CircuitPanel.overlayRects
+            var _w = root.width
+            var _h = root.height
+            var _ww = completionPopup.windowW
+            var _wh = completionPopup.windowH
+            var _v = completionPopup.visible
+            return root.mapToItem(root.Overlay.overlay, 0, 0)
+        }
+        readonly property real cursorLocalX: gutter.width + root.activeCursorRect.x - root.activeContentX
+        readonly property real cursorLocalY: root.activeCursorRect.y - root.activeContentY
+        readonly property real cursorH: root.activeCursorRect.height > 0 ? root.activeCursorRect.height : root.lineHeight
+        width: Math.min(380, Math.max(160, completionPopup.windowW - 2 * completionPopup.edgeMargin))
+        height: {
+            var naturalH = Math.min(240, Math.max(24, completionList.count * 22 + 2))
+            var maxH = Math.max(24, completionPopup.windowH - 2 * completionPopup.edgeMargin)
+            return Math.min(naturalH, maxH)
+        }
+        x: {
+            var winX = completionPopup.rootOrigin.x + completionPopup.cursorLocalX
+            var targetWinX = (winX + width <= completionPopup.windowW - completionPopup.edgeMargin)
+                ? Math.max(completionPopup.edgeMargin, winX)
+                : Math.max(completionPopup.edgeMargin, Math.min(completionPopup.windowW - width - completionPopup.edgeMargin, winX - width))
+            return Math.round(targetWinX - completionPopup.rootOrigin.x)
+        }
+        y: {
+            var cursorWinY = completionPopup.rootOrigin.y + completionPopup.cursorLocalY
+            var belowWinY = cursorWinY + completionPopup.cursorH + completionPopup.cursorGap
+            var aboveWinY = cursorWinY - height - completionPopup.cursorGap
+            var targetWinY
+            if (belowWinY + height <= completionPopup.windowH - completionPopup.edgeMargin) {
+                targetWinY = Math.max(completionPopup.edgeMargin, belowWinY)
+            } else if (aboveWinY >= completionPopup.edgeMargin) {
+                targetWinY = aboveWinY
+            } else {
+                var spaceBelow = completionPopup.windowH - completionPopup.edgeMargin - belowWinY
+                var spaceAbove = cursorWinY - completionPopup.cursorGap - completionPopup.edgeMargin
+                targetWinY = (spaceAbove >= spaceBelow)
+                    ? Math.max(completionPopup.edgeMargin, aboveWinY)
+                    : Math.max(completionPopup.edgeMargin, Math.min(completionPopup.windowH - height - completionPopup.edgeMargin, belowWinY))
+            }
+            return Math.round(targetWinY - completionPopup.rootOrigin.y)
+        }
         padding: 1
         closePolicy: Popup.NoAutoClose
 

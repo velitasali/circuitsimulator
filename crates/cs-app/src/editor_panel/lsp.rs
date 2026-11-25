@@ -104,11 +104,15 @@ impl EditorPanel {
     }
 
     pub fn hide_completions(&mut self) {
-        if !self.completion_visible {
+        self.completion_pending = false;
+        self.lsp.cancel_completion();
+        self.completion_prefix.clear();
+        if !self.completion_visible && self.completions.as_array().is_none_or(|a| a.is_empty()) {
             return;
         }
         self.completion_visible = false;
         self.completions = json!([]);
+        self.completion_index = 0;
         self.completion_changed();
     }
 
@@ -147,6 +151,10 @@ impl EditorPanel {
     }
 
     pub fn complete_at(&mut self, manual: bool) {
+        if self.current_doc().is_none() {
+            self.hide_completions();
+            return;
+        }
         let text = self.current_text();
         let cursor_byte = editor::utf16_to_byte_offset(&text, self.cursor_pos.max(0) as usize);
         let prefix = identifier_prefix(&text, cursor_byte).to_string();
@@ -162,9 +170,11 @@ impl EditorPanel {
         self.completion_prefix = prefix.clone();
         if can_lsp {
             let (line, col) = editor::line_col(&text, cursor_byte);
+            self.completion_pending = true;
             self.lsp.request_completion(&path, line, col);
             return;
         }
+        self.completion_pending = false;
         if !manual && prefix.is_empty() {
             self.hide_completions();
             return;

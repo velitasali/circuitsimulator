@@ -292,6 +292,7 @@ Item {
                     EditorPanel.clearHoverLink()
                     var pos = area.positionAt(mouse.x, mouse.y)
                     if (mouse.button === Qt.RightButton) {
+                        EditorPanel.hideCompletion()
                         if (!area.selectedText || area.selectedText.length === 0)
                             area.cursorPosition = pos
                         pane.contextMenuRequested()

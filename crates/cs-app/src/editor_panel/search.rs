@@ -23,6 +23,7 @@ impl EditorPanel {
     }
 
     pub fn goto_1based(&mut self, line: i32) {
+        self.hide_completions();
         self.goto_line = line;
         self.goto_changed();
     }

@@ -907,6 +907,10 @@ impl LspClient {
         );
     }
 
+    pub fn cancel_completion(&self) {
+        self.shared.last_completion.store(-1, Ordering::SeqCst);
+    }
+
     pub fn request_hover(&self, path: &str, line: i32, character: i32) {
         self.position_msg(
             "textDocument/hover",

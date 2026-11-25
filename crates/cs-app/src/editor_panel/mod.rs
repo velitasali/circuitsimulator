@@ -52,6 +52,7 @@ pub struct EditorPanel {
     completion_visible: bool,
     completion_index: i32,
     completion_prefix: String,
+    completion_pending: bool,
     accepting_completion: bool,
     goto_line: i32,
     select_start: i32,
@@ -155,6 +156,7 @@ impl Default for EditorPanel {
             completion_visible: false,
             completion_index: 0,
             completion_prefix: String::new(),
+            completion_pending: false,
             accepting_completion: false,
             goto_line: 0,
             select_start: -1,
@@ -384,6 +386,7 @@ impl EditorPanel {
         self.docs.push(doc);
         self.current = self.docs.len() as i32 - 1;
         self.clear_transient_navigation();
+        self.hide_completions();
         if !path.is_empty() {
             if !initial_bps.is_empty() {
                 DebugSession::global().set_breakpoints_for_file(Path::new(&path), &initial_bps);
@@ -1394,6 +1397,7 @@ impl EditorPanel {
         self.docs.clear();
         self.current = -1;
         self.clear_transient_navigation();
+        self.hide_completions();
         self.pending_close_index = None;
         self.pending_close_queue.clear();
         self.diagnostic_ranges = json!([]);
@@ -1494,6 +1498,9 @@ impl EditorPanel {
             return;
         }
         self.focused = focused;
+        if !focused {
+            self.hide_completions();
+        }
         self.focused_changed();
     }
 
@@ -1983,6 +1990,7 @@ impl EditorPanel {
             }
             if self.docs[idx].dirty {
                 let index = idx as i32;
+                self.hide_completions();
                 if self.current != index {
                     self.current = index;
                     self.clear_transient_navigation();
@@ -2042,6 +2050,7 @@ impl EditorPanel {
         if index >= self.docs.len() {
             return;
         }
+        self.hide_completions();
         let prev_doc_id = self.current_doc_id();
         let doc = self.docs.remove(index);
         adjust_close_queue_after_remove(&mut self.pending_close_queue, index);
@@ -2244,6 +2253,7 @@ impl EditorPanel {
         if !had_docs {
             self.current = 0;
             self.clear_transient_navigation();
+            self.hide_completions();
             self.diagnostic_ranges = json!([]);
             self.pending_hover_diag.clear();
             self.documents_changed();
@@ -2301,6 +2311,7 @@ impl EditorPanel {
         self.docs.push(Document::untitled(doc_id, title));
         self.current = self.docs.len() as i32 - 1;
         self.clear_transient_navigation();
+        self.hide_completions();
         self.diagnostic_ranges = json!([]);
         self.pending_hover_diag.clear();
         self.documents_changed();
@@ -2541,6 +2552,7 @@ impl EditorPanel {
                     backup::clear_file(&recovery_id);
                 }
                 self.file_watcher.sync(&path);
+                self.hide_completions();
                 self.current_text_changed();
                 self.documents_changed();
                 self.rehighlight();
@@ -2625,6 +2637,7 @@ impl EditorPanel {
             .unwrap_or("")
             .to_string();
 
+        let prefix = self.completion_prefix.clone();
         self.hide_completions();
 
         let current_text = self.current_text();
@@ -2637,7 +2650,7 @@ impl EditorPanel {
         let edit = editor::calculate_completion(
             &current_text,
             cursor_utf16,
-            &self.completion_prefix,
+            &prefix,
             &insert,
             &word,
             &detail,
@@ -3223,6 +3236,7 @@ impl EditorPanel {
                 }
                 self.file_watcher.sync(&path);
                 if self.current == i as i32 {
+                    self.hide_completions();
                     self.current_text_changed();
                     self.rehighlight();
                 }
@@ -3348,6 +3362,10 @@ impl EditorPanel {
         for ev in events {
             match ev {
                 LspEvent::Completions(items) => {
+                    if !self.completion_pending || self.current_doc().is_none() {
+                        continue;
+                    }
+                    self.completion_pending = false;
                     if items.is_empty() {
                         need_local = !prefix.is_empty();
                         continue;
@@ -3521,7 +3539,7 @@ impl EditorPanel {
         if logged_debug {
             self.log_changed();
         }
-        if need_local {
+        if need_local && self.current_doc().is_some() {
             let p = prefix.clone();
             self.local_complete(&p);
         }
@@ -3843,7 +3861,8 @@ mod tests {
 
     #[test]
     fn doc_ids_stay_monotonic_and_stable_across_switches_and_closes() {
-        let mut panel = EditorPanel::default();
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
         assert_eq!(panel.current_doc_id(), -1);
 
         panel.new_file();
@@ -3889,5 +3908,75 @@ mod tests {
         // Closing all clears currentDocId back to -1.
         panel.close_all_docs_internal();
         assert_eq!(panel.current_doc_id(), -1);
+    }
+
+    #[test]
+    fn completions_hide_on_close_focus_loss_and_buffer_change() {
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
+        panel.new_file();
+        panel.new_file();
+
+        let show_sample_completions = |p: &mut EditorPanel| {
+            p.completion_pending = true;
+            p.set_completion_items(
+                vec![json!({
+                    "text": "digitalWrite",
+                    "insertText": "digitalWrite",
+                    "detail": "void(uint8_t, uint8_t)",
+                    "kind": 3,
+                })],
+                "digi",
+            );
+            assert!(p.completion_visible());
+            assert_eq!(p.completion_prefix(), "digi");
+        };
+
+        // Losing editor focus hides completions and clears pending state.
+        panel.focused = true;
+        show_sample_completions(&mut panel);
+        panel.set_focused(false);
+        assert!(!panel.completion_visible());
+        assert!(!panel.completion_pending);
+        assert!(panel.completion_prefix().is_empty());
+
+        // Closing the active tab when another remains hides completions.
+        show_sample_completions(&mut panel);
+        let cur = panel.current as usize;
+        panel.close_document_now(cur);
+        assert!(!panel.completion_visible());
+        assert!(!panel.completion_pending);
+
+        // Creating a new buffer hides completions.
+        show_sample_completions(&mut panel);
+        panel.new_file();
+        assert!(!panel.completion_visible());
+
+        // Closing a dirty file (prompting save before close) hides completions.
+        let cur = panel.current;
+        panel.docs[cur as usize].dirty = true;
+        show_sample_completions(&mut panel);
+        panel.close_document(cur);
+        assert!(!panel.completion_visible());
+        assert!(panel.pending_close_index.is_some());
+        panel.confirm_close_cancel();
+
+        // Closing all docs hides completions.
+        show_sample_completions(&mut panel);
+        panel.close_all_docs_internal();
+        assert!(!panel.completion_visible());
+        assert_eq!(panel.current_doc_id(), -1);
+
+        // Accepting a completion still uses the stored prefix before hide clears it.
+        panel.new_file();
+        panel.docs[0].text = "digi".to_string();
+        panel.cursor_pos = 4;
+        show_sample_completions(&mut panel);
+        let edit = panel.accept_completion(0, 4);
+        assert_eq!(edit["valid"], true);
+        assert_eq!(edit["replaceStart"], 0);
+        assert_eq!(edit["replaceEnd"], 4);
+        assert!(!panel.completion_visible());
+        assert!(panel.completion_prefix().is_empty());
     }
 }

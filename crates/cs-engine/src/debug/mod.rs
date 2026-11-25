@@ -7,9 +7,11 @@ pub mod symbols;
 pub mod varset;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::SystemTime;
 
 pub use asdebugger::{AsBreakpoint, AsDebugState, AsDebugger};
 pub use gdb::GdbServer;
@@ -67,17 +69,42 @@ pub enum DebugState {
     },
 }
 
+/// Lightweight copyable debug mode snapshot for `cs_mcu::Device::advance_batch`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum BatchDebugState {
+    #[default]
+    Idle,
+    Running,
+    Paused,
+    StepInto,
+    StepOver {
+        target_sp: u32,
+        exit_pc: Option<u32>,
+    },
+    StepOut {
+        target_sp: u32,
+    },
+}
+
 /// Thread-safe coordinator for MCU debugging sessions.
 pub struct DebugSession {
     state: Mutex<DebugState>,
     symbols: Mutex<DebugSymbols>,
     line_breakpoints: Mutex<BTreeSet<(PathBuf, usize)>>,
     addr_breakpoints: Mutex<BTreeSet<u32>>,
+    /// Sorted union of `addr_breakpoints` and all flash PCs mapped to `line_breakpoints`,
+    /// used by the MCU batch loop to avoid mutex locks and symbol lookups per instruction.
+    fast_break_pcs: Mutex<Vec<u32>>,
+    /// `(canonical_path, mtime, file_len)` of the last ELF loaded via `load_elf_if_changed`.
+    loaded_elf_stamp: Mutex<Option<(PathBuf, SystemTime, u64)>>,
     watch_entries: Mutex<Vec<WatchEntry>>,
     active_location: Mutex<Option<SourceLocation>>,
     active_mcu: Mutex<Option<McuComp>>,
     active: AtomicBool,
     paused: AtomicBool,
+    has_symbols: AtomicBool,
+    last_pc: AtomicU32,
+    has_last_pc: AtomicBool,
     is_global: bool,
     symbols_generation: AtomicU64,
     breakpoints_generation: AtomicU64,
@@ -97,11 +124,16 @@ impl Default for DebugSession {
             symbols: Mutex::new(DebugSymbols::default()),
             line_breakpoints: Mutex::new(BTreeSet::new()),
             addr_breakpoints: Mutex::new(BTreeSet::new()),
+            fast_break_pcs: Mutex::new(Vec::new()),
+            loaded_elf_stamp: Mutex::new(None),
             watch_entries: Mutex::new(Vec::new()),
             active_location: Mutex::new(None),
             active_mcu: Mutex::new(None),
             active: AtomicBool::new(false),
             paused: AtomicBool::new(false),
+            has_symbols: AtomicBool::new(false),
+            last_pc: AtomicU32::new(0),
+            has_last_pc: AtomicBool::new(false),
             is_global: false,
             symbols_generation: AtomicU64::new(0),
             breakpoints_generation: AtomicU64::new(0),
@@ -161,12 +193,26 @@ impl DebugSession {
         self.state_generation.fetch_add(1, Ordering::Release);
         if !active {
             self.set_state_internal(DebugState::Idle);
+            self.has_last_pc.store(false, Ordering::Release);
             *self.active_location.lock().unwrap() = None;
         }
     }
 
     pub fn state(&self) -> DebugState {
         self.state.lock().unwrap().clone()
+    }
+
+    pub fn batch_debug_state(&self) -> BatchDebugState {
+        match *self.state.lock().unwrap() {
+            DebugState::Idle => BatchDebugState::Idle,
+            DebugState::Running => BatchDebugState::Running,
+            DebugState::Paused(_) => BatchDebugState::Paused,
+            DebugState::SteppingInto => BatchDebugState::StepInto,
+            DebugState::SteppingOver { target_sp, exit_pc } => {
+                BatchDebugState::StepOver { target_sp, exit_pc }
+            }
+            DebugState::SteppingOut { target_sp } => BatchDebugState::StepOut { target_sp },
+        }
     }
 
     pub fn state_generation(&self) -> u64 {
@@ -178,10 +224,93 @@ impl DebugSession {
         self.paused.load(Ordering::Relaxed)
     }
 
+    #[inline(always)]
+    pub fn has_symbols(&self) -> bool {
+        self.has_symbols.load(Ordering::Acquire)
+    }
+
+    #[inline(always)]
+    pub fn set_last_pc(&self, pc: u32) {
+        self.last_pc.store(pc, Ordering::Relaxed);
+        self.has_last_pc.store(true, Ordering::Release);
+    }
+
     pub fn load_symbols(&self, syms: DebugSymbols) {
+        let non_empty = !syms.is_empty();
         *self.symbols.lock().unwrap() = syms;
+        self.has_symbols.store(non_empty, Ordering::Release);
         self.symbols_generation.fetch_add(1, Ordering::Release);
         self.resync_addr_breakpoints();
+    }
+
+    /// Parse and load an ELF file only if its `(canonical_path, mtime, len)` differs
+    /// from the ELF already loaded into this session. Returns `true` if symbols are
+    /// now present for this ELF (either freshly parsed or already cached).
+    pub fn load_elf_if_changed(&self, elf_path: &Path) -> bool {
+        let Ok(meta) = fs::metadata(elf_path) else {
+            return false;
+        };
+        if !meta.is_file() {
+            return false;
+        }
+        let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        let len = meta.len();
+        let canon = fs::canonicalize(elf_path).unwrap_or_else(|_| elf_path.to_path_buf());
+        let stamp = (canon, mtime, len);
+        if self.has_symbols() {
+            if let Ok(guard) = self.loaded_elf_stamp.lock() {
+                if guard.as_ref() == Some(&stamp) {
+                    return true;
+                }
+            }
+        }
+        let Ok(bytes) = fs::read(elf_path) else {
+            return false;
+        };
+        if !bytes.starts_with(b"\x7fELF") {
+            return false;
+        }
+        let Some(syms) = ElfParser::parse(&bytes) else {
+            return false;
+        };
+        self.load_symbols(syms);
+        if let Ok(mut guard) = self.loaded_elf_stamp.lock() {
+            *guard = Some(stamp);
+        }
+        true
+    }
+
+    /// Record the ELF stamp when symbols were loaded externally (e.g. merged ELF + LST).
+    pub fn mark_loaded_elf(&self, elf_path: &Path) {
+        if let Ok(meta) = fs::metadata(elf_path) {
+            if meta.is_file() {
+                let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                let len = meta.len();
+                let canon = fs::canonicalize(elf_path).unwrap_or_else(|_| elf_path.to_path_buf());
+                if let Ok(mut guard) = self.loaded_elf_stamp.lock() {
+                    *guard = Some((canon, mtime, len));
+                }
+            }
+        }
+    }
+
+    pub fn is_elf_loaded(&self, elf_path: &Path) -> bool {
+        if !self.has_symbols() {
+            return false;
+        }
+        let Ok(meta) = fs::metadata(elf_path) else {
+            return false;
+        };
+        if !meta.is_file() {
+            return false;
+        }
+        let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        let len = meta.len();
+        let canon = fs::canonicalize(elf_path).unwrap_or_else(|_| elf_path.to_path_buf());
+        self.loaded_elf_stamp
+            .lock()
+            .ok()
+            .is_some_and(|g| g.as_ref() == Some(&(canon, mtime, len)))
     }
 
     pub fn symbols_generation(&self) -> u64 {
@@ -209,18 +338,58 @@ impl DebugSession {
             .iter()
             .cloned()
             .collect();
-        let resolved: BTreeSet<u32> = {
+        let (resolved, mut fast_pcs) = {
             let syms = self.symbols.lock().unwrap();
             let mut set = BTreeSet::new();
+            let mut fast = Vec::new();
             for (file, line) in &line_bps {
                 for addr in syms.resolve_breakpoint_addrs(file, *line) {
                     set.insert(addr);
+                    fast.push(addr);
+                }
+                for &addr in syms.lookup_lines(file, *line) {
+                    fast.push(addr);
                 }
             }
-            set
+            (set, fast)
         };
         *self.addr_breakpoints.lock().unwrap() = resolved;
+        fast_pcs.sort_unstable();
+        fast_pcs.dedup();
+        *self.fast_break_pcs.lock().unwrap() = fast_pcs;
         self.breakpoints_generation.fetch_add(1, Ordering::Release);
+    }
+
+    fn rebuild_fast_break_pcs(&self) {
+        let line_bps: Vec<(PathBuf, usize)> = self
+            .line_breakpoints
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect();
+        let mut fast: Vec<u32> = self
+            .addr_breakpoints
+            .lock()
+            .unwrap()
+            .iter()
+            .copied()
+            .collect();
+        if !line_bps.is_empty() {
+            let syms = self.symbols.lock().unwrap();
+            for (file, line) in &line_bps {
+                for &addr in syms.lookup_lines(file, *line) {
+                    fast.push(addr);
+                }
+            }
+        }
+        fast.sort_unstable();
+        fast.dedup();
+        *self.fast_break_pcs.lock().unwrap() = fast;
+    }
+
+    pub fn fast_break_pcs(&self) -> Vec<u32> {
+        self.fast_break_pcs.lock().unwrap().clone()
     }
 
     pub fn add_breakpoint(&self, file: impl Into<PathBuf>, line: usize) {
@@ -305,11 +474,13 @@ impl DebugSession {
 
     pub fn add_addr_breakpoint(&self, pc: u32) {
         self.addr_breakpoints.lock().unwrap().insert(pc);
+        self.rebuild_fast_break_pcs();
         self.breakpoints_generation.fetch_add(1, Ordering::Release);
     }
 
     pub fn remove_addr_breakpoint(&self, pc: u32) {
         self.addr_breakpoints.lock().unwrap().remove(&pc);
+        self.rebuild_fast_break_pcs();
         self.breakpoints_generation.fetch_add(1, Ordering::Release);
     }
 
@@ -327,7 +498,14 @@ impl DebugSession {
     }
 
     pub fn active_location(&self) -> Option<SourceLocation> {
-        self.active_location.lock().unwrap().clone()
+        if let Some(loc) = self.active_location.lock().unwrap().clone() {
+            return Some(loc);
+        }
+        if self.has_last_pc.load(Ordering::Acquire) {
+            let pc = self.last_pc.load(Ordering::Relaxed);
+            return self.symbols.lock().unwrap().lookup_address(pc).cloned();
+        }
+        None
     }
 
     fn push_remote_cmd(&self, cmd: RemoteDebugCmd) {
@@ -473,6 +651,7 @@ impl DebugSession {
     }
 
     pub fn resume(&self) {
+        *self.active_location.lock().unwrap() = None;
         self.set_active(true);
         self.set_state_internal(DebugState::Running);
         self.push_remote_cmd(RemoteDebugCmd::Resume);
@@ -482,10 +661,12 @@ impl DebugSession {
         self.push_remote_cmd(RemoteDebugCmd::Stop);
         self.set_active(false);
         self.set_state_internal(DebugState::Idle);
+        self.has_last_pc.store(false, Ordering::Release);
         *self.active_location.lock().unwrap() = None;
     }
 
-    /// Step check hook called on each MCU step instruction.
+    /// Step check hook called on each MCU step instruction (or when an MCU batch
+    /// hits a breakpoint or stepping target).
     /// Returns Some(reason) if execution should break/pause.
     pub fn on_mcu_step(
         &self,
@@ -497,40 +678,42 @@ impl DebugSession {
         if !self.is_active() {
             return None;
         }
-
-        let loc = {
-            let syms = self.symbols.lock().unwrap();
-            syms.lookup_address(pc).cloned()
-        };
-        if let Some(ref l) = loc {
-            *self.active_location.lock().unwrap() = Some(l.clone());
-        }
+        self.set_last_pc(pc);
 
         // 1. Check address breakpoints
         if self.has_addr_breakpoint(pc) {
+            let loc = self.symbols.lock().unwrap().lookup_address(pc).cloned();
+            if let Some(ref l) = loc {
+                *self.active_location.lock().unwrap() = Some(l.clone());
+            }
             let reason = BreakReason::Breakpoint {
                 address: pc,
-                location: loc.clone(),
+                location: loc,
             };
             self.set_state_internal(DebugState::Paused(reason.clone()));
             return Some(reason);
         }
 
         // 2. Check line breakpoints (only when entering a new source line or exact hit)
-        if let Some(ref l) = loc {
-            if self.has_breakpoint(&l.file, l.line) {
-                let prev_same_line = {
-                    let syms = self.symbols.lock().unwrap();
-                    syms.lookup_address(prev_pc)
-                        .is_some_and(|pl| pl.line == l.line && pl.file == l.file)
-                };
-                if !prev_same_line {
-                    let reason = BreakReason::Breakpoint {
-                        address: pc,
-                        location: loc.clone(),
+        let has_line_bps = !self.line_breakpoints.lock().unwrap().is_empty();
+        if has_line_bps {
+            let loc = self.symbols.lock().unwrap().lookup_address(pc).cloned();
+            if let Some(ref l) = loc {
+                if self.has_breakpoint(&l.file, l.line) {
+                    let prev_same_line = {
+                        let syms = self.symbols.lock().unwrap();
+                        syms.lookup_address(prev_pc)
+                            .is_some_and(|pl| pl.line == l.line && pl.file == l.file)
                     };
-                    self.set_state_internal(DebugState::Paused(reason.clone()));
-                    return Some(reason);
+                    if !prev_same_line {
+                        *self.active_location.lock().unwrap() = Some(l.clone());
+                        let reason = BreakReason::Breakpoint {
+                            address: pc,
+                            location: loc,
+                        };
+                        self.set_state_internal(DebugState::Paused(reason.clone()));
+                        return Some(reason);
+                    }
                 }
             }
         }
@@ -581,6 +764,9 @@ impl DebugSession {
             }
         };
         if let Some(reason) = step_pause {
+            if let Some(l) = self.symbols.lock().unwrap().lookup_address(pc).cloned() {
+                *self.active_location.lock().unwrap() = Some(l);
+            }
             self.paused.store(true, Ordering::Release);
             if self.is_global {
                 GLOBAL_DEBUG_PAUSED.store(true, Ordering::Release);

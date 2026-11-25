@@ -306,7 +306,7 @@ impl I51 {
 
     fn bank(h: &CpuHost) -> u8 {
         let s = h.data.get(h.data.sreg_addr);
-        ((s & (1 << RS0)) >> RS0) | ((s & (1 << RS1)) >> RS1)
+        ((s >> RS0) & 1) | (((s >> RS1) & 1) << 1)
     }
 
     fn rx_val(&self, h: &CpuHost) -> u8 {
@@ -731,6 +731,7 @@ impl I51 {
                 self.oper_ind(h);
                 self.opr2_i08();
                 self.addr_dir();
+                self.r_cycles = 4;
             }
             0xC0 => {
                 self.oper_dir();
@@ -866,7 +867,7 @@ impl I51 {
                 0x81 => self.ajmp(h),
                 0x82 => self.anl_c(h),
                 0x83 => {
-                    let addr = h.pc.wrapping_add(1).wrapping_add(u32::from(self.acc(h)));
+                    let addr = h.pc.wrapping_add(u32::from(self.acc(h)));
                     self.set_acc(h, h.flash(addr) as u8);
                 }
                 0x84 => self.div_ab(h),
@@ -1132,14 +1133,8 @@ impl I51 {
     fn orl_c(&mut self, h: &mut CpuHost) {
         let carry = Self::status(h, CY);
         let bit = h.get_ram(u16::from(self.bit_addr)) & self.bit_mask != 0;
-        let value = if self.invert {
-            if bit { true } else { carry }
-        } else if bit {
-            carry
-        } else {
-            true
-        };
-        Self::write_s_bit(h, CY, value);
+        let b = if self.invert { !bit } else { bit };
+        Self::write_s_bit(h, CY, carry || b);
     }
     fn anl_c(&mut self, h: &mut CpuHost) {
         let carry = Self::status(h, CY);
@@ -1169,7 +1164,7 @@ impl I51 {
         let res = u16::from(self.acc(h)) * u16::from(h.data.get(REG_B));
         self.set_acc(h, res as u8);
         h.set_ram(REG_B, (res >> 8) as u8);
-        Self::write_s_bit(h, OV, false);
+        Self::write_s_bit(h, OV, res > 0xFF);
         Self::write_s_bit(h, CY, false);
     }
     fn div_ab(&self, h: &mut CpuHost) {
@@ -1185,24 +1180,23 @@ impl I51 {
         Self::write_s_bit(h, CY, false);
     }
     fn da(&self, h: &mut CpuHost) {
-        let mut acc = self.acc(h);
-        let mut al = acc & 0x0F;
-        if al > 0x09 || Self::status(h, AC) {
-            al = al.wrapping_add(6);
-            acc = acc.wrapping_add(6);
-            if al & (1 << 4) != 0 {
+        let mut acc = u16::from(self.acc(h));
+        if (acc & 0x0F) > 0x09 || Self::status(h, AC) {
+            acc += 0x06;
+            if acc > 0xFF {
                 Self::write_s_bit(h, CY, true);
             }
         }
-        let mut ah = (acc & 0xF0) >> 4;
-        if ah > 0x09 || Self::status(h, AC) {
-            ah = ah.wrapping_add(0x06);
-            if ah & (1 << 4) != 0 {
+        let acc_lo = acc as u8;
+        if (acc_lo >> 4) > 0x09 || Self::status(h, CY) {
+            let hi_sum = u16::from(acc_lo) + 0x60;
+            if hi_sum > 0xFF {
                 Self::write_s_bit(h, CY, true);
             }
-            acc = (al & 0x0F) | (ah << 4);
+            self.set_acc(h, hi_sum as u8);
+        } else {
+            self.set_acc(h, acc_lo);
         }
-        self.set_acc(h, acc);
     }
 
     fn xram_addr_dptr(&self, h: &CpuHost) -> u16 {

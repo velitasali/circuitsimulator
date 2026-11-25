@@ -317,6 +317,11 @@ impl Timer {
     }
 
     pub fn updt_count(&mut self, data: &mut DataSpace) {
+        self.updt_count_with_elapsed(data, 0);
+    }
+
+    #[inline]
+    pub fn updt_count_with_elapsed(&mut self, data: &mut DataSpace, elapsed_ps: u64) {
         if !self.running {
             return;
         }
@@ -325,7 +330,8 @@ impl Timer {
             return;
         }
         // C++ `calcCounter` from time-to-ovf. `remain_ps` is that time.
-        if let Some(time2ovf) = self.remain_ps {
+        if let Some(remain_ps) = self.remain_ps {
+            let time2ovf = remain_ps.saturating_sub(elapsed_ps);
             let cycles2ovf = if self.ps_per_tick == 0 {
                 0
             } else {

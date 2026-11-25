@@ -124,41 +124,49 @@ impl CpuHost {
     }
 
     pub(crate) fn apply_watch(&mut self, w: Watch, old: u8, val: u8, write: bool) {
-        match w {
-            Watch::TimerEnable(_)
-            | Watch::TimerCountL(_)
-            | Watch::TimerCountH(_)
-            | Watch::TimerCountRead(_)
-            | Watch::TimerConfigA(_)
-            | Watch::TimerConfigB(_)
-            | Watch::TimerConfigC(_)
-            | Watch::TimerTop0(_)
-            | Watch::TimerIcrL(_)
-            | Watch::OcWriteL { .. }
-            | Watch::OcWriteH { .. }
-            | Watch::OcConfig { .. }
-            | Watch::IcConfig(_)
-            | Watch::UsartSend(_)
-            | Watch::UsartRead(_)
-            | Watch::UsartConfigA(_)
-            | Watch::UsartConfigB(_)
-            | Watch::UsartConfigC(_)
-            | Watch::UsartTxEnable(_)
-            | Watch::UsartRxEnable(_)
-            | Watch::UsartBaudL(_)
-            | Watch::UsartBaudH(_)
-            | Watch::AdcConfig
-            | Watch::CcpConfig(_)
-            | Watch::CcpWriteL(_)
-            | Watch::CcpWriteH(_)
-            | Watch::TwiConfigA(_)
-            | Watch::TwiConfigB(_)
-            | Watch::TwiStatus(_)
-            | Watch::TwiDataWrite(_)
-            | Watch::TwiAddr(_) => {
-                self.periph_dirty = true;
+        // Fast path: reading TCNT (e.g. Arduino micros()/delay() tight loop) only needs
+        // this timer's instantaneous count without flushing all peripherals or dirtying schedules.
+        if let Watch::TimerCountRead(i) = w {
+            if let Some(t) = self.timers.get_mut(i) {
+                t.updt_count_with_elapsed(&mut self.data, self.periph_elapsed);
             }
-            _ => {}
+            return;
+        }
+        let mutates_periph = matches!(
+            w,
+            Watch::TimerEnable(_)
+                | Watch::TimerCountL(_)
+                | Watch::TimerCountH(_)
+                | Watch::TimerConfigA(_)
+                | Watch::TimerConfigB(_)
+                | Watch::TimerConfigC(_)
+                | Watch::TimerTop0(_)
+                | Watch::TimerIcrL(_)
+                | Watch::OcWriteL { .. }
+                | Watch::OcWriteH { .. }
+                | Watch::OcConfig { .. }
+                | Watch::IcConfig(_)
+                | Watch::UsartSend(_)
+                | Watch::UsartRead(_)
+                | Watch::UsartConfigA(_)
+                | Watch::UsartConfigB(_)
+                | Watch::UsartConfigC(_)
+                | Watch::UsartTxEnable(_)
+                | Watch::UsartRxEnable(_)
+                | Watch::UsartBaudL(_)
+                | Watch::UsartBaudH(_)
+                | Watch::CcpConfig(_)
+                | Watch::CcpWriteL(_)
+                | Watch::CcpWriteH(_)
+                | Watch::TwiConfigA(_)
+                | Watch::TwiConfigB(_)
+                | Watch::TwiStatus(_)
+                | Watch::TwiDataWrite(_)
+                | Watch::TwiAddr(_)
+        );
+        if mutates_periph {
+            self.flush_peripherals();
+            self.periph_dirty = true;
         }
         match w {
             Watch::PortInRead(i) => {
@@ -196,11 +204,7 @@ impl CpuHost {
                     t.count_write_h(val, &mut self.data, &mut self.ports, self.ps_inst);
                 }
             }
-            Watch::TimerCountRead(i) => {
-                if let Some(t) = self.timers.get_mut(i) {
-                    t.updt_count(&mut self.data);
-                }
-            }
+            Watch::TimerCountRead(_) => {}
             Watch::TimerConfigA(i) => {
                 if let Some(t) = self.timers.get_mut(i) {
                     t.configure_a(val, &mut self.data, &mut self.ports, self.ps_inst);
@@ -380,6 +384,9 @@ impl CpuHost {
                     complete_adc_conversion(&mut self.data, val);
                 }
             }
+        }
+        if mutates_periph && !self.ports_dirty && self.ports.iter().any(|p| p.dirty) {
+            self.ports_dirty = true;
         }
     }
 }

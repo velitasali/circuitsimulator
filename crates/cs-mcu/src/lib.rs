@@ -27,7 +27,7 @@ mod xml;
 pub use cpu::{Rv32, Thumb};
 pub use dataspace::{DataSpace, RegInfo, Watch};
 pub use desc::{CoreKind, McuDesc, StackSpec};
-pub use device::{Device, Mcu, McuState};
+pub use device::{BatchDebugMode, BatchStop, Device, Mcu, McuState};
 pub use hex::{HexError, encode_hex, load_hex};
 pub use interrupts::Interrupts;
 pub use port::{GpioPin, Port, PortSpec};

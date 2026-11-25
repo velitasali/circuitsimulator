@@ -1231,52 +1231,80 @@ impl Circuit {
         match target {
             EventTarget::AnalogClock => self.analog_clock_event(),
             EventTarget::Device(i) => {
-                let mcu_step = if let Some(Kind::Mcu(m)) =
-                    self.components.get_mut(i).map(|c| &mut c.kind)
-                {
+                let is_mcu = matches!(self.components.get(i).map(|c| &c.kind), Some(Kind::Mcu(_)));
+                let mcu_step = if is_mcu {
                     let is_debug = crate::debug::DebugSession::is_active_global();
+                    if is_debug {
+                        let session = crate::debug::DebugSession::global();
+                        let bp_gen = session.breakpoints_generation();
+                        if bp_gen != self.debug_bp_gen {
+                            self.debug_break_pcs = session.fast_break_pcs();
+                            self.debug_bp_gen = bp_gen;
+                        }
+                        let st_gen = session.state_generation();
+                        if st_gen != self.debug_state_gen {
+                            self.debug_batch_state = session.batch_debug_state();
+                            self.debug_state_gen = st_gen;
+                        }
+                    }
+                    let debug_mode = if !is_debug {
+                        cs_mcu::BatchDebugMode::Off
+                    } else {
+                        match self.debug_batch_state {
+                            crate::debug::BatchDebugState::Idle
+                            | crate::debug::BatchDebugState::Running => {
+                                cs_mcu::BatchDebugMode::Running {
+                                    break_pcs: &self.debug_break_pcs,
+                                }
+                            }
+                            crate::debug::BatchDebugState::Paused
+                            | crate::debug::BatchDebugState::StepInto => {
+                                cs_mcu::BatchDebugMode::StepInto
+                            }
+                            crate::debug::BatchDebugState::StepOver { target_sp, exit_pc } => {
+                                cs_mcu::BatchDebugMode::StepOver {
+                                    break_pcs: &self.debug_break_pcs,
+                                    target_sp,
+                                    exit_pc,
+                                }
+                            }
+                            crate::debug::BatchDebugState::StepOut { target_sp } => {
+                                cs_mcu::BatchDebugMode::StepOut {
+                                    break_pcs: &self.debug_break_pcs,
+                                    target_sp,
+                                }
+                            }
+                        }
+                    };
                     let next_deadline = self.events.peek_time().unwrap_or(u64::MAX);
-                    let mut steps = 0usize;
-                    m.drain_host_serial();
-                    loop {
+                    let max_ps = next_deadline.saturating_sub(self.circ_time);
+                    if let Some(Kind::Mcu(m)) = self.components.get_mut(i).map(|c| &mut c.kind) {
+                        m.drain_host_serial();
                         if self.nodes_dirty {
                             m.sample_inputs_nodes(&self.nodes);
                         }
-                        let prev_pc = m.device.pc();
-                        if m.device.state == cs_mcu::McuState::Running {
-                            m.device.advance();
-                        }
+                        let stop = m.device.advance_batch(max_ps, 4096, debug_mode);
+                        self.circ_time = self.circ_time.saturating_add(stop.advanced_ps);
                         if is_debug {
-                            let pc = m.device.pc();
-                            let sp = m.device.sp();
-                            let ret_addr = m.device.ret_addr();
-                            let _ = crate::debug::DebugSession::global()
-                                .on_mcu_step(pc, prev_pc, sp, ret_addr);
-                            break;
+                            let session = crate::debug::DebugSession::global();
+                            if let Some((prev_pc, pc, sp, ret_addr)) = stop.debug_hit {
+                                let _ = session.on_mcu_step(pc, prev_pc, sp, ret_addr);
+                            } else {
+                                session.set_last_pc(m.device.pc());
+                            }
                         }
-                        if m.device.state != cs_mcu::McuState::Running || m.device.ports_dirty() {
-                            break;
-                        }
-                        let delta = m.device.next_event_ps();
-                        let max_step_ps = m.device.ps_tick.saturating_mul(4);
-                        if delta > max_step_ps
-                            || self.circ_time.saturating_add(delta) >= next_deadline
-                            || steps >= 2048
-                        {
-                            break;
-                        }
-                        self.circ_time = self.circ_time.saturating_add(delta);
-                        steps += 1;
-                    }
-                    m.flush_periph_logs();
-                    self.mcu_actions_buf.clear();
-                    m.sync_gpio_to_pins_buf(&mut self.mcu_actions_buf);
-                    let next = if m.device.state == cs_mcu::McuState::Running {
-                        Some(m.device.next_event_ps())
+                        m.flush_periph_logs();
+                        self.mcu_actions_buf.clear();
+                        m.sync_gpio_to_pins_buf(&mut self.mcu_actions_buf);
+                        let next = if m.device.state == cs_mcu::McuState::Running {
+                            Some(m.device.next_event_ps())
+                        } else {
+                            None
+                        };
+                        Some(next)
                     } else {
                         None
-                    };
-                    Some(next)
+                    }
                 } else {
                     None
                 };

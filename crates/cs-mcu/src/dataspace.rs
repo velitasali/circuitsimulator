@@ -150,10 +150,12 @@ impl DataSpace {
         &mut self.data
     }
 
+    #[inline(always)]
     pub fn get(&self, addr: u16) -> u8 {
         self.data.get(addr as usize).copied().unwrap_or(0)
     }
 
+    #[inline(always)]
     pub fn set(&mut self, addr: u16, v: u8) {
         if let Some(slot) = self.data.get_mut(addr as usize) {
             *slot = v;

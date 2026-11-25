@@ -400,3 +400,94 @@ fn test_live_esp32_qemu_breakpoint() {
     session.clear_watches();
     let _ = fs::remove_dir_all(&tmp_dir);
 }
+
+#[test]
+fn test_elf_cache_and_fast_break_pcs() {
+    let elf_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/Mega_Display/Mega_Display.elf");
+    let session = DebugSession::default();
+    assert!(!session.has_symbols());
+
+    assert!(session.load_elf_if_changed(&elf_path));
+    assert!(session.has_symbols());
+    let gen1 = session.symbols_generation();
+
+    // Calling again on the unchanged ELF must hit the stamp cache without re-parsing.
+    assert!(session.load_elf_if_changed(&elf_path));
+    assert_eq!(session.symbols_generation(), gen1);
+
+    // Line breakpoints populate `fast_break_pcs` (sorted, deduped) for batch checking.
+    session.add_breakpoint("Mega_Display.ino", 53);
+    let fast = session.fast_break_pcs();
+    assert!(fast.contains(&(0x3430 / 2)));
+    assert!(fast.windows(2).all(|w| w[0] < w[1]));
+}
+
+#[test]
+fn test_batch_debug_hits_breakpoint_step_over_and_resumes() {
+    use cs_engine::debug::BatchDebugState;
+    use cs_mcu::BatchDebugMode;
+
+    const MINI_AVR: &str = r#"
+<mcu name="mini" core="AVR" data="256" prog="64" progword="2" inst_cycle="1" freq="16000000">
+  <datablock name="GPR" start="0x0000" end="0x001F"/>
+  <regblock name="SFR" start="0x0020" end="0x005F">
+    <register name="SREG" addr="0x005F" reset="0" bits="C,Z,N,V,S,H,T,I"/>
+    <register name="SPL" addr="0x005D" reset="0xFF"/>
+    <register name="SPH" addr="0x005E" reset="0x00"/>
+  </regblock>
+  <datablock name="RAM" start="0x0060" end="0x00FF"/>
+  <stack spreg="SPL,SPH" increment="postdec"/>
+</mcu>
+"#;
+    let mut dev = cs_mcu::Device::from_xml("U1", MINI_AVR).expect("build AVR");
+    // Program:
+    // 0: LDI R16, 0x00   (0xE000)
+    // 1: INC R16         (0x9503)
+    // 2: CPI R16, 0x10   (0x3100)
+    // 3: BRNE -3 (pc=1)  (0xF7E9)
+    // 4: NOP             (0x0000)  <-- breakpoint here!
+    // 5: RJMP -1 (pc=5)  (0xCFFF)
+    dev.load_words(&[0xE000, 0x9503, 0x3100, 0xF7E9, 0x0000, 0xCFFF]);
+    dev.start();
+    dev.clear_ports_dirty();
+
+    // Use an isolated non-global session so parallel integration tests are never affected.
+    let session = DebugSession::default();
+    session.add_addr_breakpoint(4);
+    session.resume();
+    assert_eq!(session.batch_debug_state(), BatchDebugState::Running);
+
+    let break_pcs = session.fast_break_pcs();
+    let stop = dev.advance_batch(
+        u64::MAX,
+        4096,
+        BatchDebugMode::Running {
+            break_pcs: &break_pcs,
+        },
+    );
+    let (prev_pc, pc, sp, ret_addr) = stop.debug_hit.expect("batch must hit breakpoint at PC=4");
+    assert_eq!(pc, 4);
+    assert_eq!(dev.ram_dump()[16], 0x10);
+    let reason = session.on_mcu_step(pc, prev_pc, sp, ret_addr);
+    assert!(matches!(
+        reason,
+        Some(BreakReason::Breakpoint { address: 4, .. })
+    ));
+    assert!(session.is_paused());
+
+    // Resume past the breakpoint; next batch advances to PC=5 and does not re-trigger PC=4.
+    session.resume();
+    let stop2 = dev.advance_batch(
+        10_000_000,
+        4096,
+        BatchDebugMode::Running {
+            break_pcs: &break_pcs,
+        },
+    );
+    assert!(
+        stop2.debug_hit.is_none(),
+        "resuming past PC=4 must not re-trigger PC=4"
+    );
+    assert_eq!(dev.pc(), 5);
+}

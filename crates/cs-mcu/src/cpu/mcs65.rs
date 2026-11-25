@@ -13,7 +13,9 @@ pub const C: u8 = 0;
 pub const Z: u8 = 1;
 pub const I: u8 = 2;
 pub const D: u8 = 3;
+#[allow(dead_code)]
 pub const B: u8 = 4;
+#[allow(dead_code)]
 pub const O: u8 = 5;
 pub const V: u8 = 6;
 pub const N: u8 = 7;
@@ -44,6 +46,7 @@ enum AddrMode {
     Zero,
     ZedX,
     Indi,
+    JmpInd,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -553,7 +556,13 @@ impl Mcs65 {
                     self.a_mode = AddrMode::Abso;
                 }
             }
-            3 => self.a_mode = AddrMode::Abso,
+            3 => {
+                if group == 0 && ocode == 3 {
+                    self.a_mode = AddrMode::JmpInd;
+                } else {
+                    self.a_mode = AddrMode::Abso;
+                }
+            }
             4 => {
                 if group == 0 {
                     self.a_mode = AddrMode::Imme;
@@ -578,7 +587,7 @@ impl Mcs65 {
             }
             7 => {
                 self.a_mode = AddrMode::Abso;
-                self.a_flags = I_X;
+                self.a_flags = if group == 2 && ocode == 5 { I_Y } else { I_X };
             }
             _ => {}
         }
@@ -656,6 +665,30 @@ impl Mcs65 {
             AddrMode::Zero => self.read_zero(),
             AddrMode::ZedX => self.read_zedx(),
             AddrMode::Indi => self.read_indi(),
+            AddrMode::JmpInd => self.read_jmp_ind(),
+        }
+    }
+
+    fn read_jmp_ind(&mut self) {
+        match self.cycle {
+            2 => {
+                self.op_addr = u16::from(self.data_bus);
+                self.read_pgm();
+            }
+            3 => {
+                self.op_addr |= u16::from(self.data_bus) << 8;
+                self.read_mem(self.op_addr);
+            }
+            4 => {
+                self.u8_tmp0 = self.data_bus;
+                let hi_addr =
+                    (self.op_addr & 0xFF00) | u16::from((self.op_addr as u8).wrapping_add(1));
+                self.read_mem(hi_addr);
+            }
+            5 => {
+                self.op_addr = u16::from(self.u8_tmp0) | (u16::from(self.data_bus) << 8);
+            }
+            _ => {}
         }
     }
 
@@ -736,12 +769,11 @@ impl Mcs65 {
                     self.read_mem(u16::from(self.u8_tmp0));
                 }
                 4 => {
-                    // C++: `m_u8Tmp0 = readDataBus() + 1` (low byte + 1 used as addrL).
-                    self.u8_tmp0 = self.data_bus.wrapping_add(1);
-                    self.read_mem(u16::from(self.u8_tmp0));
+                    self.u8_tmp1 = self.data_bus;
+                    self.read_mem(u16::from(self.u8_tmp0.wrapping_add(1)));
                 }
                 5 => {
-                    self.op_addr = u16::from(self.u8_tmp0) | (u16::from(self.data_bus) << 8);
+                    self.op_addr = u16::from(self.u8_tmp1) | (u16::from(self.data_bus) << 8);
                     self.read_mem(self.op_addr);
                 }
                 6 => self.op0 = self.data_bus,
@@ -933,12 +965,7 @@ impl Mcs65 {
                 self.set_nz(self.ac);
             }
             Exec::Pha => self.push_stack8(self.ac),
-            Exec::Php => {
-                // C++ `pushStack8( STATUS(C) | STATUS(B) )` — not the full P.
-                let c = if self.status(C) { 1 << C } else { 0 };
-                let b = if self.status(B) { 1 << B } else { 0 };
-                self.push_stack8(c | b);
-            }
+            Exec::Php => self.push_stack8(self.p | CONSTANT | BREAK),
             Exec::Pla => {
                 if self.cycle == 2 {
                     self.pop_stack8();
@@ -1055,7 +1082,7 @@ impl Mcs65 {
             (u32::from(self.ac) ^ tmp) & 0x80 != 0 && (self.ac ^ m) & 0x80 != 0,
         );
         if self.status(D) {
-            if u32::from(self.ac & 0x0F).wrapping_sub(borrow) < u32::from(m & 0x0F) {
+            if i32::from(self.ac & 0x0F) - (borrow as i32) < i32::from(m & 0x0F) {
                 tmp = tmp.wrapping_sub(6);
             }
             if tmp > 0x99 {
@@ -1144,7 +1171,6 @@ impl Mcs65 {
             5 => {
                 self.pc = (u16::from(self.data_bus) << 8) | u16::from(self.op0);
                 self.a_mode = AddrMode::Imme;
-                self.write_s_bit(I, false);
                 h.reti = true;
             }
             _ => {}
@@ -1167,10 +1193,9 @@ impl Mcs65 {
     }
 
     fn bxx(&mut self) {
-        // C++ maps flag 1 to O (bit 5), not V.
         let bit = match self.u8_tmp0 {
             0 => N,
-            1 => O,
+            1 => V,
             2 => C,
             3 => Z,
             _ => Z,

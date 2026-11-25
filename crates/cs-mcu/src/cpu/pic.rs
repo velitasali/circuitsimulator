@@ -518,7 +518,7 @@ impl Pic12 {
             if instr & 0xE00 == 0 {
                 match instr & 0x1C0 {
                     0x000 => self.movwf(h, f),
-                    0x040 => self.clr(h, f),
+                    0x040 => self.clr(h, f, d),
                     0x080 => self.subwf(h, f, d),
                     0x0C0 => self.decf(h, f, d),
                     0x100 => self.iorwf(h, f, d),
@@ -619,8 +619,8 @@ impl Pic12 {
         let w = self.mr.w;
         self.set_ram(h, f, w);
     }
-    fn clr(&mut self, h: &mut CpuHost, f: u8) {
-        self.set_value(h, 0, f, 1);
+    fn clr(&mut self, h: &mut CpuHost, f: u8, d: u8) {
+        self.set_value(h, 0, f, d);
         PicMr::write_s_bit(h, Z, true);
     }
     fn subwf(&mut self, h: &mut CpuHost, f: u8, d: u8) {

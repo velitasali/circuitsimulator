@@ -1,7 +1,6 @@
 //! Simulation synchronization, runtime stepping loop, MCU cosimulation, and instruments.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::Circuit;
@@ -10,7 +9,7 @@ use crate::canvas::events::Change;
 use crate::canvas::scene::Part;
 use crate::canvas::{Canvas, Point, with_pin_id, with_pin_id_idx};
 use crate::components::{ShapeKind, Subcircuit};
-use crate::debug::{DebugSession, ElfParser};
+use crate::debug::DebugSession;
 use crate::elements::Kind;
 use crate::elements::pins::{
     PIN_IN0, PIN_IN1, PIN_IN2, PIN_IN3, PIN_IN4, PIN_IN5, PIN_INPIN, PIN_LEFT, PIN_RGB_B,
@@ -25,7 +24,7 @@ impl Canvas {
         if self.board_layout.is_some() {
             self.exit_board_layout();
         }
-        if DebugSession::is_active_global() && DebugSession::global().symbols().is_empty() {
+        if DebugSession::is_active_global() && !DebugSession::global().has_symbols() {
             if let Some(firm) = self.firmware_path_for("") {
                 load_companion_elf(&firm);
             }
@@ -720,7 +719,7 @@ impl Canvas {
         if session.is_remote_attached() {
             session.request_remote_mem_refresh();
         }
-        if session.symbols().is_empty() {
+        if !session.has_symbols() {
             if let Some(firm) = self.firmware_path_for("") {
                 load_companion_elf(&firm);
             }
@@ -2405,15 +2404,10 @@ fn load_companion_elf(firmware: &Path) {
     if let Some(prefix) = s.strip_suffix(".merged.bin") {
         candidates.push(PathBuf::from(format!("{prefix}.elf")));
     }
+    let session = DebugSession::global();
     for cand in candidates {
-        if !cand.is_file() {
-            continue;
-        }
-        if let Ok(bytes) = fs::read(&cand) {
-            if let Some(syms) = ElfParser::parse(&bytes) {
-                DebugSession::global().load_symbols(syms);
-                return;
-            }
+        if session.load_elf_if_changed(&cand) {
+            return;
         }
     }
 }

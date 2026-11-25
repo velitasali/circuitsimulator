@@ -85,6 +85,12 @@ pub struct Circuit {
     resolved_links: Vec<(usize, Vec<usize>)>,
     /// Last emitted numeric value per linker source index (avoids redundant callbacks).
     last_linked_sent: FxHashMap<usize, f64>,
+    /// Cached debug breakpoint PCs and state synced by generation counter so
+    /// MCU batches never acquire `DebugSession` mutexes per instruction.
+    debug_bp_gen: u64,
+    debug_state_gen: u64,
+    debug_break_pcs: Vec<u32>,
+    debug_batch_state: crate::debug::BatchDebugState,
 }
 
 impl Default for Circuit {
@@ -125,6 +131,10 @@ impl Default for Circuit {
             comp_links: FxHashMap::default(),
             resolved_links: Vec::new(),
             last_linked_sent: FxHashMap::default(),
+            debug_bp_gen: u64::MAX,
+            debug_state_gen: u64::MAX,
+            debug_break_pcs: Vec::new(),
+            debug_batch_state: crate::debug::BatchDebugState::Idle,
         }
     }
 }
@@ -248,6 +258,7 @@ impl Circuit {
         self.step_horizon = end;
         self.yield_frame = false;
         let mut paused = false;
+        let mut iter = 0u32;
         loop {
             if crate::debug::DebugSession::is_paused_global() {
                 paused = true;
@@ -256,12 +267,14 @@ impl Circuit {
             if self.yield_frame {
                 break;
             }
-            if self
-                .frame_deadline
-                .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+            if (iter & 31) == 0
+                && self
+                    .frame_deadline
+                    .is_some_and(|deadline| std::time::Instant::now() >= deadline)
             {
                 break;
             }
+            iter = iter.wrapping_add(1);
             if self.check_pending_serial() {
                 needs_solve = true;
                 self.ensure_analog_clock();

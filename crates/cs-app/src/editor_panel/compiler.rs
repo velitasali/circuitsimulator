@@ -241,6 +241,47 @@ impl EditorPanel {
         } else {
             String::new()
         };
+
+        // Fast path for Debug / Upload+Run: if this Arduino sketch's build artifacts
+        // (and companion .elf when debugging) are already up to date for this exact
+        // board/FQBN, skip re-running `arduino-cli compile` so debugging starts immediately.
+        // Explicit Compile (`!then_upload && !then_run`) always rebuilds.
+        if (then_upload || then_run)
+            && spec.is_arduino()
+            && extra_args.trim().is_empty()
+            && incl_path.trim().is_empty()
+        {
+            if let Some(cached_fw) = arduino::cached_up_to_date_firmware(&src_path, &fqbn, debug) {
+                let fw_str = cached_fw.to_string_lossy().into_owned();
+                self.push_log(format!(
+                    "     {} ({})",
+                    cs_engine::i18n::tr("Build up to date, skipping recompile"),
+                    fw_str
+                ));
+                self.compile_state = "ok".to_string();
+                self.compile_file = Path::new(&src_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&src_path)
+                    .to_string();
+                self.compile_error_count = 0;
+                self.compile_warning_count = 0;
+                self.compiling = false;
+                self.compiling_changed();
+                let mut res = CompileResult::default();
+                res.firmware = fw_str;
+                self.finish_compile_result(
+                    src_path,
+                    debug,
+                    then_upload,
+                    then_run,
+                    breakpoints,
+                    res,
+                );
+                return;
+            }
+        }
+
         let ctx = CompileCtx {
             file: src_path.clone(),
             board,
@@ -323,7 +364,25 @@ impl EditorPanel {
     }
 
     pub fn apply_compile_result(&mut self, pending: PendingCompile, result: CompileResult) {
-        let src_path = pending.src_path;
+        self.finish_compile_result(
+            pending.src_path,
+            pending.debug,
+            pending.then_upload,
+            pending.then_run,
+            pending.breakpoints,
+            result,
+        );
+    }
+
+    fn finish_compile_result(
+        &mut self,
+        src_path: String,
+        debug: bool,
+        then_upload: bool,
+        then_run: bool,
+        breakpoints: Vec<i32>,
+        result: CompileResult,
+    ) {
         if let Some(d) = self.docs.iter_mut().find(|d| d.path == src_path) {
             d.errors = result.errors;
             d.warnings = result.warnings;
@@ -347,19 +406,59 @@ impl EditorPanel {
             let sketch_dir = path_obj.parent().unwrap_or_else(|| Path::new(""));
             let file_stem = path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let firmware_path = Path::new(&result.firmware);
+            let session = cs_engine::debug::DebugSession::global();
 
-            let mut loaded_syms: Option<cs_engine::debug::DebugSymbols> = None;
-            let elf_candidates = [
+            let bp_lines: Vec<usize> = breakpoints
+                .iter()
+                .filter(|&&l| l > 0)
+                .map(|&l| l as usize)
+                .collect();
+
+            let raw_elfs = [
                 sketch_dir.join(format!("{file_stem}.elf")),
                 sketch_dir.join(format!("{file_stem}.ino.elf")),
                 firmware_path.with_extension("elf"),
             ];
-            for elf_path in &elf_candidates {
-                if !elf_path.is_file() {
+            let mut unique_elfs = Vec::new();
+            for cand in raw_elfs {
+                if !cand.is_file() {
                     continue;
                 }
-                if let Ok(bytes) = std::fs::read(elf_path) {
-                    if let Some(parsed) = cs_engine::debug::ElfParser::parse(&bytes) {
+                let canon = std::fs::canonicalize(&cand).unwrap_or(cand);
+                if !unique_elfs.iter().any(|p| p == &canon) {
+                    unique_elfs.push(canon);
+                }
+            }
+            let lst_path = sketch_dir.join(format!("{file_stem}.lst"));
+            let has_lst = lst_path.is_file();
+
+            if !has_lst && unique_elfs.len() == 1 {
+                session.set_breakpoints_for_file(path_obj, &bp_lines);
+                let _ = session.load_elf_if_changed(&unique_elfs[0]);
+            } else {
+                let mut loaded_syms: Option<cs_engine::debug::DebugSymbols> = None;
+                let mut primary_elf = None;
+                for elf_path in &unique_elfs {
+                    if let Ok(bytes) = std::fs::read(elf_path) {
+                        if let Some(parsed) = cs_engine::debug::ElfParser::parse(&bytes) {
+                            if primary_elf.is_none() {
+                                primary_elf = Some(elf_path.clone());
+                            }
+                            if let Some(s) = &mut loaded_syms {
+                                s.merge(parsed);
+                            } else {
+                                loaded_syms = Some(parsed);
+                            }
+                        }
+                    }
+                }
+                if has_lst {
+                    if let Ok(content) = std::fs::read_to_string(&lst_path) {
+                        let parsed = cs_engine::debug::LstParser::parse(
+                            &content,
+                            path_obj,
+                            cs_engine::debug::LstKind::Auto,
+                        );
                         if let Some(s) = &mut loaded_syms {
                             s.merge(parsed);
                         } else {
@@ -367,36 +466,19 @@ impl EditorPanel {
                         }
                     }
                 }
-            }
-            let lst_path = sketch_dir.join(format!("{file_stem}.lst"));
-            if lst_path.is_file() {
-                if let Ok(content) = std::fs::read_to_string(&lst_path) {
-                    let parsed = cs_engine::debug::LstParser::parse(
-                        &content,
-                        path_obj,
-                        cs_engine::debug::LstKind::Auto,
-                    );
-                    if let Some(s) = &mut loaded_syms {
-                        s.merge(parsed);
-                    } else {
-                        loaded_syms = Some(parsed);
+                if let Some(syms) = loaded_syms {
+                    session.set_breakpoints_for_file(path_obj, &bp_lines);
+                    session.load_symbols(syms);
+                    if !has_lst {
+                        if let Some(elf) = primary_elf {
+                            session.mark_loaded_elf(&elf);
+                        }
                     }
                 }
             }
-            if let Some(syms) = loaded_syms {
-                let session = cs_engine::debug::DebugSession::global();
-                let bp_lines: Vec<usize> = pending
-                    .breakpoints
-                    .iter()
-                    .filter(|&&l| l > 0)
-                    .map(|&l| l as usize)
-                    .collect();
-                session.set_breakpoints_for_file(path_obj, &bp_lines);
-                session.load_symbols(syms);
-            }
         }
 
-        if pending.then_upload {
+        if then_upload {
             if self.last_firmware.is_empty() {
                 self.push_log(format!(
                     "     {}",
@@ -414,12 +496,12 @@ impl EditorPanel {
                 self.request_upload();
             }
         }
-        if pending.then_run
+        if then_run
             && result.error == 0
             && !self.last_firmware.is_empty()
             && Path::new(&self.last_firmware).is_file()
         {
-            if pending.debug {
+            if debug {
                 self.push_log(cs_engine::i18n::tr("Starting debug session…"));
                 self.request_debug_run();
             } else {

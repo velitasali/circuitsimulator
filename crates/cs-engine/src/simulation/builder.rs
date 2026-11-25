@@ -1093,6 +1093,10 @@ impl Circuit {
             comp_links,
             resolved_links: Vec::new(),
             last_linked_sent: FxHashMap::default(),
+            debug_bp_gen: u64::MAX,
+            debug_state_gen: u64::MAX,
+            debug_break_pcs: Vec::new(),
+            debug_batch_state: crate::debug::BatchDebugState::Idle,
         })
     }
 

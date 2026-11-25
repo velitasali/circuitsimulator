@@ -203,8 +203,8 @@ impl DebugSymbols {
         if let Some(name) = self.pc_to_function.get(&pc) {
             return Some(name.as_str());
         }
-        for fn_sym in self.functions.values() {
-            if fn_sym.start_pc <= pc {
+        if let Some((_, name)) = self.pc_to_function.range(..=pc).next_back() {
+            if let Some(fn_sym) = self.functions.get(name) {
                 if let Some(end) = fn_sym.end_pc {
                     if pc <= end {
                         return Some(fn_sym.name.as_str());

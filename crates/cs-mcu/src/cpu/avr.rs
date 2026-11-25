@@ -210,37 +210,34 @@ impl Avr {
                     // MULSU / FMUL / FMULS / FMULSU
                     let r = 16 + (instruction & 0x7) as u8;
                     let d = 16 + ((instruction >> 4) & 0x7) as u8;
-                    let (mut res, mut c) = (0i16, false);
-                    match instruction & 0x88 {
+                    let (res16, c) = match instruction & 0x88 {
                         0x00 => {
-                            // MULSU
-                            res = i16::from(h.gpr(r)) * i16::from(h.gpr(d) as i8);
-                            c = (res >> 15) & 1 != 0;
+                            // MULSU: Rd(signed) * Rr(unsigned)
+                            let p = i32::from(h.gpr(d) as i8) * i32::from(h.gpr(r));
+                            let u = p as u16;
+                            (u, u & 0x8000 != 0)
                         }
                         0x08 => {
-                            // FMUL
-                            res = i16::from(h.gpr(r)) * i16::from(h.gpr(d));
-                            c = (res >> 15) & 1 != 0;
-                            res <<= 1;
+                            // FMUL: (Rd(unsigned) * Rr(unsigned)) << 1
+                            let p = u16::from(h.gpr(d)) * u16::from(h.gpr(r));
+                            (p << 1, p & 0x8000 != 0)
                         }
                         0x80 => {
-                            // FMULS
-                            res = i16::from(h.gpr(r) as i8) * i16::from(h.gpr(d) as i8);
-                            c = (res >> 15) & 1 != 0;
-                            res <<= 1;
+                            // FMULS: (Rd(signed) * Rr(signed)) << 1
+                            let p = (i32::from(h.gpr(d) as i8) * i32::from(h.gpr(r) as i8)) as u16;
+                            (p << 1, p & 0x8000 != 0)
                         }
                         0x88 => {
-                            // FMULSU
-                            res = i16::from(h.gpr(r)) * i16::from(h.gpr(d) as i8);
-                            c = (res >> 15) & 1 != 0;
-                            res <<= 1;
+                            // FMULSU: (Rd(signed) * Rr(unsigned)) << 1
+                            let p = (i32::from(h.gpr(d) as i8) * i32::from(h.gpr(r))) as u16;
+                            (p << 1, p & 0x8000 != 0)
                         }
-                        _ => {}
-                    }
+                        _ => (0, false),
+                    };
                     *cycle += 1;
-                    h.set_reg16_lh(0, res as u16);
+                    h.set_reg16_lh(0, res16);
                     write_s_bit(h, S_C, c);
-                    write_s_bit(h, S_Z, res == 0);
+                    write_s_bit(h, S_Z, res16 == 0);
                 }
                 _ => {}
             },
@@ -736,8 +733,8 @@ fn skip(h: &CpuHost, new_pc: &mut u32, cycle: &mut u32) {
 }
 
 fn is_instr_32b(h: &CpuHost, pc: u32) -> bool {
-    let o = h.flash(pc) & 0xFC0F;
-    o == 0x9200 || o == 0x9000 || o == 0x940C || o == 0x940D || o == 0x940E || o == 0x940F
+    let o = h.flash(pc) & 0xFE0F;
+    matches!(o, 0x9000 | 0x9200 | 0x940C | 0x940D | 0x940E | 0x940F)
 }
 
 fn add_pc(pc: u32, k: i32, size: u32) -> u32 {

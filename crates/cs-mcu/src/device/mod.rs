@@ -8,6 +8,7 @@ mod step;
 mod tests;
 
 pub use host::CpuHost;
+pub use step::{BatchDebugMode, BatchStop};
 
 use crate::ccp::CcpUnit;
 use crate::cpu::{Avr, I51, Mcs65, Pic12, Pic14, Z80};
@@ -66,7 +67,6 @@ pub struct Device {
     pub(crate) bus_remain: Option<u64>,
     /// Delay last advertised to the circuit event queue.
     pub(crate) sched: u64,
-    pub(crate) cbs_buf: Vec<IntCallback>,
     pub is_spinning: bool,
 }
 
@@ -128,9 +128,11 @@ impl Device {
     }
 
     pub fn inject_usart_rx(&mut self, idx: usize, byte: u8) {
+        self.host.flush_peripherals();
         if let Some(u) = self.host.usarts.get_mut(idx) {
             u.inject_rx_byte(byte, &mut self.host.data, &mut self.host.interrupts);
         }
+        self.host.periph_dirty = true;
     }
 
     pub fn take_twi_tx_bytes(&mut self, idx: usize) -> Vec<u8> {
@@ -535,6 +537,9 @@ impl Device {
                 ps_inst: 0,
                 ports_dirty: true,
                 periph_dirty: true,
+                periph_elapsed: 0,
+                periph_next: u64::MAX,
+                cbs_buf: Vec::new(),
             },
             state: McuState::Stopped,
             cycle: 0,
@@ -551,7 +556,6 @@ impl Device {
             cpu_remain: 0,
             bus_remain: None,
             sched: 0,
-            cbs_buf: Vec::new(),
             is_spinning: false,
         };
         if desc.freq > 0.0 {
@@ -634,6 +638,8 @@ impl Device {
         self.sched = 0;
         self.host.ports_dirty = true;
         self.host.periph_dirty = true;
+        self.host.periph_elapsed = 0;
+        self.host.periph_next = u64::MAX;
         for p in &mut self.host.ports {
             p.reset();
         }

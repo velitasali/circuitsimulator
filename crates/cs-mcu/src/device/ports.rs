@@ -20,9 +20,9 @@ impl Device {
         self.host.ports.iter_mut().flat_map(|p| p.pins.iter_mut())
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn ports_dirty(&self) -> bool {
-        self.host.ports_dirty || self.host.ports.iter().any(|p| p.dirty)
+        self.host.ports_dirty
     }
 
     #[inline]
@@ -75,6 +75,7 @@ impl Device {
                         self.host.data.set(addr, state);
                     }
                 }
+                self.host.flush_peripherals();
                 for t in &mut self.host.timers {
                     t.clock_pin_changed(
                         &mut self.host.ports,
@@ -84,6 +85,10 @@ impl Device {
                 }
                 for u in &mut self.host.usarts {
                     u.rx_pin_changed(&self.host.ports);
+                }
+                self.host.periph_dirty = true;
+                if !self.host.ports_dirty && self.host.ports.iter().any(|p| p.dirty) {
+                    self.host.ports_dirty = true;
                 }
                 return;
             }
@@ -131,6 +136,7 @@ impl Device {
                         self.host.data.set(addr, state);
                     }
                 }
+                self.host.flush_peripherals();
                 for t in &mut self.host.timers {
                     t.clock_pin_changed(
                         &mut self.host.ports,
@@ -140,6 +146,10 @@ impl Device {
                 }
                 for u in &mut self.host.usarts {
                     u.rx_pin_changed(&self.host.ports);
+                }
+                self.host.periph_dirty = true;
+                if !self.host.ports_dirty && self.host.ports.iter().any(|p| p.dirty) {
+                    self.host.ports_dirty = true;
                 }
             }
             return;

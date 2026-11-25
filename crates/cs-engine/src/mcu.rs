@@ -326,28 +326,54 @@ impl McuComp {
             self.device.id,
             path.display()
         ));
-        // Automatically check for and load debug symbols
-        let mut loaded_syms: Option<crate::debug::DebugSymbols> = None;
-        if let Ok(bytes) = std::fs::read(path) {
-            if bytes.starts_with(b"\x7fELF") {
-                loaded_syms = crate::debug::ElfParser::parse(&bytes);
-            }
-        }
+        // Automatically check for and load debug symbols (deduplicating paths and
+        // skipping redundant parses when DebugSession already holds this exact ELF).
+        let session = crate::debug::DebugSession::global();
         let stem = path
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        let elf_candidates = [
+        let raw_elf_candidates = [
+            path.to_path_buf(),
             path.with_extension("elf"),
             parent.join(format!("{stem}.ino.elf")),
             path.with_extension(""),
         ];
-        for elf_path in &elf_candidates {
-            if elf_path.is_file() {
+        let mut unique_elfs: Vec<PathBuf> = Vec::new();
+        for cand in raw_elf_candidates {
+            if !cand.is_file() {
+                continue;
+            }
+            let canon = std::fs::canonicalize(&cand).unwrap_or_else(|_| cand.clone());
+            if !unique_elfs.iter().any(|p| p == &canon) {
+                unique_elfs.push(canon);
+            }
+        }
+        let lst_files: Vec<PathBuf> = ["lst", "sym", "map", "lss"]
+            .iter()
+            .map(|ext| path.with_extension(ext))
+            .filter(|p| p.is_file())
+            .collect();
+
+        if lst_files.is_empty() && unique_elfs.len() == 1 {
+            // Common Arduino / GCC case: a single companion .elf with no .lst files.
+            // Skip re-reading/re-parsing if DebugSession already loaded this exact ELF.
+            let _ = session.load_elf_if_changed(&unique_elfs[0]);
+        } else {
+            let mut loaded_syms: Option<crate::debug::DebugSymbols> = None;
+            let mut primary_elf: Option<PathBuf> = None;
+            for elf_path in &unique_elfs {
+                if lst_files.is_empty() && session.is_elf_loaded(elf_path) {
+                    loaded_syms = None;
+                    break;
+                }
                 if let Ok(bytes) = std::fs::read(elf_path) {
                     if bytes.starts_with(b"\x7fELF") {
                         if let Some(parsed) = crate::debug::ElfParser::parse(&bytes) {
+                            if primary_elf.is_none() {
+                                primary_elf = Some(elf_path.clone());
+                            }
                             if let Some(s) = &mut loaded_syms {
                                 s.merge(parsed);
                             } else {
@@ -357,11 +383,8 @@ impl McuComp {
                     }
                 }
             }
-        }
-        for ext in &["lst", "sym", "map", "lss"] {
-            let sym_file = path.with_extension(ext);
-            if sym_file.is_file() {
-                if let Ok(content) = std::fs::read_to_string(&sym_file) {
+            for sym_file in &lst_files {
+                if let Ok(content) = std::fs::read_to_string(sym_file) {
                     let parsed =
                         crate::debug::LstParser::parse(&content, path, crate::debug::LstKind::Auto);
                     if let Some(s) = &mut loaded_syms {
@@ -371,9 +394,14 @@ impl McuComp {
                     }
                 }
             }
-        }
-        if let Some(syms) = loaded_syms {
-            crate::debug::DebugSession::global().load_symbols(syms);
+            if let Some(syms) = loaded_syms {
+                session.load_symbols(syms);
+                if lst_files.is_empty() {
+                    if let Some(elf) = primary_elf {
+                        session.mark_loaded_elf(&elf);
+                    }
+                }
+            }
         }
 
         // Load hex file into device

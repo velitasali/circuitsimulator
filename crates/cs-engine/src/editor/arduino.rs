@@ -1327,6 +1327,104 @@ pub fn resolve_arduino_build_dir(file_path: &str, fqbn: &str) -> PathBuf {
     base.join(format!("{hash}_{fqbn_dots}"))
 }
 
+fn is_sketch_source_file(path: &Path) -> bool {
+    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "ino" | "pde" | "c" | "cpp" | "cc" | "cxx" | "h" | "hpp" | "hh" | "s"
+    )
+}
+
+fn newest_source_mtime(dir: &Path, depth: u8) -> Option<std::time::SystemTime> {
+    let rd = fs::read_dir(dir).ok()?;
+    let mut newest: Option<std::time::SystemTime> = None;
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_file() && is_sketch_source_file(&p) {
+            if let Ok(m) = entry.metadata().and_then(|m| m.modified()) {
+                newest = Some(newest.map_or(m, |cur| cur.max(m)));
+            }
+        } else if depth > 0 && p.is_dir() {
+            let name = entry.file_name();
+            let name_s = name.to_string_lossy();
+            if name_s == "src" || depth < 3 {
+                if let Some(sub) = newest_source_mtime(&p, depth - 1) {
+                    newest = Some(newest.map_or(sub, |cur| cur.max(sub)));
+                }
+            }
+        }
+    }
+    newest
+}
+
+/// If the sketch's previously compiled firmware (and debug `.elf` when `need_elf` is true)
+/// already exists for `(file_path, fqbn)` and is at least as new as every source/header file
+/// in the sketch folder, return the firmware path so Debug / Run can start immediately without
+/// re-invoking `arduino-cli compile`.
+pub fn cached_up_to_date_firmware(file_path: &str, fqbn: &str, need_elf: bool) -> Option<PathBuf> {
+    if file_path.is_empty() || fqbn.is_empty() {
+        return None;
+    }
+    let cleaned = strip_windows_verbatim(file_path);
+    let canon_file = fs::canonicalize(&cleaned)
+        .map(|p| strip_windows_verbatim(&p.to_string_lossy()))
+        .unwrap_or(cleaned);
+    let p = Path::new(&canon_file);
+    let sketch_dir = p.parent()?;
+    let file_name = p.file_stem()?.to_str()?;
+    let is_esp32 = is_esp32_fqbn(fqbn);
+
+    let dest = sketch_firmware_path(p, is_esp32);
+    let dest_meta = fs::metadata(&dest).ok()?;
+    if !dest_meta.is_file() {
+        return None;
+    }
+    let dest_mtime = dest_meta.modified().ok()?;
+
+    // Match the build directory for this exact `(sketch, fqbn)` (including cached DIO override).
+    let mut candidate_fqbns = vec![fqbn.to_string()];
+    if is_esp32 {
+        if let Ok(map) = DIO_BOARD_CACHE.lock() {
+            if let Some((resolved, _)) = map.get(fqbn) {
+                if resolved != fqbn {
+                    candidate_fqbns.push(resolved.clone());
+                }
+            }
+        }
+    }
+    let built = candidate_fqbns.iter().find_map(|f| {
+        let dir = resolve_arduino_build_dir(&canon_file, f);
+        firmware_in_dir(&dir, file_name, is_esp32)
+    })?;
+    let built_meta = fs::metadata(&built).ok()?;
+    // Guard against board switch: dest is a direct copy of `built`, so lengths must match.
+    if built_meta.len() != dest_meta.len() {
+        return None;
+    }
+    let built_mtime = built_meta.modified().ok()?;
+    let mut oldest_artifact = dest_mtime.min(built_mtime);
+
+    if need_elf {
+        let elf = [
+            sketch_dir.join(format!("{file_name}.elf")),
+            sketch_dir.join(format!("{file_name}.ino.elf")),
+        ]
+        .into_iter()
+        .find(|e| e.is_file())?;
+        let elf_mtime = fs::metadata(&elf).ok()?.modified().ok()?;
+        oldest_artifact = oldest_artifact.min(elf_mtime);
+    }
+
+    let src_mtime = newest_source_mtime(sketch_dir, 3)?;
+    if oldest_artifact >= src_mtime {
+        Some(dest)
+    } else {
+        None
+    }
+}
+
 pub fn start_arduino_compile(
     file_path: &str,
     device: &str,

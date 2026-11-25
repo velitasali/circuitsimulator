@@ -1,10 +1,59 @@
 //! Clock stepping, instruction execution, event scheduling, frequency timing, and interrupt handling.
 
 use super::{Cpu, Device, McuState};
-use crate::interrupts::IntCallback;
+
+/// Optional debug break/step filter evaluated inside [`Device::advance_batch`]
+/// without locking any mutexes or resolving symbols per instruction.
+#[derive(Clone, Copy, Debug)]
+pub enum BatchDebugMode<'a> {
+    /// Debugger inactive (maximum throughput).
+    Off,
+    /// Debugger running freely; stop if `pc` matches any address in `break_pcs` (sorted).
+    Running { break_pcs: &'a [u32] },
+    /// Debugger stepping into the next instruction; stop after 1 step.
+    StepInto,
+    /// Debugger stepping over; stop on `break_pcs`, `exit_pc`, or stack depth return.
+    StepOver {
+        break_pcs: &'a [u32],
+        target_sp: u32,
+        exit_pc: Option<u32>,
+    },
+    /// Debugger stepping out; stop on `break_pcs`, stack depth return, or `ret_addr`.
+    StepOut {
+        break_pcs: &'a [u32],
+        target_sp: u32,
+    },
+}
+
+/// Outcome of [`Device::advance_batch`].
+#[derive(Clone, Copy, Debug)]
+pub struct BatchStop {
+    /// Total picoseconds elapsed across intermediate steps inside the batch.
+    pub advanced_ps: u64,
+    /// Set when a debug breakpoint or step condition matched: `(prev_pc, pc, sp, ret_addr)`.
+    pub debug_hit: Option<(u32, u32, u16, u32)>,
+}
+
+#[inline(always)]
+fn matches_break_pc(break_pcs: &[u32], pc: u32) -> bool {
+    if break_pcs.is_empty() {
+        return false;
+    }
+    if break_pcs.len() <= 16 {
+        for &bp in break_pcs {
+            if bp == pc {
+                return true;
+            }
+        }
+        false
+    } else {
+        break_pcs.binary_search(&pc).is_ok()
+    }
+}
 
 impl Device {
     pub fn force_freq(&mut self, mut freq: f64) {
+        self.host.flush_peripherals();
         if freq < 0.0 {
             freq = 0.0;
         } else if freq > 100.0 * 1e6 {
@@ -23,9 +72,11 @@ impl Device {
         for twi in &mut self.host.twis {
             twi.update_freq(self.freq);
         }
+        self.host.periph_dirty = true;
     }
 
     /// One CPU instruction (C++ `eMcu::stepCpu`). Tests call this directly.
+    #[inline]
     pub fn step_cpu(&mut self) {
         if self.host.prog.is_empty() || (self.host.pc as usize) < self.host.prog.len() {
             if self.state == McuState::Running {
@@ -39,6 +90,7 @@ impl Device {
         self.sync_bus_remain();
     }
 
+    #[inline(always)]
     fn dispatch_interrupts(&mut self) {
         let vector = self.host.interrupts.run(&mut self.host.data);
         if let Some(vec) = vector {
@@ -68,13 +120,20 @@ impl Device {
     }
 
     /// C++ `eMcu::runEvent` interleaved with timer / USART / `I51Core::runEvent`.
+    #[inline]
     pub fn advance(&mut self) {
         let elapsed = self.sched;
         self.cpu_remain = self.cpu_remain.saturating_sub(elapsed);
         if let Some(b) = self.bus_remain.as_mut() {
             *b = b.saturating_sub(elapsed);
         }
-        self.advance_peripherals(elapsed);
+        self.host.periph_elapsed = self.host.periph_elapsed.saturating_add(elapsed);
+        if self.host.periph_dirty {
+            self.host.recompute_periph_next();
+        }
+        if self.host.periph_elapsed >= self.host.periph_next {
+            self.host.flush_peripherals();
+        }
         let bus_due = self.bus_remain == Some(0);
         if bus_due {
             self.run_bus();
@@ -92,97 +151,103 @@ impl Device {
         self.sched = self.next_remain().max(1);
     }
 
-    fn advance_peripherals(&mut self, elapsed: u64) {
-        self.cbs_buf.clear();
-        for t in &mut self.host.timers {
-            if t.running {
-                t.advance(
-                    elapsed,
-                    &mut self.host.data,
-                    &mut self.host.interrupts,
-                    &mut self.host.ports,
-                    &mut self.cbs_buf,
-                );
+    /// Execute up to `max_steps` MCU steps inside `cs-mcu` without crossing the
+    /// crate boundary per instruction, stopping early on GPIO changes, external
+    /// deadlines (`max_ps`), idle/sleep skips, or a debug breakpoint/step hit.
+    pub fn advance_batch(
+        &mut self,
+        max_ps: u64,
+        max_steps: usize,
+        debug: BatchDebugMode<'_>,
+    ) -> BatchStop {
+        let mut advanced_ps = 0u64;
+        let mut steps = 0usize;
+        let max_step_ps = self.ps_tick.saturating_mul(4);
+        loop {
+            let prev_pc = self.host.pc;
+            if self.state == McuState::Running {
+                self.advance();
             }
-        }
-        for u in &mut self.host.usarts {
-            if u.tx_remain.is_some() {
-                u.advance_tx(
-                    elapsed,
-                    &mut self.host.data,
-                    &mut self.host.interrupts,
-                    &mut self.host.ports,
-                );
-            }
-            if u.rx_remain.is_some() {
-                u.advance_rx(
-                    elapsed,
-                    &mut self.host.data,
-                    &mut self.host.interrupts,
-                    &self.host.ports,
-                );
-            }
-        }
-        for twi in &mut self.host.twis {
-            if twi.remain_ps.is_some()
-                && twi.step_time(
-                    elapsed,
-                    &mut self.host.ports,
-                    &mut self.host.data,
-                    &mut self.host.interrupts,
-                )
-            {
-                self.host.ports_dirty = true;
-            }
-        }
-        if !self.cbs_buf.is_empty() {
-            self.apply_int_callbacks();
-        }
-    }
-
-    fn apply_int_callbacks(&mut self) {
-        for idx in 0..self.cbs_buf.len() {
-            match self.cbs_buf[idx] {
-                IntCallback::UsartTick(i) => {
-                    if let Some(u) = self.host.usarts.get_mut(i) {
-                        u.timer_tick(
-                            &mut self.host.data,
-                            &mut self.host.interrupts,
-                            &mut self.host.ports,
-                        );
+            match debug {
+                BatchDebugMode::Off => {}
+                BatchDebugMode::Running { break_pcs } => {
+                    let pc = self.host.pc;
+                    if matches_break_pc(break_pcs, pc) {
+                        return BatchStop {
+                            advanced_ps,
+                            debug_hit: Some((prev_pc, pc, self.host.get_sp(), self.host.ret_addr)),
+                        };
+                    }
+                }
+                BatchDebugMode::StepInto => {
+                    return BatchStop {
+                        advanced_ps,
+                        debug_hit: Some((
+                            prev_pc,
+                            self.host.pc,
+                            self.host.get_sp(),
+                            self.host.ret_addr,
+                        )),
+                    };
+                }
+                BatchDebugMode::StepOver {
+                    break_pcs,
+                    target_sp,
+                    exit_pc,
+                } => {
+                    let pc = self.host.pc;
+                    let sp = self.host.get_sp();
+                    let hit_step = if let Some(exit) = exit_pc {
+                        pc == exit
+                    } else {
+                        (target_sp == 0 || u32::from(sp) >= target_sp) && pc != prev_pc
+                    };
+                    if hit_step || matches_break_pc(break_pcs, pc) {
+                        return BatchStop {
+                            advanced_ps,
+                            debug_hit: Some((prev_pc, pc, sp, self.host.ret_addr)),
+                        };
+                    }
+                }
+                BatchDebugMode::StepOut {
+                    break_pcs,
+                    target_sp,
+                } => {
+                    let pc = self.host.pc;
+                    let sp = self.host.get_sp();
+                    let ret_addr = self.host.ret_addr;
+                    let hit_step = (target_sp != 0 && u32::from(sp) >= target_sp)
+                        || (ret_addr != 0 && pc == ret_addr);
+                    if hit_step || matches_break_pc(break_pcs, pc) {
+                        return BatchStop {
+                            advanced_ps,
+                            debug_hit: Some((prev_pc, pc, sp, ret_addr)),
+                        };
                     }
                 }
             }
+            if self.state != McuState::Running || self.host.ports_dirty {
+                break;
+            }
+            let delta = self.next_event_ps();
+            if delta > max_step_ps
+                || advanced_ps.saturating_add(delta) >= max_ps
+                || steps >= max_steps
+            {
+                break;
+            }
+            advanced_ps = advanced_ps.saturating_add(delta);
+            steps += 1;
+        }
+        BatchStop {
+            advanced_ps,
+            debug_hit: None,
         }
     }
 
-    fn compute_peripheral_remain(&self) -> u64 {
-        let mut n = u64::MAX;
-        for t in &self.host.timers {
-            if t.running {
-                if let Some(r) = t.next_remain() {
-                    n = n.min(r.max(1));
-                }
-            }
-        }
-        for u in &self.host.usarts {
-            if let Some(r) = u.tx_remain {
-                n = n.min(r.max(1));
-            }
-            if let Some(r) = u.rx_remain {
-                n = n.min(r.max(1));
-            }
-        }
-        for twi in &self.host.twis {
-            if let Some(r) = twi.remain_ps {
-                n = n.min(r.max(1));
-            }
-        }
-        n
-    }
-
+    #[inline(always)]
     fn next_remain(&mut self) -> u64 {
-        let periph = self.compute_peripheral_remain();
+        let periph = self.host.periph_remain();
         let cpu = if self.is_spinning {
             let horizon = periph.min(self.bus_remain.unwrap_or(u64::MAX));
             if horizon < u64::MAX {
@@ -203,6 +268,7 @@ impl Device {
         n.min(periph)
     }
 
+    #[inline(always)]
     fn sync_bus_remain(&mut self) {
         self.bus_remain = match &self.cpu {
             Cpu::I51(c) => c.pending_bus_ps,
@@ -222,6 +288,7 @@ impl Device {
         }
     }
 
+    #[inline]
     fn run_step(&mut self) {
         let prev_pc = self.host.pc;
         self.host.cycles_done = 0;
@@ -288,11 +355,13 @@ impl Device {
         self.is_spinning = spinning;
     }
 
+    #[inline(always)]
     pub fn cycles_done(&self) -> u32 {
         self.host.cycles_done.max(1)
     }
 
     /// Next event delay in picoseconds (C++ `cyclesDone * m_psTick`, or an I51 bus slot).
+    #[inline(always)]
     pub fn next_event_ps(&self) -> u64 {
         if self.sched > 0 {
             self.sched
@@ -302,7 +371,11 @@ impl Device {
     }
 
     pub fn timer_remain_ps(&self) -> Option<u64> {
-        self.host.timers.first().and_then(|t| t.remain_ps)
+        self.host
+            .timers
+            .first()
+            .and_then(|t| t.remain_ps)
+            .map(|r| r.saturating_sub(self.host.periph_elapsed))
     }
 
     pub fn irq_global(&self) -> u8 {

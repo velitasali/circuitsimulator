@@ -25,7 +25,12 @@ Item {
     property int wrapMode: wordWrap ? TextEdit.Wrap : TextEdit.NoWrap
     property int contentPadding: 9
     property bool defaultContextMenu: true
+    property bool followTail: false
     readonly property bool _wrapped: wrapMode !== TextEdit.NoWrap
+
+    property bool _pinnedToTail: true
+    property int _programmaticDepth: 0
+    property real _lastContentY: 0
 
     readonly property alias selectedText: area.selectedText
     readonly property alias hoveredLink: area.hoveredLink
@@ -48,14 +53,58 @@ Item {
         return area.positionAt(x, y)
     }
 
+    function _maxContentY(): real {
+        return Math.max(0, flick.contentHeight - flick.height)
+    }
+
+    function _runProgrammatic(fn): void {
+        _programmaticDepth += 1
+        try {
+            fn()
+        } finally {
+            _programmaticDepth -= 1
+            _lastContentY = flick.contentY
+        }
+    }
+
     function _applyTailScroll(): void {
-        flick.contentY = Math.max(0, flick.contentHeight - flick.height)
-        flick.contentX = 0
+        _runProgrammatic(function() {
+            flick.contentY = root._maxContentY()
+            flick.contentX = 0
+        })
+    }
+
+    function _applyTailScrollIfPinned(): void {
+        if (_pinnedToTail && !flick.dragging && !vbar.pressed) {
+            _applyTailScroll()
+        }
+    }
+
+    function _syncViewportBounds(): void {
+        var maxY = _maxContentY()
+        if (followTail) {
+            if (maxY <= 0) {
+                _pinnedToTail = true
+            }
+            if (_pinnedToTail && !flick.dragging && !vbar.pressed) {
+                _applyTailScroll()
+            } else if (flick.contentY > maxY) {
+                _runProgrammatic(function() {
+                    flick.contentY = maxY
+                })
+                _pinnedToTail = true
+            }
+        } else if (flick.contentY > maxY) {
+            _runProgrammatic(function() {
+                flick.contentY = maxY
+            })
+        }
     }
 
     function scrollToTail(): void {
+        _pinnedToTail = true
         _applyTailScroll()
-        Qt.callLater(_applyTailScroll)
+        Qt.callLater(_applyTailScrollIfPinned)
     }
 
     Flickable {
@@ -73,14 +122,47 @@ Item {
          * strip stays blank until something nudges contentX/Y.
          */
         onWidthChanged: { contentX += 1; contentX -= 1 }
-        onHeightChanged: { contentY += 1; contentY -= 1 }
-        onContentHeightChanged: {
-            if (contentY > contentHeight - height) {
-                contentY = Math.max(0, contentHeight - height)
+        onHeightChanged: {
+            root._runProgrammatic(function() {
+                flick.contentY += 1
+                flick.contentY -= 1
+                root._syncViewportBounds()
+            })
+        }
+        onContentHeightChanged: root._syncViewportBounds()
+        onContentYChanged: {
+            if (root._programmaticDepth > 0) {
+                return
+            }
+            var maxY = root._maxContentY()
+            if (maxY <= 0) {
+                root._pinnedToTail = true
+            } else if (flick.contentY < root._lastContentY) {
+                if (flick.contentY < maxY) {
+                    root._pinnedToTail = false
+                }
+            } else if (flick.atYEnd || flick.contentY >= maxY - 2) {
+                root._pinnedToTail = true
+            } else {
+                root._pinnedToTail = false
+            }
+            root._lastContentY = flick.contentY
+        }
+        onDraggingChanged: {
+            if (!dragging && root.followTail) {
+                root._applyTailScrollIfPinned()
             }
         }
 
-        ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: AppScrollBar {
+            id: vbar
+            policy: ScrollBar.AsNeeded
+            onPressedChanged: {
+                if (!pressed && root.followTail) {
+                    root._applyTailScrollIfPinned()
+                }
+            }
+        }
         ScrollBar.horizontal: AppScrollBar {
             policy: root._wrapped ? ScrollBar.AlwaysOff : ScrollBar.AsNeeded
         }
@@ -100,6 +182,19 @@ Item {
             selectedTextColor: appTheme.highlightedText
 
             onLinkActivated: (link) => root.linkActivated(link)
+
+            onTextChanged: {
+                if (!root.followTail) {
+                    return
+                }
+                if (area.length === 0) {
+                    root._pinnedToTail = true
+                }
+                if (root._pinnedToTail && !flick.dragging && !vbar.pressed) {
+                    root._applyTailScroll()
+                    Qt.callLater(root._applyTailScrollIfPinned)
+                }
+            }
 
             onWrapModeChanged: {
                 if (root._wrapped) {

@@ -139,7 +139,7 @@ Rectangle {
                     fixedPitch: true
                 })
                 color: appTheme.windowText
-                onTextChanged: scrollToTail()
+                followTail: true
             }
         }
     }

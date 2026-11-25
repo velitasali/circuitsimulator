@@ -12,14 +12,90 @@ Item {
     id: root
     SystemPalette { id: appTheme }
 
+    property var _panePool: ({})
+    property int activeDocId: -1
+    property CodeEditorPane activePane: null
+    readonly property Flickable activeFlick: activePane ? activePane.flick : null
+    readonly property TextArea activeArea: activePane ? activePane.area : null
+    readonly property int activeLineCount: activeArea ? activeArea.lineCount : 1
+    readonly property real activeTopPadding: activeArea ? activeArea.topPadding : 8
+    readonly property real activeLeftPadding: activeArea ? activeArea.leftPadding : 8
+    readonly property real activeImplicitHeight: activeArea ? activeArea.implicitHeight : 0
+    readonly property real activeContentX: activeFlick ? activeFlick.contentX : 0
+    readonly property real activeContentY: activeFlick ? activeFlick.contentY : 0
+    readonly property rect activeCursorRect: activeArea ? activeArea.cursorRectangle : Qt.rect(0, 0, 0, root.lineHeight)
+
     function _doFocusEditor(): void {
-        if (root.visible && EditorPanel.currentDocument >= 0 && area) {
-            area.forceActiveFocus()
+        if (root.visible && EditorPanel.currentDocument >= 0 && root.activeArea) {
+            root.activeArea.forceActiveFocus()
         }
     }
 
     function focusEditor(): void {
         Qt.callLater(root._doFocusEditor)
+    }
+
+    function syncActivePane(): void {
+        var docId = EditorPanel.currentDocId
+        if (docId < 0) {
+            if (root.activePane) {
+                root.activePane.isActive = false
+                root.activePane = null
+            }
+            root.activeDocId = -1
+            EditorPanel.focused = false
+            return
+        }
+        var key = String(docId)
+        var pane = root._panePool[key] as CodeEditorPane
+        var switched = (root.activeDocId !== docId) || (root.activePane !== pane)
+        if (!pane) {
+            pane = paneComponent.createObject(paneHost, { docId: docId }) as CodeEditorPane
+            if (!pane) return
+            pane.syncTextFromModel(EditorPanel.currentText)
+            root._panePool[key] = pane
+            switched = true
+        } else if (switched) {
+            pane.syncTextFromModel(EditorPanel.currentText)
+        }
+        if (switched) {
+            if (root.activePane && root.activePane !== pane) {
+                root.activePane.isActive = false
+            }
+            root.activePane = pane
+            root.activeDocId = docId
+            pane.isActive = true
+            EditorPanel.cursorPos = pane.area.cursorPosition
+            if (EditorPanel.focused || pane.area.activeFocus) {
+                pane.syncEditMenuState()
+            }
+        }
+    }
+
+    function pruneClosedPanes(): void {
+        var docs = EditorPanel.documents || []
+        var openIds = ({})
+        for (var i = 0; i < docs.length; ++i) {
+            if (docs[i] && docs[i].id !== undefined) {
+                openIds[String(docs[i].id)] = true
+            }
+        }
+        var keys = Object.keys(root._panePool)
+        for (var k = 0; k < keys.length; ++k) {
+            var key = keys[k]
+            if (!openIds[key]) {
+                var pane = root._panePool[key] as CodeEditorPane
+                delete root._panePool[key]
+                if (pane) {
+                    if (root.activePane === pane) {
+                        root.activePane = null
+                        root.activeDocId = -1
+                    }
+                    pane.isActive = false
+                    pane.destroy()
+                }
+            }
+        }
     }
 
     // C++ registered these with QFontDatabase::addApplicationFont before any
@@ -42,16 +118,19 @@ Item {
     readonly property real lineHeight: {
         var _f = root.editorFont
         var _b = root.bundledMonoReady
-        var _l = area.lineCount
-        var r = area.positionToRectangle(0)
-        return r.height > 1 ? r.height : (fm.lineSpacing > 1 ? fm.lineSpacing : Math.ceil(area.font.pixelSize * 1.4))
+        var a = root.activeArea
+        var _l = a ? a.lineCount : 1
+        var r = a ? a.positionToRectangle(0) : Qt.rect(0, 0, 0, 0)
+        return r.height > 1 ? r.height : (fm.lineSpacing > 1 ? fm.lineSpacing : Math.ceil(root.editorFont.pixelSize * 1.4))
     }
     readonly property int markerLaneWidth: Math.max(18, Math.round(root.lineHeight))
     readonly property int markerSize: Math.max(8, Math.min(12, Math.round(root.lineHeight * 0.58 / 2) * 2))
-    readonly property int gutterWidth: Math.max(52, root.markerLaneWidth + Math.ceil(String(Math.max(1, area.lineCount)).length * fm.averageCharacterWidth) + 14)
+    readonly property int gutterWidth: Math.max(52, root.markerLaneWidth + Math.ceil(String(Math.max(1, root.activeLineCount)).length * fm.averageCharacterWidth) + 14)
     property int hoveredGutterLine: -1
     readonly property int cursorLine: {
-        var t = area.text.substring(0, area.cursorPosition)
+        var a = root.activeArea
+        if (!a) return 0
+        var t = a.text.substring(0, a.cursorPosition)
         return t.length === 0 ? 0 : t.split('\n').length - 1
     }
     readonly property var breakpoints: EditorPanel.breakpoints
@@ -63,13 +142,13 @@ Item {
     property int hoverTargetHeight: root.lineHeight
     readonly property int effectiveHoverX: hoverTargetX >= 0
         ? hoverTargetX
-        : (gutter.width + area.cursorRectangle.x - flick.contentX)
+        : (gutter.width + root.activeCursorRect.x - root.activeContentX)
     readonly property int effectiveHoverY: hoverTargetY >= 0
         ? hoverTargetY
-        : (area.cursorRectangle.y - flick.contentY)
+        : (root.activeCursorRect.y - root.activeContentY)
     readonly property int effectiveHoverHeight: hoverTargetHeight > 0
         ? hoverTargetHeight
-        : (area.cursorRectangle.height > 0 ? area.cursorRectangle.height : root.lineHeight)
+        : (root.activeCursorRect.height > 0 ? root.activeCursorRect.height : root.lineHeight)
 
     function containsLine(list: var, line: int): bool {
         if (!list) return false
@@ -80,39 +159,55 @@ Item {
     function hideHover(): void {
         gutterHoverTimer.stop()
         gutterHoverTimer.targetLine = -1
-        hoverTimer.stop()
-        hoverTimer.targetPos = -1
+        if (root.activePane) {
+            root.activePane.stopHover()
+        }
         root.hoverTargetX = -1
         root.hoverTargetY = -1
         EditorPanel.hideHover()
     }
 
     function applyCompletion(edit: var): void {
-        if (!edit || !edit.valid) return
+        var a = root.activeArea
+        if (!a || !edit || !edit.valid) return
         if (edit.replaceStart < edit.replaceEnd) {
-            area.remove(edit.replaceStart, edit.replaceEnd)
+            a.remove(edit.replaceStart, edit.replaceEnd)
         }
         if (edit.insertText.length > 0) {
-            area.insert(edit.replaceStart, edit.insertText)
+            a.insert(edit.replaceStart, edit.insertText)
         }
-        area.cursorPosition = edit.newCursorPos
+        a.cursorPosition = edit.newCursorPos
         EditorPanel.cursorPos = edit.newCursorPos
         EditorPanel.finishCompletion()
-        area.forceActiveFocus()
+        a.forceActiveFocus()
     }
 
     FontMetrics {
         id: fm
-        font: area.font
+        font: root.editorFont
     }
 
     onVisibleChanged: {
         EditorPanel.dark = CircuitCanvas.dark
         if (visible && EditorPanel.currentDocument >= 0) {
+            root.syncActivePane()
             root.focusEditor()
         }
     }
-    Component.onCompleted: EditorPanel.dark = CircuitCanvas.dark
+    Component.onCompleted: {
+        EditorPanel.dark = CircuitCanvas.dark
+        root.syncActivePane()
+    }
+    Component.onDestruction: {
+        var keys = Object.keys(root._panePool)
+        for (var k = 0; k < keys.length; ++k) {
+            var pane = root._panePool[keys[k]] as CodeEditorPane
+            if (pane) pane.destroy()
+        }
+        root._panePool = ({})
+        root.activePane = null
+        root.activeDocId = -1
+    }
     Connections {
         target: CircuitCanvas
         function onAppearanceChanged() { EditorPanel.dark = CircuitCanvas.dark }
@@ -143,13 +238,13 @@ Item {
             anchors.fill: parent
             clip: true
             interactive: false
-            contentY: flick.contentY
-            contentHeight: area.implicitHeight
+            contentY: root.activeContentY
+            contentHeight: root.activeImplicitHeight
 
             Rectangle {
                 id: hoverBpDot
                 visible: root.hoveredGutterLine >= 1
-                         && root.hoveredGutterLine <= area.lineCount
+                         && root.hoveredGutterLine <= root.activeLineCount
                          && !root.containsLine(root.breakpoints, root.hoveredGutterLine)
                          && !root.containsLine(root.errors, root.hoveredGutterLine)
                          && !root.containsLine(root.warnings, root.hoveredGutterLine)
@@ -159,18 +254,18 @@ Item {
                 height: root.markerSize
                 radius: width / 2
                 x: Math.round((root.markerLaneWidth - width) / 2)
-                y: Math.round(area.topPadding + (root.hoveredGutterLine - 1) * root.lineHeight + (root.lineHeight - height) / 2)
+                y: Math.round(root.activeTopPadding + (root.hoveredGutterLine - 1) * root.lineHeight + (root.lineHeight - height) / 2)
                 color: Qt.alpha(EditorPanel.errorColor, 0.32)
                 border.width: 1
                 border.color: Qt.alpha(EditorPanel.errorColor, 0.65)
             }
 
             Repeater {
-                model: Math.max( 1, area.lineCount )
+                model: Math.max( 1, root.activeLineCount )
                 delegate: Item {
                     id: gutterLine
                     required property int index
-                    y: area.topPadding + gutterLine.index * root.lineHeight
+                    y: root.activeTopPadding + gutterLine.index * root.lineHeight
                     width: gutter.width
                     height: root.lineHeight
                     readonly property int line: gutterLine.index + 1
@@ -213,7 +308,7 @@ Item {
                             color: appTheme.highlightedText
                             font.bold: true
                             font.pixelSize: Math.max(7, Math.round(errWarnDot.height * 0.72))
-                            font.family: area.font.family
+                            font.family: root.editorFont.family
                             verticalAlignment: Text.AlignVCenter
                             horizontalAlignment: Text.AlignHCenter
                         }
@@ -228,8 +323,8 @@ Item {
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter
                         text: gutterLine.line
-                        font.family: area.font.family
-                        font.pixelSize: area.font.pixelSize
+                        font.family: root.editorFont.family
+                        font.pixelSize: root.editorFont.pixelSize
                         color: gutterLine.index === root.cursorLine ? EditorPanel.gutterActiveNumColor : EditorPanel.gutterNumColor
                         font.bold: gutterLine.index === root.cursorLine
                     }
@@ -241,10 +336,10 @@ Item {
                 contextType: "2d"
                 readonly property int dbgLine: EditorPanel.debugLine
                 readonly property bool dbgOnBp: dbgLine >= 1 && root.containsLine(root.breakpoints, dbgLine)
-                visible: dbgLine >= 1 && dbgLine <= area.lineCount
+                visible: dbgLine >= 1 && dbgLine <= root.activeLineCount
                 z: 4
                 x: 0
-                y: Math.round(area.topPadding + (dbgLine - 1) * root.lineHeight)
+                y: Math.round(root.activeTopPadding + (dbgLine - 1) * root.lineHeight)
                 width: root.markerLaneWidth
                 height: Math.max(1, Math.round(root.lineHeight))
                 antialiasing: true
@@ -304,11 +399,11 @@ Item {
             repeat: false
             property int targetLine: -1
             onTriggered: {
-                if (targetLine >= 1 && targetLine <= area.lineCount && !EditorPanel.completionVisible) {
+                if (targetLine >= 1 && targetLine <= root.activeLineCount && !EditorPanel.completionVisible) {
                     var tip = EditorPanel.gutterTooltip(targetLine)
                     if (tip && tip.length > 0) {
                         root.hoverTargetX = gutter.width + 4
-                        root.hoverTargetY = area.topPadding + (targetLine - 1) * root.lineHeight - gutterFlick.contentY
+                        root.hoverTargetY = root.activeTopPadding + (targetLine - 1) * root.lineHeight - gutterFlick.contentY
                         root.hoverTargetHeight = root.lineHeight
                         EditorPanel.showGutterHover(targetLine)
                     } else {
@@ -325,12 +420,12 @@ Item {
             cursorShape: root.hoveredGutterLine >= 1 ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: (mouse) => {
                 root.hideHover()
-                var line = Math.floor((mouse.y + gutterFlick.contentY - area.topPadding) / Math.max(1, root.lineHeight)) + 1
+                var line = Math.floor((mouse.y + gutterFlick.contentY - root.activeTopPadding) / Math.max(1, root.lineHeight)) + 1
                 EditorPanel.gutterClicked(line, mouse.button)
             }
             onPositionChanged: (mouse) => {
-                var line = Math.floor((mouse.y + gutterFlick.contentY - area.topPadding) / Math.max(1, root.lineHeight)) + 1
-                if (line < 1 || line > area.lineCount) {
+                var line = Math.floor((mouse.y + gutterFlick.contentY - root.activeTopPadding) / Math.max(1, root.lineHeight)) + 1
+                if (line < 1 || line > root.activeLineCount) {
                     root.hoveredGutterLine = -1
                     root.hideHover()
                     return
@@ -353,367 +448,42 @@ Item {
         }
     }
 
-    Flickable {
-        id: flick
+    Item {
+        id: paneHost
         anchors.left: gutter.right
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        onContentXChanged: {
-            root.hideHover()
-        }
-        onContentYChanged: {
-            root.hideHover()
-        }
-        contentWidth: Math.max(width, area.implicitWidth)
-        contentHeight: Math.max(height, area.implicitHeight)
-        ScrollBar.vertical: AppScrollBar {
-            id: vBar
-            policy: ScrollBar.AsNeeded
-            Repeater {
-                model: EditorPanel.scrollMarks
-                delegate: Rectangle {
-                    id: markDelegate
-                    required property var modelData
-                    parent: vBar
-                    x: 0
-                    width: vBar.width
-                    height: markDelegate.modelData.weight || 2
-                    y: (markDelegate.modelData.pos || 0) * (vBar.height - markDelegate.height)
-                    color: markDelegate.modelData.color || "transparent"
-                }
+    }
+
+    Component {
+        id: paneComponent
+        CodeEditorPane {
+            anchors.fill: parent
+            editorFont: root.editorFont
+            lineHeight: root.lineHeight
+            cursorLine: root.cursorLine
+            gutterWidth: gutter.width
+            averageCharacterWidth: fm.averageCharacterWidth
+            hoverTooltipVisible: hoverTooltip.visible
+            hoverTooltipRect: Qt.rect(hoverTooltip.x, hoverTooltip.y, hoverTooltip.width, hoverTooltip.height)
+            onHideHoverRequested: root.hideHover()
+            onHoverTargetRequested: (tx, ty, th, pos) => {
+                root.hoverTargetX = tx
+                root.hoverTargetY = ty
+                root.hoverTargetHeight = th
+                EditorPanel.showHover(pos)
             }
-        }
-        ScrollBar.horizontal: AppScrollBar { policy: ScrollBar.AsNeeded }
-
-        TextArea.flickable: TextArea {
-            id: area
-            wrapMode: TextEdit.NoWrap
-            padding: 8
-            font: root.editorFont
-            color: highlight.visible ? "transparent" : EditorPanel.textColor
-            selectedTextColor: appTheme.highlightedText
-            selectionColor: appTheme.highlight
-            background: null
-            cursorDelegate: Rectangle {
-                width: 2
-                color: EditorPanel.textColor
-                visible: area.cursorVisible
-            }
-            selectByMouse: true
-            persistentSelection: true
-            // CodeEditor raises its own menu (C++ CodeEditor::showContextMenu),
-            // so Qt's built-in one is dropped — two menus would answer one click.
-            ContextMenu.menu: null
-            tabStopDistance: Math.max(4, fm.averageCharacterWidth * EditorPanel.tabSize)
-            property bool _syncingFromModel: false
-            Component.onCompleted: {
-                _syncingFromModel = true
-                text = EditorPanel.currentText
-                _syncingFromModel = false
-            }
-            onTextChanged: {
-                if (_syncingFromModel) return
-                EditorPanel.cursorPos = cursorPosition
-                if ( text !== EditorPanel.currentText )
-                    EditorPanel.currentText = text
-            }
-            onCursorPositionChanged: EditorPanel.cursorPos = cursorPosition
-            onActiveFocusChanged: {
-                EditorPanel.focused = activeFocus
-                if (activeFocus)
-                    AppMenuBar.setEditState(canUndo, canRedo, selectedText.length > 0, true)
-            }
-            onCanUndoChanged: if (EditorPanel.focused) AppMenuBar.setEditState(canUndo, canRedo, selectedText.length > 0, true)
-            onCanRedoChanged: if (EditorPanel.focused) AppMenuBar.setEditState(canUndo, canRedo, selectedText.length > 0, true)
-            onSelectedTextChanged: if (EditorPanel.focused) AppMenuBar.setEditState(canUndo, canRedo, selectedText.length > 0, true)
-
-            Rectangle {
-                z: -2
-                x: flick.contentX
-                y: root.cursorLine * root.lineHeight + area.topPadding
-                width: Math.max(flick.width, area.implicitWidth)
-                height: root.lineHeight
-                color: EditorPanel.currentLineColor
-            }
-            Rectangle {
-                z: -2
-                visible: EditorPanel.debugLine > 0
-                x: flick.contentX
-                y: (EditorPanel.debugLine - 1) * root.lineHeight + area.topPadding
-                width: Math.max(flick.width, area.implicitWidth)
-                height: root.lineHeight
-                color: EditorPanel.debugLineColor
-            }
-
-            Repeater {
-                model: EditorPanel.foundRanges
-                delegate: Rectangle {
-                    id: foundDelegate
-                    required property var modelData
-                    z: -2
-                    property rect r: area.positionToRectangle(foundDelegate.modelData.start)
-                    x: foundDelegate.r.x
-                    y: foundDelegate.r.y
-                    width: Math.max(4, area.positionToRectangle(foundDelegate.modelData.end).x - foundDelegate.r.x)
-                    height: foundDelegate.r.height
-                    color: EditorPanel.foundColor
-                }
-            }
-
-            AppText {
-                id: highlight
-                z: -1
-                x: area.leftPadding
-                y: area.topPadding
-                textFormat: Text.RichText
-                text: EditorPanel.highlightHtml
-                font: root.editorFont
-                color: EditorPanel.textColor
-                wrapMode: Text.NoWrap
-                visible: EditorPanel.highlightHtml.length > 0
-            }
-
-            Repeater {
-                model: EditorPanel.diagnosticRanges
-                delegate: Item {
-                    id: diagItem
-                    required property var modelData
-                    z: 0
-
-                    property rect r1: {
-                        var _ = area.length
-                        var __ = root.editorFont
-                        return area.positionToRectangle(diagItem.modelData.start)
-                    }
-                    property rect r2: {
-                        var _ = area.length
-                        var __ = root.editorFont
-                        return area.positionToRectangle(diagItem.modelData.end)
-                    }
-
-                    x: diagItem.r1.x
-                    y: diagItem.r1.y + diagItem.r1.height - 2
-                    width: Math.max(4, diagItem.r2.x - diagItem.r1.x)
-                    height: 2
-
-                    Rectangle {
-                        anchors.fill: parent
-                        color: diagItem.modelData.color
-                        radius: 1
-                    }
-                }
-            }
-
-            Item {
-                id: hoverLinkUnderline
-                z: 0
-                visible: EditorPanel.hoverLinkStart >= 0 && EditorPanel.hoverLinkEnd > EditorPanel.hoverLinkStart
-
-                property var r1: {
-                    var _ = area.length
-                    var __ = root.editorFont
-                    return visible ? area.positionToRectangle(EditorPanel.hoverLinkStart) : null
-                }
-                property var r2: {
-                    var _ = area.length
-                    var __ = root.editorFont
-                    return visible ? area.positionToRectangle(EditorPanel.hoverLinkEnd) : null
-                }
-
-                x: r1 ? r1.x : 0
-                y: r1 ? (r1.y + r1.height - 2) : 0
-                width: (r1 && r2) ? Math.max(2, r2.x - r1.x) : 0
-                height: 1.5
-
-                Rectangle {
-                    anchors.fill: parent
-                    color: EditorPanel.hoverLinkColor
-                    radius: 0.5
-                }
-            }
-
-            MouseArea {
-                id: editorMouseArea
-                anchors.fill: parent
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                hoverEnabled: true
-                propagateComposedEvents: true
-                cursorShape: hoverLink ? Qt.PointingHandCursor : Qt.IBeamCursor
-                property bool hoverLink: false
-                property int lastMouseX: -1
-                property int lastMouseY: -1
-
-                function hideHoverState(): void {
-                    root.hideHover()
-                }
-
-                function updateHoverLink(modifiers: int): void {
-                    if (lastMouseX >= 0 && lastMouseY >= 0) {
-                        var pos = area.positionAt(lastMouseX, lastMouseY)
-                        hoverLink = EditorPanel.textHovered(pos, modifiers)
-                        if (hoverLink) {
-                            hideHoverState()
-                        }
-                    } else {
-                        hoverLink = false
-                        EditorPanel.clearHoverLink()
-                    }
-                }
-
-                Timer {
-                    id: hoverTimer
-                    interval: 250
-                    repeat: false
-                    property int targetPos: -1
-                    onTriggered: {
-                        if (targetPos >= 0 && !EditorPanel.completionVisible) {
-                            var r = area.positionToRectangle(targetPos)
-                            root.hoverTargetX = gutter.width + r.x - flick.contentX
-                            root.hoverTargetY = r.y - flick.contentY
-                            root.hoverTargetHeight = r.height > 0 ? r.height : root.lineHeight
-                            EditorPanel.showHover(targetPos)
-                        }
-                    }
-                }
-                onPressed: (mouse) => {
-                    hideHoverState()
-                    hoverLink = false
-                    EditorPanel.clearHoverLink()
-                    var pos = area.positionAt(mouse.x, mouse.y)
-                    if (mouse.button === Qt.RightButton) {
-                        if (!area.selectedText || area.selectedText.length === 0)
-                            area.cursorPosition = pos
-                        editorMenu.popup()
-                        mouse.accepted = true
-                        return
-                    }
-                    if (EditorPanel.textClicked(pos, mouse.modifiers))
-                        mouse.accepted = true
-                    else
-                        mouse.accepted = false
-                }
-                onPositionChanged: (mouse) => {
-                    lastMouseX = mouse.x
-                    lastMouseY = mouse.y
-
-                    var rootMouseX = gutter.width + mouse.x - flick.contentX
-                    var rootMouseY = mouse.y - flick.contentY
-                    if (hoverTooltip.visible &&
-                        rootMouseX >= hoverTooltip.x && rootMouseX <= hoverTooltip.x + hoverTooltip.width &&
-                        rootMouseY >= hoverTooltip.y && rootMouseY <= hoverTooltip.y + hoverTooltip.height) {
-                        hoverTimer.stop()
-                        return
-                    }
-
-                    var pos = area.positionAt(mouse.x, mouse.y)
-                    hoverLink = EditorPanel.textHovered(pos, mouse.modifiers)
-                    if (!hoverLink && mouse.buttons === 0) {
-                        if (hoverTimer.targetPos !== pos) {
-                            hoverTimer.targetPos = pos
-                            hoverTimer.restart()
-                        }
-                    } else {
-                        hideHoverState()
-                    }
-                    mouse.accepted = false
-                }
-                onExited: {
-                    lastMouseX = -1
-                    lastMouseY = -1
-                    hoverLink = false
-                    EditorPanel.clearHoverLink()
-                    hideHoverState()
-                }
-            }
-
-            function insertPair(event: var, open: string, close: string, flag: bool): bool {
-                if (!flag || event.text !== open) return false
-                area.insert(area.cursorPosition, open + close)
-                area.cursorPosition = area.cursorPosition - 1
-                event.accepted = true
-                if (open === "(") EditorPanel.requestSignature(area.cursorPosition)
-                return true
-            }
-
-            Keys.onPressed: (event) => {
-                if (event.key === Qt.Key_Control || event.key === Qt.Key_Meta) {
-                    editorMouseArea.updateHoverLink(event.modifiers)
-                } else {
-                    root.hideHover()
-                }
-                if (EditorPanel.completionVisible) {
-                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Tab) {
-                        root.applyCompletion(EditorPanel.acceptCompletion(EditorPanel.completionIndex, area.cursorPosition))
-                        event.accepted = true
-                        return
-                    }
-                    if (event.key === Qt.Key_Escape) {
-                        EditorPanel.hideCompletion()
-                        event.accepted = true
-                        return
-                    }
-                    if (event.key === Qt.Key_Up) {
-                        EditorPanel.moveCompletion(-1)
-                        event.accepted = true
-                        return
-                    }
-                    if (event.key === Qt.Key_Down) {
-                        EditorPanel.moveCompletion(1)
-                        event.accepted = true
-                        return
-                    }
-                }
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    var edit = EditorPanel.calculateNewline(area.text, area.cursorPosition, area.selectionStart, area.selectionEnd)
-                    if (edit && edit.valid) {
-                        if (edit.replaceStart < edit.replaceEnd) {
-                            area.remove(edit.replaceStart, edit.replaceEnd)
-                        }
-                        if (edit.insertText.length > 0) {
-                            area.insert(edit.replaceStart, edit.insertText)
-                        }
-                        area.cursorPosition = edit.newCursorPos
-                        event.accepted = true
-                        return
-                    }
-                }
-                if (event.key === Qt.Key_Escape) {
-                    EditorPanel.dismissSignature()
-                }
-                if (event.key === Qt.Key_Tab && EditorPanel.spaceTabs) {
-                    var n = EditorPanel.tabSize
-                    var sp = " ".repeat(n)
-                    area.insert(area.cursorPosition, sp)
-                    event.accepted = true
-                    return
-                }
-                if (area.insertPair(event, "(", ")", EditorPanel.closeParen)) return
-                if (area.insertPair(event, "{", "}", EditorPanel.closeBraces)) return
-                if (area.insertPair(event, "[", "]", EditorPanel.closeBrackets)) return
-                if (area.insertPair(event, "\"", "\"", EditorPanel.closeQuotes)) return
-                if (area.insertPair(event, "'", "'", EditorPanel.closeSquotes)) return
-
-                if (event.text === ")") {
-                    EditorPanel.dismissSignature()
-                }
-            }
-
-            Keys.onReleased: (event) => {
-                if (event.key === Qt.Key_Control || event.key === Qt.Key_Meta) {
-                    editorMouseArea.hoverLink = false
-                    EditorPanel.clearHoverLink()
-                }
-            }
+            onContextMenuRequested: editorMenu.popup()
+            onCompletionAccepted: (edit) => root.applyCompletion(edit)
         }
     }
 
     AppContextMenu {
         id: editorMenu
 
-        readonly property bool _hasSelection: area.selectedText && area.selectedText.length > 0
+        readonly property bool _hasSelection: Boolean(root.activeArea && root.activeArea.selectedText && root.activeArea.selectedText.length > 0)
 
         ContextMenuItem {
             visible: EditorPanel.lspReady
@@ -729,15 +499,15 @@ Item {
             iconLigature: "undo"
             text: I18n.tr("Undo")
             shortcutText: UiUtils.formatShortcut("Ctrl+Z")
-            enabled: area.canUndo
-            onTriggered: area.undo()
+            enabled: Boolean(root.activeArea && root.activeArea.canUndo)
+            onTriggered: if (root.activeArea) root.activeArea.undo()
         }
         ContextMenuItem {
             iconLigature: "redo"
             text: I18n.tr("Redo")
             shortcutText: UiUtils.formatShortcut(UiUtils.isMacOS ? "Ctrl+Shift+Z" : "Ctrl+Y")
-            enabled: area.canRedo
-            onTriggered: area.redo()
+            enabled: Boolean(root.activeArea && root.activeArea.canRedo)
+            onTriggered: if (root.activeArea) root.activeArea.redo()
         }
 
         ContextMenuSeparator {}
@@ -747,27 +517,27 @@ Item {
             text: I18n.tr("Cut")
             shortcutText: UiUtils.formatShortcut("Ctrl+X")
             enabled: editorMenu._hasSelection
-            onTriggered: area.cut()
+            onTriggered: if (root.activeArea) root.activeArea.cut()
         }
         ContextMenuItem {
             iconLigature: "content_copy"
             text: I18n.tr("Copy")
             shortcutText: UiUtils.formatShortcut("Ctrl+C")
             enabled: editorMenu._hasSelection
-            onTriggered: area.copy()
+            onTriggered: if (root.activeArea) root.activeArea.copy()
         }
         ContextMenuItem {
             iconLigature: "content_paste"
             text: I18n.tr("Paste")
             shortcutText: UiUtils.formatShortcut("Ctrl+V")
-            enabled: area.canPaste
-            onTriggered: area.paste()
+            enabled: Boolean(root.activeArea && root.activeArea.canPaste)
+            onTriggered: if (root.activeArea) root.activeArea.paste()
         }
         ContextMenuItem {
             iconLigature: "delete"
             text: I18n.tr("Remove")
             enabled: editorMenu._hasSelection
-            onTriggered: area.remove(area.selectionStart, area.selectionEnd)
+            onTriggered: if (root.activeArea) root.activeArea.remove(root.activeArea.selectionStart, root.activeArea.selectionEnd)
         }
 
         ContextMenuSeparator {}
@@ -811,13 +581,13 @@ Item {
         id: signaturePopup
         visible: EditorPanel.signatureVisible && EditorPanel.signatureHtml.length > 0
         z: 1000
-        x: Math.max(gutter.width + 4, Math.min(root.width - width - 10, gutter.width + area.cursorRectangle.x + area.leftPadding - flick.contentX))
+        x: Math.max(gutter.width + 4, Math.min(root.width - width - 10, gutter.width + root.activeCursorRect.x + root.activeLeftPadding - root.activeContentX))
         y: {
-            var curY = area.cursorRectangle.y + area.topPadding - flick.contentY
+            var curY = root.activeCursorRect.y + root.activeTopPadding - root.activeContentY
             if (curY >= height + 6) {
                 return curY - height - 4
             } else {
-                return curY + area.cursorRectangle.height + 4
+                return curY + root.activeCursorRect.height + 4
             }
         }
         width: Math.min(500, Math.max(120, sigText.implicitWidth + 16))
@@ -837,7 +607,7 @@ Item {
             text: EditorPanel.signatureHtml
             textFormat: Text.RichText
             color: appTheme.text
-            font: area.font
+            font: root.editorFont
             wrapMode: Text.Wrap
             width: parent.width - 12
         }
@@ -884,7 +654,7 @@ Item {
             text: EditorPanel.hoverHtml
             textFormat: Text.RichText
             color: appTheme.text
-            font: area.font
+            font: root.editorFont
             wrapMode: Text.Wrap
         }
     }
@@ -1119,8 +889,8 @@ Item {
     Popup {
         id: completionPopup
         visible: EditorPanel.completionVisible
-        x: gutter.width + area.cursorRectangle.x + area.leftPadding - flick.contentX
-        y: area.cursorRectangle.y + area.cursorRectangle.height + area.topPadding - flick.contentY
+        x: gutter.width + root.activeCursorRect.x + root.activeLeftPadding - root.activeContentX
+        y: root.activeCursorRect.y + root.activeCursorRect.height + root.activeTopPadding - root.activeContentY
         width: 380
         height: Math.min(240, Math.max(24, completionList.count * 22 + 2))
         padding: 1
@@ -1155,19 +925,19 @@ Item {
                     spacing: 6
                     AppText {
                         text: completionDelegate.modelData.text !== undefined ? completionDelegate.modelData.text : completionDelegate.modelData
-                        font: area.font
+                        font: root.editorFont
                         color: completionDelegate.index === completionList.currentIndex ? appTheme.highlightedText : appTheme.windowText
                     }
                     AppText {
                         text: completionDelegate.modelData.detail !== undefined ? completionDelegate.modelData.detail : ""
-                        font: area.font
+                        font: root.editorFont
                         opacity: 0.6
                         color: completionDelegate.index === completionList.currentIndex ? appTheme.highlightedText : appTheme.windowText
                     }
                 }
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: root.applyCompletion(EditorPanel.acceptCompletion(completionDelegate.index, area.cursorPosition))
+                    onClicked: root.applyCompletion(EditorPanel.acceptCompletion(completionDelegate.index, root.activeArea ? root.activeArea.cursorPosition : 0))
                 }
             }
         }
@@ -1178,27 +948,33 @@ Item {
         function onRequestFocus(): void {
             root.focusEditor()
         }
+        function onDocumentsChanged(): void {
+            root.syncActivePane()
+            root.pruneClosedPanes()
+        }
         function onCurrentDocumentChanged(): void {
+            root.syncActivePane()
             if (EditorPanel.currentDocument >= 0) {
                 root.focusEditor()
             }
         }
         function onCurrentTextChanged(): void {
-            var modelText = EditorPanel.currentText
-            if (area.text !== modelText) {
-                area._syncingFromModel = true
-                area.text = modelText
-                area._syncingFromModel = false
+            root.syncActivePane()
+            if (root.activePane) {
+                root.activePane.syncTextFromModel(EditorPanel.currentText)
             }
         }
-        function onGotoChanged() {
+        function onGotoChanged(): void {
+            root.syncActivePane()
+            var a = root.activeArea
+            if (!a) return
             root.focusEditor()
             if (EditorPanel.selectStart >= 0 && EditorPanel.selectEnd > EditorPanel.selectStart) {
-                area.select(EditorPanel.selectStart, EditorPanel.selectEnd)
+                a.select(EditorPanel.selectStart, EditorPanel.selectEnd)
                 return
             }
             if (EditorPanel.gotoLine > 0) {
-                var t = area.text
+                var t = a.text
                 var line = 1
                 var pos = 0
                 while (line < EditorPanel.gotoLine) {
@@ -1207,22 +983,26 @@ Item {
                     pos = n + 1
                     line++
                 }
-                area.cursorPosition = pos
+                a.cursorPosition = pos
             }
         }
-        function onEditActionChanged() {
-            var a = EditorPanel.editAction
-            if (a === "undo") area.undo()
-            else if (a === "redo") area.redo()
-            else if (a === "cut") area.cut()
-            else if (a === "copy") area.copy()
-            else if (a === "paste") area.paste()
-            else if (a === "selectAll") area.selectAll()
+        function onEditActionChanged(): void {
+            var a = root.activeArea
+            if (!a) return
+            var act = EditorPanel.editAction
+            if (act === "undo") a.undo()
+            else if (act === "redo") a.redo()
+            else if (act === "cut") a.cut()
+            else if (act === "copy") a.copy()
+            else if (act === "paste") a.paste()
+            else if (act === "selectAll") a.selectAll()
         }
-        function onCursorChanged() {
-            if (Math.abs(area.cursorPosition - EditorPanel.cursorPos) > 0
-                    && EditorPanel.selectStart < 0)
-                area.cursorPosition = EditorPanel.cursorPos
+        function onCursorChanged(): void {
+            var a = root.activeArea
+            if (a && Math.abs(a.cursorPosition - EditorPanel.cursorPos) > 0
+                    && EditorPanel.selectStart < 0) {
+                a.cursorPosition = EditorPanel.cursorPos
+            }
         }
     }
 }

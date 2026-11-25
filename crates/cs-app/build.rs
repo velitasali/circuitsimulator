@@ -535,6 +535,7 @@ fn compile_resources() {
         "ComponentHoverCard.qml",
         "EditorPanelView.qml",
         "CodeEditor.qml",
+        "CodeEditorPane.qml",
         "FindReplace.qml",
         "FileSettings.qml",
         "CompilerSettings.qml",

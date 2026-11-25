@@ -675,7 +675,7 @@ impl EditorPanel {
                 .and_then(|s| s.to_str())
                 .unwrap_or("untitled")
                 .to_string();
-            let mut temp = Document::untitled(title);
+            let mut temp = Document::untitled(0, title);
             temp.path = effective_src_path.clone();
             temp.text = fs::read_to_string(&effective_src_path).unwrap_or_default();
             let cfg = load_cfg(&effective_src_path);

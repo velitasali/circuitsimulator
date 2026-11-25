@@ -32,6 +32,7 @@ use serde_json::{Value, json};
 
 pub struct EditorPanel {
     docs: Vec<Document>,
+    next_doc_id: i32,
     current: i32,
     dark: bool,
     highlight_html: String,
@@ -134,6 +135,7 @@ impl Default for EditorPanel {
         let arduino_boards = default_boards();
         let mut panel = Self {
             docs: Vec::new(),
+            next_doc_id: 1,
             current: -1,
             dark: false,
             highlight_html: String::new(),
@@ -244,6 +246,18 @@ impl EditorPanel {
         self.docs.get_mut(self.current as usize)
     }
 
+    fn alloc_doc_id(&mut self) -> i32 {
+        let id = self.next_doc_id;
+        self.next_doc_id = self.next_doc_id.wrapping_add(1).max(1);
+        id
+    }
+
+    fn clear_transient_navigation(&mut self) {
+        self.goto_line = 0;
+        self.select_start = -1;
+        self.select_end = -1;
+    }
+
     fn untitled_name(&self) -> String {
         let n = self.docs.iter().filter(|d| d.path.is_empty()).count() + 1;
         let base = cs_engine::i18n::tr("untitled");
@@ -348,7 +362,8 @@ impl EditorPanel {
             .unwrap_or("untitled")
             .to_string();
         let syntax = highlighter::syntax_for_path(&path).map(|s| s.to_string());
-        let mut doc = Document::untitled(title);
+        let doc_id = self.alloc_doc_id();
+        let mut doc = Document::untitled(doc_id, title);
         doc.path = path.clone();
         doc.backup_id = backup::id_for_path(&path, &self.project_path);
         doc.text = text;
@@ -368,6 +383,7 @@ impl EditorPanel {
             .collect();
         self.docs.push(doc);
         self.current = self.docs.len() as i32 - 1;
+        self.clear_transient_navigation();
         if !path.is_empty() {
             if !initial_bps.is_empty() {
                 DebugSession::global().set_breakpoints_for_file(Path::new(&path), &initial_bps);
@@ -575,6 +591,11 @@ impl EditorPanel {
         "currentDocument",
         Read = current_document,
         Write = set_current_document,
+        Notify = current_document_changed
+    );
+    qproperty!(
+        "currentDocId",
+        Read = current_doc_id,
         Notify = current_document_changed
     );
     qproperty!(
@@ -1062,6 +1083,7 @@ impl EditorPanel {
                         .unwrap_or_default()
                 };
                 json!({
+                    "id": d.id,
                     "title": d.title,
                     "path": d.path,
                     "dirty": d.dirty,
@@ -1262,6 +1284,10 @@ impl EditorPanel {
         self.current
     }
 
+    pub fn current_doc_id(&self) -> i32 {
+        self.current_doc().map(|d| d.id).unwrap_or(-1)
+    }
+
     pub fn set_current_document(&mut self, index: i32) {
         if index == self.current {
             return;
@@ -1270,6 +1296,7 @@ impl EditorPanel {
             return;
         }
         self.current = index;
+        self.clear_transient_navigation();
         self.diagnostic_ranges = self
             .current_doc()
             .map(|d| d.diagnostic_ranges.clone())
@@ -1366,6 +1393,7 @@ impl EditorPanel {
         }
         self.docs.clear();
         self.current = -1;
+        self.clear_transient_navigation();
         self.pending_close_index = None;
         self.pending_close_queue.clear();
         self.diagnostic_ranges = json!([]);
@@ -1957,6 +1985,7 @@ impl EditorPanel {
                 let index = idx as i32;
                 if self.current != index {
                     self.current = index;
+                    self.clear_transient_navigation();
                     self.diagnostic_ranges = self
                         .current_doc()
                         .map(|d| d.diagnostic_ranges.clone())
@@ -2013,6 +2042,7 @@ impl EditorPanel {
         if index >= self.docs.len() {
             return;
         }
+        let prev_doc_id = self.current_doc_id();
         let doc = self.docs.remove(index);
         adjust_close_queue_after_remove(&mut self.pending_close_queue, index);
         if doc.path.is_empty() {
@@ -2034,6 +2064,9 @@ impl EditorPanel {
             self.current = self.docs.len() as i32 - 1;
         } else if (index as i32) < self.current {
             self.current -= 1;
+        }
+        if self.current_doc_id() != prev_doc_id {
+            self.clear_transient_navigation();
         }
         self.documents_changed();
         self.diagnostic_ranges = self
@@ -2197,7 +2230,8 @@ impl EditorPanel {
             } else {
                 draft.title
             };
-            let mut doc = Document::untitled(title);
+            let doc_id = self.alloc_doc_id();
+            let mut doc = Document::untitled(doc_id, title);
             doc.backup_id = draft.id;
             doc.text = draft.text;
             doc.dirty = true;
@@ -2209,6 +2243,7 @@ impl EditorPanel {
         }
         if !had_docs {
             self.current = 0;
+            self.clear_transient_navigation();
             self.diagnostic_ranges = json!([]);
             self.pending_hover_diag.clear();
             self.documents_changed();
@@ -2262,8 +2297,10 @@ impl EditorPanel {
     #[qslot]
     fn new_file(&mut self) {
         let title = self.untitled_name();
-        self.docs.push(Document::untitled(title));
+        let doc_id = self.alloc_doc_id();
+        self.docs.push(Document::untitled(doc_id, title));
         self.current = self.docs.len() as i32 - 1;
+        self.clear_transient_navigation();
         self.diagnostic_ranges = json!([]);
         self.pending_hover_diag.clear();
         self.documents_changed();
@@ -3627,8 +3664,8 @@ mod tests {
     use super::*;
     use qtbridge::QObjectHolder;
 
-    fn doc_with_path(title: &str, path: &str) -> Document {
-        let mut d = Document::untitled(title.to_string());
+    fn doc_with_path(id: i32, title: &str, path: &str) -> Document {
+        let mut d = Document::untitled(id, title.to_string());
         d.path = path.to_string();
         d
     }
@@ -3637,10 +3674,10 @@ mod tests {
     fn documents_include_mcu_names_for_matching_firmware_paths() {
         let mut panel = EditorPanel::default();
         panel.docs = vec![
-            doc_with_path("blink.ino", "/tmp/proj/blink/blink.ino"),
-            doc_with_path("sensor.ino", "/tmp/proj/sensor/sensor.ino"),
-            doc_with_path("notes.txt", "/tmp/proj/notes.txt"),
-            Document::untitled("untitled".to_string()),
+            doc_with_path(1, "blink.ino", "/tmp/proj/blink/blink.ino"),
+            doc_with_path(2, "sensor.ino", "/tmp/proj/sensor/sensor.ino"),
+            doc_with_path(3, "notes.txt", "/tmp/proj/notes.txt"),
+            Document::untitled(4, "untitled".to_string()),
         ];
 
         panel.firmware_mcus = build_firmware_mcu_map(json!([
@@ -3701,11 +3738,11 @@ mod tests {
         let hdr_str = hdr_path.to_string_lossy().into_owned();
 
         let mut panel = EditorPanel::default();
-        let mut doc = doc_with_path("prog.asm", &path_str);
+        let mut doc = doc_with_path(1, "prog.asm", &path_str);
         doc.text = "; updated\n".to_string();
         doc.dirty = true;
         doc.compiler = "None".to_string();
-        let mut sib = doc_with_path("defs.inc", &hdr_str);
+        let mut sib = doc_with_path(2, "defs.inc", &hdr_str);
         sib.text = "; updated hdr\n".to_string();
         sib.dirty = true;
         panel.docs.push(doc);
@@ -3779,11 +3816,11 @@ mod tests {
 
         let panel = EditorPanel::default_with_attached_qobject();
         let mut panel = panel.borrow_mut();
-        let mut d1 = doc_with_path("fw1.asm", &s1);
+        let mut d1 = doc_with_path(1, "fw1.asm", &s1);
         d1.text = "; new1\n".to_string();
         d1.dirty = true;
         d1.compiler = "None".to_string();
-        let mut d2 = doc_with_path("fw2.asm", &s2);
+        let mut d2 = doc_with_path(2, "fw2.asm", &s2);
         d2.text = "; new2\n".to_string();
         d2.dirty = true;
         d2.compiler = "None".to_string();
@@ -3802,5 +3839,55 @@ mod tests {
         assert_eq!(fs::read_to_string(&p2).unwrap(), "; new2\n");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn doc_ids_stay_monotonic_and_stable_across_switches_and_closes() {
+        let mut panel = EditorPanel::default();
+        assert_eq!(panel.current_doc_id(), -1);
+
+        panel.new_file();
+        let id1 = panel.current_doc_id();
+        panel.new_file();
+        let id2 = panel.current_doc_id();
+        panel.new_file();
+        let id3 = panel.current_doc_id();
+        assert!(id1 > 0 && id2 > id1 && id3 > id2);
+
+        // Documents JSON includes matching stable IDs.
+        let docs = panel.documents();
+        let arr = docs.as_array().unwrap();
+        assert_eq!(arr[0]["id"], id1);
+        assert_eq!(arr[1]["id"], id2);
+        assert_eq!(arr[2]["id"], id3);
+
+        // Switching tabs clears stale find/goto selection state.
+        panel.goto_line = 12;
+        panel.select_start = 4;
+        panel.select_end = 9;
+        panel.set_current_document(1);
+        assert_eq!(panel.current_doc_id(), id2);
+        assert_eq!(panel.goto_line, 0);
+        assert_eq!(panel.select_start, -1);
+        assert_eq!(panel.select_end, -1);
+
+        // Closing a tab to the left shifts index of the active doc but keeps its ID and nav state.
+        panel.select_start = 2;
+        panel.select_end = 5;
+        panel.close_document_now(0);
+        assert_eq!(panel.current, 0);
+        assert_eq!(panel.current_doc_id(), id2);
+        assert_eq!(panel.select_start, 2);
+        assert_eq!(panel.select_end, 5);
+
+        // Creating another file never reuses a previously closed ID.
+        panel.new_file();
+        let id4 = panel.current_doc_id();
+        assert!(id4 > id3);
+        assert_eq!(panel.select_start, -1);
+
+        // Closing all clears currentDocId back to -1.
+        panel.close_all_docs_internal();
+        assert_eq!(panel.current_doc_id(), -1);
     }
 }

@@ -31,6 +31,7 @@ pub fn extract_in_file_value(text: &str, key: &str) -> String {
 }
 
 pub struct Document {
+    pub id: i32,
     pub title: String,
     pub path: String,
     pub backup_id: String,
@@ -61,8 +62,9 @@ pub struct Document {
 }
 
 impl Document {
-    pub fn untitled(title: String) -> Self {
+    pub fn untitled(id: i32, title: String) -> Self {
         Self {
+            id,
             title,
             path: String::new(),
             backup_id: backup::new_untitled_id(),

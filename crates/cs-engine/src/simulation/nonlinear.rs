@@ -40,8 +40,9 @@ impl Circuit {
         self.has_nonlinear_cached
     }
 
-    pub(super) fn reset_device_stamps(&mut self) {
-        let slope = self.slope_steps;
+    /// Reset stateless analog nonlinear companion models for fresh Newton convergence
+    /// without disturbing running MCUs, co-sim guests, or stateful digital ICs.
+    pub(super) fn reset_analog_nonlinear_stamps(&mut self) {
         for c in &mut self.components {
             match &mut c.kind {
                 Kind::Diode { state, .. } => state.reset_stamp(),
@@ -50,7 +51,6 @@ impl Circuit {
                 Kind::Mosfet { state } => state.reset_stamp(),
                 Kind::OpAmp { state } => state.reset_stamp(),
                 Kind::Jfet { state } => state.reset_stamp(),
-                Kind::Comparator { state } => state.stamp_init(slope),
                 Kind::VoltReg { state } => state.reset_stamp(),
                 Kind::RgbLed { leds, .. } => leds.iter_mut().for_each(|led| led.reset_stamp()),
                 Kind::LedBar { leds, .. } => leds.iter_mut().for_each(|led| led.reset_stamp()),
@@ -58,6 +58,17 @@ impl Circuit {
                     leds.iter_mut().for_each(|led| led.reset_stamp())
                 }
                 Kind::LedMatrix { leds, .. } => leds.iter_mut().for_each(|led| led.reset_stamp()),
+                _ => {}
+            }
+        }
+    }
+
+    pub(super) fn reset_device_stamps(&mut self) {
+        self.reset_analog_nonlinear_stamps();
+        let slope = self.slope_steps;
+        for c in &mut self.components {
+            match &mut c.kind {
+                Kind::Comparator { state } => state.stamp_init(slope),
                 Kind::Gate(g) => g.stamp_init(slope),
                 Kind::FlipFlop(f) => f.stamp_init(slope),
                 Kind::Latch(l) => l.stamp_init(slope),

@@ -554,3 +554,92 @@ fn test_subcircuit_saved_sim1_relative_firmware_serial() {
     reloaded.power_off();
     let _ = fs::remove_dir_all(&tmp_dir);
 }
+
+#[test]
+fn test_opening_serial_port_and_live_refresh_keep_mcu_running() {
+    let _guard = SERIAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut canvas = Canvas::empty();
+    assert!(canvas.scene_add_component_spec("mega328,MCU", Point::zero()));
+    let mcu_uid = canvas.scene().items()[0].id.clone();
+    let port_id = canvas.scene_mut().add_serial_port(200.0, 100.0);
+    let res_id = canvas.scene_mut().add_resistor(-120.0, 100.0, 100.0);
+
+    // Firmware: configure PORTD2 as output, then repeatedly toggle PORTD2 via PIND (I/O 0x09)
+    // with a short delay loop so pin voltage visibly alternates across ticks.
+    // 0x0000: LDI r16, 0x04          (0xE004)
+    // 0x0001: OUT DDRD (0x0A), r16   (0xB90A)
+    // 0x0002: OUT PIND (0x09), r16   (0xB909)  ; toggle PORTD2
+    // 0x0003: LDI r17, 0xFF          (0xEF1F)
+    // 0x0004: LDI r18, 0xFF          (0xEF2F)
+    // 0x0005: DEC r18                (0x952A)
+    // 0x0006: BRNE -2 (to 0x0005)    (0xF7F1)
+    // 0x0007: DEC r17                (0x951A)
+    // 0x0008: BRNE -5 (to 0x0004)    (0xF7D9)
+    // 0x0009: RJMP -8 (to 0x0002)    (0xCFF8)
+    let hex = avr_hex_from_segments(&[(
+        0x0000,
+        &[
+            0xE004, 0xB90A, 0xB909, 0xEF1F, 0xEF2F, 0x952A, 0xF7F1, 0x951A, 0xF7D9, 0xCFF8,
+        ],
+    )]);
+
+    let tmp_dir = env::temp_dir().join(format!("cs_mcu_live_serial_{}", process::id()));
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).expect("create temp dir");
+    let hex_path = tmp_dir.join("toggle.hex");
+    fs::write(&hex_path, hex).expect("write toggle hex");
+    assert!(
+        canvas
+            .load_firmware_path(&mcu_uid, &hex_path.to_string_lossy())
+            .items
+    );
+
+    canvas.power_on();
+    assert!(canvas.sim_running());
+
+    let pin_id = format!("{mcu_uid}-PORTD2");
+    let count_toggles = |cv: &mut Canvas, ticks: usize| -> usize {
+        let mut prev = cv.pin_voltage(&pin_id).unwrap_or(0.0) > 2.5;
+        let mut edges = 0;
+        for _ in 0..ticks {
+            cv.tick();
+            let cur = cv.pin_voltage(&pin_id).unwrap_or(0.0) > 2.5;
+            if cur != prev {
+                edges += 1;
+                prev = cur;
+            }
+        }
+        edges
+    };
+
+    assert!(
+        count_toggles(&mut canvas, 15) >= 2,
+        "MCU must toggle PORTD2 before opening SerialPort"
+    );
+
+    // 1. Click Open on SerialPort while simulation is running.
+    let btn_pt = canvas
+        .viewport()
+        .map_from_circuit(cs_engine::canvas::Point::new(214.0, 100.0));
+    canvas.mouse_press(1, btn_pt.x, btn_pt.y, 0);
+    let ch = canvas.mouse_release(1, btn_pt.x, btn_pt.y, 0);
+    assert_eq!(
+        ch.open_serial_mon,
+        Some((format!("{port_id}:Serial"), format!("{port_id}-Serial"))),
+        "Clicking Open on SerialPort must still open serial monitor"
+    );
+    assert!(
+        count_toggles(&mut canvas, 15) >= 2,
+        "MCU must keep running and toggling after opening SerialPort"
+    );
+
+    // 2. Refresh another component live (exercises Circuit::re_solve()).
+    canvas.refresh_sim_component(&res_id);
+    assert!(
+        count_toggles(&mut canvas, 15) >= 2,
+        "MCU must keep running and toggling after live re_solve() on another component"
+    );
+
+    canvas.power_off();
+    let _ = fs::remove_dir_all(&tmp_dir);
+}

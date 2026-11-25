@@ -1323,3 +1323,54 @@ fn external_pin_interrupt_wakes_spinning_mcu() {
     d.advance();
     assert_eq!(d.pc(), 0x02, "Should vector to INT0 ISR at 0x02");
 }
+
+#[test]
+fn avr_timer0_counter_reaches_255_before_overflow_and_reschedules_on_prescaler_change() {
+    let mut d = avr_oc();
+    d.force_freq(16_000_000.0); // ps_inst = 62_500 ps
+    // Simple NOP loop (avoid spin fast-forward so we step cycle-by-cycle)
+    d.load_words(&[0x0000, 0xCFFE]); // NOP; RJMP -2
+
+    // Match Arduino wiring.c init(): Fast PWM (WGM01|WGM00), then sbi CS01, sbi CS00.
+    d.poke_reg(0x44, 0x03); // TCCR0A = WGM01 | WGM00
+    d.poke_reg(0x45, 0x02); // TCCR0B = CS01 (prescaler 8)
+    d.poke_reg(0x45, 0x03); // TCCR0B = CS01 | CS00 (prescaler 64)
+
+    let ps_per_tick = 64 * d.ps_inst;
+    assert_eq!(
+        d.timer_remain_ps(),
+        Some(256 * ps_per_tick),
+        "Changing prescaler on a running AVR timer must reschedule remain_ps immediately"
+    );
+
+    let mut max_seen = 0u8;
+    let mut prev_tcnt = 0u8;
+    let mut tcnt_just_before_ovf = 0u8;
+    let mut saw_ovf = false;
+    for _ in 0..20_000 {
+        let tcnt = d.cpu_read_reg(0x46); // TCNT0
+        let tifr = d.ram(0x35); // TIFR0
+        if tifr & 0x01 != 0 {
+            saw_ovf = true;
+            break;
+        }
+        assert!(
+            tcnt >= prev_tcnt,
+            "TCNT0 must be monotonic before overflow ({prev_tcnt} -> {tcnt})"
+        );
+        prev_tcnt = tcnt;
+        max_seen = max_seen.max(tcnt);
+        tcnt_just_before_ovf = tcnt;
+        d.advance();
+    }
+
+    assert!(saw_ovf, "Timer0 should overflow within 20_000 steps");
+    assert_eq!(
+        max_seen, 255,
+        "8-bit Timer0 TCNT0 must reach 255 before overflowing (Arduino micros() relies on t == 255)"
+    );
+    assert_eq!(
+        tcnt_just_before_ovf, 255,
+        "TCNT0 on the cycle immediately preceding TOV0 must be 255"
+    );
+}

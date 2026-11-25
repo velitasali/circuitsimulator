@@ -331,16 +331,18 @@ impl Timer {
             } else {
                 time2ovf / self.ps_per_tick
             };
-            if self.ovf_match as u64 > cycles2ovf {
-                self.count_val = self.ovf_match - cycles2ovf as u32;
+            let period = u64::from(self.ovf_period);
+            if period >= cycles2ovf {
+                let mut count = (period - cycles2ovf) as u32;
                 let offset = if self.ps_per_tick == 0 {
                     0
                 } else {
                     time2ovf % self.ps_per_tick
                 };
                 if offset != 0 {
-                    self.count_val = self.count_val.saturating_sub(1);
+                    count = count.saturating_sub(1);
                 }
+                self.count_val = count.min(self.ovf_match);
             }
         }
         let shown = if self.reverse {
@@ -689,11 +691,18 @@ impl Timer {
             self.pr_sel.val(tccrb)
         };
         if pr != self.pr_index {
+            let was_running = self.running;
+            if was_running {
+                self.updt_count(data);
+            }
             self.set_presc_index(pr);
             if self.pr_index != 0 {
                 self.configure_clock(ports, ps_inst);
             }
             self.set_running(self.pr_index != 0, data, ports, ps_inst);
+            if was_running && self.running {
+                self.schedule(ports, ps_inst);
+            }
         }
     }
 

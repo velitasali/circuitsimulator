@@ -177,7 +177,7 @@ impl Circuit {
         }
         let keep_stamps = std::mem::take(&mut self.regroup_pending);
         if !keep_stamps {
-            self.reset_device_stamps();
+            self.reset_analog_nonlinear_stamps();
         }
         if let Err(e) = self.solve_circuit() {
             crate::logging::log_sim(format!("Simulation solve error: {e}"));

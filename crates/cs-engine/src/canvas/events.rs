@@ -761,29 +761,36 @@ impl Canvas {
                 }
                 if last_scene == origin {
                     if let Some(id) = self.toggle_switch_at(index, press_pos) {
-                        if self.commit_pending() {
-                            c.history = true;
-                        }
-                        c.items = true;
-                        if self.prop_uid.as_deref() == Some(&id)
-                            || self.open_prop_uids.iter().any(|uid| uid == &id)
-                        {
-                            c.props = true;
-                        }
-                        if let Some(item) = self.scene.item_by_id(&id) {
-                            match &item.kind {
-                                Part::SerialPort(_) => {
-                                    let title = format!("{id}-Serial");
-                                    let mon_id = format!("{id}:Serial");
-                                    c.open_serial_mon = Some((mon_id, title));
-                                }
-                                Part::SerialTerm(_) => {
-                                    c.open_terminal = true;
-                                }
-                                _ => {}
+                        let ui_only =
+                            self.scene
+                                .item_by_id(&id)
+                                .is_some_and(|item| match &item.kind {
+                                    Part::SerialPort(_) => {
+                                        let title = format!("{id}-Serial");
+                                        let mon_id = format!("{id}:Serial");
+                                        c.open_serial_mon = Some((mon_id, title));
+                                        true
+                                    }
+                                    Part::SerialTerm(_) => {
+                                        c.open_terminal = true;
+                                        true
+                                    }
+                                    _ => false,
+                                });
+                        if ui_only {
+                            self.pending = None;
+                        } else {
+                            if self.commit_pending() {
+                                c.history = true;
                             }
+                            c.items = true;
+                            if self.prop_uid.as_deref() == Some(&id)
+                                || self.open_prop_uids.iter().any(|uid| uid == &id)
+                            {
+                                c.props = true;
+                            }
+                            c.merge(self.refresh_sim_component(&id));
                         }
-                        c.merge(self.refresh_sim_component(&id));
                     } else {
                         self.pending = None;
                     }

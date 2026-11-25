@@ -425,6 +425,9 @@ impl CircuitCanvas {
         }
         if c.props {
             self.props_changed();
+            if !c.items {
+                self.devices_changed();
+            }
         }
         if c.items || c.props {
             self.refresh_mcu_info();
@@ -855,6 +858,11 @@ impl CircuitCanvas {
     qproperty!(
         "programmableDevices",
         Read = programmable_devices,
+        Notify = devices_changed
+    );
+    qproperty!(
+        "firmwareDevices",
+        Read = firmware_devices,
         Notify = devices_changed
     );
     qproperty!(
@@ -1416,6 +1424,10 @@ impl CircuitCanvas {
 
     fn programmable_devices(&self) -> Value {
         plots::programmable_devices_json(&self.inner, self.active_device_id.as_deref())
+    }
+
+    fn firmware_devices(&self) -> Value {
+        plots::firmware_devices_json(&self.inner, self.active_device_id.as_deref())
     }
 
     fn active_device_id(&self) -> String {
@@ -3838,14 +3850,39 @@ impl CircuitCanvas {
 
     #[qslot]
     fn upload_firmware(&mut self, path: String) {
+        self.upload_firmware_to(path, String::new());
+    }
+
+    #[qslot]
+    fn upload_firmware_to(&mut self, path: String, target_id: String) {
         let path = strip_file_url(&path);
         if path.is_empty() {
             return;
         }
-        let c = self
-            .inner
-            .upload_firmware_to(&path, self.active_device_id.as_deref());
+        let target = if target_id.is_empty() {
+            self.active_device_id.as_deref()
+        } else {
+            Some(target_id.as_str())
+        };
+        let c = self.inner.upload_firmware_to(&path, target);
         self.apply(c);
+    }
+
+    #[qslot]
+    fn active_firmware_source(&self) -> String {
+        let uid = if let Some(aid) = &self.active_device_id {
+            aid.clone()
+        } else {
+            let devs = self.inner.collect_programmable_devices(None);
+            devs.first().map(|d| d.id.clone()).unwrap_or_default()
+        };
+        if uid.is_empty() {
+            return String::new();
+        }
+        self.inner
+            .firmware_source_for(&uid)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default()
     }
 
     #[qslot]
@@ -4667,5 +4704,47 @@ mod tests {
         let cc = CircuitCanvas::default();
         let _ = crate::pending::NO_PROJECT.set(true);
         assert!(files::restore_draft_draft(&cc.inner, "").is_none());
+    }
+
+    #[test]
+    fn test_active_firmware_source_and_firmware_devices() {
+        let dir = std::env::temp_dir().join("cs_test_active_firmware_source");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let ino = dir.join("blink.ino");
+        let hex = dir.join("blink.hex");
+        fs::write(&ino, "void setup() {}\nvoid loop() {}\n").unwrap();
+        fs::write(&hex, ":00000001FF\n").unwrap();
+        let circ_path = dir.join("test.circ1");
+
+        let mut cc = CircuitCanvas::default();
+        let src = format!(
+            r#"<circuit version="1.0.0">
+  <item itemtype="MCU" CircId="mega328-1" label="MasterMCU" Pos="0,0" Program="blink.hex"/>
+  <item itemtype="MCU" CircId="mega328-2" label="EmptyMCU" Pos="200,0"/>
+</circuit>"#
+        );
+        cc.inner
+            .load_circ1(&src, Some(circ_path.to_string_lossy().into_owned()))
+            .unwrap();
+
+        cc.active_device_id = Some("mega328-1".to_string());
+        assert_eq!(Path::new(&cc.active_firmware_source()), ino.as_path());
+
+        cc.active_device_id = Some("mega328-2".to_string());
+        assert_eq!(cc.active_firmware_source(), "");
+
+        let fdevs = cc.firmware_devices();
+        let arr = fdevs.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        let master = arr.iter().find(|d| d["label"] == "MasterMCU").unwrap();
+        assert_eq!(
+            Path::new(master["firmwareSource"].as_str().unwrap()),
+            ino.as_path()
+        );
+        let empty = arr.iter().find(|d| d["label"] == "EmptyMCU").unwrap();
+        assert_eq!(empty["firmwareSource"], "");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

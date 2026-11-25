@@ -1377,11 +1377,18 @@ Item {
         }
         function onActiveDeviceChanged( id: string ): void {
             CircuitCanvas.activeDeviceId = id
+            var src = CircuitCanvas.activeFirmwareSource()
+            if ( src )
+                EditorPanel.focusOpenFile( src )
         }
         function onAction( id: string ): void {
             if ( id === "zoomIn" ) CircuitCanvas.zoomIn()
             else if ( id === "zoomOut" ) CircuitCanvas.zoomOut()
-            else if ( id === "powerCirc" || id === "powerOn" ) CircuitCanvas.powerCirc()
+            else if ( id === "powerCirc" ) AppMenuBar.triggerAction( "sim.power" )
+            else if ( id === "powerOn" ) {
+                if ( !CircuitCanvas.simRunning )
+                    AppMenuBar.triggerAction( "sim.power" )
+            }
             else if ( id === "powerOff" ) CircuitCanvas.powerOff()
             else if ( id === "pauseCirc" || id === "pauseQemu" || id === "resumeQemu" ) CircuitCanvas.pauseCirc()
             else if ( id === "settCircuit" ) App.showCircuitSettings()

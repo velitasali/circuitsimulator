@@ -1,14 +1,35 @@
 //! Compilation jobs, compiler spec resolution, and Arduino board discovery for EditorPanel.
 
-use super::EditorPanel;
+use super::document::Document;
+use super::{EditorPanel, normalize_debug_path};
 use cs_engine::backup;
+use cs_engine::debug::{DebugSession, DebugSymbols, ElfParser, LstKind, LstParser};
 use cs_engine::editor::{
     self, CompileCtx, CompileEvent, CompileJob, CompileResult, CompilerSpec, arduino,
-    list_arduino_boards, match_board, resolve_board_fqbn, save_cfg,
+    list_arduino_boards, load_cfg, match_board, resolve_board_fqbn, save_cfg,
 };
+use cs_engine::i18n;
+use serde_json::Value;
+use std::collections::VecDeque;
+use std::fs;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QueuedCompile {
+    pub src_path: String,
+    pub target_device_ids: Vec<String>,
+    pub debug: bool,
+    pub load_debug_symbols: bool,
+    pub silent_if_cached: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PendingSimAction {
+    RestartPowerOn,
+    DebugRun,
+}
 
 pub struct PendingCompile {
     pub job: CompileJob,
@@ -17,6 +38,78 @@ pub struct PendingCompile {
     pub then_upload: bool,
     pub then_run: bool,
     pub breakpoints: Vec<i32>,
+    pub target_device_ids: Vec<String>,
+    pub load_debug_symbols: bool,
+}
+
+pub(super) fn collect_device_compile_targets(devices: Value, debug: bool) -> Vec<QueuedCompile> {
+    let mut groups: Vec<(String, String, Vec<String>, bool)> = Vec::new();
+    if let Value::Array(arr) = devices {
+        for item in arr {
+            let src = item
+                .get("firmwareSource")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let uid = item
+                .get("uid")
+                .and_then(|v| v.as_str())
+                .or_else(|| item.get("id").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            if src.is_empty() || uid.is_empty() {
+                continue;
+            }
+            let norm = normalize_debug_path(Path::new(src));
+            if norm.is_empty() {
+                continue;
+            }
+            let is_active = item
+                .get("isActive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if let Some(existing) = groups.iter_mut().find(|(k, _, _, _)| *k == norm) {
+                if !existing.2.iter().any(|u| u == uid) {
+                    existing.2.push(uid.to_string());
+                }
+                existing.3 |= is_active;
+            } else {
+                groups.push((norm, src.to_string(), vec![uid.to_string()], is_active));
+            }
+        }
+    }
+
+    if groups.is_empty() {
+        return Vec::new();
+    }
+
+    // Put non-active MCU firmwares first and the active MCU's firmware last so
+    // `last_firmware` and debug symbols settle on the active MCU.
+    let mut non_active = Vec::new();
+    let mut active = Vec::new();
+    for (_, src_path, target_device_ids, is_active) in groups {
+        if is_active {
+            active.push((src_path, target_device_ids, true));
+        } else {
+            non_active.push((src_path, target_device_ids, false));
+        }
+    }
+    let has_active = !active.is_empty();
+    let ordered: Vec<(String, Vec<String>, bool)> = non_active.into_iter().chain(active).collect();
+    let last_idx = ordered.len().saturating_sub(1);
+
+    ordered
+        .into_iter()
+        .enumerate()
+        .map(|(i, (src_path, target_device_ids, is_active))| {
+            let is_primary = if has_active { is_active } else { i == last_idx };
+            QueuedCompile {
+                src_path,
+                target_device_ids,
+                debug: debug && is_primary,
+                load_debug_symbols: is_primary,
+                silent_if_cached: true,
+            }
+        })
+        .collect()
 }
 
 impl EditorPanel {
@@ -99,7 +192,13 @@ impl EditorPanel {
     }
 
     pub fn persist_cfg(&self) {
-        if let Some(d) = self.current_doc() {
+        if self.current >= 0 {
+            self.persist_cfg_for(self.current as usize);
+        }
+    }
+
+    pub fn persist_cfg_for(&self, index: usize) {
+        if let Some(d) = self.docs.get(index) {
             if d.path.is_empty() {
                 return;
             }
@@ -276,6 +375,8 @@ impl EditorPanel {
                     then_upload,
                     then_run,
                     breakpoints,
+                    Vec::new(),
+                    true,
                     res,
                 );
                 return;
@@ -312,7 +413,447 @@ impl EditorPanel {
             then_upload,
             then_run,
             breakpoints,
+            target_device_ids: Vec::new(),
+            load_debug_symbols: true,
         });
+    }
+
+    /// Save the target firmware document (if open and dirty) plus any dirty sibling
+    /// documents in the same directory. Returns `(any_saved, saved_current)`.
+    pub(super) fn save_dirty_docs_for_target(
+        &mut self,
+        open_idx: Option<usize>,
+        effective_src_path: &str,
+    ) -> (bool, bool) {
+        let mut any_saved = false;
+        let mut saved_current = false;
+        if let Some(idx) = open_idx {
+            if self.docs[idx].dirty {
+                let doc_path = self.docs[idx].path.clone();
+                if self.write_doc(idx, &doc_path) {
+                    any_saved = true;
+                    if self.current == idx as i32 {
+                        saved_current = true;
+                    }
+                    self.persist_cfg_for(idx);
+                }
+            }
+        }
+        if let Some(target_dir) = Path::new(effective_src_path).parent() {
+            let norm_dir = normalize_debug_path(target_dir);
+            if !norm_dir.is_empty() {
+                let dirty_siblings: Vec<(usize, String)> = self
+                    .docs
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, d)| {
+                        Some(*i) != open_idx
+                            && d.dirty
+                            && !d.path.is_empty()
+                            && Path::new(&d.path)
+                                .parent()
+                                .is_some_and(|p| normalize_debug_path(p) == norm_dir)
+                    })
+                    .map(|(i, d)| (i, d.path.clone()))
+                    .collect();
+                for (i, sib_path) in dirty_siblings {
+                    if self.write_doc(i, &sib_path) {
+                        any_saved = true;
+                        if self.current == i as i32 {
+                            saved_current = true;
+                        }
+                        self.persist_cfg_for(i);
+                    }
+                }
+            }
+        }
+        (any_saved, saved_current)
+    }
+
+    pub(super) fn clear_compile_batch(&mut self) {
+        self.compile_queue.clear();
+        self.pending_sim_action = None;
+        self.batch_log_opened = false;
+        self.batch_any_handled = false;
+    }
+
+    /// Save and compile the firmware source file for a single MCU before starting
+    /// simulation. Returns `true` when simulation startup is handled here (compiling
+    /// or fast-path upload+run), or `false` when no compilation is applicable and
+    /// the caller should start simulation directly.
+    pub fn compile_path_for_sim(&mut self, src_path: String, target_device_id: String) -> bool {
+        let targets = if target_device_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![target_device_id]
+        };
+        self.compile_path_target(None, src_path, targets, false, true, true, true, false)
+    }
+
+    /// Save and compile all MCU firmware source files in `devices` before starting
+    /// simulation (or debugging when `debug` is `true`). Returns `true` when startup
+    /// is handled here (compiling or fast-path upload+run), or `false` when no
+    /// compilation is applicable and the caller should start simulation directly.
+    pub fn compile_devices_for_sim_inner(&mut self, devices: Value, debug: bool) -> bool {
+        if self.compiling {
+            self.push_log(format!(
+                "     {}",
+                i18n::tr("Error: Compiler is already running")
+            ));
+            return true;
+        }
+        let targets = collect_device_compile_targets(devices, debug);
+        if targets.is_empty() {
+            return false;
+        }
+        self.compile_queue = VecDeque::from(targets);
+        self.pending_sim_action = Some(if debug {
+            PendingSimAction::DebugRun
+        } else {
+            PendingSimAction::RestartPowerOn
+        });
+        self.batch_log_opened = false;
+        self.batch_any_handled = false;
+        self.pump_compile_queue()
+    }
+
+    fn pump_compile_queue(&mut self) -> bool {
+        while self.compile_job.is_none() {
+            let Some(item) = self.compile_queue.pop_front() else {
+                let action = self.pending_sim_action.take();
+                let any = self.batch_any_handled;
+                self.batch_log_opened = false;
+                self.batch_any_handled = false;
+                if any {
+                    match action {
+                        Some(PendingSimAction::RestartPowerOn) => {
+                            self.push_log(i18n::tr("Starting simulation…"));
+                            self.request_restart_power_on();
+                        }
+                        Some(PendingSimAction::DebugRun) => {
+                            self.push_log(i18n::tr("Starting debug session…"));
+                            self.request_debug_run();
+                        }
+                        None => {}
+                    }
+                    return true;
+                }
+                return false;
+            };
+
+            let handled = self.compile_path_target(
+                None,
+                item.src_path,
+                item.target_device_ids,
+                item.debug,
+                false,
+                item.load_debug_symbols,
+                item.silent_if_cached,
+                true,
+            );
+            if handled {
+                self.batch_any_handled = true;
+            }
+            if self.compile_job.is_some() || self.pending_sim_action.is_none() {
+                return true;
+            }
+        }
+        true
+    }
+
+    /// Save, compile (if needed), and upload the document at `index` to `target_device_id`
+    /// without starting simulation.
+    pub fn upload_doc_to_device_inner(&mut self, index: usize, target_device_id: String) {
+        let Some(doc) = self.docs.get(index) else {
+            return;
+        };
+        if doc.path.is_empty() {
+            self.set_current_document(index as i32);
+            self.push_log(i18n::tr("Error: File not saved"));
+            self.request_save_as();
+            return;
+        }
+        let src_path = doc.path.clone();
+        let targets = if target_device_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![target_device_id]
+        };
+        self.compile_path_target(
+            Some(index),
+            src_path,
+            targets,
+            false,
+            false,
+            true,
+            false,
+            false,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compile_path_target(
+        &mut self,
+        explicit_idx: Option<usize>,
+        src_path: String,
+        target_device_ids: Vec<String>,
+        debug: bool,
+        then_run: bool,
+        load_debug_symbols: bool,
+        silent_if_cached: bool,
+        in_batch: bool,
+    ) -> bool {
+        if src_path.is_empty() {
+            return false;
+        }
+        if self.compiling {
+            self.push_log(format!(
+                "     {}",
+                i18n::tr("Error: Compiler is already running")
+            ));
+            return true;
+        }
+
+        let norm_target = normalize_debug_path(Path::new(&src_path));
+        let open_idx = explicit_idx.filter(|&i| i < self.docs.len()).or_else(|| {
+            self.docs.iter().position(|d| {
+                !d.path.is_empty()
+                    && (d.path == src_path
+                        || normalize_debug_path(Path::new(&d.path)) == norm_target)
+            })
+        });
+
+        let effective_src_path = open_idx
+            .and_then(|i| self.docs.get(i))
+            .map(|d| d.path.clone())
+            .unwrap_or(src_path);
+
+        if open_idx.is_none() && !Path::new(&effective_src_path).is_file() {
+            return false;
+        }
+
+        let (any_saved, saved_current) =
+            self.save_dirty_docs_for_target(open_idx, &effective_src_path);
+        if any_saved {
+            self.documents_changed();
+            if saved_current {
+                self.sync_lsp_open();
+            }
+        }
+
+        let (
+            src_path,
+            mut compiler_name,
+            board,
+            custom_board,
+            device,
+            family,
+            extra_args,
+            incl_path,
+            tool_path,
+            breakpoints,
+        ) = if let Some(idx) = open_idx {
+            let d = &self.docs[idx];
+            (
+                d.path.clone(),
+                d.compiler.clone(),
+                d.board.clone(),
+                d.custom_board.clone(),
+                d.device.clone(),
+                d.family.clone(),
+                d.extra_args.clone(),
+                d.incl_path.clone(),
+                d.tool_path.clone(),
+                d.breakpoints.clone(),
+            )
+        } else {
+            if !Path::new(&effective_src_path).is_file() {
+                return false;
+            }
+            let title = Path::new(&effective_src_path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("untitled")
+                .to_string();
+            let mut temp = Document::untitled(title);
+            temp.path = effective_src_path.clone();
+            temp.text = fs::read_to_string(&effective_src_path).unwrap_or_default();
+            let cfg = load_cfg(&effective_src_path);
+            let settings = cs_engine::settings::get();
+            temp.apply_cfg(cfg, &self.specs, &settings, &self.arduino_boards);
+            (
+                temp.path,
+                temp.compiler,
+                temp.board,
+                temp.custom_board,
+                temp.device,
+                temp.family,
+                temp.extra_args,
+                temp.incl_path,
+                temp.tool_path,
+                temp.breakpoints,
+            )
+        };
+
+        if compiler_name.is_empty() || compiler_name == "None" {
+            let lower = src_path.to_ascii_lowercase();
+            if lower.ends_with(".ino") || lower.ends_with(".pde") {
+                compiler_name = "Arduino".to_string();
+            } else if lower.ends_with(".as") {
+                compiler_name = "AScript".to_string();
+            } else if lower.ends_with(".gcb") {
+                compiler_name = "GcBasic".to_string();
+            }
+        }
+        if compiler_name.is_empty() || compiler_name == "None" {
+            return false;
+        }
+
+        let is_arduino = compiler_name.eq_ignore_ascii_case("arduino");
+        let board = if board.is_empty() && is_arduino {
+            "Uno".to_string()
+        } else {
+            board
+        };
+        let tool_path = if tool_path.is_empty() && is_arduino {
+            arduino::tool_path_candidates()
+                .first()
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            tool_path
+        };
+
+        if let Some(idx) = open_idx {
+            if let Some(d) = self.docs.get_mut(idx) {
+                let mut changed = false;
+                if d.compiler.is_empty() || d.compiler == "None" {
+                    d.compiler = compiler_name.clone();
+                    changed = true;
+                }
+                if d.board.is_empty() && is_arduino {
+                    d.board = board.clone();
+                    changed = true;
+                }
+                if d.tool_path.is_empty() && is_arduino && !tool_path.is_empty() {
+                    d.tool_path = tool_path.clone();
+                    changed = true;
+                }
+                if changed {
+                    self.documents_changed();
+                    if self.current == idx as i32 {
+                        self.file_settings_changed();
+                    }
+                }
+            }
+        }
+
+        let spec = self
+            .specs
+            .get(&compiler_name)
+            .cloned()
+            .unwrap_or_else(|| CompilerSpec {
+                name: compiler_name.clone(),
+                ..Default::default()
+            });
+        if spec.is_none() {
+            return false;
+        }
+
+        let fqbn = if spec.is_arduino() {
+            let (b, cb, _) = match_board(&board, &custom_board, &device, &self.arduino_boards);
+            resolve_board_fqbn(&b, &cb, &self.arduino_boards)
+        } else {
+            String::new()
+        };
+
+        // Fast path: if the Arduino sketch artifacts are already up to date for this
+        // exact board/FQBN, skip recompiling and upload (and optionally run) immediately.
+        if spec.is_arduino() && extra_args.trim().is_empty() && incl_path.trim().is_empty() {
+            if let Some(cached_fw) = arduino::cached_up_to_date_firmware(&src_path, &fqbn, debug) {
+                let fw_str = cached_fw.to_string_lossy().into_owned();
+                self.push_log(format!(
+                    "     {} ({})",
+                    i18n::tr("Build up to date, skipping recompile"),
+                    fw_str
+                ));
+                if silent_if_cached {
+                    if self.compile_state == "error" || self.compile_state == "cancelled" {
+                        self.compile_state = "idle".to_string();
+                        self.compile_error_count = 0;
+                        self.compile_warning_count = 0;
+                        self.compiling_changed();
+                    }
+                } else {
+                    self.compile_state = "ok".to_string();
+                    self.compile_file = Path::new(&src_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(&src_path)
+                        .to_string();
+                    self.compile_error_count = 0;
+                    self.compile_warning_count = 0;
+                    self.compiling = false;
+                    self.compiling_changed();
+                }
+                let mut res = CompileResult::default();
+                res.firmware = fw_str;
+                self.finish_compile_result(
+                    src_path,
+                    debug,
+                    true,
+                    then_run,
+                    breakpoints,
+                    target_device_ids,
+                    load_debug_symbols,
+                    res,
+                );
+                return true;
+            }
+        }
+
+        if !in_batch || !self.batch_log_opened {
+            self.request_compiler_log();
+            if in_batch {
+                self.batch_log_opened = true;
+            }
+        }
+        self.push_log("-------------------------------------------------------".to_string());
+
+        let ctx = CompileCtx {
+            file: src_path.clone(),
+            board,
+            custom_board,
+            device,
+            family,
+            extra_args,
+            incl_path,
+            tool_path,
+            debug,
+            fqbn,
+        };
+        self.compiling = true;
+        self.compile_state = "compiling".to_string();
+        self.compile_file = Path::new(&src_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&src_path)
+            .to_string();
+        self.compile_error_count = 0;
+        self.compile_warning_count = 0;
+        self.compile_cancel_requested = false;
+        self.compiling_changed();
+        self.compile_job = Some(PendingCompile {
+            job: CompileJob::spawn(spec, ctx),
+            src_path,
+            debug,
+            then_upload: true,
+            then_run,
+            breakpoints,
+            target_device_ids,
+            load_debug_symbols,
+        });
+        true
     }
 
     pub fn drain_compile_job(&mut self) {
@@ -359,7 +900,13 @@ impl EditorPanel {
             .to_string();
             self.compiling = false;
             self.compiling_changed();
+            if was_cancelled {
+                self.clear_compile_batch();
+            }
             self.apply_compile_result(pending, result);
+            if self.pending_sim_action.is_some() {
+                let _ = self.pump_compile_queue();
+            }
         }
     }
 
@@ -370,10 +917,13 @@ impl EditorPanel {
             pending.then_upload,
             pending.then_run,
             pending.breakpoints,
+            pending.target_device_ids,
+            pending.load_debug_symbols,
             result,
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn finish_compile_result(
         &mut self,
         src_path: String,
@@ -381,32 +931,45 @@ impl EditorPanel {
         then_upload: bool,
         then_run: bool,
         breakpoints: Vec<i32>,
+        target_device_ids: Vec<String>,
+        load_debug_symbols: bool,
         result: CompileResult,
     ) {
-        if let Some(d) = self.docs.iter_mut().find(|d| d.path == src_path) {
-            d.errors = result.errors;
-            d.warnings = result.warnings;
+        let norm_src = normalize_debug_path(Path::new(&src_path));
+        let matched_idx = self.docs.iter().position(|d| {
+            !d.path.is_empty()
+                && (d.path == src_path || normalize_debug_path(Path::new(&d.path)) == norm_src)
+        });
+        if let Some(idx) = matched_idx {
+            self.docs[idx].errors = result.errors;
+            self.docs[idx].warnings = result.warnings;
         }
         self.marks_changed();
         if result.error > 0 {
-            if self.current_path() == src_path {
+            self.clear_compile_batch();
+            if let Some(idx) = matched_idx {
+                if self.current != idx as i32 {
+                    self.set_current_document(idx as i32);
+                }
                 self.goto_1based(result.error);
             }
             return;
         }
         if result.error != 0 {
+            self.clear_compile_batch();
             self.push_log("     WARNING: Compilation Not Done");
             return;
         }
         self.last_firmware = result.firmware.clone();
+        self.last_upload_target = target_device_ids.last().cloned().unwrap_or_default();
         self.firmware_changed();
 
-        {
+        if load_debug_symbols {
             let path_obj = Path::new(&src_path);
             let sketch_dir = path_obj.parent().unwrap_or_else(|| Path::new(""));
             let file_stem = path_obj.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let firmware_path = Path::new(&result.firmware);
-            let session = cs_engine::debug::DebugSession::global();
+            let session = DebugSession::global();
 
             let bp_lines: Vec<usize> = breakpoints
                 .iter()
@@ -424,7 +987,7 @@ impl EditorPanel {
                 if !cand.is_file() {
                     continue;
                 }
-                let canon = std::fs::canonicalize(&cand).unwrap_or(cand);
+                let canon = fs::canonicalize(&cand).unwrap_or(cand);
                 if !unique_elfs.iter().any(|p| p == &canon) {
                     unique_elfs.push(canon);
                 }
@@ -436,11 +999,11 @@ impl EditorPanel {
                 session.set_breakpoints_for_file(path_obj, &bp_lines);
                 let _ = session.load_elf_if_changed(&unique_elfs[0]);
             } else {
-                let mut loaded_syms: Option<cs_engine::debug::DebugSymbols> = None;
+                let mut loaded_syms: Option<DebugSymbols> = None;
                 let mut primary_elf = None;
                 for elf_path in &unique_elfs {
-                    if let Ok(bytes) = std::fs::read(elf_path) {
-                        if let Some(parsed) = cs_engine::debug::ElfParser::parse(&bytes) {
+                    if let Ok(bytes) = fs::read(elf_path) {
+                        if let Some(parsed) = ElfParser::parse(&bytes) {
                             if primary_elf.is_none() {
                                 primary_elf = Some(elf_path.clone());
                             }
@@ -453,12 +1016,8 @@ impl EditorPanel {
                     }
                 }
                 if has_lst {
-                    if let Ok(content) = std::fs::read_to_string(&lst_path) {
-                        let parsed = cs_engine::debug::LstParser::parse(
-                            &content,
-                            path_obj,
-                            cs_engine::debug::LstKind::Auto,
-                        );
+                    if let Ok(content) = fs::read_to_string(&lst_path) {
+                        let parsed = LstParser::parse(&content, path_obj, LstKind::Auto);
                         if let Some(s) = &mut loaded_syms {
                             s.merge(parsed);
                         } else {
@@ -480,20 +1039,31 @@ impl EditorPanel {
 
         if then_upload {
             if self.last_firmware.is_empty() {
+                self.clear_compile_batch();
                 self.push_log(format!(
                     "     {}",
-                    cs_engine::i18n::tr("Error: Firmware file doesn't exist:")
+                    i18n::tr("Error: Firmware file doesn't exist:")
                 ));
             } else if !Path::new(&self.last_firmware).is_file() {
+                self.clear_compile_batch();
                 self.push_log(format!(
                     "\n{}\n{}",
-                    cs_engine::i18n::tr("Error: Firmware file doesn't exist:"),
+                    i18n::tr("Error: Firmware file doesn't exist:"),
                     self.last_firmware
                 ));
             } else {
-                let upload_prefix = cs_engine::i18n::tr("Uploading firmware:");
-                self.push_log(format!("{upload_prefix} {}", self.last_firmware));
-                self.request_upload();
+                let upload_prefix = i18n::tr("Uploading firmware:");
+                let fw = self.last_firmware.clone();
+                self.push_log(format!("{upload_prefix} {fw}"));
+                if target_device_ids.is_empty() {
+                    self.last_upload_target.clear();
+                    self.request_upload_to(fw, String::new());
+                } else {
+                    for uid in &target_device_ids {
+                        self.last_upload_target = uid.clone();
+                        self.request_upload_to(fw.clone(), uid.clone());
+                    }
+                }
             }
         }
         if then_run
@@ -502,10 +1072,10 @@ impl EditorPanel {
             && Path::new(&self.last_firmware).is_file()
         {
             if debug {
-                self.push_log(cs_engine::i18n::tr("Starting debug session…"));
+                self.push_log(i18n::tr("Starting debug session…"));
                 self.request_debug_run();
             } else {
-                self.push_log(cs_engine::i18n::tr("Starting simulation…"));
+                self.push_log(i18n::tr("Starting simulation…"));
                 self.request_restart_power_on();
             }
         }

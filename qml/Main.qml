@@ -678,7 +678,12 @@ ApplicationWindow {
             } else if (id === "help.info") {
                 CircuitPanel.toggleInfo()
             } else if (id === "sim.power") {
-                CircuitCanvas.powerCirc()
+                if (CircuitCanvas.simRunning) {
+                    CircuitCanvas.powerOff()
+                } else {
+                    if (!EditorPanel.compileDevicesForSim(CircuitCanvas.firmwareDevices))
+                        CircuitCanvas.powerOn()
+                }
             } else if (id === "sim.pause") {
                 CircuitCanvas.pauseCirc()
             } else if (id === "circ.settings") {
@@ -860,6 +865,15 @@ ApplicationWindow {
         function onDevicesChanged() {
             var devs = CircuitCanvas.programmableDevices
             AppMenuBar.setHasMcu(!!devs && devs.length > 0)
+            EditorPanel.setFirmwareDevices(CircuitCanvas.firmwareDevices)
+        }
+        function onActiveDeviceChanged() {
+            var src = CircuitCanvas.activeFirmwareSource()
+            if (src)
+                EditorPanel.focusOpenFile(src)
+        }
+        function onRootCircuitLoaded() {
+            EditorPanel.setFirmwareDevices(CircuitCanvas.firmwareDevices)
         }
         function onSimChanged() {
             AppMenuBar.setSimState(CircuitCanvas.simRunning, CircuitCanvas.simPaused)
@@ -874,6 +888,7 @@ ApplicationWindow {
             ComponentList.setCircuitPath(CircuitCanvas.filePath)
             CommandCenter.setCircuitPath(CircuitCanvas.filePath)
             AppMenuBar.setCircuitPath(CircuitCanvas.filePath)
+            EditorPanel.setFirmwareDevices(CircuitCanvas.firmwareDevices)
             if (CircuitCanvas.filePath) {
                 AppDialog.addRecentCircuit(CircuitCanvas.filePath)
                 AppMenuBar.rebuild()
@@ -1216,13 +1231,19 @@ ApplicationWindow {
             App.sidePanelTab = 3
         }
         function onRequestUpload() {
-            CircuitCanvas.uploadFirmware(EditorPanel.lastFirmware)
+            CircuitCanvas.uploadFirmwareTo(EditorPanel.lastFirmware, EditorPanel.lastUploadTarget)
+        }
+        function onRequestUploadTo(path: string, targetId: string): void {
+            CircuitCanvas.uploadFirmwareTo(path, targetId)
         }
         function onRequestPowerOn() {
             if (!CircuitCanvas.simRunning)
-                CircuitCanvas.powerCirc()
+                CircuitCanvas.powerOn()
             else if (CircuitCanvas.simPaused)
                 CircuitCanvas.pauseCirc()
+        }
+        function onCurrentFileChanged() {
+            EditorPanel.setFirmwareDevices(CircuitCanvas.firmwareDevices)
         }
         function onRequestRestartPowerOn() {
             if (CircuitCanvas.simRunning)
@@ -1399,6 +1420,7 @@ ApplicationWindow {
         }
         CircuitCanvas.restoreDraft()
         EditorPanel.restoreDrafts()
+        EditorPanel.setFirmwareDevices(CircuitCanvas.firmwareDevices)
         Qt.callLater(Updater.checkOnStartup)
     }
 

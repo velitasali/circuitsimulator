@@ -745,6 +745,23 @@ impl CircuitPanel {
                 obj.insert("enabled".into(), json!(false));
             }
         }
+        let mut power_btn = action(
+            "power",
+            &power_text,
+            if self.running {
+                UiIcon::Stop
+            } else {
+                UiIcon::PlayArrow
+            },
+            true,
+            false,
+            false,
+        );
+        if compiling && !self.running {
+            if let Some(obj) = power_btn.as_object_mut() {
+                obj.insert("enabled".into(), json!(false));
+            }
+        }
         let mut items = vec![
             widget("subcNav", subc_vis),
             separator(subc_vis),
@@ -768,18 +785,7 @@ impl CircuitPanel {
             ),
             widget("zoom", true),
             separator(true),
-            action(
-                "power",
-                &power_text,
-                if self.running {
-                    UiIcon::Stop
-                } else {
-                    UiIcon::PlayArrow
-                },
-                true,
-                false,
-                false,
-            ),
+            power_btn,
             action(
                 "pause",
                 &pause_text,
@@ -1937,8 +1943,9 @@ mod tests {
             false
         );
         assert_eq!(find_item(&panel, "id", "debug")["enabled"], true);
+        assert_eq!(find_item(&panel, "id", "power")["enabled"], true);
 
-        // Compiling -> widget visible, spinning, cancellable, debug button disabled.
+        // Compiling -> widget visible, spinning, cancellable, debug & power buttons disabled.
         assert!(panel.set_compile_status_data(json!({
             "state": "compiling",
             "file": "esp32_uart.ino",
@@ -1950,12 +1957,13 @@ mod tests {
             true
         );
         assert_eq!(find_item(&panel, "id", "debug")["enabled"], false);
+        assert_eq!(find_item(&panel, "id", "power")["enabled"], false);
         let st = panel.compile_status();
         assert_eq!(st["spinning"], true);
         assert_eq!(st["cancellable"], true);
         assert!(st["tooltip"].as_str().unwrap().contains("esp32_uart.ino"));
 
-        // Failed with 2 errors -> widget visible, error count shown, stays visible (autoHideMs == 0), debug re-enabled.
+        // Failed with 2 errors -> widget visible, error count shown, stays visible (autoHideMs == 0), debug & power re-enabled.
         assert!(panel.set_compile_status_data(json!({
             "state": "error",
             "file": "esp32_uart.ino",
@@ -1963,6 +1971,7 @@ mod tests {
             "warnings": 1,
         })));
         assert_eq!(find_item(&panel, "id", "debug")["enabled"], true);
+        assert_eq!(find_item(&panel, "id", "power")["enabled"], true);
         let st = panel.compile_status();
         assert_eq!(st["visible"], true);
         assert_eq!(st["autoHideMs"], 0);

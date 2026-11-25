@@ -46,6 +46,27 @@ pub(super) fn programmable_devices_json(canvas: &Canvas, active_device_id: Optio
     json!(canvas.collect_programmable_devices(active_device_id))
 }
 
+pub(super) fn firmware_devices_json(canvas: &Canvas, active_device_id: Option<&str>) -> Value {
+    let devices = canvas.collect_programmable_devices(active_device_id);
+    let arr: Vec<Value> = devices
+        .into_iter()
+        .map(|dev| {
+            let src = canvas
+                .firmware_source_for(&dev.uid)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            json!({
+                "id": dev.id,
+                "uid": dev.uid,
+                "label": dev.label,
+                "firmwareSource": src,
+                "isActive": dev.is_active,
+            })
+        })
+        .collect();
+    Value::Array(arr)
+}
+
 pub(super) fn ac_sources_json(canvas: &Canvas) -> Value {
     json!(canvas.scene().to_circuit().ac_sources())
 }

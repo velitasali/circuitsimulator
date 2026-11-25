@@ -6,14 +6,14 @@ pub mod document;
 pub mod lsp;
 pub mod search;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::mem;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
 use crate::path_util::strip_file_url;
-use compiler::PendingCompile;
+use compiler::{PendingCompile, PendingSimAction, QueuedCompile};
 use cs_engine::backup;
 use cs_engine::debug::DebugSession;
 use cs_engine::editor::{
@@ -77,6 +77,8 @@ pub struct EditorPanel {
     lsp_ready: bool,
     edit_action: String,
     last_firmware: String,
+    last_upload_target: String,
+    firmware_mcus: BTreeMap<String, Vec<String>>,
     pending_log: Vec<String>,
     compiler_list: Vec<String>,
     specs: BTreeMap<String, CompilerSpec>,
@@ -112,9 +114,14 @@ pub struct EditorPanel {
     compile_warning_count: i32,
     compile_cancel_requested: bool,
     compile_job: Option<PendingCompile>,
+    compile_queue: VecDeque<QueuedCompile>,
+    pending_sim_action: Option<PendingSimAction>,
+    batch_log_opened: bool,
+    batch_any_handled: bool,
     last_debug_line: i32,
     last_debug_state_gen: u64,
     pending_close_index: Option<usize>,
+    pending_close_queue: Vec<usize>,
     project_path: String,
     initial_loaded: bool,
 }
@@ -172,6 +179,8 @@ impl Default for EditorPanel {
             lsp_ready: false,
             edit_action: String::new(),
             last_firmware: String::new(),
+            last_upload_target: String::new(),
+            firmware_mcus: BTreeMap::new(),
             pending_log: Vec::new(),
             compiler_list,
             specs,
@@ -207,9 +216,14 @@ impl Default for EditorPanel {
             compile_warning_count: 0,
             compile_cancel_requested: false,
             compile_job: None,
+            compile_queue: VecDeque::new(),
+            pending_sim_action: None,
+            batch_log_opened: false,
+            batch_any_handled: false,
             last_debug_line: 0,
             last_debug_state_gen: 0,
             pending_close_index: None,
+            pending_close_queue: Vec::new(),
             project_path: String::new(),
             initial_loaded: false,
         };
@@ -912,6 +926,11 @@ impl EditorPanel {
         Read = last_firmware,
         Notify = firmware_changed
     );
+    qproperty!(
+        "lastUploadTarget",
+        Read = last_upload_target,
+        Notify = firmware_changed
+    );
     qproperty!("compiling", Read = compiling, Notify = compiling_changed);
     qproperty!(
         "compileStatus",
@@ -1014,6 +1033,8 @@ impl EditorPanel {
     #[qsignal]
     pub fn request_upload(&mut self);
     #[qsignal]
+    pub fn request_upload_to(&mut self, path: String, target_id: String);
+    #[qsignal]
     pub fn request_power_on(&mut self);
     #[qsignal]
     pub fn request_restart_power_on(&mut self);
@@ -1031,12 +1052,22 @@ impl EditorPanel {
             .docs
             .iter()
             .map(|d| {
+                let mcu_names = if d.path.is_empty() {
+                    String::new()
+                } else {
+                    let norm = normalize_debug_path(Path::new(&d.path));
+                    self.firmware_mcus
+                        .get(&norm)
+                        .map(|names| names.join(", "))
+                        .unwrap_or_default()
+                };
                 json!({
                     "title": d.title,
                     "path": d.path,
                     "dirty": d.dirty,
                     "hasSettings": d.has_settings(),
                     "hasCompiler": d.has_compiler(),
+                    "mcuNames": mcu_names,
                 })
             })
             .collect();
@@ -1194,6 +1225,9 @@ impl EditorPanel {
     pub fn last_firmware(&self) -> String {
         self.last_firmware.clone()
     }
+    pub fn last_upload_target(&self) -> String {
+        self.last_upload_target.clone()
+    }
     pub fn compiling(&self) -> bool {
         self.compiling
     }
@@ -1333,6 +1367,7 @@ impl EditorPanel {
         self.docs.clear();
         self.current = -1;
         self.pending_close_index = None;
+        self.pending_close_queue.clear();
         self.diagnostic_ranges = json!([]);
         self.pending_hover_diag.clear();
         self.documents_changed();
@@ -1901,32 +1936,77 @@ impl EditorPanel {
         }
     }
 
+    fn close_documents(&mut self, indices: Vec<usize>) {
+        self.pending_close_index = None;
+        self.pending_close_queue.clear();
+        for idx in indices {
+            if idx < self.docs.len() && !self.pending_close_queue.contains(&idx) {
+                self.pending_close_queue.push(idx);
+            }
+        }
+        self.process_close_queue();
+    }
+
+    fn process_close_queue(&mut self) {
+        while !self.pending_close_queue.is_empty() {
+            let idx = self.pending_close_queue.remove(0);
+            if idx >= self.docs.len() {
+                continue;
+            }
+            if self.docs[idx].dirty {
+                let index = idx as i32;
+                if self.current != index {
+                    self.current = index;
+                    self.diagnostic_ranges = self
+                        .current_doc()
+                        .map(|d| d.diagnostic_ranges.clone())
+                        .unwrap_or(json!([]));
+                    self.pending_hover_diag.clear();
+                    self.current_document_changed();
+                    self.current_file_changed();
+                    self.current_text_changed();
+                    self.marks_changed();
+                    self.file_settings_changed();
+                    self.rehighlight();
+                }
+                self.pending_close_index = Some(idx);
+                self.request_save_before_close();
+                return;
+            }
+            self.close_document_now(idx);
+        }
+    }
+
     #[qslot]
     fn close_document(&mut self, index: i32) {
         if index < 0 || index as usize >= self.docs.len() {
             return;
         }
-        let idx = index as usize;
-        if self.docs[idx].dirty {
-            if self.current != index {
-                self.current = index;
-                self.diagnostic_ranges = self
-                    .current_doc()
-                    .map(|d| d.diagnostic_ranges.clone())
-                    .unwrap_or(json!([]));
-                self.pending_hover_diag.clear();
-                self.current_document_changed();
-                self.current_file_changed();
-                self.current_text_changed();
-                self.marks_changed();
-                self.file_settings_changed();
-                self.rehighlight();
-            }
-            self.pending_close_index = Some(idx);
-            self.request_save_before_close();
-            return;
-        }
-        self.close_document_now(idx);
+        self.close_documents(vec![index as usize]);
+    }
+
+    #[qslot]
+    fn close_all_documents(&mut self) {
+        let indices: Vec<usize> = (0..self.docs.len()).collect();
+        self.close_documents(indices);
+    }
+
+    #[qslot]
+    fn close_other_documents(&mut self, index: i32) {
+        let indices = close_indices_for_others(self.docs.len(), index);
+        self.close_documents(indices);
+    }
+
+    #[qslot]
+    fn close_documents_to_left(&mut self, index: i32) {
+        let indices = close_indices_to_left(self.docs.len(), index);
+        self.close_documents(indices);
+    }
+
+    #[qslot]
+    fn close_documents_to_right(&mut self, index: i32) {
+        let indices = close_indices_to_right(self.docs.len(), index);
+        self.close_documents(indices);
     }
 
     fn close_document_now(&mut self, index: usize) {
@@ -1934,6 +2014,7 @@ impl EditorPanel {
             return;
         }
         let doc = self.docs.remove(index);
+        adjust_close_queue_after_remove(&mut self.pending_close_queue, index);
         if doc.path.is_empty() {
             backup::clear_file(&doc.backup_id);
         } else {
@@ -1978,6 +2059,7 @@ impl EditorPanel {
         };
         if idx >= self.docs.len() {
             self.pending_close_index = None;
+            self.process_close_queue();
             return;
         }
         let doc = &self.docs[idx];
@@ -1996,6 +2078,7 @@ impl EditorPanel {
         self.file_watcher.sync(&path);
         self.pending_close_index = None;
         self.close_document_now(idx);
+        self.process_close_queue();
     }
 
     #[qslot]
@@ -2004,6 +2087,7 @@ impl EditorPanel {
             return;
         };
         if idx >= self.docs.len() {
+            self.process_close_queue();
             return;
         }
         let doc = &self.docs[idx];
@@ -2013,11 +2097,13 @@ impl EditorPanel {
             backup::clear_file_for_path(&doc.path, &self.project_path);
         }
         self.close_document_now(idx);
+        self.process_close_queue();
     }
 
     #[qslot]
     fn confirm_close_cancel(&mut self) {
         self.pending_close_index = None;
+        self.pending_close_queue.clear();
         if !self.docs.is_empty() {
             self.request_focus();
         }
@@ -2027,12 +2113,14 @@ impl EditorPanel {
     fn finish_pending_close(&mut self) {
         if let Some(idx) = self.pending_close_index.take() {
             self.close_document_now(idx);
+            self.process_close_queue();
         }
     }
 
     #[qslot]
     fn cancel_pending_close(&mut self) {
         self.pending_close_index = None;
+        self.pending_close_queue.clear();
         if !self.docs.is_empty() {
             self.request_focus();
         }
@@ -2042,6 +2130,51 @@ impl EditorPanel {
     fn close_current(&mut self) {
         let idx = self.current;
         self.close_document(idx);
+    }
+
+    #[qslot]
+    fn set_firmware_devices(&mut self, devices: Value) {
+        let next = build_firmware_mcu_map(devices);
+        if self.firmware_mcus != next {
+            self.firmware_mcus = next;
+            self.documents_changed();
+        }
+    }
+
+    #[qslot]
+    fn focus_open_file(&mut self, path: String) -> bool {
+        let path = strip_file_url(&path);
+        if path.is_empty() {
+            return false;
+        }
+        let norm_target = normalize_debug_path(Path::new(&path));
+        if let Some((i, _)) = self.docs.iter().enumerate().find(|(_, d)| {
+            !d.path.is_empty()
+                && (d.path == path || normalize_debug_path(Path::new(&d.path)) == norm_target)
+        }) {
+            self.set_current_document(i as i32);
+            return true;
+        }
+        false
+    }
+
+    #[qslot]
+    fn compile_for_sim(&mut self, src_path: String, target_device_id: String) -> bool {
+        let src_path = strip_file_url(&src_path);
+        self.compile_path_for_sim(src_path, target_device_id)
+    }
+
+    #[qslot]
+    fn compile_devices_for_sim(&mut self, devices: Value) -> bool {
+        self.compile_devices_for_sim_inner(devices, false)
+    }
+
+    #[qslot]
+    fn upload_doc_to_device(&mut self, index: i32, target_device_id: String) {
+        if index < 0 {
+            return;
+        }
+        self.upload_doc_to_device_inner(index as usize, target_device_id);
     }
 
     #[qslot]
@@ -2285,9 +2418,6 @@ impl EditorPanel {
         self.rehighlight();
         self.persist_cfg();
         self.sync_lsp_open();
-        if self.pending_close_index.is_some() {
-            self.finish_pending_close();
-        }
     }
 
     #[qslot]
@@ -2558,6 +2688,7 @@ impl EditorPanel {
 
     #[qslot]
     fn cancel_compile(&mut self) {
+        self.clear_compile_batch();
         if let Some(pending) = &mut self.compile_job {
             self.compile_cancel_requested = true;
             pending.job.cancel();
@@ -3428,5 +3559,248 @@ impl EditorPanel {
     fn fire_edit(&mut self, action: &str) {
         self.edit_action = action.into();
         self.edit_action_changed();
+    }
+}
+
+fn build_firmware_mcu_map(devices: Value) -> BTreeMap<String, Vec<String>> {
+    let mut next: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    if let Value::Array(arr) = devices {
+        for item in arr {
+            let src = item
+                .get("firmwareSource")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let label = item.get("label").and_then(|v| v.as_str()).unwrap_or("");
+            if src.is_empty() || label.is_empty() {
+                continue;
+            }
+            let norm = normalize_debug_path(Path::new(src));
+            if norm.is_empty() {
+                continue;
+            }
+            let entry = next.entry(norm).or_default();
+            if !entry.iter().any(|existing| existing == label) {
+                entry.push(label.to_string());
+            }
+        }
+    }
+    next
+}
+
+fn adjust_close_queue_after_remove(queue: &mut Vec<usize>, removed: usize) {
+    queue.retain_mut(|q| {
+        if *q == removed {
+            false
+        } else {
+            if *q > removed {
+                *q -= 1;
+            }
+            true
+        }
+    });
+}
+
+fn close_indices_for_others(len: usize, keep: i32) -> Vec<usize> {
+    if keep < 0 || keep as usize >= len {
+        return Vec::new();
+    }
+    let keep = keep as usize;
+    (0..len).filter(|&i| i != keep).collect()
+}
+
+fn close_indices_to_left(len: usize, index: i32) -> Vec<usize> {
+    if index <= 0 || index as usize >= len {
+        return Vec::new();
+    }
+    (0..index as usize).collect()
+}
+
+fn close_indices_to_right(len: usize, index: i32) -> Vec<usize> {
+    if index < 0 || (index as usize) + 1 >= len {
+        return Vec::new();
+    }
+    ((index as usize + 1)..len).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qtbridge::QObjectHolder;
+
+    fn doc_with_path(title: &str, path: &str) -> Document {
+        let mut d = Document::untitled(title.to_string());
+        d.path = path.to_string();
+        d
+    }
+
+    #[test]
+    fn documents_include_mcu_names_for_matching_firmware_paths() {
+        let mut panel = EditorPanel::default();
+        panel.docs = vec![
+            doc_with_path("blink.ino", "/tmp/proj/blink/blink.ino"),
+            doc_with_path("sensor.ino", "/tmp/proj/sensor/sensor.ino"),
+            doc_with_path("notes.txt", "/tmp/proj/notes.txt"),
+            Document::untitled("untitled".to_string()),
+        ];
+
+        panel.firmware_mcus = build_firmware_mcu_map(json!([
+            { "label": "mega328-1", "firmwareSource": "/tmp/proj/blink/blink.ino" },
+            { "label": "Uno-2 / mega328-1", "firmwareSource": "/tmp/proj/blink/blink.ino" },
+            { "label": "mega328-1", "firmwareSource": "/tmp/proj/blink/blink.ino" },
+            { "label": "Esp32-1", "firmwareSource": "/tmp/proj/sensor/sensor.ino" },
+            { "label": "Empty-1", "firmwareSource": "" },
+        ]));
+
+        let docs = panel.documents();
+        let arr = docs.as_array().unwrap();
+        assert_eq!(arr.len(), 4);
+        assert_eq!(arr[0]["mcuNames"], "mega328-1, Uno-2 / mega328-1");
+        assert_eq!(arr[1]["mcuNames"], "Esp32-1");
+        assert_eq!(arr[2]["mcuNames"], "");
+        assert_eq!(arr[3]["mcuNames"], "");
+    }
+
+    #[test]
+    fn batch_close_index_helpers_and_queue_adjustment() {
+        assert_eq!(close_indices_for_others(4, 1), vec![0, 2, 3]);
+        assert_eq!(close_indices_for_others(1, 0), Vec::<usize>::new());
+        assert_eq!(close_indices_for_others(4, -1), Vec::<usize>::new());
+        assert_eq!(close_indices_for_others(4, 4), Vec::<usize>::new());
+
+        assert_eq!(close_indices_to_left(4, 0), Vec::<usize>::new());
+        assert_eq!(close_indices_to_left(4, 2), vec![0, 1]);
+        assert_eq!(close_indices_to_left(4, 3), vec![0, 1, 2]);
+        assert_eq!(close_indices_to_left(4, 4), Vec::<usize>::new());
+
+        assert_eq!(close_indices_to_right(4, 3), Vec::<usize>::new());
+        assert_eq!(close_indices_to_right(4, 1), vec![2, 3]);
+        assert_eq!(close_indices_to_right(4, 0), vec![1, 2, 3]);
+        assert_eq!(close_indices_to_right(4, -1), Vec::<usize>::new());
+
+        let mut q = vec![0, 2, 3];
+        let first = q.remove(0);
+        assert_eq!(first, 0);
+        adjust_close_queue_after_remove(&mut q, first);
+        assert_eq!(q, vec![1, 2]);
+        let second = q.remove(0);
+        assert_eq!(second, 1);
+        adjust_close_queue_after_remove(&mut q, second);
+        assert_eq!(q, vec![1]);
+    }
+
+    #[test]
+    fn compile_path_for_sim_saves_dirty_file_and_returns_false_without_compiler() {
+        let dir = std::env::temp_dir().join("cs_test_compile_path_for_sim_no_compiler");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let asm_path = dir.join("prog.asm");
+        let hdr_path = dir.join("defs.inc");
+        fs::write(&asm_path, "; old\n").unwrap();
+        fs::write(&hdr_path, "; old hdr\n").unwrap();
+        let path_str = asm_path.to_string_lossy().into_owned();
+        let hdr_str = hdr_path.to_string_lossy().into_owned();
+
+        let mut panel = EditorPanel::default();
+        let mut doc = doc_with_path("prog.asm", &path_str);
+        doc.text = "; updated\n".to_string();
+        doc.dirty = true;
+        doc.compiler = "None".to_string();
+        let mut sib = doc_with_path("defs.inc", &hdr_str);
+        sib.text = "; updated hdr\n".to_string();
+        sib.dirty = true;
+        panel.docs.push(doc);
+        panel.docs.push(sib);
+        panel.current = 0;
+
+        assert!(!panel.compile_path_for_sim(String::new(), String::new()));
+        assert!(!panel.compile_path_for_sim(
+            dir.join("missing.ino").to_string_lossy().into_owned(),
+            String::new()
+        ));
+        let (any_saved, saved_current) = panel.save_dirty_docs_for_target(Some(0), &path_str);
+        assert!(any_saved);
+        assert!(saved_current);
+        assert!(!panel.docs[0].dirty);
+        assert!(!panel.docs[1].dirty);
+        assert_eq!(fs::read_to_string(&asm_path).unwrap(), "; updated\n");
+        assert_eq!(fs::read_to_string(&hdr_path).unwrap(), "; updated hdr\n");
+        // Now clean and compiler is "None" -> returns false so caller runs powerOn() directly.
+        assert!(!panel.compile_path_for_sim(path_str, "mcu-1".to_string()));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn collect_device_compile_targets_groups_shared_firmware_and_orders_active_last() {
+        let devices = json!([
+            { "uid": "mega328-1", "firmwareSource": "/tmp/proj/master/master.ino", "isActive": true },
+            { "uid": "mega328-2", "firmwareSource": "/tmp/proj/slave/slave.ino", "isActive": false },
+            { "uid": "Uno-3/mega328-1", "firmwareSource": "/tmp/proj/master/master.ino", "isActive": false },
+            { "uid": "mega328-4", "firmwareSource": "", "isActive": false },
+        ]);
+
+        let sim_targets = compiler::collect_device_compile_targets(devices.clone(), false);
+        assert_eq!(sim_targets.len(), 2);
+        assert_eq!(sim_targets[0].src_path, "/tmp/proj/slave/slave.ino");
+        assert_eq!(sim_targets[0].target_device_ids, vec!["mega328-2"]);
+        assert!(!sim_targets[0].debug);
+        assert!(!sim_targets[0].load_debug_symbols);
+
+        assert_eq!(sim_targets[1].src_path, "/tmp/proj/master/master.ino");
+        assert_eq!(
+            sim_targets[1].target_device_ids,
+            vec!["mega328-1", "Uno-3/mega328-1"]
+        );
+        assert!(!sim_targets[1].debug);
+        assert!(sim_targets[1].load_debug_symbols);
+
+        let dbg_targets = compiler::collect_device_compile_targets(devices, true);
+        assert_eq!(dbg_targets.len(), 2);
+        assert!(!dbg_targets[0].debug);
+        assert!(!dbg_targets[0].load_debug_symbols);
+        assert!(dbg_targets[1].debug);
+        assert!(dbg_targets[1].load_debug_symbols);
+    }
+
+    #[test]
+    fn compile_devices_for_sim_saves_all_mcu_dirty_docs_and_returns_false_without_compilers() {
+        let dir = std::env::temp_dir().join("cs_test_compile_devices_for_sim");
+        let _ = fs::remove_dir_all(&dir);
+        let dir1 = dir.join("mcu1");
+        let dir2 = dir.join("mcu2");
+        fs::create_dir_all(&dir1).unwrap();
+        fs::create_dir_all(&dir2).unwrap();
+        let p1 = dir1.join("fw1.asm");
+        let p2 = dir2.join("fw2.asm");
+        fs::write(&p1, "; old1\n").unwrap();
+        fs::write(&p2, "; old2\n").unwrap();
+        let s1 = p1.to_string_lossy().into_owned();
+        let s2 = p2.to_string_lossy().into_owned();
+
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
+        let mut d1 = doc_with_path("fw1.asm", &s1);
+        d1.text = "; new1\n".to_string();
+        d1.dirty = true;
+        d1.compiler = "None".to_string();
+        let mut d2 = doc_with_path("fw2.asm", &s2);
+        d2.text = "; new2\n".to_string();
+        d2.dirty = true;
+        d2.compiler = "None".to_string();
+        panel.docs.push(d1);
+        panel.docs.push(d2);
+        panel.current = 0;
+
+        let devices = json!([
+            { "uid": "mega328-1", "firmwareSource": s1, "isActive": true },
+            { "uid": "mega328-2", "firmwareSource": s2, "isActive": false },
+        ]);
+        assert!(!panel.compile_devices_for_sim_inner(devices, false));
+        assert!(!panel.docs[0].dirty);
+        assert!(!panel.docs[1].dirty);
+        assert_eq!(fs::read_to_string(&p1).unwrap(), "; new1\n");
+        assert_eq!(fs::read_to_string(&p2).unwrap(), "; new2\n");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1261,19 +1261,24 @@ impl Circuit {
                             | crate::debug::BatchDebugState::StepInto => {
                                 cs_mcu::BatchDebugMode::StepInto
                             }
-                            crate::debug::BatchDebugState::StepOver { target_sp, exit_pc } => {
-                                cs_mcu::BatchDebugMode::StepOver {
-                                    break_pcs: &self.debug_break_pcs,
-                                    target_sp,
-                                    exit_pc,
-                                }
-                            }
-                            crate::debug::BatchDebugState::StepOut { target_sp } => {
-                                cs_mcu::BatchDebugMode::StepOut {
-                                    break_pcs: &self.debug_break_pcs,
-                                    target_sp,
-                                }
-                            }
+                            crate::debug::BatchDebugState::StepOver {
+                                target_sp,
+                                target_depth,
+                                exit_pc,
+                            } => cs_mcu::BatchDebugMode::StepOver {
+                                break_pcs: &self.debug_break_pcs,
+                                target_sp,
+                                target_depth,
+                                exit_pc,
+                            },
+                            crate::debug::BatchDebugState::StepOut {
+                                target_sp,
+                                target_depth,
+                            } => cs_mcu::BatchDebugMode::StepOut {
+                                break_pcs: &self.debug_break_pcs,
+                                target_sp,
+                                target_depth,
+                            },
                         }
                     };
                     let next_deadline = self.events.peek_time().unwrap_or(u64::MAX);
@@ -1288,9 +1293,15 @@ impl Circuit {
                         if is_debug {
                             let session = crate::debug::DebugSession::global();
                             if let Some((prev_pc, pc, sp, ret_addr)) = stop.debug_hit {
-                                let _ = session.on_mcu_step(pc, prev_pc, sp, ret_addr);
+                                let _ = session.on_mcu_step_with_depth(
+                                    pc,
+                                    prev_pc,
+                                    sp,
+                                    ret_addr,
+                                    stop.debug_call_depth,
+                                );
                             } else {
-                                session.set_last_pc(m.device.pc());
+                                session.set_last_pc_depth(m.device.pc(), stop.debug_call_depth);
                             }
                         }
                         m.flush_periph_logs();

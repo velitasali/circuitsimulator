@@ -503,10 +503,16 @@ impl GdbWorker {
             }
 
             // If Step Over entered a callee function, run until return address.
+            // Distinguish a call from returning to a caller: a call lands at a
+            // function entry point (or enters an unmapped helper whose return
+            // address is immediately after the call instruction `pc`).
             if step_over {
                 if let Some(ref orig_fn) = start_fn {
                     let cur_fn = syms.function_at(new_pc);
-                    if cur_fn.is_some_and(|f| f != orig_fn.as_str()) {
+                    let entered_named_callee = cur_fn.is_some_and(|f| f != orig_fn.as_str())
+                        && syms.pc_to_function.contains_key(&new_pc);
+                    let entered_unmapped_helper = cur_fn.is_none();
+                    if entered_named_callee || entered_unmapped_helper {
                         // On Xtensa windowed ABI, the first instruction of a callee is `entry`,
                         // which rotates `windowbase` so `a0` holds the return address. Step past
                         // `entry` before reading `a0` if we stopped right on function entry.
@@ -522,13 +528,17 @@ impl GdbWorker {
                             }
                         }
                         if let Some(ret_addr) = self.read_return_address(callee_pc) {
-                            if self.run_until_temp_bp(ret_addr, session) {
-                                if let Some(after_pc) = self.read_pc() {
-                                    self.current_pc = after_pc;
+                            let is_call_from_prev = entered_named_callee
+                                || (ret_addr > pc && ret_addr <= pc.saturating_add(6));
+                            if is_call_from_prev {
+                                if self.run_until_temp_bp(ret_addr, session) {
+                                    if let Some(after_pc) = self.read_pc() {
+                                        self.current_pc = after_pc;
+                                    }
+                                } else {
+                                    // Interrupted or hit another breakpoint while running to return.
+                                    return;
                                 }
-                            } else {
-                                // Interrupted or hit another breakpoint while running to return.
-                                return;
                             }
                         }
                     }

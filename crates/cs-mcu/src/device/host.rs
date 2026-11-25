@@ -17,6 +17,7 @@ pub struct CpuHost {
     pub pc: u32,
     pub cycles_done: u32,
     pub ret_addr: u32,
+    pub call_depth: u32,
     pub ret_cycles: u8,
     pub sleep: bool,
     pub wdr: bool,
@@ -233,6 +234,7 @@ impl CpuHost {
     }
 
     pub fn push_stack(&mut self, mut addr: u32) {
+        self.call_depth = self.call_depth.saturating_add(1);
         if self.spl_addr.is_none() {
             return;
         }
@@ -252,6 +254,7 @@ impl CpuHost {
     }
 
     pub fn pop_stack(&mut self) -> u32 {
+        self.call_depth = self.call_depth.saturating_sub(1);
         if self.spl_addr.is_none() {
             return 0;
         }

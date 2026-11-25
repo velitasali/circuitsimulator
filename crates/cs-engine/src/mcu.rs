@@ -625,7 +625,9 @@ impl McuComp {
             let pc = self.device.pc();
             let sp = self.device.sp();
             let ret_addr = self.device.ret_addr();
-            let _ = crate::debug::DebugSession::global().on_mcu_step(pc, prev_pc, sp, ret_addr);
+            let call_depth = self.device.call_depth();
+            let _ = crate::debug::DebugSession::global()
+                .on_mcu_step_with_depth(pc, prev_pc, sp, ret_addr, call_depth);
         }
         self.sync_gpio_to_pins()
     }

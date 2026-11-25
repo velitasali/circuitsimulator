@@ -511,6 +511,7 @@ impl Device {
                 pc: 0,
                 cycles_done: 0,
                 ret_addr: 0,
+                call_depth: 0,
                 ret_cycles,
                 sleep: false,
                 wdr: false,
@@ -632,6 +633,7 @@ impl Device {
         self.host.cycles_done = 0;
         self.host.pc = 0;
         self.host.ret_addr = 0;
+        self.host.call_depth = 0;
         self.host.interrupts.reset();
         self.cpu_remain = 0;
         self.bus_remain = None;

@@ -399,11 +399,13 @@ impl Pic14 {
     }
     fn call_addr(&mut self, h: &mut CpuHost, addr: u32) {
         self.mr.push_stack(h.pc);
+        h.call_depth = h.call_depth.saturating_add(1);
         PicMr::set_pc(h, self.mr.pcl_addr, addr);
         h.cycles_done = u32::from(h.ret_cycles);
     }
     fn ret(&mut self, h: &mut CpuHost) {
         let a = self.mr.pop_stack();
+        h.call_depth = h.call_depth.saturating_sub(1);
         PicMr::set_pc(h, self.mr.pcl_addr, a);
         h.cycles_done = u32::from(h.ret_cycles);
     }
@@ -702,6 +704,7 @@ impl Pic12 {
     }
     fn call(&mut self, h: &mut CpuHost, k: u16) {
         self.mr.push_stack(h.pc);
+        h.call_depth = h.call_depth.saturating_add(1);
         PicMr::set_pc(h, self.mr.pcl_addr, u32::from(k));
         h.cycles_done = u32::from(h.ret_cycles);
     }
@@ -711,11 +714,13 @@ impl Pic12 {
     }
     fn ret(&mut self, h: &mut CpuHost) {
         let a = self.mr.pop_stack();
+        h.call_depth = h.call_depth.saturating_sub(1);
         PicMr::set_pc(h, self.mr.pcl_addr, a);
         h.cycles_done = u32::from(h.ret_cycles);
     }
     pub fn interrupt(&mut self, h: &mut CpuHost, vector: u32) {
         self.mr.push_stack(h.pc);
+        h.call_depth = h.call_depth.saturating_add(1);
         PicMr::set_pc(h, self.mr.pcl_addr, vector);
         h.cycles_done = u32::from(h.ret_cycles);
     }

@@ -111,6 +111,21 @@ impl Canvas {
         }
     }
 
+    /// Resume the simulation tick loop for a debugger step without calling
+    /// `DebugSession::resume()` (which would race with fast remote GDB steps
+    /// that already completed and re-paused the session).
+    pub fn resume_sim_for_step(&mut self) -> Change {
+        if !self.sim_running || !self.sim_paused {
+            return Change::default();
+        }
+        self.sim_paused = false;
+        self.resume_qemu();
+        Change {
+            sim: true,
+            ..Change::default()
+        }
+    }
+
     /// Toggle pause state of the running simulation.
     pub fn toggle_pause(&mut self) -> Change {
         if self.sim_paused {

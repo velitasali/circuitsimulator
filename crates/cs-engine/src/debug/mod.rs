@@ -62,10 +62,12 @@ pub enum DebugState {
     SteppingInto,
     SteppingOver {
         target_sp: u32,
+        target_depth: Option<u32>,
         exit_pc: Option<u32>,
     },
     SteppingOut {
         target_sp: u32,
+        target_depth: Option<u32>,
     },
 }
 
@@ -79,10 +81,12 @@ pub enum BatchDebugState {
     StepInto,
     StepOver {
         target_sp: u32,
+        target_depth: Option<u32>,
         exit_pc: Option<u32>,
     },
     StepOut {
         target_sp: u32,
+        target_depth: Option<u32>,
     },
 }
 
@@ -99,11 +103,13 @@ pub struct DebugSession {
     loaded_elf_stamp: Mutex<Option<(PathBuf, SystemTime, u64)>>,
     watch_entries: Mutex<Vec<WatchEntry>>,
     active_location: Mutex<Option<SourceLocation>>,
+    step_origin: Mutex<Option<SourceLocation>>,
     active_mcu: Mutex<Option<McuComp>>,
     active: AtomicBool,
     paused: AtomicBool,
     has_symbols: AtomicBool,
     last_pc: AtomicU32,
+    last_call_depth: AtomicU32,
     has_last_pc: AtomicBool,
     is_global: bool,
     symbols_generation: AtomicU64,
@@ -128,11 +134,13 @@ impl Default for DebugSession {
             loaded_elf_stamp: Mutex::new(None),
             watch_entries: Mutex::new(Vec::new()),
             active_location: Mutex::new(None),
+            step_origin: Mutex::new(None),
             active_mcu: Mutex::new(None),
             active: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             has_symbols: AtomicBool::new(false),
             last_pc: AtomicU32::new(0),
+            last_call_depth: AtomicU32::new(0),
             has_last_pc: AtomicBool::new(false),
             is_global: false,
             symbols_generation: AtomicU64::new(0),
@@ -194,7 +202,9 @@ impl DebugSession {
         if !active {
             self.set_state_internal(DebugState::Idle);
             self.has_last_pc.store(false, Ordering::Release);
+            self.last_call_depth.store(0, Ordering::Release);
             *self.active_location.lock().unwrap() = None;
+            *self.step_origin.lock().unwrap() = None;
         }
     }
 
@@ -208,10 +218,22 @@ impl DebugSession {
             DebugState::Running => BatchDebugState::Running,
             DebugState::Paused(_) => BatchDebugState::Paused,
             DebugState::SteppingInto => BatchDebugState::StepInto,
-            DebugState::SteppingOver { target_sp, exit_pc } => {
-                BatchDebugState::StepOver { target_sp, exit_pc }
-            }
-            DebugState::SteppingOut { target_sp } => BatchDebugState::StepOut { target_sp },
+            DebugState::SteppingOver {
+                target_sp,
+                target_depth,
+                exit_pc,
+            } => BatchDebugState::StepOver {
+                target_sp,
+                target_depth,
+                exit_pc,
+            },
+            DebugState::SteppingOut {
+                target_sp,
+                target_depth,
+            } => BatchDebugState::StepOut {
+                target_sp,
+                target_depth,
+            },
         }
     }
 
@@ -232,6 +254,13 @@ impl DebugSession {
     #[inline(always)]
     pub fn set_last_pc(&self, pc: u32) {
         self.last_pc.store(pc, Ordering::Relaxed);
+        self.has_last_pc.store(true, Ordering::Release);
+    }
+
+    #[inline(always)]
+    pub fn set_last_pc_depth(&self, pc: u32, call_depth: u32) {
+        self.last_pc.store(pc, Ordering::Relaxed);
+        self.last_call_depth.store(call_depth, Ordering::Relaxed);
         self.has_last_pc.store(true, Ordering::Release);
     }
 
@@ -583,9 +612,8 @@ impl DebugSession {
             let syms = self.symbols.lock().unwrap();
             syms.lookup_address(pc).cloned()
         };
-        if let Some(ref l) = loc {
-            *self.active_location.lock().unwrap() = Some(l.clone());
-        }
+        *self.active_location.lock().unwrap() = loc.clone();
+        *self.step_origin.lock().unwrap() = None;
         let reason = match reason {
             BreakReason::Breakpoint { address, location } => BreakReason::Breakpoint {
                 address,
@@ -597,54 +625,69 @@ impl DebugSession {
     }
 
     pub fn step_into(&self) {
+        let origin = self.active_location();
+        *self.step_origin.lock().unwrap() = origin;
         self.set_active(true);
         self.set_state_internal(DebugState::SteppingInto);
         self.push_remote_cmd(RemoteDebugCmd::StepInto);
     }
 
     pub fn step_over(&self) {
+        let origin = self.active_location();
+        *self.step_origin.lock().unwrap() = origin;
+        let depth = self.last_call_depth.load(Ordering::Acquire);
         self.set_active(true);
-        let sp = self
-            .with_mcu(|mcu| mcu.as_ref().map(|m| m.device.sp()))
-            .flatten()
-            .unwrap_or(0);
-        let ret_addr = self
-            .with_mcu(|mcu| mcu.as_ref().map(|m| m.device.ret_addr()))
-            .flatten()
-            .unwrap_or(0);
-        let exit_pc = if ret_addr != 0 { Some(ret_addr) } else { None };
         self.set_state_internal(DebugState::SteppingOver {
-            target_sp: u32::from(sp),
-            exit_pc,
+            target_sp: 0,
+            target_depth: Some(depth),
+            exit_pc: None,
         });
         self.push_remote_cmd(RemoteDebugCmd::StepOver);
     }
 
     pub fn step_over_target(&self, target_sp: u32, exit_pc: Option<u32>) {
+        *self.step_origin.lock().unwrap() = None;
         self.set_active(true);
-        self.set_state_internal(DebugState::SteppingOver { target_sp, exit_pc });
+        self.set_state_internal(DebugState::SteppingOver {
+            target_sp,
+            target_depth: None,
+            exit_pc,
+        });
         self.push_remote_cmd(RemoteDebugCmd::StepOver);
     }
 
     pub fn step_out(&self) {
+        *self.step_origin.lock().unwrap() = None;
+        let depth = self.last_call_depth.load(Ordering::Acquire);
+        let (target_sp, target_depth) = if depth > 0 {
+            (0, Some(depth - 1))
+        } else {
+            let sp = self
+                .with_mcu(|mcu| mcu.as_ref().map(|m| m.device.sp()))
+                .flatten()
+                .unwrap_or(0);
+            (u32::from(sp), None)
+        };
         self.set_active(true);
-        let sp = self
-            .with_mcu(|mcu| mcu.as_ref().map(|m| m.device.sp()))
-            .flatten()
-            .unwrap_or(0);
         self.set_state_internal(DebugState::SteppingOut {
-            target_sp: u32::from(sp),
+            target_sp,
+            target_depth,
         });
         self.push_remote_cmd(RemoteDebugCmd::StepOut);
     }
 
     pub fn step_out_target(&self, target_sp: u32) {
+        *self.step_origin.lock().unwrap() = None;
         self.set_active(true);
-        self.set_state_internal(DebugState::SteppingOut { target_sp });
+        self.set_state_internal(DebugState::SteppingOut {
+            target_sp,
+            target_depth: None,
+        });
         self.push_remote_cmd(RemoteDebugCmd::StepOut);
     }
 
     pub fn pause(&self) {
+        *self.step_origin.lock().unwrap() = None;
         self.set_active(true);
         self.set_state_internal(DebugState::Paused(BreakReason::ManualPause));
         self.push_remote_cmd(RemoteDebugCmd::Pause);
@@ -652,6 +695,7 @@ impl DebugSession {
 
     pub fn resume(&self) {
         *self.active_location.lock().unwrap() = None;
+        *self.step_origin.lock().unwrap() = None;
         self.set_active(true);
         self.set_state_internal(DebugState::Running);
         self.push_remote_cmd(RemoteDebugCmd::Resume);
@@ -662,7 +706,9 @@ impl DebugSession {
         self.set_active(false);
         self.set_state_internal(DebugState::Idle);
         self.has_last_pc.store(false, Ordering::Release);
+        self.last_call_depth.store(0, Ordering::Release);
         *self.active_location.lock().unwrap() = None;
+        *self.step_origin.lock().unwrap() = None;
     }
 
     /// Step check hook called on each MCU step instruction (or when an MCU batch
@@ -675,17 +721,28 @@ impl DebugSession {
         sp: u16,
         ret_addr: u32,
     ) -> Option<BreakReason> {
+        self.on_mcu_step_with_depth(pc, prev_pc, sp, ret_addr, 0)
+    }
+
+    /// Step check hook with explicit MCU call depth for source-level Step Over / Step Out.
+    pub fn on_mcu_step_with_depth(
+        &self,
+        pc: u32,
+        prev_pc: u32,
+        sp: u16,
+        ret_addr: u32,
+        call_depth: u32,
+    ) -> Option<BreakReason> {
         if !self.is_active() {
             return None;
         }
-        self.set_last_pc(pc);
+        self.set_last_pc_depth(pc, call_depth);
 
         // 1. Check address breakpoints
         if self.has_addr_breakpoint(pc) {
             let loc = self.symbols.lock().unwrap().lookup_address(pc).cloned();
-            if let Some(ref l) = loc {
-                *self.active_location.lock().unwrap() = Some(l.clone());
-            }
+            *self.active_location.lock().unwrap() = loc.clone();
+            *self.step_origin.lock().unwrap() = None;
             let reason = BreakReason::Breakpoint {
                 address: pc,
                 location: loc,
@@ -707,6 +764,7 @@ impl DebugSession {
                     };
                     if !prev_same_line {
                         *self.active_location.lock().unwrap() = Some(l.clone());
+                        *self.step_origin.lock().unwrap() = None;
                         let reason = BreakReason::Breakpoint {
                             address: pc,
                             location: loc,
@@ -719,11 +777,20 @@ impl DebugSession {
         }
 
         // 3. Check stepping modes
+        let cur_loc = self.symbols.lock().unwrap().lookup_address(pc).cloned();
+        let step_origin = self.step_origin.lock().unwrap().clone();
+        let reached_new_line = match &step_origin {
+            None => true,
+            Some(orig) => cur_loc
+                .as_ref()
+                .is_some_and(|cur| cur.line != orig.line || cur.file != orig.file),
+        };
+
         let step_pause = {
             let mut st = self.state.lock().unwrap();
             match *st {
                 DebugState::SteppingInto => {
-                    if pc != prev_pc {
+                    if pc != prev_pc && reached_new_line {
                         let reason = BreakReason::StepCompleted;
                         *st = DebugState::Paused(reason.clone());
                         Some(reason)
@@ -731,16 +798,21 @@ impl DebugSession {
                         None
                     }
                 }
-                DebugState::SteppingOver { target_sp, exit_pc } => {
-                    if let Some(exit) = exit_pc {
-                        if pc == exit {
-                            let reason = BreakReason::StepCompleted;
-                            *st = DebugState::Paused(reason.clone());
-                            Some(reason)
-                        } else {
-                            None
-                        }
-                    } else if (target_sp == 0 || u32::from(sp) >= target_sp) && pc != prev_pc {
+                DebugState::SteppingOver {
+                    target_sp,
+                    target_depth,
+                    exit_pc,
+                } => {
+                    let at_target = if let Some(exit) = exit_pc {
+                        pc == exit
+                    } else if let Some(td) = target_depth {
+                        call_depth <= td && pc != prev_pc && reached_new_line
+                    } else {
+                        (target_sp == 0 || u32::from(sp) >= target_sp)
+                            && pc != prev_pc
+                            && reached_new_line
+                    };
+                    if at_target {
                         let reason = BreakReason::StepCompleted;
                         *st = DebugState::Paused(reason.clone());
                         Some(reason)
@@ -748,10 +820,17 @@ impl DebugSession {
                         None
                     }
                 }
-                DebugState::SteppingOut { target_sp } => {
-                    if (target_sp != 0 && u32::from(sp) >= target_sp)
-                        || (ret_addr != 0 && pc == ret_addr)
-                    {
+                DebugState::SteppingOut {
+                    target_sp,
+                    target_depth,
+                } => {
+                    let at_target = if let Some(td) = target_depth {
+                        call_depth <= td && pc != prev_pc
+                    } else {
+                        (target_sp != 0 && u32::from(sp) >= target_sp)
+                            || (ret_addr != 0 && pc == ret_addr)
+                    };
+                    if at_target {
                         let reason = BreakReason::StepCompleted;
                         *st = DebugState::Paused(reason.clone());
                         Some(reason)
@@ -764,9 +843,8 @@ impl DebugSession {
             }
         };
         if let Some(reason) = step_pause {
-            if let Some(l) = self.symbols.lock().unwrap().lookup_address(pc).cloned() {
-                *self.active_location.lock().unwrap() = Some(l);
-            }
+            *self.active_location.lock().unwrap() = cur_loc;
+            *self.step_origin.lock().unwrap() = None;
             self.paused.store(true, Ordering::Release);
             if self.is_global {
                 GLOBAL_DEBUG_PAUSED.store(true, Ordering::Release);

@@ -491,3 +491,311 @@ fn test_batch_debug_hits_breakpoint_step_over_and_resumes() {
     );
     assert_eq!(dev.pc(), 5);
 }
+
+#[test]
+fn test_avr_source_level_step_into_and_step_over_across_files() {
+    use cs_engine::debug::BatchDebugState;
+    use cs_mcu::BatchDebugMode;
+
+    const MINI_AVR: &str = r#"
+<mcu name="mini" core="AVR" data="256" prog="64" progword="2" inst_cycle="1" freq="16000000">
+  <datablock name="GPR" start="0x0000" end="0x001F"/>
+  <regblock name="SFR" start="0x0020" end="0x005F">
+    <register name="SREG" addr="0x005F" reset="0" bits="C,Z,N,V,S,H,T,I"/>
+    <register name="SPL" addr="0x005D" reset="0xFF"/>
+    <register name="SPH" addr="0x005E" reset="0x00"/>
+  </regblock>
+  <datablock name="RAM" start="0x0060" end="0x00FF"/>
+  <stack spreg="SPL,SPH" increment="postdec"/>
+</mcu>
+"#;
+
+    // Program layout (AVR 16-bit word addresses):
+    // 0: LDI R16, 1        (0xE001)  <- sketch.ino:10 (multi-instruction line)
+    // 1: LDI R17, 2        (0xE012)  <- sketch.ino:10
+    // 2: RCALL +2 (pc=5)   (0xD002)  <- sketch.ino:11 (calls lib_fn at pc=5)
+    // 3: NOP               (0x0000)  <- sketch.ino:12
+    // 4: RJMP -1 (pc=4)    (0xCFFF)  <- sketch.ino:13
+    // 5: PUSH R16          (0x930F)  <- lib.c:40 (callee prologue changes SP)
+    // 6: INC R16           (0x9503)  <- lib.c:40
+    // 7: POP R16           (0x910F)  <- lib.c:41
+    // 8: RET               (0x9508)  <- lib.c:41
+    let prog = [
+        0xE001, 0xE012, 0xD002, 0x0000, 0xCFFF, 0x930F, 0x9503, 0x910F, 0x9508,
+    ];
+
+    let make_syms = || {
+        let mut syms = DebugSymbols::new();
+        syms.insert_function("loop", 0, Some(4));
+        syms.insert_function("lib_fn", 5, Some(8));
+        syms.insert_line(0, SourceLocation::new("sketch.ino", 10));
+        syms.insert_line(1, SourceLocation::new("sketch.ino", 10));
+        syms.insert_line(2, SourceLocation::new("sketch.ino", 11));
+        syms.insert_line(3, SourceLocation::new("sketch.ino", 12));
+        syms.insert_line(4, SourceLocation::new("sketch.ino", 13));
+        syms.insert_line(5, SourceLocation::new("lib.c", 40));
+        syms.insert_line(6, SourceLocation::new("lib.c", 40));
+        syms.insert_line(7, SourceLocation::new("lib.c", 41));
+        syms.insert_line(8, SourceLocation::new("lib.c", 41));
+        syms
+    };
+
+    let run_until_pause = |dev: &mut cs_mcu::Device, session: &DebugSession| {
+        let break_pcs = session.fast_break_pcs();
+        for _ in 0..64 {
+            if session.is_paused() {
+                return;
+            }
+            let mode = match session.batch_debug_state() {
+                BatchDebugState::Running | BatchDebugState::Idle => BatchDebugMode::Running {
+                    break_pcs: &break_pcs,
+                },
+                BatchDebugState::StepInto | BatchDebugState::Paused => BatchDebugMode::StepInto,
+                BatchDebugState::StepOver {
+                    target_sp,
+                    target_depth,
+                    exit_pc,
+                } => BatchDebugMode::StepOver {
+                    break_pcs: &break_pcs,
+                    target_sp,
+                    target_depth,
+                    exit_pc,
+                },
+                BatchDebugState::StepOut {
+                    target_sp,
+                    target_depth,
+                } => BatchDebugMode::StepOut {
+                    break_pcs: &break_pcs,
+                    target_sp,
+                    target_depth,
+                },
+            };
+            let stop = dev.advance_batch(u64::MAX, 4096, mode);
+            if let Some((prev_pc, pc, sp, ret_addr)) = stop.debug_hit {
+                let _ = session.on_mcu_step_with_depth(
+                    pc,
+                    prev_pc,
+                    sp,
+                    ret_addr,
+                    stop.debug_call_depth,
+                );
+            } else {
+                session.set_last_pc_depth(dev.pc(), stop.debug_call_depth);
+            }
+        }
+        panic!(
+            "MCU did not pause (pc={}, state={:?})",
+            dev.pc(),
+            session.state()
+        );
+    };
+
+    // --- Scenario A: Step Into across multi-instruction line -> into lib.c -> Step Over across prologue & RET ---
+    let mut dev = cs_mcu::Device::from_xml("U1", MINI_AVR).expect("build AVR");
+    dev.load_words(&prog);
+    dev.start();
+    dev.clear_ports_dirty();
+
+    let session = DebugSession::default();
+    session.load_symbols(make_syms());
+    session.set_active(true);
+    session.set_last_pc_depth(0, 0);
+    session.pause();
+    assert_eq!(
+        session.active_location(),
+        Some(SourceLocation::new("sketch.ino", 10))
+    );
+
+    // Step Into from sketch.ino:10 (2 instructions) must advance directly to sketch.ino:11.
+    session.step_into();
+    run_until_pause(&mut dev, &session);
+    assert_eq!(dev.pc(), 2);
+    assert_eq!(
+        session.active_location(),
+        Some(SourceLocation::new("sketch.ino", 11))
+    );
+
+    // Step Into on RCALL at sketch.ino:11 must enter lib.c:40.
+    session.step_into();
+    run_until_pause(&mut dev, &session);
+    assert_eq!(dev.pc(), 5);
+    assert_eq!(dev.call_depth(), 1);
+    assert_eq!(
+        session.active_location(),
+        Some(SourceLocation::new("lib.c", 40))
+    );
+
+    // Step Over on lib.c:40 (which executes PUSH R16, changing SP!) must advance to lib.c:41.
+    session.step_over();
+    run_until_pause(&mut dev, &session);
+    assert_eq!(dev.pc(), 7);
+    assert_eq!(
+        session.active_location(),
+        Some(SourceLocation::new("lib.c", 41))
+    );
+
+    // Step Over on lib.c:41 (POP + RET) must return cleanly to sketch.ino:12.
+    session.step_over();
+    run_until_pause(&mut dev, &session);
+    assert_eq!(dev.pc(), 3);
+    assert_eq!(dev.call_depth(), 0);
+    assert_eq!(
+        session.active_location(),
+        Some(SourceLocation::new("sketch.ino", 12))
+    );
+
+    // --- Scenario B: Step Over on RCALL at sketch.ino:11 skips lib.c completely and lands on sketch.ino:12 ---
+    let mut dev2 = cs_mcu::Device::from_xml("U1", MINI_AVR).expect("build AVR");
+    dev2.load_words(&prog);
+    dev2.start();
+    dev2.clear_ports_dirty();
+
+    let session2 = DebugSession::default();
+    session2.add_breakpoint("sketch.ino", 11);
+    session2.load_symbols(make_syms());
+    session2.resume();
+    run_until_pause(&mut dev2, &session2);
+    assert_eq!(dev2.pc(), 2);
+    assert_eq!(
+        session2.active_location(),
+        Some(SourceLocation::new("sketch.ino", 11))
+    );
+
+    session2.step_over();
+    run_until_pause(&mut dev2, &session2);
+    assert_eq!(dev2.pc(), 3);
+    assert_eq!(dev2.call_depth(), 0);
+    assert_eq!(
+        session2.active_location(),
+        Some(SourceLocation::new("sketch.ino", 12))
+    );
+}
+
+#[test]
+fn test_gdb_client_step_over_returning_from_callee() {
+    let session: &'static DebugSession = Box::leak(Box::new(DebugSession::default()));
+
+    // `helper` at 0x0800_0200..=0x0800_0204 returns into the middle of `loop` at 0x0800_0108.
+    let mut syms = DebugSymbols::new();
+    syms.insert_function("loop", 0x0800_0100, Some(0x0800_0120));
+    syms.insert_function("helper", 0x0800_0200, Some(0x0800_0208));
+    syms.insert_line(0x0800_0104, SourceLocation::new("blink.ino", 10));
+    syms.insert_line(0x0800_0108, SourceLocation::new("blink.ino", 11));
+    syms.insert_line(0x0800_0200, SourceLocation::new("helper.c", 20));
+    syms.insert_line(0x0800_0204, SourceLocation::new("helper.c", 21));
+    session.set_breakpoints_for_file(Path::new("helper.c"), &[21]);
+    session.load_symbols(syms);
+    session.resume();
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind mock gdb");
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept client");
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+        let mut pc: u32 = 0x0800_0200;
+        let mut no_ack = false;
+        let mut buf = [0u8; 512];
+        let mut acc = Vec::new();
+        let mut saw_temp_bp = false;
+
+        loop {
+            match stream.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => acc.extend_from_slice(&buf[..n]),
+            }
+            while let Some(dollar) = acc.iter().position(|&b| b == b'$') {
+                acc.drain(..dollar);
+                let Some(hash) = acc[1..].iter().position(|&b| b == b'#').map(|i| i + 1) else {
+                    break;
+                };
+                if hash + 3 > acc.len() {
+                    break;
+                }
+                let cmd = String::from_utf8_lossy(&acc[1..hash]).to_string();
+                acc.drain(..hash + 3);
+                if !no_ack {
+                    let _ = stream.write_all(b"+");
+                }
+
+                let reply: Option<String> = if cmd.starts_with("qSupported") {
+                    Some("PacketSize=1000;QStartNoAckMode+;swbreak+".into())
+                } else if cmd == "QStartNoAckMode" {
+                    no_ack = true;
+                    Some("OK".into())
+                } else if cmd == "?" {
+                    Some("S05".into())
+                } else if cmd == "Z0,8000204,1" {
+                    Some("OK".into())
+                } else if cmd.starts_with("Z0,") {
+                    saw_temp_bp = true;
+                    Some("OK".into())
+                } else if cmd.starts_with('z') || cmd.starts_with('H') {
+                    Some("OK".into())
+                } else if cmd == "pf" {
+                    let b = pc.to_le_bytes();
+                    Some(format!("{:02x}{:02x}{:02x}{:02x}", b[0], b[1], b[2], b[3]))
+                } else if cmd == "pe" {
+                    // LR points to caller's caller; should NOT be used when returning from helper.
+                    let lr: u32 = 0x0800_0050;
+                    let b = lr.to_le_bytes();
+                    Some(format!("{:02x}{:02x}{:02x}{:02x}", b[0], b[1], b[2], b[3]))
+                } else if cmd == "c" {
+                    pc = 0x0800_0204;
+                    Some("S05".into())
+                } else if cmd == "s" {
+                    // Executing `bx lr` at helper.c:21 returns into the middle of `loop` at blink.ino:11.
+                    pc = 0x0800_0108;
+                    Some("S05".into())
+                } else if cmd == "D" {
+                    let pkt = gdb_client::format_rsp_packet("OK");
+                    let _ = stream.write_all(pkt.as_bytes());
+                    assert!(
+                        !saw_temp_bp,
+                        "Step Over returning to caller must not set a callee return temp breakpoint"
+                    );
+                    return;
+                } else {
+                    Some(String::new())
+                };
+                if let Some(r) = reply {
+                    let pkt = gdb_client::format_rsp_packet(&r);
+                    if stream.write_all(pkt.as_bytes()).is_err() {
+                        return;
+                    }
+                    let _ = stream.flush();
+                }
+            }
+        }
+    });
+
+    let mut client =
+        QemuGdbClient::connect_for_session(port, QemuFamily::Stm32, session).expect("connect gdb");
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !session.is_paused() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(session.is_paused());
+    assert_eq!(
+        session.active_location(),
+        Some(SourceLocation::new("helper.c", 21))
+    );
+
+    // Step Over on the return instruction must land cleanly at blink.ino:11.
+    session.step_over();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !session.is_paused() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(session.is_paused());
+    assert_eq!(session.remote_pc(), 0x0800_0108);
+    assert_eq!(
+        session.active_location(),
+        Some(SourceLocation::new("blink.ino", 11))
+    );
+
+    client.shutdown();
+    let _ = server.join();
+    session.stop();
+}

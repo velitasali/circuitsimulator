@@ -162,7 +162,7 @@ pub const ACTIONS: &[ActionDef] = &[
     act("sim.uploadRun", "Upload and Run", "", UiIcon::PlayArrow),
     act("sim.debug", "Debug", "F12", UiIcon::BugReport),
     act("sim.run", "Run", "F5", UiIcon::FastForward),
-    act("sim.step", "Step", "F6", UiIcon::StepInto),
+    act("sim.step", "Step Into", "F6", UiIcon::StepInto),
     act("sim.stepOver", "Step Over", "F7", UiIcon::StepOver),
     act("sim.debugPause", "Pause Debugger", "", UiIcon::Pause),
     act("sim.stop", "Stop Debugger", "", UiIcon::Stop),

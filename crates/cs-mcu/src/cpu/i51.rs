@@ -943,12 +943,14 @@ impl I51 {
     }
     fn acall(&mut self, h: &mut CpuHost) {
         h.ret_addr = h.pc;
+        h.call_depth = h.call_depth.saturating_add(1);
         self.push_stack8(h, h.pc as u8);
         self.push_stack8(h, (h.pc >> 8) as u8);
         self.ajmp(h);
     }
     fn lcall(&mut self, h: &mut CpuHost) {
         h.ret_addr = h.pc;
+        h.call_depth = h.call_depth.saturating_add(1);
         self.push_stack8(h, h.pc as u8);
         self.push_stack8(h, (h.pc >> 8) as u8);
         h.pc = u32::from(self.op_addr);
@@ -956,11 +958,13 @@ impl I51 {
     fn ret(&self, h: &mut CpuHost) {
         let hi = self.pop_stack8(h);
         let lo = self.pop_stack8(h);
+        h.call_depth = h.call_depth.saturating_sub(1);
         h.pc = (u32::from(hi) << 8) | u32::from(lo);
     }
 
     /// C++ `I51Core::INTERRUPT`.
     pub fn interrupt(&mut self, h: &mut CpuHost, vector: u32) {
+        h.call_depth = h.call_depth.saturating_add(1);
         self.push_stack8(h, h.pc as u8);
         self.push_stack8(h, (h.pc >> 8) as u8);
         h.pc = vector & 0xFFFF;

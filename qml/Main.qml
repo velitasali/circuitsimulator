@@ -809,11 +809,11 @@ ApplicationWindow {
             } else if (id === "sim.step") {
                 EditorPanel.debugStep()
                 if (CircuitCanvas.simRunning && CircuitCanvas.simPaused)
-                    CircuitCanvas.pauseCirc()
+                    CircuitCanvas.resumeForDebugStep()
             } else if (id === "sim.stepOver") {
                 EditorPanel.debugStepOver()
                 if (CircuitCanvas.simRunning && CircuitCanvas.simPaused)
-                    CircuitCanvas.pauseCirc()
+                    CircuitCanvas.resumeForDebugStep()
             } else if (id === "sim.debugPause") {
                 EditorPanel.debugPause()
                 if (CircuitCanvas.simRunning && !CircuitCanvas.simPaused)

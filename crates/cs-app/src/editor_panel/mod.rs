@@ -7,6 +7,7 @@ pub mod lsp;
 pub mod search;
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::mem;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -112,6 +113,7 @@ pub struct EditorPanel {
     compile_cancel_requested: bool,
     compile_job: Option<PendingCompile>,
     last_debug_line: i32,
+    last_debug_state_gen: u64,
     pending_close_index: Option<usize>,
     project_path: String,
     initial_loaded: bool,
@@ -206,6 +208,7 @@ impl Default for EditorPanel {
             compile_cancel_requested: false,
             compile_job: None,
             last_debug_line: 0,
+            last_debug_state_gen: 0,
             pending_close_index: None,
             project_path: String::new(),
             initial_loaded: false,
@@ -301,14 +304,22 @@ impl EditorPanel {
     }
 
     pub fn open_path(&mut self, path: String) {
+        self.open_path_inner(path, true);
+    }
+
+    fn open_path_inner(&mut self, path: String, record_in_session: bool) {
         let path = strip_file_url(&path);
-        if let Some((i, _)) = self.docs.iter().enumerate().find(|(_, d)| d.path == path) {
+        let norm_target = normalize_debug_path(Path::new(&path));
+        if let Some((i, _)) = self.docs.iter().enumerate().find(|(_, d)| {
+            !d.path.is_empty()
+                && (d.path == path || normalize_debug_path(Path::new(&d.path)) == norm_target)
+        }) {
             self.set_current_document(i as i32);
             self.request_show();
             self.request_focus();
             return;
         }
-        let disk = std::fs::read_to_string(&path).unwrap_or_default();
+        let disk = fs::read_to_string(&path).unwrap_or_default();
         let (text, dirty) = match backup::get_file_for_path(&path, &self.project_path) {
             Some(draft) if draft.text != disk => (draft.text, true),
             Some(draft) => {
@@ -347,12 +358,14 @@ impl EditorPanel {
             if !initial_bps.is_empty() {
                 DebugSession::global().set_breakpoints_for_file(Path::new(&path), &initial_bps);
             }
-            cs_engine::project::update_session(&self.project_path, |s| {
-                if !s.editor_files.contains(&path) {
-                    s.editor_files.push(path.clone());
-                }
-                s.active_editor_file = Some(path.clone());
-            });
+            if record_in_session {
+                cs_engine::project::update_session(&self.project_path, |s| {
+                    if !s.editor_files.contains(&path) {
+                        s.editor_files.push(path.clone());
+                    }
+                    s.active_editor_file = Some(path.clone());
+                });
+            }
         }
         self.refresh_arduino_boards();
         self.reapply_arduino_board();
@@ -372,6 +385,167 @@ impl EditorPanel {
         self.sync_lsp_open();
         self.update_lsp_ready();
     }
+
+    fn is_inside_project(&self, file: &Path) -> bool {
+        if self.project_path.is_empty() {
+            return false;
+        }
+        let proj = normalize_debug_path(Path::new(&self.project_path));
+        if proj.is_empty() {
+            return false;
+        }
+        let norm = normalize_debug_path(file);
+        norm == proj || norm.starts_with(&format!("{proj}/"))
+    }
+
+    fn activate_or_open_debug_file(&mut self, loc_file: &Path) -> bool {
+        let norm_loc = normalize_debug_path(loc_file);
+        // 1. Exact/normalized match among already-open tabs.
+        if let Some((i, _)) = self.docs.iter().enumerate().find(|(_, d)| {
+            !d.path.is_empty() && normalize_debug_path(Path::new(&d.path)) == norm_loc
+        }) {
+            if self.current != i as i32 {
+                self.set_current_document(i as i32);
+            }
+            self.request_show();
+            return true;
+        }
+
+        // 2. Existing file on disk (project header/source, Arduino core, or library source).
+        if loc_file.is_file() {
+            let resolved = display_clean_path(loc_file);
+            let record_session = self.is_inside_project(loc_file);
+            self.open_path_inner(resolved, record_session);
+            return true;
+        }
+
+        // 3. Basename match among already-open tabs (prebuilt/moved ELF fixtures).
+        if let Some(want_name) = loc_file.file_name().and_then(|n| n.to_str()) {
+            if let Some((i, _)) = self.docs.iter().enumerate().find(|(_, d)| {
+                !d.path.is_empty()
+                    && Path::new(&d.path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| file_names_equal(n, want_name))
+            }) {
+                if self.current != i as i32 {
+                    self.set_current_document(i as i32);
+                }
+                self.request_show();
+                return true;
+            }
+
+            // 4. Sibling file next to the active document or inside the project directory.
+            let mut search_dirs = Vec::new();
+            if let Some(d) = self.current_doc() {
+                if let Some(parent) = Path::new(&d.path).parent() {
+                    search_dirs.push(parent.to_path_buf());
+                }
+            }
+            if !self.project_path.is_empty() {
+                search_dirs.push(Path::new(&self.project_path).to_path_buf());
+            }
+            for dir in search_dirs {
+                let cand = dir.join(want_name);
+                if cand.is_file() {
+                    let resolved = display_clean_path(&cand);
+                    let record_session = self.is_inside_project(&cand);
+                    self.open_path_inner(resolved, record_session);
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn sync_debug_location(&mut self) {
+        let session = DebugSession::global();
+        if !session.is_active() || !session.is_paused() {
+            if self.last_debug_line != 0 {
+                self.last_debug_line = 0;
+                self.marks_changed();
+            }
+            return;
+        }
+        let state_gen = session.state_generation();
+        if state_gen != self.last_debug_state_gen {
+            self.last_debug_state_gen = state_gen;
+            if let Some(loc) = session.active_location() {
+                let target_line = loc.line as i32;
+                let matched_tab = self.activate_or_open_debug_file(&loc.file);
+                if matched_tab && target_line > 0 {
+                    self.goto_1based(target_line);
+                } else if !matched_tab {
+                    cs_engine::logging::log_sim(format!(
+                        "[Debug] Source file not found on disk: {}:{}",
+                        loc.file.display(),
+                        loc.line
+                    ));
+                }
+            }
+            self.last_debug_line = self.debug_line();
+            self.marks_changed();
+            return;
+        }
+        let cur_dl = self.debug_line();
+        if cur_dl != self.last_debug_line {
+            self.last_debug_line = cur_dl;
+            self.marks_changed();
+        }
+    }
+}
+
+fn display_clean_path(p: &Path) -> String {
+    let raw = fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let s = raw.to_string_lossy();
+    s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+}
+
+fn normalize_debug_path(p: &Path) -> String {
+    let clean = display_clean_path(p).replace('\\', "/");
+    let clean = clean.trim_end_matches('/').to_string();
+    #[cfg(windows)]
+    {
+        clean.to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        clean
+    }
+}
+
+fn file_names_equal(a: &str, b: &str) -> bool {
+    #[cfg(windows)]
+    {
+        a.eq_ignore_ascii_case(b)
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
+}
+
+fn debug_paths_match(doc_path: &str, loc_file: &Path) -> bool {
+    if doc_path.is_empty() {
+        return false;
+    }
+    let dp = Path::new(doc_path);
+    if normalize_debug_path(dp) == normalize_debug_path(loc_file) {
+        return true;
+    }
+    // Only fall back to basename matching when the DWARF path does not exist on disk
+    // (e.g. moved projects or prebuilt ELF fixtures), so `sketch/main.cpp` never
+    // collides with `arduino-core/main.cpp`.
+    if !loc_file.is_file() {
+        if let (Some(a), Some(b)) = (
+            dp.file_name().and_then(|n| n.to_str()),
+            loc_file.file_name().and_then(|n| n.to_str()),
+        ) {
+            return file_names_equal(a, b);
+        }
+    }
+    false
 }
 
 #[qobject(Singleton, ConvertToCamelCase)]
@@ -1344,12 +1518,12 @@ impl EditorPanel {
 
     pub fn debug_line(&self) -> i32 {
         let session = DebugSession::global();
-        if !session.is_active() {
+        if !session.is_active() || !session.is_paused() {
             return 0;
         }
         if let Some(loc) = session.active_location() {
             if let Some(d) = self.current_doc() {
-                if Path::new(&d.path).file_name() == loc.file.file_name() {
+                if debug_paths_match(&d.path, &loc.file) {
                     return loc.line as i32;
                 }
             }
@@ -2946,14 +3120,7 @@ impl EditorPanel {
             }
         }
         self.drain_compile_job();
-        let cur_dl = self.debug_line();
-        if cur_dl != self.last_debug_line {
-            self.last_debug_line = cur_dl;
-            self.marks_changed();
-            if cur_dl > 0 && DebugSession::is_paused_global() {
-                self.goto_1based(cur_dl);
-            }
-        }
+        self.sync_debug_location();
         if self.pending_flush {
             self.flush_dirty_drafts();
         }
@@ -3243,6 +3410,7 @@ impl EditorPanel {
     fn debug_stop(&mut self) {
         DebugSession::global().stop();
         self.last_debug_line = 0;
+        self.last_debug_state_gen = 0;
         self.marks_changed();
         self.debug_state_changed();
     }

@@ -621,7 +621,7 @@ fn build_menus(
                 sep(),
                 item("sim.debug", &t("Debug"), has_mcu, false, false, c),
                 item("sim.run", &t("Run"), has_mcu, false, false, c),
-                item("sim.step", &t("Step"), has_mcu, false, false, c),
+                item("sim.step", &t("Step Into"), has_mcu, false, false, c),
                 item("sim.stepOver", &t("Step Over"), has_mcu, false, false, c),
                 item(
                     "sim.debugPause",

@@ -12,16 +12,18 @@ pub enum BatchDebugMode<'a> {
     Running { break_pcs: &'a [u32] },
     /// Debugger stepping into the next instruction; stop after 1 step.
     StepInto,
-    /// Debugger stepping over; stop on `break_pcs`, `exit_pc`, or stack depth return.
+    /// Debugger stepping over; stop on `break_pcs`, `exit_pc`, `target_depth`, or stack depth return.
     StepOver {
         break_pcs: &'a [u32],
         target_sp: u32,
+        target_depth: Option<u32>,
         exit_pc: Option<u32>,
     },
-    /// Debugger stepping out; stop on `break_pcs`, stack depth return, or `ret_addr`.
+    /// Debugger stepping out; stop on `break_pcs`, `target_depth`, stack depth return, or `ret_addr`.
     StepOut {
         break_pcs: &'a [u32],
         target_sp: u32,
+        target_depth: Option<u32>,
     },
 }
 
@@ -32,6 +34,8 @@ pub struct BatchStop {
     pub advanced_ps: u64,
     /// Set when a debug breakpoint or step condition matched: `(prev_pc, pc, sp, ret_addr)`.
     pub debug_hit: Option<(u32, u32, u16, u32)>,
+    /// Call depth at the end of the batch (or when `debug_hit` triggered).
+    pub debug_call_depth: u32,
 }
 
 #[inline(always)]
@@ -176,6 +180,7 @@ impl Device {
                         return BatchStop {
                             advanced_ps,
                             debug_hit: Some((prev_pc, pc, self.host.get_sp(), self.host.ret_addr)),
+                            debug_call_depth: self.host.call_depth,
                         };
                     }
                 }
@@ -188,17 +193,21 @@ impl Device {
                             self.host.get_sp(),
                             self.host.ret_addr,
                         )),
+                        debug_call_depth: self.host.call_depth,
                     };
                 }
                 BatchDebugMode::StepOver {
                     break_pcs,
                     target_sp,
+                    target_depth,
                     exit_pc,
                 } => {
                     let pc = self.host.pc;
                     let sp = self.host.get_sp();
                     let hit_step = if let Some(exit) = exit_pc {
                         pc == exit
+                    } else if let Some(td) = target_depth {
+                        self.host.call_depth <= td && pc != prev_pc
                     } else {
                         (target_sp == 0 || u32::from(sp) >= target_sp) && pc != prev_pc
                     };
@@ -206,22 +215,29 @@ impl Device {
                         return BatchStop {
                             advanced_ps,
                             debug_hit: Some((prev_pc, pc, sp, self.host.ret_addr)),
+                            debug_call_depth: self.host.call_depth,
                         };
                     }
                 }
                 BatchDebugMode::StepOut {
                     break_pcs,
                     target_sp,
+                    target_depth,
                 } => {
                     let pc = self.host.pc;
                     let sp = self.host.get_sp();
                     let ret_addr = self.host.ret_addr;
-                    let hit_step = (target_sp != 0 && u32::from(sp) >= target_sp)
-                        || (ret_addr != 0 && pc == ret_addr);
+                    let hit_step = if let Some(td) = target_depth {
+                        self.host.call_depth <= td && pc != prev_pc
+                    } else {
+                        (target_sp != 0 && u32::from(sp) >= target_sp)
+                            || (ret_addr != 0 && pc == ret_addr)
+                    };
                     if hit_step || matches_break_pc(break_pcs, pc) {
                         return BatchStop {
                             advanced_ps,
                             debug_hit: Some((prev_pc, pc, sp, ret_addr)),
+                            debug_call_depth: self.host.call_depth,
                         };
                     }
                 }
@@ -242,6 +258,7 @@ impl Device {
         BatchStop {
             advanced_ps,
             debug_hit: None,
+            debug_call_depth: self.host.call_depth,
         }
     }
 
@@ -400,6 +417,10 @@ impl Device {
 
     pub fn ret_addr(&self) -> u32 {
         self.host.ret_addr
+    }
+
+    pub fn call_depth(&self) -> u32 {
+        self.host.call_depth
     }
 
     pub fn sp(&self) -> u16 {

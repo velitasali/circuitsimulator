@@ -2736,6 +2736,12 @@ impl CircuitCanvas {
     }
 
     #[qslot]
+    fn resume_for_debug_step(&mut self) {
+        let c = self.inner.resume_sim_for_step();
+        self.apply(c);
+    }
+
+    #[qslot]
     fn pause_qemu(&mut self) {
         self.inner.pause_qemu();
     }

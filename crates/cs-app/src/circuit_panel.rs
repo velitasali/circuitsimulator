@@ -710,9 +710,12 @@ impl CircuitPanel {
     }
 
     fn toolbar_items(&self) -> Value {
+        self.toolbar_items_for_debug(DebugSession::global().is_active())
+    }
+
+    fn toolbar_items_for_debug(&self, debug_vis: bool) -> Value {
         let subc_vis = self.subc_nav_visible();
         let dev_vis = self.device_sel_visible();
-        let debug_vis = DebugSession::global().is_active();
         let compiling = self.compile_state == "compiling";
         let power_text = if self.running {
             cs_engine::i18n::tr("Stop Simulation")
@@ -724,15 +727,20 @@ impl CircuitPanel {
         } else {
             cs_engine::i18n::tr("Pause Simulation")
         };
+        let debug_text = if debug_vis {
+            cs_engine::i18n::tr("Stop Debugger")
+        } else {
+            cs_engine::i18n::tr("Debug")
+        };
         let mut debug_btn = action(
             "debug",
-            &cs_engine::i18n::tr("Debug"),
+            &debug_text,
             UiIcon::BugReport,
-            dev_vis && !debug_vis,
-            false,
-            false,
+            dev_vis || debug_vis,
+            true,
+            debug_vis,
         );
-        if compiling {
+        if compiling && !debug_vis {
             if let Some(obj) = debug_btn.as_object_mut() {
                 obj.insert("enabled".into(), json!(false));
             }
@@ -784,7 +792,7 @@ impl CircuitPanel {
             separator(false),
             action(
                 "step",
-                &cs_engine::i18n::tr("Step Debugger"),
+                &cs_engine::i18n::tr("Step Into"),
                 UiIcon::StepInto,
                 debug_vis,
                 false,
@@ -810,14 +818,6 @@ impl CircuitPanel {
                 "watch",
                 &cs_engine::i18n::tr("Variables"),
                 UiIcon::Visibility,
-                debug_vis,
-                false,
-                false,
-            ),
-            action(
-                "stop",
-                &cs_engine::i18n::tr("Stop Debugger"),
-                UiIcon::Stop,
                 debug_vis,
                 false,
                 false,
@@ -1005,6 +1005,14 @@ impl CircuitPanel {
         match id {
             "power" => self.power_circ(),
             "pause" => self.pause_circ(),
+            "debug" => {
+                if DebugSession::global().is_active() {
+                    self.action("debugStop".into());
+                } else {
+                    self.action("debug".into());
+                }
+                self.refresh_debug_toolbar();
+            }
             "simInfo" => self.toggle_info(),
             "step" => self.action("debugStep".into()),
             "stepOver" => self.action("debugStepOver".into()),
@@ -1982,5 +1990,58 @@ mod tests {
             find_item(&panel, "widget", "compileStatus")["visible"],
             false
         );
+    }
+
+    #[test]
+    fn test_debug_toolbar_keeps_checked_debug_button_and_step_into_label() {
+        let mut panel = CircuitPanel::default();
+        panel.devices.push(ProgrammableDevice {
+            id: "Uno-1".into(),
+            uid: "Uno-1".into(),
+            label: "Uno-1".into(),
+            display_text: "Uno-1 (Arduino Uno)".into(),
+            kind: "Arduino Uno".into(),
+            is_active: true,
+        });
+
+        let find_id = |items: &Value, id: &str| {
+            items
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"] == id)
+                .cloned()
+        };
+
+        // Inactive debug: debug button visible & unchecked, step buttons hidden.
+        let inactive = panel.toolbar_items_for_debug(false);
+        let dbg_off = find_id(&inactive, "debug").expect("debug button");
+        assert_eq!(dbg_off["visible"], true);
+        assert_eq!(dbg_off["checkable"], true);
+        assert_eq!(dbg_off["checked"], false);
+        assert_eq!(dbg_off["tooltip"], "Debug");
+        assert!(
+            find_id(&inactive, "stop").is_none(),
+            "separate stop debugger button should not exist in overlay toolbar"
+        );
+        assert_eq!(find_id(&inactive, "step").unwrap()["visible"], false);
+
+        // Active debug: debug button stays visible & checked (matching pause style),
+        // step button uses "Step Into", and no separate "stop" button exists.
+        let active = panel.toolbar_items_for_debug(true);
+        let dbg_on = find_id(&active, "debug").expect("debug button");
+        assert_eq!(dbg_on["visible"], true);
+        assert_eq!(dbg_on["checkable"], true);
+        assert_eq!(dbg_on["checked"], true);
+        assert_eq!(dbg_on["tooltip"], "Stop Debugger");
+        assert!(find_id(&active, "stop").is_none());
+
+        let step_btn = find_id(&active, "step").expect("step button");
+        assert_eq!(step_btn["visible"], true);
+        assert_eq!(step_btn["tooltip"], "Step Into");
+
+        let step_over_btn = find_id(&active, "stepOver").expect("stepOver button");
+        assert_eq!(step_over_btn["visible"], true);
+        assert_eq!(step_over_btn["tooltip"], "Step Over");
     }
 }

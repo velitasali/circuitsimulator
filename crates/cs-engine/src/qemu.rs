@@ -9,8 +9,10 @@ pub mod periph;
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::hint;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use cs_qemu::{Arena, CosimWake, QemuProcess, SharedArena, SimAction};
@@ -74,6 +76,9 @@ const GUEST_JUMP_LIMIT_PS: u64 = 30_000_000_000_000;
 /// Headless runs (no frame deadline) park this far ahead when the guest has
 /// not published time, so the solver does not spin on a 1 ps reschedule.
 const HEADLESS_PARK_PS: u64 = 1_000_000_000;
+/// Maximum simulated time a busy-wait UART status poll may be deferred before
+/// waking the guest anyway (1 ms), protecting slow baud rates.
+const DEFER_POLL_MAX_PS: u64 = 1_000_000_000;
 const USART_CATCH_CAP: u32 = 8_192;
 const EDGE_CATCH_CAP: u32 = 16_384;
 
@@ -143,6 +148,17 @@ struct Stm32Port {
     pins: [Option<usize>; 16],
 }
 
+/// A `SIM_READ` of a UART status register held back while TX is actively
+/// shifting bits out, avoiding hundreds of back-to-back IPC round-trips per
+/// byte during synchronous ROM/bootloader polling loops.
+#[derive(Clone, Copy, Debug)]
+struct DeferredPoll {
+    usart_idx: usize,
+    status: (usize, usize, u16),
+    irq: (u64, u64),
+    max_until: u64,
+}
+
 /// Live `qemu-system-*` child, the shm it attached, and the wake events
 /// created before the process was spawned.
 struct LiveQemu {
@@ -195,6 +211,11 @@ pub struct QemuComp {
     last_guest_raw: Option<u64>,
     /// A `qemuTime` jump past [`GUEST_JUMP_LIMIT_PS`], accepted only if it repeats.
     pending_guest_raw: Option<u64>,
+    /// Address of the immediately preceding mailbox `SIM_READ`, used to detect
+    /// tight busy-wait polling on a UART status register.
+    last_mailbox_read_addr: Option<u64>,
+    /// Pending UART status `SIM_READ` deferred until TX/RX/IRQ state changes.
+    deferred_poll: Option<DeferredPoll>,
 }
 
 impl Clone for QemuComp {
@@ -237,6 +258,8 @@ impl Clone for QemuComp {
             yield_frame: false,
             last_guest_raw: None,
             pending_guest_raw: None,
+            last_mailbox_read_addr: None,
+            deferred_poll: None,
         }
     }
 }
@@ -413,6 +436,8 @@ impl QemuComp {
             yield_frame: false,
             last_guest_raw: None,
             pending_guest_raw: None,
+            last_mailbox_read_addr: None,
+            deferred_poll: None,
         }
     }
 
@@ -634,6 +659,8 @@ impl QemuComp {
             yield_frame: false,
             last_guest_raw: None,
             pending_guest_raw: None,
+            last_mailbox_read_addr: None,
+            deferred_poll: None,
         }
     }
 
@@ -734,6 +761,8 @@ impl QemuComp {
         self.yield_frame = false;
         self.last_guest_raw = None;
         self.pending_guest_raw = None;
+        self.last_mailbox_read_addr = None;
+        self.deferred_poll = None;
         self.last_error = None;
         self.esp32_gpio.state = 0;
         self.esp32_gpio.enable = 0;
@@ -794,6 +823,8 @@ impl QemuComp {
             }
         }
         self.next_wake = None;
+        self.last_mailbox_read_addr = None;
+        self.deferred_poll = None;
     }
 
     /// SIGSTOP (C++ `stopQemuProcess`). No-op without a live child or with GDB.
@@ -810,15 +841,6 @@ impl QemuComp {
         if let Some(live) = &mut self.live {
             live.process.resume();
         }
-    }
-}
-
-fn next_due(tx: Option<u64>, rx: Option<u64>) -> Option<u64> {
-    match (tx, rx) {
-        (Some(tx), Some(rx)) => Some(tx.min(rx)),
-        (Some(tx), None) => Some(tx),
-        (None, Some(rx)) => Some(rx),
-        (None, None) => None,
     }
 }
 
@@ -1010,6 +1032,14 @@ impl QemuComp {
         live.wake.signal_ack();
     }
 
+    fn push_live_irq(&mut self) {
+        let Some(live) = &mut self.live else {
+            return;
+        };
+        live.shm
+            .store_irq(self.arena.irq_number, self.arena.irq_level);
+    }
+
     fn load_simu_action(&self) -> u64 {
         self.live
             .as_ref()
@@ -1039,7 +1069,7 @@ impl QemuComp {
             }
         };
         for u in &self.usarts {
-            take(&mut best, u.module.remain(now));
+            take(&mut best, u.remain(now));
         }
         for s in &self.spis {
             take(&mut best, s.module.remain(now));
@@ -1054,6 +1084,39 @@ impl QemuComp {
             );
         }
         best
+    }
+
+    /// Earliest absolute peripheral deadline (USART TX/RX/timeout, SPI, TWI).
+    fn next_periph_due(&self) -> Option<u64> {
+        let mut best: Option<u64> = None;
+        let take = |best: &mut Option<u64>, v: Option<u64>| {
+            if let Some(v) = v {
+                *best = Some(best.map_or(v, |b| b.min(v)));
+            }
+        };
+        for u in &self.usarts {
+            take(&mut best, u.next_due());
+        }
+        for s in &self.spis {
+            take(&mut best, s.module.due);
+        }
+        for t in &self.twis {
+            take(&mut best, t.module.due);
+        }
+        best
+    }
+
+    /// Observe updated input pin levels immediately after a circuit solve.
+    /// Returns `true` when any UART RX pin just detected a falling start-bit
+    /// edge and armed a future receive deadline.
+    pub fn on_input_pins_changed(&mut self, now: u64) -> bool {
+        let mut armed = false;
+        for u in &mut self.usarts {
+            if u.module.rx_pin_changed(now, &self.pins, u.rx) {
+                armed = true;
+            }
+        }
+        armed
     }
 
     pub fn sample_inputs(&mut self, v_of: &impl Fn(&str) -> f64) {
@@ -1075,11 +1138,13 @@ impl QemuComp {
             return Vec::new();
         }
         let action = SimAction::from_u64(self.arena.simu_action);
+        let event_time = self.arena.simu_time;
+        self.arena.qemu_action = 0;
         if action == SimAction::Freq {
             self.updt_frequency();
         } else if action != SimAction::Event {
             self.do_action();
-            self.run_module_event();
+            self.run_module_event(event_time);
         }
         self.arena.simu_action = 0;
         self.arena.simu_time = 0;
@@ -1126,15 +1191,60 @@ impl QemuComp {
     fn run_live_event(
         &mut self,
         now: u64,
-        horizon: u64,
+        _horizon: u64,
         deadline: Option<Instant>,
     ) -> Vec<(usize, PinAction)> {
         self.yield_frame = false;
-        self.run_module_event();
-        self.next_wake = None;
+        self.run_module_event(now);
+        // Service peripheral edges due at `now` so bit-by-bit TX/RX stays on
+        // the circuit event queue and propagates through `solve_circuit()`.
+        self.catch_up_peripherals(now);
+
         // `true` once this wake has applied a mailbox post. A hot guest is
         // drained until the frame budget; an idle guest gets one short wait.
         let mut hot = false;
+        if let Some(dp) = self.deferred_poll {
+            if !self.deferred_poll_ready(dp, now) {
+                if !self.is_process_running() {
+                    crate::logging::log_sim_err("[QEMU] Emulator process exited unexpectedly");
+                    self.stop_live();
+                }
+                return Vec::new();
+            }
+            self.complete_deferred_poll(now);
+            hot = true;
+        }
+
+        // Peripheral-only wake before the guest's scheduled wake time: drain
+        // any immediately ready mailbox slots without blocking on `wait_request`,
+        // then return so the circuit advances to the next bit edge.
+        if let Some(saved_wake) = self.next_wake
+            && saved_wake > now
+        {
+            while self.load_simu_action() != 0 {
+                if deadline.is_some_and(|dl| Instant::now() >= dl) {
+                    break;
+                }
+                if let Some(dp) = self.try_defer_uart_status_poll(now) {
+                    self.deferred_poll = Some(dp);
+                    self.next_wake = Some(dp.max_until);
+                    return Vec::new();
+                }
+                self.consume_mailbox(now);
+                if let Some(pd) = self.next_periph_due()
+                    && self.guest_circuit_time(now).is_some_and(|g| g >= pd)
+                {
+                    break;
+                }
+            }
+            if !self.is_process_running() {
+                crate::logging::log_sim_err("[QEMU] Emulator process exited unexpectedly");
+                self.stop_live();
+            }
+            return Vec::new();
+        }
+
+        self.next_wake = None;
         loop {
             if self.load_simu_action() != 0 {
                 // The first post is always taken. Further posts stop when the
@@ -1144,8 +1254,24 @@ impl QemuComp {
                     self.yield_behind(now);
                     return Vec::new();
                 }
+                if let Some(dp) = self.try_defer_uart_status_poll(now) {
+                    self.deferred_poll = Some(dp);
+                    self.next_wake = Some(dp.max_until);
+                    return Vec::new();
+                }
                 self.consume_mailbox(now);
                 hot = true;
+                // If an active peripheral bit edge is pending and the guest has
+                // already reached or passed it (e.g. polling UART_STATUS in
+                // Serial.flush()), yield back to the circuit solver so the bit
+                // edge can fire instead of spinning until frame timeout.
+                if let Some(pd) = self.next_periph_due() {
+                    let guest = self.guest_circuit_time(now);
+                    if guest.is_some_and(|g| g >= pd && g > now) {
+                        self.park_at_guest(now, guest);
+                        return Vec::new();
+                    }
+                }
                 continue;
             }
             if !self.is_process_running() {
@@ -1153,9 +1279,14 @@ impl QemuComp {
                 self.stop_live();
                 return Vec::new();
             }
+            let ahead_limit = self
+                .next_periph_due()
+                .map_or(now.saturating_add(GUEST_AHEAD_PS), |pd| {
+                    now.saturating_add(GUEST_AHEAD_PS).min(pd)
+                });
             let guest = self.guest_circuit_time(now);
-            if guest.is_some_and(|g| g > now.saturating_add(GUEST_AHEAD_PS)) {
-                self.park_at_guest(now, horizon, guest);
+            if guest.is_some_and(|g| g >= ahead_limit && g > now) {
+                self.park_at_guest(now, guest);
                 return Vec::new();
             }
             if deadline.is_none() {
@@ -1167,6 +1298,39 @@ impl QemuComp {
                 self.yield_behind(now);
                 return Vec::new();
             }
+            // QEMU updates `qemuTime` every 100 µs without signalling `req_event`,
+            // and on Windows `WaitForSingleObject(..., 1)` sleeps for a full
+            // ~15.6 ms timer tick on timeout. Briefly poll + yield first so fast
+            // MMIO replies and non-MMIO `qemuTime` advances don't stall a frame.
+            let mut poll_end = Instant::now() + Duration::from_micros(250);
+            if let Some(dl) = deadline {
+                poll_end = poll_end.min(dl);
+            }
+            let mut spins = 0u32;
+            let mut got_action = false;
+            loop {
+                if self.load_simu_action() != 0 {
+                    got_action = true;
+                    break;
+                }
+                let guest = self.guest_circuit_time(now);
+                if guest.is_some_and(|g| g >= ahead_limit && g > now) {
+                    self.park_at_guest(now, guest);
+                    return Vec::new();
+                }
+                if spins < 64 {
+                    hint::spin_loop();
+                } else {
+                    if Instant::now() >= poll_end {
+                        break;
+                    }
+                    thread::yield_now();
+                }
+                spins += 1;
+            }
+            if got_action {
+                continue;
+            }
             // One millisecond. An old guest never signals the request event,
             // and the mailbox flag is rechecked when this returns.
             let _ = self.wait_request(1);
@@ -1174,8 +1338,8 @@ impl QemuComp {
                 continue;
             }
             let guest = self.guest_circuit_time(now);
-            if guest.is_some_and(|g| g > now.saturating_add(GUEST_AHEAD_PS)) {
-                self.park_at_guest(now, horizon, guest);
+            if guest.is_some_and(|g| g >= ahead_limit && g > now) {
+                self.park_at_guest(now, guest);
                 return Vec::new();
             }
             if !hot {
@@ -1189,6 +1353,58 @@ impl QemuComp {
         }
     }
 
+    fn find_busy_usart_status(&self, addr: u64) -> Option<usize> {
+        self.usarts.iter().position(|u| {
+            addr >= u.mem_start && u.is_status_reg_offset(addr - u.mem_start) && u.is_tx_busy()
+        })
+    }
+
+    /// Detect a consecutive busy-wait `SIM_READ` on a UART status register
+    /// while TX is actively shifting bits out. Holding the response until the
+    /// status changes lets the circuit queue step every TX/RX bit edge without
+    /// hundreds of cross-process IPC round-trips per byte.
+    fn try_defer_uart_status_poll(&mut self, now: u64) -> Option<DeferredPoll> {
+        let view = self.live.as_ref()?.shm.load_mailbox();
+        if view.simu_action != SimAction::Read as u64 {
+            return None;
+        }
+        if self.last_mailbox_read_addr != Some(view.reg_addr) {
+            return None;
+        }
+        let usart_idx = self.find_busy_usart_status(view.reg_addr)?;
+        self.observe_guest_raw(view.qemu_time, now);
+        Some(DeferredPoll {
+            usart_idx,
+            status: self.usarts[usart_idx].status_snapshot(),
+            irq: (self.arena.irq_number, self.arena.irq_level),
+            max_until: now.saturating_add(DEFER_POLL_MAX_PS),
+        })
+    }
+
+    fn deferred_poll_ready(&self, dp: DeferredPoll, now: u64) -> bool {
+        if now >= dp.max_until {
+            return true;
+        }
+        if (self.arena.irq_number, self.arena.irq_level) != dp.irq {
+            return true;
+        }
+        self.usarts
+            .get(dp.usart_idx)
+            .is_none_or(|u| u.status_snapshot() != dp.status || !u.is_tx_busy())
+    }
+
+    fn complete_deferred_poll(&mut self, now: u64) {
+        self.deferred_poll = None;
+        self.next_wake = None;
+        if let Some(raw) = self.last_guest_raw {
+            let guest = raw.saturating_add(self.time_offset);
+            if now > guest {
+                self.time_offset = self.time_offset.saturating_add(now - guest);
+            }
+        }
+        self.consume_mailbox(now);
+    }
+
     /// Apply the posted mailbox slot immediately. Reads stay blocked in the
     /// guest until `push_live` publishes `qemu_action`; writes are applied
     /// before the single pending-event slot can be overwritten.
@@ -1196,11 +1412,17 @@ impl QemuComp {
         self.pull_live();
         self.observe_guest_raw(self.arena.qemu_time, now);
         let action = SimAction::from_u64(self.arena.simu_action);
+        self.last_mailbox_read_addr = if action == SimAction::Read {
+            Some(self.arena.reg_addr)
+        } else {
+            None
+        };
+        self.arena.qemu_action = 0;
         if action == SimAction::Freq {
             self.updt_frequency();
         } else if action != SimAction::Event {
             self.do_action();
-            self.run_module_event();
+            self.run_module_event(now);
         }
         self.arena.simu_action = 0;
         self.arena.simu_time = 0;
@@ -1214,13 +1436,12 @@ impl QemuComp {
         self.next_wake = Some(now.saturating_add(1));
     }
 
-    /// Guest clock is ahead of `now`. Catch peripherals up to the frame end,
-    /// never past the guest, and leave the next wake at the guest time when
-    /// that is beyond the frame so the solver can advance to the frame end.
-    fn park_at_guest(&mut self, now: u64, horizon: u64, guest: Option<u64>) {
+    /// Guest clock is ahead of `now`. Leave future peripheral bit edges on the
+    /// circuit event queue (via `next_event_delay`) so each pin transition is
+    /// solved and visible to connected components and instruments.
+    fn park_at_guest(&mut self, now: u64, guest: Option<u64>) {
         let guest_at = guest.unwrap_or(now);
-        let until = guest_at.min(horizon).max(now);
-        self.catch_up_peripherals(until);
+        self.catch_up_peripherals(now);
         self.yield_frame = false;
         if guest_at > now {
             self.next_wake = Some(guest_at);
@@ -1287,6 +1508,8 @@ impl QemuComp {
             self.time_offset = circuit_now;
             self.last_guest_raw = None;
             self.pending_guest_raw = None;
+            self.last_mailbox_read_addr = None;
+            self.deferred_poll = None;
             if let Err(e) = self.start_live() {
                 crate::logging::log_sim_err(format!("[QEMU] {e}"));
                 self.last_error = Some(e);
@@ -1343,19 +1566,18 @@ impl QemuComp {
             let val = self.read_mem(address);
             self.arena.reg_data = val as u64;
             self.arena.qemu_action = SimAction::Read as u64;
-            self.push_live();
         } else if action == SimAction::Write {
             self.write_mem(address, self.arena.reg_data as u32);
         }
     }
 
-    fn run_module_event(&mut self) {
+    fn run_module_event(&mut self, now: u64) {
         let Some(ev) = self.event.take() else {
             return;
         };
         match ev.action {
             SimAction::Read => self.read_register(ev),
-            SimAction::Write => self.write_register(ev),
+            SimAction::Write => self.write_register(ev, now),
             _ => {}
         }
     }
@@ -1382,10 +1604,9 @@ impl QemuComp {
         };
         self.arena.reg_data = val as u64;
         self.arena.qemu_action = SimAction::Read as u64;
-        self.push_live();
     }
 
-    fn write_register(&mut self, ev: PendingEvent) {
+    fn write_register(&mut self, ev: PendingEvent, now: u64) {
         match ev.kind {
             ModuleKind::Esp32Gpio => self.esp32_write(ev.address, ev.value as u32),
             ModuleKind::Esp32IoMux => {
@@ -1396,13 +1617,13 @@ impl QemuComp {
             ModuleKind::Stm32Port(n) => self.stm32_write(n as usize, ev.address, ev.value as u32),
             ModuleKind::Stm32Afio => self.stm32_afio_write(ev.address, ev.value as u32),
             ModuleKind::Esp32Usart(n) | ModuleKind::Stm32Usart(n) => {
-                self.usart_write(n, ev.address, ev.value as u32);
+                self.usart_write(n, ev.address, ev.value as u32, now);
             }
             ModuleKind::Esp32Spi(n) | ModuleKind::Stm32Spi(n) => {
-                self.spi_write(n, ev.address, ev.value as u32);
+                self.spi_write(n, ev.address, ev.value as u32, now);
             }
             ModuleKind::Esp32Twi(n) | ModuleKind::Stm32Twi(n) => {
-                self.twi_write(n, ev.address, ev.value as u32);
+                self.twi_write(n, ev.address, ev.value as u32, now);
             }
             ModuleKind::Stm32Timer(n) => self.timer_write(n, ev.address, ev.value as u32),
             ModuleKind::Dummy => self.write_mem(ev.address, ev.value as u32),
@@ -1504,11 +1725,10 @@ impl QemuComp {
         if let Some((irq, level)) = irq {
             self.note_interrupt(irq, level);
         }
-        val
+        val.unwrap_or_else(|| self.read_mem(address))
     }
 
-    fn usart_write(&mut self, n: u8, address: u64, value: u32) {
-        let now = self.arena.simu_time;
+    fn usart_write(&mut self, n: u8, address: u64, value: u32, now: u64) {
         let apb = self.apb_freq;
         let Some(u) = self.usarts.get_mut(n as usize) else {
             return;
@@ -1538,8 +1758,7 @@ impl QemuComp {
         }
     }
 
-    fn spi_write(&mut self, n: u8, address: u64, value: u32) {
-        let now = self.arena.simu_time;
+    fn spi_write(&mut self, n: u8, address: u64, value: u32, now: u64) {
         let ps = self.arena.ps_per_inst;
         let Some(s) = self.spis.get_mut(n as usize) else {
             return;
@@ -1566,8 +1785,7 @@ impl QemuComp {
         }
     }
 
-    fn twi_write(&mut self, n: u8, address: u64, value: u32) {
-        let now = self.arena.simu_time;
+    fn twi_write(&mut self, n: u8, address: u64, value: u32, now: u64) {
         let Some(t) = self.twis.get_mut(n as usize) else {
             return;
         };
@@ -1604,7 +1822,7 @@ impl QemuComp {
 
     fn set_interrupt(&mut self, number: u8, level: u8) {
         self.note_interrupt(number, level);
-        self.push_live();
+        self.push_live_irq();
     }
 
     fn tick_peripherals(&mut self, now: u64) {
@@ -1615,13 +1833,13 @@ impl QemuComp {
     /// Each edge is scheduled from its own due time, so a frame of bits lands
     /// in one device wake. Host serial input is taken once, not per bit.
     fn catch_up_peripherals(&mut self, until: u64) {
-        self.ingest_host_serial();
+        self.ingest_host_serial(until);
         self.advance_usarts(until);
         self.advance_spis(until);
         self.advance_twis(until);
     }
 
-    fn ingest_host_serial(&mut self) {
+    fn ingest_host_serial(&mut self, now: u64) {
         if !crate::serial::has_pending_send() {
             return;
         }
@@ -1642,7 +1860,7 @@ impl QemuComp {
                     crate::serial::publish_in(&self.uid, b);
                     crate::serial::publish_in("default", b);
                 }
-                if let Some((irq, level)) = self.usarts[i].on_byte_received(b) {
+                if let Some((irq, level)) = self.usarts[i].on_byte_received_at(b, now) {
                     irq_to_set = Some((irq, level));
                 }
             }
@@ -1656,18 +1874,17 @@ impl QemuComp {
         for i in 0..self.usarts.len() {
             let tx = self.usarts[i].tx;
             let rx = self.usarts[i].rx;
-            let sample = next_due(self.usarts[i].module.tx_due, self.usarts[i].module.rx_due)
+            let sample = self.usarts[i]
+                .next_due()
                 .filter(|t| *t <= until)
                 .unwrap_or(until);
-            self.usarts[i].module.rx_pin_changed(sample, &self.pins, rx);
+            let _ = self.usarts[i].module.rx_pin_changed(sample, &self.pins, rx);
             let mut n = 0u32;
             loop {
                 if n >= USART_CATCH_CAP {
                     break;
                 }
-                let Some(due) =
-                    next_due(self.usarts[i].module.tx_due, self.usarts[i].module.rx_due)
-                else {
+                let Some(due) = self.usarts[i].next_due() else {
                     break;
                 };
                 if due > until {
@@ -1675,7 +1892,12 @@ impl QemuComp {
                 }
                 let tick = self.usarts[i].module.tick(due, &mut self.pins, tx, rx);
                 n += 1;
-                self.pins_dirty = true;
+                if tick.frame_sent.is_some()
+                    || self.usarts[i].module.tx_due.is_some()
+                    || self.usarts[i].module.sending()
+                {
+                    self.pins_dirty = true;
+                }
                 let mut irq_to_set = None;
                 if let Some(b) = tick.frame_sent {
                     self.publish_usart_out(i, b);
@@ -1684,22 +1906,24 @@ impl QemuComp {
                     if let Some((irq, level)) = self.usarts[i].on_frame_sent(due, &mut self.pins) {
                         irq_to_set = Some((irq, level));
                     }
+                    self.pins_dirty = true;
                 }
                 if let Some((irq, level)) = irq_to_set.take() {
                     self.set_interrupt(irq, level);
                 }
                 if let Some(b) = tick.byte_received {
                     self.publish_usart_in(i, b);
-                    if let Some((irq, level)) = self.usarts[i].on_byte_received(b) {
+                    if let Some((irq, level)) = self.usarts[i].on_byte_received_at(b, due) {
                         irq_to_set = Some((irq, level));
                     }
                 }
-                if let Some((irq, level)) = irq_to_set {
+                if let Some((irq, level)) = irq_to_set.take() {
                     self.set_interrupt(irq, level);
                 }
-                if next_due(self.usarts[i].module.tx_due, self.usarts[i].module.rx_due)
-                    .is_some_and(|next| next <= due)
-                {
+                if let Some((irq, level)) = self.usarts[i].tick_rx_timeout(due) {
+                    self.set_interrupt(irq, level);
+                }
+                if self.usarts[i].next_due().is_some_and(|next| next <= due) {
                     break;
                 }
             }
@@ -2836,5 +3060,249 @@ mod tests {
         q.post(SimAction::Read, STM32_USART1_START + 0x04, 0, now + 2);
         q.process_pending();
         assert_eq!(q.arena.reg_data & 0xFF, b'Y' as u64);
+    }
+
+    #[test]
+    fn esp32_uart_rmw_preserves_clkdiv_conf0_and_triggers_rx_timeout() {
+        let mut q = QemuComp::esp32("Esp32-rmw");
+        q.stamp_init(0);
+
+        // Read-modify-write UART_CLKDIV_REG (0x14): set div_int then div_frag
+        q.post(SimAction::Write, ESP32_UART0_START + 0x14, 694, 1);
+        q.process_pending();
+        q.post(SimAction::Read, ESP32_UART0_START + 0x14, 0, 2);
+        q.process_pending();
+        assert_eq!(q.arena.reg_data, 694);
+        let clkdiv = (q.arena.reg_data as u32) | (7 << 20);
+        q.post(
+            SimAction::Write,
+            ESP32_UART0_START + 0x14,
+            u64::from(clkdiv),
+            3,
+        );
+        q.process_pending();
+        assert!((q.usarts[0].module.baud_rate - 115200).abs() <= 2);
+
+        // Read-modify-write UART_CONF0_REG (0x20): toggle rxfifo_rst without losing 8N1
+        q.post(SimAction::Read, ESP32_UART0_START + 0x20, 0, 4);
+        q.process_pending();
+        let conf0 = q.arena.reg_data as u32;
+        assert_eq!((conf0 >> 2) & 0b11, 3, "default conf0 must report 8-bit");
+        q.post(
+            SimAction::Write,
+            ESP32_UART0_START + 0x20,
+            u64::from(conf0 | (1 << 17)),
+            5,
+        );
+        q.process_pending();
+        q.post(
+            SimAction::Write,
+            ESP32_UART0_START + 0x20,
+            u64::from(conf0),
+            6,
+        );
+        q.process_pending();
+        assert_eq!(q.usarts[0].module.data_bits, 8);
+
+        // Enable RX_TOUT with high RX_FULL threshold (112) as Arduino-ESP32 does
+        let conf1 = 112u32 | (10 << 8) | (2 << 24) | (1 << 31);
+        q.post(
+            SimAction::Write,
+            ESP32_UART0_START + 0x24,
+            u64::from(conf1),
+            7,
+        );
+        q.process_pending();
+        q.post(
+            SimAction::Write,
+            ESP32_UART0_START + 0x0C,
+            (1 << 0) | (1 << 8),
+            8,
+        );
+        q.process_pending();
+
+        // Receive 3 bytes (below 112 full threshold) -> arms rx_tout_due
+        let mut t = 1_000u64;
+        for &b in b"Hi!" {
+            let irq = q.usarts[0].on_byte_received_at(b, t);
+            assert!(irq.is_none());
+            t += 100;
+        }
+        assert_eq!(q.arena.irq_level, 0);
+        let due = q.usarts[0].rx_tout_due.expect("rx_tout_due must be armed");
+        q.advance_usarts(due);
+        assert_ne!(
+            q.usarts[0].int_raw & (1 << 8),
+            0,
+            "RXFIFO_TOUT_INT must assert"
+        );
+        assert_eq!(q.arena.irq_level, 1);
+
+        // Clear RXFIFO_TOUT_INT via INT_CLR (0x10)
+        q.post(SimAction::Write, ESP32_UART0_START + 0x10, 1 << 8, due + 1);
+        q.process_pending();
+        assert_eq!(q.usarts[0].int_raw & (1 << 8), 0);
+        assert_eq!(q.arena.irq_level, 0);
+
+        // Verify UART_MEM_RX_STATUS_REG (0x60) rd_addr/wr_addr match ESP-IDF
+        // `uart_ll_get_rxfifo_len` across partial fill, wraparound, and empty.
+        let read_mem_rx_len = |q: &mut QemuComp| -> u32 {
+            q.post(SimAction::Read, ESP32_UART0_START + 0x1C, 0, due + 2);
+            q.process_pending();
+            let fifo_cnt = (q.arena.reg_data as u32) & 0xFF;
+            q.post(SimAction::Read, ESP32_UART0_START + 0x60, 0, due + 3);
+            q.process_pending();
+            let mem_rx = q.arena.reg_data as u32;
+            let rd_addr = (mem_rx >> 2) & 0x7FF;
+            let wr_addr = (mem_rx >> 13) & 0x7FF;
+            if wr_addr > rd_addr {
+                wr_addr - rd_addr
+            } else if wr_addr < rd_addr {
+                (wr_addr + 128) - rd_addr
+            } else if fifo_cnt > 0 {
+                128
+            } else {
+                0
+            }
+        };
+        assert_eq!(read_mem_rx_len(&mut q), 3);
+        for _ in 0..3 {
+            q.post(SimAction::Read, ESP32_UART0_START, 0, due + 4);
+            q.process_pending();
+        }
+        assert_eq!(read_mem_rx_len(&mut q), 0);
+
+        // Push 120 bytes and drain 120 bytes, then push 15 bytes so wr_addr wraps past 128.
+        for b in 0..120u8 {
+            q.usarts[0].on_byte_received_at(b, due + 5);
+        }
+        assert_eq!(read_mem_rx_len(&mut q), 120);
+        for _ in 0..120 {
+            q.post(SimAction::Read, ESP32_UART0_START, 0, due + 6);
+            q.process_pending();
+        }
+        assert_eq!(read_mem_rx_len(&mut q), 0);
+        for b in 0..15u8 {
+            q.usarts[0].on_byte_received_at(b, due + 7);
+        }
+        assert_eq!(read_mem_rx_len(&mut q), 15);
+    }
+
+    #[test]
+    fn two_esp32_exchange_uart_over_wired_pins() {
+        let _guard = TEST_SERIAL_LOCK.lock().unwrap();
+        crate::serial::clear("Esp32-1:USART1");
+        crate::serial::clear("Esp32-2:USART1");
+        crate::serial::clear("Esp32-1");
+        crate::serial::clear("Esp32-2");
+        crate::serial::clear("default");
+
+        let mut c = Circuit::new();
+        c.add_qemu_esp32("Esp32-1")
+            .add_qemu_esp32("Esp32-2")
+            .connect("Esp32-1-G01", "Esp32-2-G03")
+            .connect("Esp32-2-G01", "Esp32-1-G03");
+        c.solve().unwrap();
+
+        // Start simulation so event queue is active, then inject TX writes on both ESP32s
+        c.run_ps(1_000).unwrap();
+        let t_now = c.circ_time;
+        for (uid, msg) in [
+            ("Esp32-1", b"Hello mars!\n".as_slice()),
+            ("Esp32-2", b"Hello world\n".as_slice()),
+        ] {
+            let q = c.qemu_mut(uid).unwrap();
+            for &b in msg {
+                q.post(SimAction::Write, ESP32_UART0_START, u64::from(b), t_now);
+                q.process_pending();
+            }
+        }
+        // Kick circuit solve + schedule bit edges
+        c.update().unwrap();
+        // Run 2 ms of circuit time (12 bytes @ 115200 baud ≈ 1.04 ms)
+        c.run_ps(2_000_000_000).unwrap();
+
+        assert_eq!(crate::serial::out_text("Esp32-1:USART1"), "Hello mars!\n");
+        assert_eq!(crate::serial::out_text("Esp32-2:USART1"), "Hello world\n");
+        assert_eq!(crate::serial::in_text("Esp32-2:USART1"), "Hello mars!\n");
+        assert_eq!(crate::serial::in_text("Esp32-1:USART1"), "Hello world\n");
+
+        let rx1: Vec<u8> = c.qemu_mut("Esp32-1").unwrap().usarts[0]
+            .rx_fifo
+            .iter()
+            .copied()
+            .collect();
+        let rx2: Vec<u8> = c.qemu_mut("Esp32-2").unwrap().usarts[0]
+            .rx_fifo
+            .iter()
+            .copied()
+            .collect();
+        assert_eq!(rx1, b"Hello world\n");
+        assert_eq!(rx2, b"Hello mars!\n");
+    }
+
+    #[test]
+    fn deferred_uart_status_poll_wakes_on_tx_rx_irq_or_timeout() {
+        let mut q = QemuComp::esp32("Esp32-1");
+        q.stamp_init(1);
+        let status_addr = ESP32_UART0_START + 0x1C;
+
+        // While TX is idle, UART_STATUS_REG is never considered busy.
+        assert_eq!(q.find_busy_usart_status(status_addr), None);
+
+        // Start shifting two bytes on UART0.
+        q.post(SimAction::Write, ESP32_UART0_START, u64::from(b'A'), 1_000);
+        q.process_pending();
+        q.post(SimAction::Write, ESP32_UART0_START, u64::from(b'B'), 1_001);
+        q.process_pending();
+        assert_eq!(q.find_busy_usart_status(status_addr), Some(0));
+        assert_eq!(q.find_busy_usart_status(ESP32_UART0_START + 0x20), None);
+
+        // Snapshot a deferred poll while 2 bytes are in TX FIFO.
+        let dp = DeferredPoll {
+            usart_idx: 0,
+            status: q.usarts[0].status_snapshot(),
+            irq: (q.arena.irq_number, q.arena.irq_level),
+            max_until: 1_000 + DEFER_POLL_MAX_PS,
+        };
+        assert!(!q.deferred_poll_ready(dp, 1_000));
+
+        // Mid-byte bit edges do not wake the deferred poll yet.
+        let bit_due = q.usarts[0].module.tx_due.unwrap();
+        q.advance_usarts(bit_due);
+        assert!(!q.deferred_poll_ready(dp, bit_due));
+
+        // Completing the first byte decrements tx_fifo.len() and wakes immediately.
+        let mut t = bit_due;
+        for _ in 0..16 {
+            if q.deferred_poll_ready(dp, t) {
+                break;
+            }
+            t = q.usarts[0].module.tx_due.unwrap();
+            q.advance_usarts(t);
+        }
+        assert!(q.deferred_poll_ready(dp, t));
+        assert_eq!(q.usarts[0].tx_fifo.len(), 1);
+
+        // Receiving a byte on RX also wakes a deferred TX status poll immediately.
+        let dp2 = DeferredPoll {
+            usart_idx: 0,
+            status: q.usarts[0].status_snapshot(),
+            irq: (q.arena.irq_number, q.arena.irq_level),
+            max_until: t + DEFER_POLL_MAX_PS,
+        };
+        assert!(!q.deferred_poll_ready(dp2, t));
+        q.usarts[0].on_byte_received_at(b'Z', t + 10);
+        assert!(q.deferred_poll_ready(dp2, t + 10));
+
+        // Timeout cap always wakes even if status did not change.
+        let dp3 = DeferredPoll {
+            usart_idx: 0,
+            status: q.usarts[0].status_snapshot(),
+            irq: (q.arena.irq_number, q.arena.irq_level),
+            max_until: t + DEFER_POLL_MAX_PS,
+        };
+        assert!(!q.deferred_poll_ready(dp3, dp3.max_until - 1));
+        assert!(q.deferred_poll_ready(dp3, dp3.max_until));
     }
 }

@@ -118,22 +118,35 @@ impl SharedArena {
         }
     }
 
-    /// Publish the simulator's answer. `simu_action` is stored last with
-    /// release so the guest cannot observe a cleared doorbell with a stale
-    /// `qemu_action` or `reg_data`.
-    pub fn store_response(&mut self, arena: &Arena) {
+    /// Publish only the IRQ line state without disturbing an in-flight MMIO
+    /// mailbox request/response.
+    pub fn store_irq(&mut self, irq_number: u64, irq_level: u64) {
         unsafe {
             let p = self.ptr;
             store_u64(
-                ptr::addr_of_mut!((*p).reg_data),
-                arena.reg_data,
+                ptr::addr_of_mut!((*p).irq_number),
+                irq_number,
                 Ordering::Relaxed,
             );
             store_u64(
-                ptr::addr_of_mut!((*p).reg_addr),
-                arena.reg_addr,
-                Ordering::Relaxed,
+                ptr::addr_of_mut!((*p).irq_level),
+                irq_level,
+                Ordering::Release,
             );
+        }
+    }
+
+    /// Publish the simulator's answer to a mailbox request.
+    ///
+    /// For a read response (`arena.qemu_action != 0`), `reg_data` and
+    /// `qemu_action` are published with release ordering *before* clearing
+    /// `simu_action` to 0 so the guest cannot start a second MMIO until we
+    /// finish releasing the mailbox. For non-read responses (`qemu_action == 0`),
+    /// `reg_data`/`reg_addr`/`qemu_action` are left untouched so we never
+    /// clobber a prior read handoff.
+    pub fn store_response(&mut self, arena: &Arena) {
+        unsafe {
+            let p = self.ptr;
             store_u64(
                 ptr::addr_of_mut!((*p).irq_number),
                 arena.irq_number,
@@ -149,11 +162,18 @@ impl SharedArena {
                 arena.simu_time,
                 Ordering::Relaxed,
             );
-            store_u64(
-                ptr::addr_of_mut!((*p).qemu_action),
-                arena.qemu_action,
-                Ordering::Release,
-            );
+            if arena.qemu_action != 0 {
+                store_u64(
+                    ptr::addr_of_mut!((*p).reg_data),
+                    arena.reg_data,
+                    Ordering::Relaxed,
+                );
+                store_u64(
+                    ptr::addr_of_mut!((*p).qemu_action),
+                    arena.qemu_action,
+                    Ordering::Release,
+                );
+            }
             store_u64(
                 ptr::addr_of_mut!((*p).simu_action),
                 arena.simu_action,

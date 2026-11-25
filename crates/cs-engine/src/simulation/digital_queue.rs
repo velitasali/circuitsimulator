@@ -628,6 +628,7 @@ impl Circuit {
                 }
                 Kind::QemuDevice(q) => {
                     q.sample_inputs_nodes(nodes);
+                    let rx_armed = q.on_input_pins_changed(t);
                     let was_live = q.is_live();
                     q.check_reset_at(t);
                     if self.sim_started && !was_live && q.is_live() {
@@ -639,6 +640,17 @@ impl Circuit {
                                 replace: true,
                             },
                         ));
+                    } else if self.sim_started && rx_armed {
+                        if let Some(delay) = q.next_event_delay(t) {
+                            periph_arms.push((
+                                i,
+                                Drive {
+                                    changed: false,
+                                    arm_at: Some(t.saturating_add(delay)),
+                                    replace: true,
+                                },
+                            ));
+                        }
                     }
                     continue;
                 }

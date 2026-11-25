@@ -126,6 +126,11 @@ impl UsartModule {
         self.stop_bits = n.max(1);
     }
 
+    /// Total bit count of one UART frame (start + data + optional parity + stop).
+    pub fn frame_bits(&self) -> u64 {
+        u64::from(1 + self.data_bits + self.stop_bits + u8::from(self.parity != Parity::None))
+    }
+
     pub fn enable_tx(&mut self, en: bool, pins: &mut [IoPin], tx: Option<usize>) {
         self.tx_enabled = en;
         self.tx_state = if en { TxState::Idle } else { TxState::Stopped };
@@ -229,19 +234,22 @@ impl UsartModule {
         }
     }
 
-    pub fn rx_pin_changed(&mut self, now: u64, pins: &[IoPin], rx: Option<usize>) {
+    /// Observe the RX pin state at `now`. Returns `true` when a falling start-bit
+    /// edge transitions RX from idle into receiving and arms `rx_due`.
+    pub fn rx_pin_changed(&mut self, now: u64, pins: &[IoPin], rx: Option<usize>) -> bool {
         if !self.rx_enabled || self.rx_state != RxState::Idle {
-            return;
+            return false;
         }
         let Some(i) = rx else {
-            return;
+            return false;
         };
         let Some(p) = pins.get(i) else {
-            return;
+            return false;
         };
         let bit = p.last_inp_state();
         if !self.rx_start_high && bit {
             self.rx_start_high = true;
+            false
         } else if self.rx_start_high && !bit {
             self.rx_state = RxState::Receive;
             self.rx_frame = 0;
@@ -249,6 +257,9 @@ impl UsartModule {
             self.rx_frame_size =
                 self.data_bits + 1 + self.stop_bits + u8::from(self.parity != Parity::None);
             self.rx_due = Some(now.saturating_add((self.period / 2).max(1)));
+            true
+        } else {
+            false
         }
     }
 
@@ -265,6 +276,7 @@ impl UsartModule {
         if bit {
             if self.rx_bit == 0 {
                 self.rx_end();
+                self.rx_start_high = true;
                 return None;
             }
             self.rx_frame += 1 << self.rx_bit;
@@ -275,6 +287,10 @@ impl UsartModule {
             let data = (self.rx_frame as u8) & self.data_mask;
             self.push_rx(u16::from(data));
             self.rx_end();
+            // Keep the stop-bit line level so a back-to-back byte's start bit
+            // falling immediately after this stop bit is detected without a
+            // separate idle-high transition.
+            self.rx_start_high = bit;
             Some(data)
         } else {
             self.rx_due = Some(now.saturating_add(self.period.max(1)));
@@ -429,5 +445,47 @@ mod tests {
         }
         assert_eq!(got, Some(0x55));
         assert_eq!(u.get_rx_data(), 0x55);
+    }
+
+    #[test]
+    fn rx_assembles_back_to_back_bytes() {
+        let mut pins = vec![IoPin::input("RX")];
+        let mut u = UsartModule::new();
+        u.set_baud_rate(115200);
+        u.enable_rx(true);
+        pins[0].get_inp_state(3.3);
+        assert!(!u.rx_pin_changed(0, &pins, Some(0)));
+
+        let mut received = Vec::new();
+        let mut t = 10u64;
+        for &byte in b"Hi!" {
+            // Start bit falling edge immediately at t
+            pins[0].get_inp_state(0.0);
+            assert!(
+                u.rx_pin_changed(t, &pins, Some(0)),
+                "must catch start bit for byte 0x{byte:02x}"
+            );
+            let mut sample_t = u.rx_due.expect("rx_due armed");
+            // 1 start + 8 data + 1 stop
+            for bit_idx in 0..10 {
+                let level = if bit_idx == 0 {
+                    false
+                } else if bit_idx <= 8 {
+                    (byte >> (bit_idx - 1)) & 1 != 0
+                } else {
+                    true
+                };
+                pins[0].get_inp_state(if level { 3.3 } else { 0.0 });
+                if let Some(b) = u.rx_event(sample_t, &pins, Some(0)) {
+                    received.push(b);
+                }
+                if let Some(next) = u.rx_due {
+                    sample_t = next;
+                }
+            }
+            // Next byte starts immediately at the end of the stop bit
+            t += u.period * 10;
+        }
+        assert_eq!(received, b"Hi!");
     }
 }

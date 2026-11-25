@@ -35,6 +35,15 @@ pub const STM32_USART1_START: u64 = 0x0001_3800;
 
 /// Original ESP32 UART hardware FIFO depth (TX and RX).
 const ESP32_UART_FIFO_CAP: usize = 128;
+/// Default ESP32 `UART_CLKDIV_REG` reset value (80 MHz / 115200 ≈ 694).
+const ESP32_UART_CLKDIV_RESET: u32 = 0x0000_02B6;
+/// Default ESP32 `UART_CONF0_REG` reset value (`TICK_REF_ALWAYS_ON` | 8N1).
+const ESP32_UART_CONF0_RESET: u32 = 0x0800_001C;
+const ESP32_UART_REF_TICK_HZ: u32 = 1_000_000;
+const ESP32_UART_INT_RXFIFO_FULL: u32 = 1 << 0;
+const ESP32_UART_INT_TXFIFO_EMPTY: u32 = 1 << 1;
+const ESP32_UART_INT_RXFIFO_TOUT: u32 = 1 << 8;
+const ESP32_UART_INT_TX_DONE: u32 = 1 << 14;
 const SR_TXE: u16 = 1 << 7;
 const SR_TC: u16 = 1 << 6;
 const SR_RXNE: u16 = 1 << 5;
@@ -59,11 +68,19 @@ pub struct QemuUsart {
     pub rx: Option<usize>,
     pub tx_fifo: VecDeque<u8>,
     pub rx_fifo: VecDeque<u8>,
+    pub rx_rd_addr: u16,
+    pub rx_wr_addr: u16,
     pub divider: f64,
+    pub clkdiv_reg: u32,
+    pub conf0_reg: u32,
+    pub conf1_reg: u32,
     pub int_raw: u32,
     pub int_en: u32,
     pub rx_full_thrhd: usize,
     pub tx_empty_thrhd: usize,
+    pub rx_tout_en: bool,
+    pub rx_tout_thrhd: u8,
+    pub rx_tout_due: Option<u64>,
     pub irq_level: u8,
     pub irq_src: u8,
     pub sr: u16,
@@ -91,11 +108,19 @@ impl QemuUsart {
             rx,
             tx_fifo: VecDeque::new(),
             rx_fifo: VecDeque::new(),
+            rx_rd_addr: 0,
+            rx_wr_addr: 0,
             divider: 0.0,
+            clkdiv_reg: ESP32_UART_CLKDIV_RESET,
+            conf0_reg: ESP32_UART_CONF0_RESET,
+            conf1_reg: 11 | (10 << 8),
             int_raw: 0,
             int_en: 0,
             rx_full_thrhd: 11,
             tx_empty_thrhd: 10,
+            rx_tout_en: false,
+            rx_tout_thrhd: 0,
+            rx_tout_due: None,
             irq_level: 0,
             irq_src: 34 + number,
             sr: 0,
@@ -119,9 +144,19 @@ impl QemuUsart {
     pub fn reset(&mut self) {
         self.tx_fifo.clear();
         self.rx_fifo.clear();
+        self.rx_rd_addr = 0;
+        self.rx_wr_addr = 0;
         self.divider = 0.0;
+        self.clkdiv_reg = ESP32_UART_CLKDIV_RESET;
+        self.conf0_reg = ESP32_UART_CONF0_RESET;
+        self.conf1_reg = 11 | (10 << 8);
         self.int_raw = 0;
         self.int_en = 0;
+        self.rx_full_thrhd = 11;
+        self.tx_empty_thrhd = 10;
+        self.rx_tout_en = false;
+        self.rx_tout_thrhd = 0;
+        self.rx_tout_due = None;
         self.irq_level = 0;
         self.sr = SR_TXE | SR_TC;
         self.dr = 0;
@@ -132,6 +167,32 @@ impl QemuUsart {
         } else {
             self.module.set_baud_rate(9600);
         }
+    }
+
+    pub fn next_due(&self) -> Option<u64> {
+        [self.module.tx_due, self.module.rx_due, self.rx_tout_due]
+            .into_iter()
+            .flatten()
+            .min()
+    }
+
+    pub fn remain(&self, now: u64) -> Option<u64> {
+        self.next_due().map(|t| t.saturating_sub(now).max(1))
+    }
+
+    pub fn is_status_reg_offset(&self, offset: u64) -> bool {
+        match self.family {
+            UsartFamily::Esp32 => offset == 0x1C,
+            UsartFamily::Stm32 => offset == 0x00,
+        }
+    }
+
+    pub fn is_tx_busy(&self) -> bool {
+        self.module.tx_due.is_some()
+    }
+
+    pub fn status_snapshot(&self) -> (usize, usize, u16) {
+        (self.tx_fifo.len(), self.rx_fifo.len(), self.sr)
     }
 
     pub fn write(
@@ -148,11 +209,20 @@ impl QemuUsart {
         }
     }
 
-    /// Register value, plus an IRQ edge when a FIFO read drops RX-full.
-    pub fn read(&mut self, offset: u64) -> (u32, Option<(u8, u8)>) {
+    /// Register value (`None` means fall back to backed `io_mem`), plus an IRQ
+    /// edge when a FIFO read drops RX-full.
+    pub fn read(&mut self, offset: u64) -> (Option<u32>, Option<(u8, u8)>) {
         match self.family {
             UsartFamily::Esp32 => self.esp32_read(offset),
-            UsartFamily::Stm32 => (self.stm32_read(offset), None),
+            UsartFamily::Stm32 => (Some(self.stm32_read(offset)), None),
+        }
+    }
+
+    fn esp32_clk_freq(&self, apb: u32) -> u32 {
+        if self.conf0_reg & (1 << 27) != 0 {
+            if apb == 0 { 80_000_000 } else { apb }
+        } else {
+            ESP32_UART_REF_TICK_HZ
         }
     }
 
@@ -184,13 +254,16 @@ impl QemuUsart {
                 self.update_irq()
             }
             0x14 => {
+                self.clkdiv_reg = value;
                 let clk_fra = (value >> 20) & 0x0F;
                 let clk_int = value & 0x000F_FFFF;
                 self.divider = f64::from(clk_int) + f64::from(clk_fra) / 16.0;
-                self.apply_baud(apb);
+                self.apply_baud(self.esp32_clk_freq(apb));
                 None
             }
             0x20 => {
+                let old_tick_ref = self.conf0_reg & (1 << 27);
+                self.conf0_reg = value;
                 let parity_en = value & (1 << 1) != 0;
                 let parity_odd = value & 1 != 0;
                 self.module.set_parity(if parity_en {
@@ -211,39 +284,67 @@ impl QemuUsart {
                 }
                 if value & (1 << 17) != 0 {
                     self.rx_fifo.clear();
+                    self.rx_rd_addr = 0;
+                    self.rx_wr_addr = 0;
+                    self.rx_tout_due = None;
+                }
+                if (value & (1 << 27)) != old_tick_ref && self.divider > 0.0 {
+                    self.apply_baud(self.esp32_clk_freq(apb));
                 }
                 self.update_irq()
             }
             0x24 => {
+                self.conf1_reg = value;
                 self.rx_full_thrhd = (value & 0x7F) as usize;
                 self.tx_empty_thrhd = ((value >> 8) & 0x7F) as usize;
+                self.rx_tout_thrhd = ((value >> 24) & 0x7F) as u8;
+                self.rx_tout_en = value & (1 << 31) != 0;
+                if !self.rx_tout_en {
+                    self.rx_tout_due = None;
+                }
                 self.update_irq()
             }
             _ => None,
         }
     }
 
-    fn esp32_read(&mut self, offset: u64) -> (u32, Option<(u8, u8)>) {
+    fn esp32_read(&mut self, offset: u64) -> (Option<u32>, Option<(u8, u8)>) {
         match offset {
             0x00 => {
-                let byte = u32::from(self.rx_fifo.pop_front().unwrap_or(0));
+                let byte = if let Some(b) = self.rx_fifo.pop_front() {
+                    self.rx_rd_addr = (self.rx_rd_addr + 1) & 0x7F;
+                    u32::from(b)
+                } else {
+                    0
+                };
+                if self.rx_fifo.is_empty() {
+                    self.rx_tout_due = None;
+                }
                 // RX-full is level-triggered. A guest that drains the FIFO
                 // must see the interrupt fall even when it does not write INT_CLR.
                 let irq = self.update_irq();
-                (byte, irq)
+                (Some(byte), irq)
             }
-            0x04 => (self.int_raw, None),
-            0x08 => (self.int_raw & self.int_en, None),
-            0x0C => (self.int_en, None),
+            0x04 => (Some(self.int_raw), None),
+            0x08 => (Some(self.int_raw & self.int_en), None),
+            0x0C => (Some(self.int_en), None),
+            0x14 => (Some(self.clkdiv_reg), None),
             0x1C => (
-                (self.rx_fifo.len() as u32 & 0xFF) | ((self.tx_fifo.len() as u32 & 0xFF) << 16),
+                Some(
+                    (self.rx_fifo.len() as u32 & 0xFF) | ((self.tx_fifo.len() as u32 & 0xFF) << 16),
+                ),
                 None,
             ),
-            0x24 => (
-                ((self.rx_full_thrhd as u32) & 0x7F) | (((self.tx_empty_thrhd as u32) & 0x7F) << 8),
+            0x20 => (Some(self.conf0_reg), None),
+            0x24 => (Some(self.conf1_reg), None),
+            // ESP32 UART_MEM_RX_STATUS_REG: rd_addr in [12:2], wr_addr in [23:13].
+            // ESP-IDF `uart_ll_get_rxfifo_len` computes RX count from these pointers
+            // rather than trusting `UART_STATUS_REG.rxfifo_cnt` alone.
+            0x60 => (
+                Some((u32::from(self.rx_rd_addr) << 2) | (u32::from(self.rx_wr_addr) << 13)),
                 None,
             ),
-            _ => (0, None),
+            _ => (None, None),
         }
     }
 
@@ -345,12 +446,26 @@ impl QemuUsart {
     }
 
     pub fn on_byte_received(&mut self, data: u8) -> Option<(u8, u8)> {
+        self.on_byte_received_at(data, 0)
+    }
+
+    pub fn on_byte_received_at(&mut self, data: u8, now: u64) -> Option<(u8, u8)> {
         match self.family {
             UsartFamily::Esp32 => {
                 if self.rx_fifo.len() >= ESP32_UART_FIFO_CAP {
                     return self.update_irq();
                 }
                 self.rx_fifo.push_back(data);
+                self.rx_wr_addr = (self.rx_wr_addr + 1) & 0x7F;
+                if self.rx_tout_en && now > 0 {
+                    let thrhd = u64::from(self.rx_tout_thrhd.max(1));
+                    let char_ps = self
+                        .module
+                        .period
+                        .saturating_mul(self.module.frame_bits())
+                        .max(1);
+                    self.rx_tout_due = Some(now.saturating_add(thrhd.saturating_mul(char_ps)));
+                }
                 self.update_irq()
             }
             UsartFamily::Stm32 => {
@@ -366,23 +481,37 @@ impl QemuUsart {
         }
     }
 
+    pub fn tick_rx_timeout(&mut self, now: u64) -> Option<(u8, u8)> {
+        if self.family != UsartFamily::Esp32 {
+            return None;
+        }
+        if self.rx_tout_due.is_some_and(|due| due <= now) {
+            self.rx_tout_due = None;
+            if self.rx_tout_en && !self.rx_fifo.is_empty() {
+                self.int_raw |= ESP32_UART_INT_RXFIFO_TOUT;
+                return self.update_irq();
+            }
+        }
+        None
+    }
+
     fn update_irq(&mut self) -> Option<(u8, u8)> {
         match self.family {
             UsartFamily::Esp32 => {
                 if self.tx_fifo.len() <= self.tx_empty_thrhd {
-                    self.int_raw |= 1 << 1;
+                    self.int_raw |= ESP32_UART_INT_TXFIFO_EMPTY;
                 } else {
-                    self.int_raw &= !(1 << 1);
+                    self.int_raw &= !ESP32_UART_INT_TXFIFO_EMPTY;
                 }
                 if self.tx_fifo.is_empty() {
-                    self.int_raw |= 1 << 14;
+                    self.int_raw |= ESP32_UART_INT_TX_DONE;
                 } else {
-                    self.int_raw &= !(1 << 14);
+                    self.int_raw &= !ESP32_UART_INT_TX_DONE;
                 }
                 if self.rx_fifo.len() >= self.rx_full_thrhd {
-                    self.int_raw |= 1;
+                    self.int_raw |= ESP32_UART_INT_RXFIFO_FULL;
                 } else {
-                    self.int_raw &= !1;
+                    self.int_raw &= !ESP32_UART_INT_RXFIFO_FULL;
                 }
                 let level = u8::from(self.int_raw & self.int_en != 0);
                 if self.irq_level != level {

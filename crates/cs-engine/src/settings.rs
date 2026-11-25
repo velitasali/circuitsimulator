@@ -314,7 +314,16 @@ fn detect_locale() -> String {
 static STATE: OnceLock<Mutex<AppSettings>> = OnceLock::new();
 
 fn cell() -> &'static Mutex<AppSettings> {
-    STATE.get_or_init(|| Mutex::new(AppSettings::load()))
+    STATE.get_or_init(|| {
+        #[cfg(test)]
+        {
+            Mutex::new(AppSettings::default())
+        }
+        #[cfg(not(test))]
+        {
+            Mutex::new(AppSettings::load())
+        }
+    })
 }
 
 pub fn get() -> AppSettings {
@@ -328,6 +337,7 @@ pub fn with<R>(f: impl FnOnce(&AppSettings) -> R) -> R {
 pub fn replace(s: AppSettings) {
     let mut s = s;
     s.clamp();
+    #[cfg(not(test))]
     s.save();
     *cell().lock().expect("settings lock") = s;
 }
@@ -336,6 +346,7 @@ pub fn edit(f: impl FnOnce(&mut AppSettings)) {
     let mut g = cell().lock().expect("settings lock");
     f(&mut g);
     g.clamp();
+    #[cfg(not(test))]
     g.save();
 }
 

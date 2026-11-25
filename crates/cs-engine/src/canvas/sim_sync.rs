@@ -174,6 +174,14 @@ impl Canvas {
         if !self.sim_running {
             return Change::default();
         }
+        let fps = crate::settings::get().fps;
+        self.tick_with_fps(fps)
+    }
+
+    pub(crate) fn tick_with_fps(&mut self, fps: u64) -> Change {
+        if !self.sim_running {
+            return Change::default();
+        }
         let mut c = Change::default();
         if self.sim_warning_ticks > 0 {
             self.sim_warning_ticks -= 1;
@@ -204,7 +212,7 @@ impl Canvas {
                 }
             }
         }
-        let fps = crate::settings::get().fps.clamp(1, 100);
+        let fps = fps.clamp(1, 100);
         let ps_per_sec = self.scene.settings().ps_per_sec();
         let ps_target = (ps_per_sec / fps).max(1);
         let frame_budget_ms = (1000 / fps * 3 / 4).max(1);

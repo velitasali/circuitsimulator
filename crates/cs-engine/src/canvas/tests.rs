@@ -2220,26 +2220,21 @@ fn test_canvas_tick_respects_fps_setting() {
 <item itemtype="Connector" CircId="Wire-2" startpinid="Resistor-1-rPin" endpinid="Ground-1-Gnd" pointList="80,0,160,0" />
 </circuit>"#;
     // Test with 20 FPS
-    crate::settings::edit(|s| s.fps = 20);
     let mut c = Canvas::empty();
     c.scene = Scene::from_circ1(sim1).unwrap();
     let ps_per_sec = c.scene().settings().ps_per_sec();
     c.power_on();
-    c.tick();
+    c.tick_with_fps(20);
     let time_at_20fps = c.circ_time();
     assert_eq!(time_at_20fps, 1 + ps_per_sec / 20);
 
     // Test with 50 FPS
-    crate::settings::edit(|s| s.fps = 50);
     let mut c2 = Canvas::empty();
     c2.scene = Scene::from_circ1(sim1).unwrap();
     c2.power_on();
-    c2.tick();
+    c2.tick_with_fps(50);
     let time_at_50fps = c2.circ_time();
     assert_eq!(time_at_50fps, 1 + ps_per_sec / 50);
-
-    // Restore default FPS
-    crate::settings::edit(|s| s.fps = crate::settings::DEFAULT_FPS);
 }
 
 #[test]

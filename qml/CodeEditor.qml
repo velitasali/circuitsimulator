@@ -1137,6 +1137,7 @@ Item {
             id: completionList
             anchors.fill: parent
             clip: true
+            boundsBehavior: Flickable.StopAtBounds
             model: EditorPanel.completions
             currentIndex: EditorPanel.completionIndex
             onCurrentIndexChanged: completionList.positionViewAtIndex(completionList.currentIndex, ListView.Contain)

@@ -84,17 +84,19 @@ Rectangle {
         Layout.preferredWidth: 140
     }
 
-    ScrollView {
+    Flickable {
         id: rootScroll
         anchors.fill: parent
         clip: true
-        contentWidth: availableWidth
+        flickableDirection: Flickable.VerticalFlick
+        boundsBehavior: Flickable.StopAtBounds
+        contentWidth: width
         contentHeight: mainCol.implicitHeight + 24
-        ScrollBar.vertical.policy: ScrollBar.AsNeeded
+        ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
         ColumnLayout {
             id: mainCol
-            width: rootScroll.availableWidth - 24
+            width: rootScroll.width - 24
             x: 12
             y: 12
             spacing: 8

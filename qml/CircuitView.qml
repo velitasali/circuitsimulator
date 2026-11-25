@@ -908,6 +908,7 @@ Item {
         ListView {
             anchors.fill: parent
             clip: true
+            boundsBehavior: Flickable.StopAtBounds
             model: truthTableModel
             delegate: Row {
                 id: ttRow

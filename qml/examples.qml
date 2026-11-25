@@ -43,6 +43,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            boundsBehavior: Flickable.StopAtBounds
             spacing: 8
             model: root.entries
 

@@ -10,7 +10,9 @@ AppContextMenu {
     property TextInput textInput: null
     property TextEdit textEdit: null
 
-    readonly property bool _hasSelection: textInput ? textInput.selectedText !== "" : (textEdit ? textEdit.selectedText !== "" : false)
+    readonly property bool _hasSelection: textInput
+        ? (textInput.selectionStart !== textInput.selectionEnd)
+        : (textEdit ? (textEdit.selectionStart !== textEdit.selectionEnd) : false)
     readonly property bool _editable: textInput ? !textInput.readOnly : (textEdit ? !textEdit.readOnly : false)
     readonly property bool _canUndo: textInput ? textInput.canUndo : (textEdit ? textEdit.canUndo : false)
     readonly property bool _canRedo: textInput ? textInput.canRedo : (textEdit ? textEdit.canRedo : false)

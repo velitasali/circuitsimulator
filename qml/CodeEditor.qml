@@ -7,7 +7,7 @@ import QtQuick.Window
 import cs_app
 import cs_ui
 
-/* TextArea + QML gutter + HTML overlay. LineNumberArea / QSyntaxHighlighter
+/* TextEdit + QML gutter + HTML overlay. LineNumberArea / QSyntaxHighlighter
  * are not available through qt-bridge. */
 Item {
     id: root
@@ -18,7 +18,7 @@ Item {
     property CodeEditorPane activePane: null
     readonly property var hostWindow: Window.window
     readonly property Flickable activeFlick: activePane ? activePane.flick : null
-    readonly property TextArea activeArea: activePane ? activePane.area : null
+    readonly property TextEdit activeArea: activePane ? activePane.area : null
     readonly property int activeLineCount: activeArea ? activeArea.lineCount : 1
     readonly property real activeTopPadding: activeArea ? activeArea.topPadding : 8
     readonly property real activeLeftPadding: activeArea ? activeArea.leftPadding : 8
@@ -525,7 +525,7 @@ Item {
     AppContextMenu {
         id: editorMenu
 
-        readonly property bool _hasSelection: Boolean(root.activeArea && root.activeArea.selectedText && root.activeArea.selectedText.length > 0)
+        readonly property bool _hasSelection: Boolean(root.activeArea && root.activeArea.selectionStart !== root.activeArea.selectionEnd)
 
         ContextMenuItem {
             visible: EditorPanel.lspReady

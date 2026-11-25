@@ -4,9 +4,12 @@ import QtQuick
 import QtQuick.Controls
 import cs_app
 
-/* Pooled per-document Flickable + TextArea surface owned by CodeEditor.
+/* Pooled per-document Flickable + TextEdit surface owned by CodeEditor.
  * Keeping one QTextDocument per visited tab preserves cursor position,
- * selection, scroll offsets, and native Qt Undo/Redo across tab switches. */
+ * selection, scroll offsets, and native Qt Undo/Redo across tab switches.
+ * Uses plain TextEdit rather than TextArea.flickable so selection and text
+ * are not clipped to viewport padding margins when scrolled horizontally or
+ * vertically (which left the syntax-highlight layer peeking out unselected). */
 Item {
     id: pane
     SystemPalette { id: appTheme }
@@ -53,7 +56,17 @@ Item {
     }
 
     function syncEditMenuState(): void {
-        AppMenuBar.setEditState(area.canUndo, area.canRedo, area.selectedText.length > 0, true)
+        AppMenuBar.setEditState(area.canUndo, area.canRedo, area.selectionStart !== area.selectionEnd, true)
+    }
+
+    function _syncEditMenuStateIfFocused(): void {
+        if (pane.isActive && EditorPanel.focused)
+            pane.syncEditMenuState()
+    }
+
+    function scheduleEditMenuSync(): void {
+        if (pane.isActive && EditorPanel.focused)
+            Qt.callLater(pane._syncEditMenuStateIfFocused)
     }
 
     onIsActiveChanged: {
@@ -75,6 +88,38 @@ Item {
         }
         contentWidth: Math.max(width, area.implicitWidth)
         contentHeight: Math.max(height, area.implicitHeight)
+
+        // TextEdit's large-document glyph cache recomputes its visible range
+        // from contentX/contentY rather than Flickable width/height.
+        onWidthChanged: {
+            contentX = Math.max(0, Math.min(contentX, Math.max(0, contentWidth - width)))
+            contentX += 1; contentX -= 1
+        }
+        onHeightChanged: {
+            contentY = Math.max(0, Math.min(contentY, Math.max(0, contentHeight - height)))
+            contentY += 1; contentY -= 1
+        }
+        onContentWidthChanged: {
+            if (contentX > contentWidth - width)
+                contentX = Math.max(0, contentWidth - width)
+        }
+        onContentHeightChanged: {
+            if (contentY > contentHeight - height)
+                contentY = Math.max(0, contentHeight - height)
+        }
+
+        function ensureVisible(r: rect): void {
+            if (width <= 0 || height <= 0) return
+            if (contentX >= r.x)
+                contentX = Math.max(0, r.x - area.leftPadding)
+            else if (contentX + width <= r.x + r.width)
+                contentX = Math.min(Math.max(0, contentWidth - width), r.x + r.width - width + area.rightPadding)
+            if (contentY >= r.y)
+                contentY = Math.max(0, r.y - area.topPadding)
+            else if (contentY + height <= r.y + r.height)
+                contentY = Math.min(Math.max(0, contentHeight - height), r.y + r.height - height + area.bottomPadding)
+        }
+
         ScrollBar.vertical: AppScrollBar {
             id: vBar
             policy: ScrollBar.AsNeeded
@@ -94,15 +139,16 @@ Item {
         }
         ScrollBar.horizontal: AppScrollBar { policy: ScrollBar.AsNeeded }
 
-        TextArea.flickable: TextArea {
+        TextEdit {
             id: area
+            width: Math.max(flick.width, implicitWidth)
+            height: Math.max(flick.height, implicitHeight)
             wrapMode: TextEdit.NoWrap
             padding: 8
             font: pane.editorFont
             color: highlight.visible ? "transparent" : EditorPanel.textColor
             selectedTextColor: appTheme.highlightedText
             selectionColor: appTheme.highlight
-            background: null
             cursorDelegate: Rectangle {
                 width: 2
                 color: EditorPanel.textColor
@@ -110,11 +156,13 @@ Item {
             }
             selectByMouse: true
             persistentSelection: true
-            // CodeEditor raises its own menu (C++ CodeEditor::showContextMenu),
-            // so Qt's built-in one is dropped — two menus would answer one click.
-            ContextMenu.menu: null
             tabStopDistance: Math.max(4, pane.averageCharacterWidth * EditorPanel.tabSize)
             property bool _syncingFromModel: false
+
+            onCursorRectangleChanged: {
+                if (pane.isActive && !_syncingFromModel)
+                    flick.ensureVisible(cursorRectangle)
+            }
 
             onTextChanged: {
                 if (!pane.isActive || _syncingFromModel) return
@@ -132,25 +180,30 @@ Item {
                 if (activeFocus)
                     pane.syncEditMenuState()
             }
-            onCanUndoChanged: if (pane.isActive && EditorPanel.focused) pane.syncEditMenuState()
-            onCanRedoChanged: if (pane.isActive && EditorPanel.focused) pane.syncEditMenuState()
-            onSelectedTextChanged: if (pane.isActive && EditorPanel.focused) pane.syncEditMenuState()
+            // Defer menu sync and avoid reading area.selectedText inside edit-block
+            // signals: Qt emits canUndoChanged mid-edit-block while QTextCursor's
+            // selection can still point past the truncated document, causing
+            // QQuickTextEdit::selectedText() -> QTextDocumentFragment to loop/crash.
+            onCanUndoChanged: pane.scheduleEditMenuSync()
+            onCanRedoChanged: pane.scheduleEditMenuSync()
+            onSelectionStartChanged: pane.scheduleEditMenuSync()
+            onSelectionEndChanged: pane.scheduleEditMenuSync()
 
             Rectangle {
                 z: -2
                 visible: pane.isActive
-                x: flick.contentX
+                x: 0
                 y: pane.cursorLine * pane.lineHeight + area.topPadding
-                width: Math.max(flick.width, area.implicitWidth)
+                width: area.width
                 height: pane.lineHeight
                 color: EditorPanel.currentLineColor
             }
             Rectangle {
                 z: -2
                 visible: pane.isActive && EditorPanel.debugLine > 0
-                x: flick.contentX
+                x: 0
                 y: (EditorPanel.debugLine - 1) * pane.lineHeight + area.topPadding
-                width: Math.max(flick.width, area.implicitWidth)
+                width: area.width
                 height: pane.lineHeight
                 color: EditorPanel.debugLineColor
             }
@@ -293,7 +346,7 @@ Item {
                     var pos = area.positionAt(mouse.x, mouse.y)
                     if (mouse.button === Qt.RightButton) {
                         EditorPanel.hideCompletion()
-                        if (!area.selectedText || area.selectedText.length === 0)
+                        if (area.selectionStart === area.selectionEnd)
                             area.cursorPosition = pos
                         pane.contextMenuRequested()
                         mouse.accepted = true

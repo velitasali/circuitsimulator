@@ -28,8 +28,11 @@ Item {
     readonly property bool _wrapped: wrapMode !== TextEdit.NoWrap
 
     readonly property alias selectedText: area.selectedText
+    readonly property alias hoveredLink: area.hoveredLink
     readonly property alias editor: area
     readonly property alias flickable: flick
+
+    signal linkActivated(string link)
 
     default property alias editorChildren: area.data
 
@@ -95,6 +98,8 @@ Item {
             font.pixelSize: App.fontNormal
             selectionColor: appTheme.highlight
             selectedTextColor: appTheme.highlightedText
+
+            onLinkActivated: (link) => root.linkActivated(link)
 
             onWrapModeChanged: {
                 if (root._wrapped) {

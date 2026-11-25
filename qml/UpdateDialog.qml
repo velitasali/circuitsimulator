@@ -165,6 +165,9 @@ Rectangle {
                     selectByMouse: true
                     wordWrap: true
                     contentPadding: 10
+                    textFormat: Updater.releaseNotes !== ""
+                        ? TextEdit.MarkdownText
+                        : TextEdit.PlainText
                     text: Updater.releaseNotes !== ""
                         ? Updater.releaseNotes
                         : (Updater.checking
@@ -172,6 +175,17 @@ Rectangle {
                             : I18n.tr("No release notes available."))
                     font: root.uiFont
                     color: appTheme.windowText
+                    onTextChanged: flickable.contentY = 0
+                    onLinkActivated: (link) => {
+                        if (/^https?:\/\//i.test(link))
+                            Qt.openUrlExternally(link)
+                    }
+
+                    HoverHandler {
+                        cursorShape: notesArea.hoveredLink !== ""
+                            ? Qt.PointingHandCursor
+                            : Qt.IBeamCursor
+                    }
                 }
             }
         }

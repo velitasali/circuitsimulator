@@ -242,6 +242,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          # actions/checkout maps +$GITHUB_SHA:refs/tags/$TAG (a lightweight ref),
+          # so re-fetch the tag ref directly to retrieve the annotated tag object.
+          git fetch --force --depth=1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
+
           shopt -s nullglob
           assets=(release-assets/*)
           if [ ${#assets[@]} -eq 0 ]; then

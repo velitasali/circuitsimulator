@@ -222,6 +222,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Download all release assets
         uses: actions/download-artifact@v4
         with:
@@ -235,9 +238,26 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-assets/*
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No release assets found in release-assets/" >&2
+            exit 1
+          fi
+
+          args=(
+            "$TAG"
+            "${assets[@]}"
+            --title "$TAG"
+            --notes-from-tag
+            --verify-tag
+          )
+          if [[ "$TAG" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+
+          gh release create "${args[@]}"

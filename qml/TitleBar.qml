@@ -244,11 +244,10 @@ Item {
             list.forceActiveFocus()
         }
 
-        background: Rectangle {
-            color: appTheme.window
-            border.color: appTheme.mid
-            border.width: 1
+        background: AppSurface {
             radius: 10
+            elevation: 0.85
+            shadowEnabled: true
         }
 
         contentItem: Item {
@@ -425,6 +424,21 @@ Item {
         }
     }
 
+    // Subtle top-edge canvas-colored veil easing out smoothly over the live canvas.
+    readonly property color backdropColor: CircuitCanvas.canvasColor
+    Rectangle {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: bar.height + 24
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Qt.alpha(bar.backdropColor, 0.75) }
+            GradientStop { position: 0.42; color: Qt.alpha(bar.backdropColor, 0.30) }
+            GradientStop { position: 0.72; color: Qt.alpha(bar.backdropColor, 0.15) }
+            GradientStop { position: 1.0; color: Qt.alpha(bar.backdropColor, 0.0) }
+        }
+    }
+
     // Linux drag / double-click-maximize background (below interactive pills and caption buttons).
     Item {
         anchors.fill: parent
@@ -487,7 +501,8 @@ Item {
             implicitWidth: Math.ceil(menuPillRow.implicitWidth) + 14
             width: implicitWidth
             radius: height / 2
-            color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
+            color: Qt.alpha(bar.backdropColor, 0.70)
+            antialiasing: true
             opacity: bar.windowActive ? 1.0 : 0.7
 
             Row {
@@ -685,7 +700,8 @@ Item {
         height: 26
         visible: bar.usableWidth - width - bar.pillGap >= bar.titleContentMinWidth
         radius: height / 2
-        color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
+        color: Qt.alpha(bar.backdropColor, 0.70)
+        antialiasing: true
         opacity: bar.windowActive ? 1.0 : 0.7
 
         // Absorb presses on pill padding or disabled buttons so they do not drag the window.
@@ -759,7 +775,8 @@ Item {
         visible: historyPill.visible
             && (bar.usableWidth - bar.historyPillWidth - bar.pillGap - width - bar.pillGap >= bar.titleContentMinWidth)
         radius: height / 2
-        color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
+        color: Qt.alpha(bar.backdropColor, 0.70)
+        antialiasing: true
         opacity: bar.windowActive ? 1.0 : 0.7
 
         // Absorb presses on pill padding so they do not drag the window.
@@ -818,7 +835,8 @@ Item {
         visible: width > 0
         clip: true
         radius: height / 2
-        color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
+        color: Qt.alpha(bar.backdropColor, 0.70)
+        antialiasing: true
         opacity: bar.windowActive ? 1.0 : 0.7
 
         RowLayout {
@@ -984,7 +1002,8 @@ Item {
         width: bar.updatePillWidth
         height: 26
         radius: height / 2
-        color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72)
+        color: Qt.alpha(bar.backdropColor, 0.70)
+        antialiasing: true
         opacity: bar.windowActive ? 1.0 : 0.7
 
         // Absorb presses on pill padding so they do not drag the window.
@@ -1022,8 +1041,7 @@ Item {
         }
     }
 
-    // Right: Windows-style Minimize / Maximize-Restore / Close caption buttons
-    // over a subtle translucent backing so glyphs remain legible over the canvas.
+    // Right: Windows-style Minimize / Maximize-Restore / Close caption buttons.
     // macOS keeps the traffic lights, so this cluster stays hidden.
     Rectangle {
         id: captionCluster
@@ -1032,7 +1050,7 @@ Item {
         anchors.right: parent.right
         width: captionButtons.width
         height: parent.height
-        color: Qt.rgba(appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.78)
+        color: Qt.alpha(bar.backdropColor, 0.70)
         topRightRadius: (Qt.platform.os === "linux" && !bar.maximized) ? 14 : 0
 
         WindowCaptionButtons {

@@ -104,12 +104,6 @@ Item {
         appMenu.y = localPt.y
     }
 
-    // The overlays float over the canvas and are translucent: the QSS painted
-    // them rgba(window, 0.85) so the canvas shows through.
-    readonly property color overlayBg: Qt.rgba( appTheme.window.r,
-                                                appTheme.window.g,
-                                                appTheme.window.b, 0.85 )
-
     property int topInset: 0
     onTopInsetChanged: CircuitPanel.setTopInset( topInset )
 
@@ -152,7 +146,7 @@ Item {
     }
 
     // ---- Side panel ------------------------------------------------------
-    Rectangle {
+    AppSurface {
         id: sidePanel
         // MainWindow walks the QML active-focus chain for these names to work
         // out which panel the keyboard is in; see MainWindow::qmlFocusInside.
@@ -160,10 +154,8 @@ Item {
         visible: root.rects.sidePanelVisible === true
         x: root.r("sidePanel").x; y: root.r("sidePanel").y
         width: root.r("sidePanel").width; height: root.r("sidePanel").height
-        color: appTheme.window
+        surfaceColor: appTheme.window
         radius: 14
-        border.color: appTheme.mid
-        border.width: 1
         z: root.overlayZ( "sidePanel" )
 
         function clearComponentHover(): void {
@@ -371,7 +363,7 @@ Item {
     }
 
     // ---- Editor panel ----------------------------------------------------
-    Rectangle {
+    AppSurface {
         // NOT `id: editorPanel`: that shadowed the `editorPanel` context property
         // for everything this Loader creates, so editorpanel.qml's `ctx` resolved
         // to this Rectangle instead of EditorWidget and every binding on it read
@@ -381,10 +373,8 @@ Item {
         visible: root.rects.editorPanelVisible === true
         x: root.r("editorPanel").x; y: root.r("editorPanel").y
         width: root.r("editorPanel").width; height: root.r("editorPanel").height
-        color: root.overlayBg
+        surfaceColor: appTheme.window
         radius: 14
-        border.color: appTheme.mid
-        border.width: 1
         z: root.overlayZ( "editorPanel" )
 
         // Absorbs unhandled pointer events (clicks on empty space, scrolling over margins)
@@ -478,7 +468,7 @@ Item {
             { key: "epDragHandle", id: "editorPanel", toggle: false },
             { key: "epToggle",     id: "editorPanel", toggle: true  }
         ]
-        delegate: Rectangle {
+        delegate: AppSurface {
             id: handle
             required property var modelData
             readonly property rect box: root.r( handle.modelData.key )
@@ -489,10 +479,7 @@ Item {
             x: handle.box.x; y: handle.box.y
             width: handle.box.width; height: handle.box.height
             radius: handle.height / 2
-            color: pointer.containsMouse ? appTheme.midlight
-                                         : ( handle.modelData.id === "sidePanel" ? appTheme.window : root.overlayBg )
-            border.color: appTheme.mid
-            border.width: 1
+            surfaceColor: pointer.containsMouse ? appTheme.midlight : appTheme.base
             z: root.overlayZ( handle.modelData.id ) + 0.5
 
             AppIcon {
@@ -559,11 +546,8 @@ Item {
         // same measurement) is a circular binding that collapsed the toolbar to
         // a near-zero "dot". Inside the background, the MouseArea's `parent` is
         // the already-sized Rectangle, so nothing feeds back into the sizing.
-        background: Rectangle {
-            color: root.overlayBg
+        background: AppSurface {
             radius: height / 2
-            border.color: appTheme.mid
-            border.width: 1
 
             // Click-to-front: bring toolbar to front when clicking background/margins
             MouseArea {

@@ -3,10 +3,9 @@ import QtQuick.Layouts
 import cs_app
 import cs_ui
 
-// The floating readout panel. Sized to its content (the QQuickWidget is in
-// SizeViewToRootObject mode) so CircuitWidget can position it by its own size,
-// and translucent so the canvas shows through behind it.
-Rectangle {
+// The floating readout panel. Sized to its content so CircuitWidget can
+// position it by its own size.
+AppSurface {
     id: root
 
     implicitWidth: Math.max( 280, content.implicitWidth + 30 )
@@ -14,10 +13,6 @@ Rectangle {
     // The panel rect can be shorter than this implicit height. Clip the readout
     // so it does not paint through the toolbar; the border stays on this item.
     clip: true
-
-    color: InfoWidget.panelBackground
-    border.color: InfoWidget.panelBorder
-    border.width: 1
     radius: 16
 
     function syncMcu(): void {

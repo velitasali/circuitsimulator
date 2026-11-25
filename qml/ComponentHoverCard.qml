@@ -94,12 +94,8 @@ Item {
         return Math.max(minY, Math.min(maxY, Math.round(root.anchorY - root.height / 2)))
     }
 
-    Rectangle {
+    AppSurface {
         anchors.fill: parent
-        color: appTheme.base
-        opacity: 0.96
-        border.color: appTheme.mid
-        border.width: 1
         radius: 10
     }
 

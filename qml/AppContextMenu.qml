@@ -46,13 +46,12 @@ T.Menu {
         iconLigature: (subMenu as AppContextMenu)?.iconLigature ?? ""
     }
 
-    background: Rectangle {
+    background: AppSurface {
         implicitWidth: 200
         implicitHeight: 20
-        color: appTheme.window
-        border.color: appTheme.mid
-        border.width: 1
         radius: 10
+        elevation: 0.85
+        shadowEnabled: true
     }
 
     property real contentImplicitWidth: 180

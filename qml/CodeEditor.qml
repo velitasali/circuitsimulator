@@ -637,10 +637,7 @@ Item {
         padding: 6
         closePolicy: Popup.NoAutoClose
 
-        background: Rectangle {
-            color: appTheme.base
-            border.color: appTheme.mid
-            border.width: 1
+        background: AppSurface {
             radius: 10
         }
 
@@ -982,11 +979,10 @@ Item {
         padding: 1
         closePolicy: Popup.NoAutoClose
 
-        background: Rectangle {
-            color: appTheme.base
-            border.color: appTheme.mid
-            border.width: 1
+        background: AppSurface {
             radius: 8
+            elevation: 0.75
+            shadowEnabled: true
         }
 
         ListView {

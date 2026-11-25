@@ -46,10 +46,8 @@ Popup {
         open()
     }
 
-    background: Rectangle {
-        color: appTheme.window
-        border.color: appTheme.mid
-        border.width: 1
+    background: AppSurface {
+        surfaceColor: appTheme.window
         radius: 16
     }
 

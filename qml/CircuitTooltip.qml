@@ -20,12 +20,8 @@ Item {
     width: Math.min(implicitWidth, root.maxTextWidth + 2 * padX + 2)
     height: implicitHeight
 
-    Rectangle {
+    AppSurface {
         anchors.fill: parent
-        color: appTheme.base
-        opacity: 0.95
-        border.color: appTheme.mid
-        border.width: 1
         radius: 10
     }
 

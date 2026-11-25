@@ -512,6 +512,7 @@ fn compile_resources() {
         "PropDialog.qml",
         "AppToolButton.qml",
         "AppButton.qml",
+        "AppSurface.qml",
         "AppText.qml",
         "AppIcon.qml",
         "AppCheckBox.qml",

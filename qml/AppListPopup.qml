@@ -40,11 +40,10 @@ Popup {
     property real heightCap: 1000000
     height: Math.min(naturalHeight, heightCap)
 
-    background: Rectangle {
-        color: appTheme.window
-        border.color: appTheme.mid
-        border.width: 1
+    background: AppSurface {
         radius: 16
+        elevation: 0.9
+        shadowEnabled: true
     }
 
     contentItem: Item {

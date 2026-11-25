@@ -208,11 +208,10 @@ T.ComboBox {
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
         }
 
-        background: Rectangle {
-            color: appTheme.window
-            border.color: appTheme.mid
-            border.width: 1
+        background: AppSurface {
             radius: 10
+            elevation: 0.75
+            shadowEnabled: true
         }
     }
 }

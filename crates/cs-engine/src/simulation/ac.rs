@@ -1,12 +1,27 @@
-//! Small-signal AC sweep for linear R, L, and C.
+//! Small-signal AC sweep for linear and DC-bias-linearized active circuits.
 //!
 //! The time-domain matrix is real. This solver builds its own interleaved
-//! real/imaginary system, `Y(jω) V = I`, and leaves node voltages and the
-//! simulator clock alone. Nonlinear and digital parts are left out of the
-//! stamp. A DC source that is not the excited input is an AC short.
+//! real/imaginary system, `Y(jω) V = I`, and leaves the caller's node voltages
+//! and simulator clock untouched.
+//!
+//! When the circuit contains nonlinear active devices (diodes, LEDs, BJTs,
+//! MOSFETs, JFETs, op-amps), a DC operating-point solve is run first on a
+//! cloned copy (with capacitors open and inductors shorted) so those devices
+//! are stamped using their exact small-signal linearized conductances and
+//! transconductances around the DC bias point.
 
-use crate::Error;
-use crate::elements::{Kind, SOURCE_ADMIT, SWITCH_CLOSED_ADMIT};
+use std::f64::consts;
+
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
+
+use crate::elements::diode;
+use crate::elements::{
+    BjtState, Comp, DiodeState, JfetState, Kind, MosfetState, OpAmpState, SOURCE_ADMIT,
+    SWITCH_CLOSED_ADMIT, TransformerState,
+};
+use crate::net::ENode;
+use crate::{CERO_DOUB, Error};
 
 use super::Circuit;
 
@@ -14,14 +29,62 @@ const OHM_FLOOR: f64 = 1e-12;
 const HENRY_FLOOR: f64 = 1e-12;
 const MAX_POINTS: usize = 20_000;
 
-/// One frequency of an AC sweep. `mag` is `|Vprobe|` in volts.
+/// One frequency of an AC sweep. `mag` is `|Vprobe - Vref|` in volts.
 /// `gain` is `mag` divided by the excited source amplitude.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AcPoint {
     pub hz: f64,
     pub mag: f64,
     pub phase_deg: f64,
     pub gain: f64,
+}
+
+/// One probe trace returned by a multi-probe AC sweep.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AcTrace {
+    pub probe_pin: String,
+    pub ref_pin: Option<String>,
+    pub points: Vec<AcPoint>,
+}
+
+/// Precomputed small-signal linearizations for active/nonlinear parts at DC bias.
+#[derive(Clone, Debug)]
+enum SmallSignalDevice {
+    TwoTerminal {
+        a: Option<usize>,
+        b: Option<usize>,
+        g: f64,
+    },
+    Diode {
+        anode: Option<usize>,
+        mid: Option<usize>,
+        cathode: Option<usize>,
+        g_junc: f64,
+        g_series: f64,
+    },
+    Bjt {
+        c: Option<usize>,
+        e: Option<usize>,
+        b: Option<usize>,
+        gee: f64,
+        gcc: f64,
+        gce: f64,
+        gec: f64,
+    },
+    Fet {
+        d: Option<usize>,
+        s: Option<usize>,
+        g: Option<usize>,
+        g_ds: f64,
+        g_m: f64,
+    },
+    OpAmp {
+        out: Option<usize>,
+        in_p: Option<usize>,
+        in_n: Option<usize>,
+        g_out: f64,
+        gain: f64,
+    },
 }
 
 struct AcSys {
@@ -70,6 +133,22 @@ impl AcSys {
                 self.add(j, i, -yr, -yi);
             }
         }
+    }
+
+    /// Directed real conductance matching `ENode::add_admit(to, g)`:
+    /// adds `+g` on `(from, from)` and `-g` on `(from, to)`.
+    fn stamp_directed_g(&mut self, from: Option<usize>, to: Option<usize>, g: f64) {
+        if g == 0.0 {
+            return;
+        }
+        let (Some(f), Some(t)) = (from, to) else {
+            return;
+        };
+        if f == t {
+            return;
+        }
+        self.add(f, f, g, 0.0);
+        self.add(f, t, -g, 0.0);
     }
 
     fn add_i(&mut self, node: usize, ir: f64, ii: f64) {
@@ -127,14 +206,19 @@ impl AcSys {
 
 impl Circuit {
     /// `|V(probe)|` and phase at one frequency. `source_id` is the only
-    /// excited source. Its amplitude is that part's DC voltage.
+    /// excited source. Its amplitude is that part's DC voltage (or `1.0 V` if 0 V).
     pub fn ac_at(&mut self, source_id: &str, probe_pin: &str, hz: f64) -> Result<AcPoint, Error> {
         if !hz.is_finite() || hz <= 0.0 {
             return Err(Error::Parse(
                 "AC frequency must be a finite number above 0".into(),
             ));
         }
-        self.ac_point(source_id, probe_pin, hz)
+        let traces = self.ac_sweep_multi(source_id, &[(probe_pin, None)], hz, hz, 1)?;
+        traces
+            .into_iter()
+            .next()
+            .and_then(|t| t.points.into_iter().next())
+            .ok_or(Error::Singular)
     }
 
     /// Ids of voltage sources the sweep can excite.
@@ -156,7 +240,7 @@ impl Circuit {
         pins
     }
 
-    /// Log-spaced sweep from `f_start` to `f_stop`, inclusive.
+    /// Log-spaced sweep from `f_start` to `f_stop`, inclusive, for a single probe.
     pub fn ac_sweep(
         &mut self,
         source_id: &str,
@@ -165,54 +249,472 @@ impl Circuit {
         f_stop: f64,
         points_per_decade: u32,
     ) -> Result<Vec<AcPoint>, Error> {
-        let freqs = log_freqs(f_start, f_stop, points_per_decade)?;
-        let mut out = Vec::with_capacity(freqs.len());
-        for hz in freqs {
-            out.push(self.ac_point(source_id, probe_pin, hz)?);
-        }
-        Ok(out)
+        let traces = self.ac_sweep_multi(
+            source_id,
+            &[(probe_pin, None)],
+            f_start,
+            f_stop,
+            points_per_decade,
+        )?;
+        Ok(traces
+            .into_iter()
+            .next()
+            .map(|t| t.points)
+            .unwrap_or_default())
     }
 
-    fn ac_point(&mut self, source_id: &str, probe_pin: &str, hz: f64) -> Result<AcPoint, Error> {
+    /// Log-spaced AC sweep solving the complex matrix once per frequency for one or
+    /// more `(probe_pin, optional_ref_pin)` pairs.
+    pub fn ac_sweep_multi(
+        &mut self,
+        source_id: &str,
+        probes: &[(&str, Option<&str>)],
+        f_start: f64,
+        f_stop: f64,
+        points_per_decade: u32,
+    ) -> Result<Vec<AcTrace>, Error> {
+        if probes.is_empty() {
+            return Err(Error::Parse("AC sweep needs at least one probe pin".into()));
+        }
         if !self.components.iter().any(|c| c.id == source_id) {
             return Err(Error::Parse(format!(
                 "AC source `{source_id}` is not in the circuit"
             )));
         }
-        let amplitude = source_amplitude(self, source_id)?;
+        let raw_amp = source_amplitude(self, source_id)?;
+        // If a source has 0 V DC offset (common for AC-coupled or unbiased inputs),
+        // use 1 V small-signal excitation so gain and phase are well-defined.
+        let excite_amp = if raw_amp.abs() > 1e-15 { raw_amp } else { 1.0 };
+
         if self.pin_net.is_empty() {
             self.build_nets();
         }
-        let Some(&probe) = self.pin_net.get(probe_pin) else {
-            return Err(Error::Parse(format!(
-                "AC probe `{probe_pin}` is not on a net"
-            )));
-        };
-        let omega = std::f64::consts::TAU * hz;
+
+        let mut resolved_probes: Vec<(String, usize, Option<(String, usize)>)> =
+            Vec::with_capacity(probes.len());
+        for &(probe_pin, ref_pin) in probes {
+            let Some(&p_node) = self.pin_net.get(probe_pin) else {
+                return Err(Error::Parse(format!(
+                    "AC probe `{probe_pin}` is not on a net"
+                )));
+            };
+            let r_node = match ref_pin {
+                Some(rp) if !rp.trim().is_empty() => {
+                    let Some(&rn) = self.pin_net.get(rp) else {
+                        return Err(Error::Parse(format!(
+                            "AC reference pin `{rp}` is not on a net"
+                        )));
+                    };
+                    Some((rp.to_string(), rn))
+                }
+                _ => None,
+            };
+            resolved_probes.push((probe_pin.to_string(), p_node, r_node));
+        }
+
+        let freqs = log_freqs(f_start, f_stop, points_per_decade)?;
+        let linearized = self.linearize_for_ac(source_id);
+
         let n = self.nodes.len();
-        let mut sys = AcSys::new(n);
-        for comp in &self.components {
-            stamp_comp(&mut sys, comp, source_id, omega, &self.pin_net);
+        let mut traces: Vec<AcTrace> = resolved_probes
+            .iter()
+            .map(|(p, _, r)| AcTrace {
+                probe_pin: p.clone(),
+                ref_pin: r.as_ref().map(|(s, _)| s.clone()),
+                points: Vec::with_capacity(freqs.len()),
+            })
+            .collect();
+
+        for hz in freqs {
+            let omega = consts::TAU * hz;
+            let mut sys = AcSys::new(n);
+            for (idx, comp) in self.components.iter().enumerate() {
+                if let Some(dev) = linearized.get(&idx) {
+                    stamp_small_signal(&mut sys, dev);
+                } else {
+                    stamp_comp(&mut sys, comp, source_id, excite_amp, omega, &self.pin_net);
+                }
+            }
+            sys.solve()?;
+
+            for (t_idx, &(_, p_node, ref r_opt)) in resolved_probes.iter().enumerate() {
+                if 2 * p_node + 1 >= sys.b.len() {
+                    return Err(Error::Singular);
+                }
+                let mut vr = sys.b[2 * p_node];
+                let mut vi = sys.b[2 * p_node + 1];
+                if let Some((_, r_node)) = r_opt {
+                    if 2 * r_node + 1 >= sys.b.len() {
+                        return Err(Error::Singular);
+                    }
+                    vr -= sys.b[2 * r_node];
+                    vi -= sys.b[2 * r_node + 1];
+                }
+                let mag = vr.hypot(vi);
+                let phase_deg = vi.atan2(vr).to_degrees();
+                let gain = mag / excite_amp.abs();
+                traces[t_idx].points.push(AcPoint {
+                    hz,
+                    mag,
+                    phase_deg,
+                    gain,
+                });
+            }
         }
-        sys.solve()?;
-        if 2 * probe + 1 >= sys.b.len() {
-            return Err(Error::Singular);
+
+        Ok(traces)
+    }
+
+    /// Runs a DC operating-point solve on a cloned copy (capacitors open,
+    /// inductors shorted) and returns small-signal linearizations for active
+    /// and nonlinear components keyed by component index.
+    fn linearize_for_ac(&self, source_id: &str) -> FxHashMap<usize, SmallSignalDevice> {
+        let mut out = FxHashMap::default();
+        if !self.scan_has_nonlinear() {
+            return out;
         }
-        let vr = sys.b[2 * probe];
-        let vi = sys.b[2 * probe + 1];
-        let mag = vr.hypot(vi);
-        let phase_deg = vi.atan2(vr).to_degrees();
-        let gain = if amplitude.abs() > 1e-15 {
-            mag / amplitude.abs()
-        } else {
-            mag
-        };
-        Ok(AcPoint {
-            hz,
-            mag,
-            phase_deg,
+
+        let mut dc = self.clone();
+        for c in &mut dc.components {
+            match &mut c.kind {
+                Kind::Capacitor { capacitance, .. }
+                | Kind::ElCapacitor { capacitance, .. }
+                | Kind::VarCapacitor { capacitance, .. } => {
+                    *capacitance = 0.0;
+                }
+                Kind::Inductor { .. } | Kind::VarInductor { .. } => {
+                    c.kind = Kind::Resistor { resistance: 1e-6 };
+                }
+                Kind::VoltSource { running, .. } if c.id == source_id => {
+                    *running = true;
+                }
+                Kind::WaveGen {
+                    offset,
+                    v_out,
+                    bipolar,
+                    ..
+                } => {
+                    // Hold WaveGen at its DC offset for operating-point bias.
+                    *v_out = if *bipolar { 0.5 } else { 0.0 };
+                    let _ = offset;
+                }
+                _ => {}
+            }
+        }
+        dc.build_nets();
+        dc.reset_device_stamps();
+        if dc.solve_circuit().is_err() {
+            // If DC operating point failed to converge, still fall back to
+            // unbiased/default linearizations (e.g. ideal op-amp gain) where safe.
+        }
+
+        // Map DC component indices back to `self`'s net indices via `self.pin_caches`.
+        for (idx, (comp, dc_comp)) in self.components.iter().zip(&dc.components).enumerate() {
+            let Some(cache) = self.pin_caches.get(idx) else {
+                continue;
+            };
+            let Some(dc_cache) = dc.pin_caches.get(idx) else {
+                continue;
+            };
+            match (&comp.kind, &dc_comp.kind) {
+                (Kind::Diode { .. }, Kind::Diode { state, .. }) => {
+                    let va = node_v(dc_cache.left, &dc.nodes);
+                    let vm = node_v(dc_cache.mid, &dc.nodes);
+                    let g_junc = diode_small_signal_g(state, va - vm);
+                    out.insert(
+                        idx,
+                        SmallSignalDevice::Diode {
+                            anode: cache.left,
+                            mid: cache.mid,
+                            cathode: cache.right,
+                            g_junc,
+                            g_series: 1.0 / state.series_r.max(OHM_FLOOR),
+                        },
+                    );
+                }
+                (Kind::Led { .. }, Kind::Led { state }) => {
+                    out.insert(
+                        idx,
+                        SmallSignalDevice::TwoTerminal {
+                            a: cache.left,
+                            b: if state.grounded { None } else { cache.right },
+                            g: state.admit.max(1e-9),
+                        },
+                    );
+                }
+                (Kind::Bjt { .. }, Kind::Bjt { state }) => {
+                    let vc = node_v(dc_cache.collector, &dc.nodes);
+                    let ve = node_v(dc_cache.emitter, &dc.nodes);
+                    let vb = node_v(dc_cache.base, &dc.nodes);
+                    let (gee, gcc, gce, gec) = bjt_small_signal_jacobian(state, vc, ve, vb);
+                    out.insert(
+                        idx,
+                        SmallSignalDevice::Bjt {
+                            c: cache.collector,
+                            e: cache.emitter,
+                            b: cache.base,
+                            gee,
+                            gcc,
+                            gce,
+                            gec,
+                        },
+                    );
+                }
+                (Kind::Mosfet { .. }, Kind::Mosfet { state }) => {
+                    let vd = node_v(dc_cache.drain, &dc.nodes);
+                    let vs = node_v(dc_cache.source, &dc.nodes);
+                    let vg = dc_cache
+                        .gate
+                        .and_then(|i| dc.nodes.get(i))
+                        .map(|n| n.volt)
+                        .unwrap_or(vs);
+                    let (g_m, g_ds) = mosfet_small_signal(state, vd, vs, vg);
+                    out.insert(
+                        idx,
+                        SmallSignalDevice::Fet {
+                            d: cache.drain,
+                            s: cache.source,
+                            g: cache.gate,
+                            g_ds,
+                            g_m,
+                        },
+                    );
+                }
+                (Kind::Jfet { .. }, Kind::Jfet { state }) => {
+                    let vd = node_v(dc_cache.drain, &dc.nodes);
+                    let vs = node_v(dc_cache.source, &dc.nodes);
+                    let vg = dc_cache
+                        .gate
+                        .and_then(|i| dc.nodes.get(i))
+                        .map(|n| n.volt)
+                        .unwrap_or(vs);
+                    let (g_m, g_ds) = jfet_small_signal(state, vd, vs, vg);
+                    out.insert(
+                        idx,
+                        SmallSignalDevice::Fet {
+                            d: cache.drain,
+                            s: cache.source,
+                            g: cache.gate,
+                            g_ds,
+                            g_m,
+                        },
+                    );
+                }
+                (Kind::OpAmp { .. }, Kind::OpAmp { state }) => {
+                    let vp = node_v(dc_cache.input_p, &dc.nodes);
+                    let vn = node_v(dc_cache.input_n, &dc.nodes);
+                    let vpos = node_v(dc_cache.power_pos, &dc.nodes);
+                    let vneg = node_v(dc_cache.power_neg, &dc.nodes);
+                    let gain = opamp_small_signal_gain(state, vp, vn, vpos, vneg);
+                    out.insert(
+                        idx,
+                        SmallSignalDevice::OpAmp {
+                            out: cache.output_amp,
+                            in_p: cache.input_p,
+                            in_n: cache.input_n,
+                            g_out: state.admit(),
+                            gain,
+                        },
+                    );
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+}
+
+fn node_v(idx: Option<usize>, nodes: &[ENode]) -> f64 {
+    idx.and_then(|i| nodes.get(i))
+        .map(|n| n.volt)
+        .unwrap_or(0.0)
+}
+
+fn diode_small_signal_g(state: &DiodeState, v_pn: f64) -> f64 {
+    let vt = diode::VT;
+    let vd_coef = 1.0 / (state.em_coef.max(0.01) * vt);
+    let gmin = state.sat_cur * 1e-2;
+    let eval = (v_pn * vd_coef).clamp(-40.0, 40.0).exp();
+    if state.bk_down == 0.0 || v_pn >= 0.0 {
+        state.sat_cur * vd_coef * eval + gmin
+    } else {
+        let z_off = state.bk_down - vt * (-(1.0 - 0.005 / state.sat_cur)).ln();
+        let exp_coef = ((-v_pn - z_off) / vt).clamp(-40.0, 40.0).exp();
+        state.sat_cur * (vd_coef * eval + (1.0 / vt) * exp_coef) + gmin
+    }
+}
+
+fn bjt_small_signal_jacobian(state: &BjtState, vc: f64, ve: f64, vb: f64) -> (f64, f64, f64, f64) {
+    let pnp = if state.pnp { -1.0 } else { 1.0 };
+    let vbc = vb - vc;
+    let vbe = vb - ve;
+    let pcoef = pnp / state.vt;
+    let exp_bc = (vbc * pcoef).clamp(-40.0, 40.0).exp();
+    let exp_be = (vbe * pcoef).clamp(-40.0, 40.0).exp();
+    let gmin = state.sat_cur * 1e-2;
+    let gee = -state.sat_cur / state.vt * exp_be / state.fgain - gmin;
+    let gcc = -state.sat_cur / state.vt * exp_bc / state.rgain - gmin;
+    let gce = -(gee + gmin) * state.fgain;
+    let gec = -(gcc + gmin) * state.rgain;
+    (gee, gcc, gce, gec)
+}
+
+fn mosfet_id(state: &MosfetState, vd: f64, vs: f64, vg: f64) -> f64 {
+    let mut vgs = vg - vs;
+    let mut vds = vd - vs;
+    if state.p_channel {
+        vgs = -vgs;
+        vds = -vds;
+    }
+    let gate_v = (vgs - state.gth).max(0.0);
+    if gate_v <= 0.0 {
+        return vds * CERO_DOUB * if state.p_channel { -1.0 } else { 1.0 };
+    }
+    let admit = 1.0 / state.rdson;
+    let max_curr_ds = vds * admit;
+    let sat_k = 1.0 + vds / 100.0;
+    let vds_eff = vds.min(gate_v);
+    let mut id = (gate_v * vds_eff - 0.5 * vds_eff * vds_eff) * sat_k / state.k_rdson;
+    if id > max_curr_ds {
+        id = max_curr_ds;
+    }
+    if state.p_channel { -id } else { id }
+}
+
+fn mosfet_small_signal(state: &MosfetState, vd: f64, vs: f64, vg: f64) -> (f64, f64) {
+    let eps = 1e-5;
+    let g_m =
+        (mosfet_id(state, vd, vs, vg + eps) - mosfet_id(state, vd, vs, vg - eps)) / (2.0 * eps);
+    let g_ds =
+        (mosfet_id(state, vd + eps, vs, vg) - mosfet_id(state, vd - eps, vs, vg)) / (2.0 * eps);
+    (g_m, g_ds.max(CERO_DOUB))
+}
+
+fn jfet_id(state: &JfetState, mut vd: f64, mut vs: f64, mut vg: f64) -> f64 {
+    let mut swapped = false;
+    if state.p_channel {
+        vd = -vd;
+        vs = -vs;
+        vg = -vg;
+    }
+    if vd < vs {
+        std::mem::swap(&mut vd, &mut vs);
+        swapped = true;
+    }
+    let vgs = vg - vs;
+    let vds = vd - vs;
+    let gate_v = vgs - state.vp;
+    let correction = 1.0 + vds / state.lambda_inv;
+    let mut id = if vgs <= state.vp {
+        vds * CERO_DOUB
+    } else if vds < gate_v {
+        state.beta * (2.0 * gate_v * vds - vds * vds) * correction
+    } else {
+        state.beta * gate_v * gate_v * correction
+    };
+    if swapped {
+        id = -id;
+    }
+    if state.p_channel { -id } else { id }
+}
+
+fn jfet_small_signal(state: &JfetState, vd: f64, vs: f64, vg: f64) -> (f64, f64) {
+    let eps = 1e-5;
+    let g_m = (jfet_id(state, vd, vs, vg + eps) - jfet_id(state, vd, vs, vg - eps)) / (2.0 * eps);
+    let g_ds = (jfet_id(state, vd + eps, vs, vg) - jfet_id(state, vd - eps, vs, vg)) / (2.0 * eps);
+    (g_m, g_ds.max(CERO_DOUB))
+}
+
+fn opamp_small_signal_gain(state: &OpAmpState, vp: f64, vn: f64, vpos: f64, vneg: f64) -> f64 {
+    let hi = if state.power_pins {
+        vpos
+    } else {
+        state.volt_pos
+    };
+    let lo = if state.power_pins {
+        vneg
+    } else {
+        state.volt_neg
+    };
+    let raw = (vp - vn) * state.gain;
+    // Allow boundary value (e.g., 0 V unbiased single-supply filter) to stay active,
+    // while hard rail saturation zeroes out incremental gain.
+    if raw > hi + 1e-3 || raw < lo - 1e-3 {
+        0.0
+    } else {
+        state.gain
+    }
+}
+
+fn stamp_small_signal(sys: &mut AcSys, dev: &SmallSignalDevice) {
+    match *dev {
+        SmallSignalDevice::TwoTerminal { a, b, g } => {
+            stamp_g(sys, a, b, g);
+        }
+        SmallSignalDevice::Diode {
+            anode,
+            mid,
+            cathode,
+            g_junc,
+            g_series,
+        } => {
+            stamp_g(sys, anode, mid, g_junc);
+            stamp_g(sys, mid, cathode, g_series);
+        }
+        SmallSignalDevice::Bjt {
+            c,
+            e,
+            b,
+            gee,
+            gcc,
+            gce,
+            gec,
+        } => {
+            sys.stamp_directed_g(b, c, -gec - gcc);
+            sys.stamp_directed_g(c, b, -gce - gcc);
+            sys.stamp_directed_g(b, e, -gee - gce);
+            sys.stamp_directed_g(e, b, -gee - gec);
+            sys.stamp_directed_g(c, e, gce);
+            sys.stamp_directed_g(e, c, gec);
+        }
+        SmallSignalDevice::Fet { d, s, g, g_ds, g_m } => {
+            stamp_g(sys, d, s, g_ds);
+            if g_m != 0.0 {
+                if let Some(dn) = d {
+                    if let Some(gn) = g {
+                        sys.add(dn, gn, g_m, 0.0);
+                    }
+                    if let Some(sn) = s {
+                        sys.add(dn, sn, -g_m, 0.0);
+                    }
+                }
+                if let Some(sn) = s {
+                    if let Some(gn) = g {
+                        sys.add(sn, gn, -g_m, 0.0);
+                    }
+                    sys.add(sn, sn, g_m, 0.0);
+                }
+            }
+        }
+        SmallSignalDevice::OpAmp {
+            out,
+            in_p,
+            in_n,
+            g_out,
             gain,
-        })
+        } => {
+            if let Some(o) = out {
+                sys.add(o, o, g_out, 0.0);
+                if gain != 0.0 {
+                    if let Some(p) = in_p {
+                        sys.add(o, p, -g_out * gain, 0.0);
+                    }
+                    if let Some(n) = in_n {
+                        sys.add(o, n, g_out * gain, 0.0);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -254,6 +756,7 @@ fn is_ac_source(kind: &Kind) -> bool {
             | Kind::Clock { .. }
             | Kind::Battery { .. }
             | Kind::VoltSource { .. }
+            | Kind::WaveGen { .. }
     )
 }
 
@@ -269,13 +772,14 @@ fn source_amplitude(c: &Circuit, source_id: &str) -> Result<f64, Error> {
         | Kind::Clock { voltage, .. }
         | Kind::Battery { voltage, .. }
         | Kind::VoltSource { value: voltage, .. } => Ok(*voltage),
+        Kind::WaveGen { amplitude, .. } => Ok(*amplitude),
         _ => Err(Error::Parse(format!(
             "AC source `{source_id}` is not a voltage source"
         ))),
     }
 }
 
-fn net(pin_net: &rustc_hash::FxHashMap<String, usize>, pin: &str) -> Option<usize> {
+fn net(pin_net: &FxHashMap<String, usize>, pin: &str) -> Option<usize> {
     pin_net.get(pin).copied()
 }
 
@@ -285,10 +789,11 @@ fn stamp_g(sys: &mut AcSys, a: Option<usize>, b: Option<usize>, g: f64) {
 
 fn stamp_comp(
     sys: &mut AcSys,
-    comp: &crate::elements::Comp,
+    comp: &Comp,
     source_id: &str,
+    excite_amp: f64,
     omega: f64,
-    pin_net: &rustc_hash::FxHashMap<String, usize>,
+    pin_net: &FxHashMap<String, usize>,
 ) {
     let excited = comp.id == source_id;
     match &comp.kind {
@@ -353,45 +858,79 @@ fn stamp_comp(
                 stamp_g(sys, Some(n), None, SOURCE_ADMIT);
             }
         }
-        Kind::FixedVolt { voltage } | Kind::Rail { voltage } | Kind::Clock { voltage, .. } => {
+        Kind::FixedVolt { .. } | Kind::Rail { .. } | Kind::Clock { .. } => {
             let pin = comp.out_pin();
             if let Some(n) = net(pin_net, &pin) {
                 stamp_g(sys, Some(n), None, SOURCE_ADMIT);
                 if excited {
-                    sys.add_i(n, *voltage * SOURCE_ADMIT, 0.0);
+                    sys.add_i(n, excite_amp * SOURCE_ADMIT, 0.0);
                 }
             }
         }
-        Kind::VoltSource { value, running } => {
-            if *running {
+        Kind::VoltSource { running, .. } => {
+            // Auto-enable the excited VoltSource even if it is switched off in transient UI.
+            if *running || excited {
                 let pin = format!("{}-outPin", comp.id);
                 if let Some(n) = net(pin_net, &pin) {
                     stamp_g(sys, Some(n), None, SOURCE_ADMIT);
                     if excited {
-                        sys.add_i(n, *value * SOURCE_ADMIT, 0.0);
+                        sys.add_i(n, excite_amp * SOURCE_ADMIT, 0.0);
                     }
                 }
             }
         }
-        Kind::Battery {
-            voltage,
-            resistance,
+        Kind::WaveGen {
+            bipolar, floating, ..
         } => {
+            let out = net(pin_net, &format!("{}-outnod", comp.id));
+            let gnd = net(pin_net, &format!("{}-gndnod", comp.id))
+                .or_else(|| net(pin_net, &comp.gnd_pin()));
+            if *bipolar && *floating {
+                stamp_g(sys, out, gnd, SOURCE_ADMIT);
+                if excited {
+                    if let Some(p) = out {
+                        sys.add_i(p, excite_amp * SOURCE_ADMIT, 0.0);
+                    }
+                    if let Some(m) = gnd {
+                        sys.add_i(m, -excite_amp * SOURCE_ADMIT, 0.0);
+                    }
+                }
+            } else if *bipolar {
+                if let Some(p) = out {
+                    stamp_g(sys, Some(p), None, SOURCE_ADMIT);
+                    if excited {
+                        sys.add_i(p, 0.5 * excite_amp * SOURCE_ADMIT, 0.0);
+                    }
+                }
+                if let Some(m) = gnd {
+                    stamp_g(sys, Some(m), None, SOURCE_ADMIT);
+                    if excited {
+                        sys.add_i(m, -0.5 * excite_amp * SOURCE_ADMIT, 0.0);
+                    }
+                }
+            } else if let Some(p) = out {
+                stamp_g(sys, Some(p), None, SOURCE_ADMIT);
+                if excited {
+                    sys.add_i(p, excite_amp * SOURCE_ADMIT, 0.0);
+                }
+            }
+        }
+        Kind::Battery { resistance, .. } => {
             let g = 1.0 / resistance.max(1e-14);
             let a = net(pin_net, &comp.left_pin());
             let b = net(pin_net, &comp.right_pin());
             stamp_g(sys, a, b, g);
             if excited {
                 if let Some(p) = a {
-                    sys.add_i(p, *voltage * g, 0.0);
+                    sys.add_i(p, excite_amp * g, 0.0);
                 }
                 if let Some(m) = b {
-                    sys.add_i(m, -*voltage * g, 0.0);
+                    sys.add_i(m, -excite_amp * g, 0.0);
                 }
             }
         }
         Kind::CurrSource { value, running } => {
-            if *running && excited {
+            if (*running || excited) && excited {
                 let pin = format!("{}-outPin", comp.id);
                 if let Some(n) = net(pin_net, &pin) {
                     sys.add_i(n, *value, 0.0);
@@ -426,10 +965,10 @@ fn stamp_comp(
 
 fn stamp_transformer(
     sys: &mut AcSys,
-    comp: &crate::elements::Comp,
-    pin_net: &rustc_hash::FxHashMap<String, usize>,
+    comp: &Comp,
+    pin_net: &FxHashMap<String, usize>,
     omega: f64,
-    state: &crate::elements::TransformerState,
+    state: &TransformerState,
 ) {
     let p1 = net(pin_net, &comp.transformer_p1_pin());
     let p2 = net(pin_net, &comp.transformer_p2_pin());
@@ -538,7 +1077,7 @@ mod tests {
     fn rc_lowpass_at_cutoff() {
         let r = 1_000.0;
         let c = 1e-6;
-        let fc = 1.0 / (std::f64::consts::TAU * r * c);
+        let fc = 1.0 / (consts::TAU * r * c);
         let mut circuit = Circuit::new();
         circuit
             .add_fixed_volt("V1", 5.0)
@@ -549,9 +1088,9 @@ mod tests {
             .connect("R1-rPin", "C1-lPin")
             .connect("C1-rPin", "GND-Gnd");
         let at = circuit.ac_at("V1", "C1-lPin", fc).unwrap();
-        near(at.gain, std::f64::consts::FRAC_1_SQRT_2, 0.02);
+        near(at.gain, consts::FRAC_1_SQRT_2, 0.02);
         near(at.phase_deg, -45.0, 2.0);
-        near(at.mag, 5.0 * std::f64::consts::FRAC_1_SQRT_2, 0.1);
+        near(at.mag, 5.0 * consts::FRAC_1_SQRT_2, 0.1);
 
         let low = circuit.ac_at("V1", "C1-lPin", 1.0).unwrap();
         assert!(low.gain > 0.99, "low-frequency gain {}", low.gain);
@@ -570,7 +1109,7 @@ mod tests {
     fn rl_highpass_at_corner() {
         let r = 1_000.0;
         let l = 1.0;
-        let fc = r / (std::f64::consts::TAU * l);
+        let fc = r / (consts::TAU * l);
         let mut circuit = Circuit::new();
         circuit
             .add_fixed_volt("V1", 5.0)
@@ -581,7 +1120,7 @@ mod tests {
             .connect("R1-rPin", "L1-lPin")
             .connect("L1-rPin", "GND-Gnd");
         let at = circuit.ac_at("V1", "L1-lPin", fc).unwrap();
-        near(at.gain, std::f64::consts::FRAC_1_SQRT_2, 0.02);
+        near(at.gain, consts::FRAC_1_SQRT_2, 0.02);
         near(at.phase_deg, 45.0, 2.0);
     }
 
@@ -610,10 +1149,10 @@ mod tests {
         circuit
             .add_fixed_volt("V1", 5.0)
             .add_resistor("R1", 1_000.0)
-            .add_comp(crate::elements::Comp {
+            .add_comp(Comp {
                 id: "T1".into(),
                 kind: Kind::Transformer {
-                    state: crate::elements::TransformerState {
+                    state: TransformerState {
                         inductance1: 10.0,
                         inductance2: 10.0,
                         coupling: 0.0,
@@ -629,6 +1168,109 @@ mod tests {
             .connect("T1-p2", "GND-Gnd");
         let at = circuit.ac_at("V1", "T1-p1", 0.01).unwrap();
         near(at.mag, 2.5, 0.15);
+    }
+
+    #[test]
+    fn volt_source_turned_off_still_sweeps() {
+        let mut circuit = Circuit::new();
+        circuit
+            .add_comp(Comp {
+                id: "V1".into(),
+                kind: Kind::VoltSource {
+                    value: 0.0,
+                    running: false,
+                },
+            })
+            .add_resistor("R1", 1_000.0)
+            .add_resistor("R2", 1_000.0)
+            .add_ground("GND")
+            .connect("V1-outPin", "R1-lPin")
+            .connect("R1-rPin", "R2-lPin")
+            .connect("R2-rPin", "GND-Gnd");
+        let at = circuit.ac_at("V1", "R2-lPin", 1_000.0).unwrap();
+        near(at.gain, 0.5, 0.01);
+    }
+
+    #[test]
+    fn opamp_inverting_amplifier_ac_gain_and_phase() {
+        let mut circuit = Circuit::new();
+        circuit
+            .add_fixed_volt("VIN", 0.0)
+            .add_resistor("RIN", 1_000.0)
+            .add_resistor("RF", 10_000.0)
+            .add_opamp("U1")
+            .add_ground("GND")
+            .connect("VIN-outnod", "RIN-lPin")
+            .connect("RIN-rPin", "U1-inputInv")
+            .connect("U1-inputInv", "RF-lPin")
+            .connect("RF-rPin", "U1-output")
+            .connect("U1-inputNinv", "GND-Gnd");
+        let at = circuit.ac_at("VIN", "U1-output", 1_000.0).unwrap();
+        // Ideal inverting gain is -10; with finite open-loop gain 1000, |G| = 10 / (1 + 11/1000) ≈ 9.89
+        near(at.gain, 9.89, 0.15);
+        assert!(
+            at.phase_deg.abs() > 175.0,
+            "expected ~180 deg phase, got {}",
+            at.phase_deg
+        );
+    }
+
+    #[test]
+    fn bjt_common_emitter_small_signal_gain() {
+        let mut circuit = Circuit::new();
+        // Simple biased NPN common-emitter with emitter grounded and AC-coupled base drive:
+        // VCC = 10 V, RC = 1 kΩ, IB = 20 µA -> IC ≈ 2 mA -> gm ≈ IC/VT ≈ 0.077 S -> |Av| ≈ 77
+        circuit
+            .add_fixed_volt("VCC", 10.0)
+            .add_curr_source("IB", 20e-6)
+            .add_fixed_volt("VIN", 0.0)
+            .add_capacitor("CIN", 100e-6)
+            .add_resistor("RC", 1_000.0)
+            .add_bjt("Q1", false)
+            .add_ground("GND")
+            .connect("VCC-outnod", "RC-lPin")
+            .connect("RC-rPin", "Q1-collector")
+            .connect("IB-outPin", "Q1-base")
+            .connect("VIN-outnod", "CIN-lPin")
+            .connect("CIN-rPin", "Q1-base")
+            .connect("Q1-emiter", "GND-Gnd");
+        let at = circuit.ac_at("VIN", "Q1-collector", 10_000.0).unwrap();
+        // Midband inverting voltage gain should be substantial (~50..90) and ~180 deg phase.
+        assert!(
+            at.gain > 40.0 && at.gain < 120.0,
+            "unexpected BJT gain {}",
+            at.gain
+        );
+        assert!(
+            at.phase_deg.abs() > 170.0,
+            "expected inverting phase, got {}",
+            at.phase_deg
+        );
+    }
+
+    #[test]
+    fn differential_and_multi_probe_ac_sweep() {
+        let mut circuit = Circuit::new();
+        circuit
+            .add_fixed_volt("V1", 5.0)
+            .add_resistor("R1", 1_000.0)
+            .add_resistor("R2", 1_000.0)
+            .add_ground("GND")
+            .connect("V1-outnod", "R1-lPin")
+            .connect("R1-rPin", "R2-lPin")
+            .connect("R2-rPin", "GND-Gnd");
+        let traces = circuit
+            .ac_sweep_multi(
+                "V1",
+                &[("R1-lPin", Some("R1-rPin")), ("R2-lPin", None)],
+                100.0,
+                1_000.0,
+                2,
+            )
+            .unwrap();
+        assert_eq!(traces.len(), 2);
+        near(traces[0].points[0].gain, 0.5, 0.01);
+        near(traces[1].points[0].gain, 0.5, 0.01);
     }
 
     #[test]

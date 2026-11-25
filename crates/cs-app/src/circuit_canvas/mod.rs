@@ -11,6 +11,7 @@ mod scope_screen;
 mod screen;
 pub mod selection;
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -3371,6 +3372,28 @@ impl CircuitCanvas {
         plots::ac_sweep_json(&self.inner, &source, &probe, f_start, f_stop, per_decade)
     }
 
+    /// Multi-probe / differential AC sweep returning one trace per probe pin.
+    #[qslot]
+    fn ac_sweep_multi(
+        &self,
+        source: String,
+        probes_json: String,
+        ref_pin: String,
+        f_start: f64,
+        f_stop: f64,
+        per_decade: i32,
+    ) -> Value {
+        plots::ac_sweep_multi_json(
+            &self.inner,
+            &source,
+            &probes_json,
+            &ref_pin,
+            f_start,
+            f_stop,
+            per_decade,
+        )
+    }
+
     /// Independent DC sources for the DC parameter sweep / curve tracer.
     #[qslot]
     fn dc_sources(&self) -> Value {
@@ -3409,6 +3432,55 @@ impl CircuitCanvas {
             secondary_step,
             &probe_pin,
         )
+    }
+
+    /// Multi-probe / differential DC parameter sweep.
+    #[qslot]
+    fn dc_sweep_multi(
+        &self,
+        primary_source: String,
+        primary_start: f64,
+        primary_stop: f64,
+        primary_step: f64,
+        secondary_source: String,
+        secondary_start: f64,
+        secondary_stop: f64,
+        secondary_step: f64,
+        probes_json: String,
+        ref_pin: String,
+    ) -> Value {
+        plots::dc_sweep_multi_json(
+            &self.inner,
+            &primary_source,
+            primary_start,
+            primary_stop,
+            primary_step,
+            &secondary_source,
+            secondary_start,
+            secondary_stop,
+            secondary_step,
+            &probes_json,
+            &ref_pin,
+        )
+    }
+
+    /// Writes UTF-8 text (e.g. exported sweep CSV) to a file URL or path.
+    #[qslot]
+    fn save_text_file(&self, url: String, content: String) -> Value {
+        let path = strip_file_url(&url);
+        if path.is_empty() {
+            return json!({ "error": "Invalid file path." });
+        }
+        match fs::write(&path, content) {
+            Ok(()) => json!({ "ok": true, "path": path }),
+            Err(e) => json!({ "error": e.to_string() }),
+        }
+    }
+
+    /// Converts a `file://` URL from a QML `FileDialog` to a local filesystem path.
+    #[qslot]
+    fn local_path_from_url(&self, url: String) -> String {
+        strip_file_url(&url)
     }
 
     fn save_netlist(&mut self, url: &str, spice: bool) {

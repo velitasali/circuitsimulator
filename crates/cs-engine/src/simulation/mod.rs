@@ -26,7 +26,11 @@ mod reactive;
 #[cfg(test)]
 mod tests;
 
-pub use dc_sweep::{DcCurve, DcPoint, DcSourceInfo, DcSweepParams, DcSweepResult};
+pub use ac::{AcPoint, AcTrace};
+pub use dc_sweep::{
+    DcCurve, DcPoint, DcProbeSeries, DcSourceInfo, DcSweepMultiParams, DcSweepMultiResult,
+    DcSweepParams, DcSweepResult,
+};
 
 #[derive(Clone, Debug)]
 pub struct Circuit {

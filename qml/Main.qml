@@ -249,8 +249,10 @@ ApplicationWindow {
     OwnedWindow {
         id: bodeWin
         title: I18n.tr("AC Sweep")
-        width: 820
-        height: 560
+        width: 980
+        height: 640
+        contentMinWidth: 780
+        contentMinHeight: 480
         panelSource: "BodeView.qml"
 
         onClosing: (close) => {
@@ -264,8 +266,10 @@ ApplicationWindow {
     OwnedWindow {
         id: curveTracerWin
         title: I18n.tr("DC Parameter Sweep / Curve Tracer")
-        width: 920
-        height: 620
+        width: 1020
+        height: 680
+        contentMinWidth: 820
+        contentMinHeight: 500
         panelSource: "CurveTracerView.qml"
 
         onClosing: (close) => {

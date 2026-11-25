@@ -71,8 +71,27 @@ QtObject {
     }
 
     function readNumber(text: string, fallback: real): real {
-        var v = Number(text)
-        return isFinite(v) ? v : fallback
+        var s = String(text || "").trim()
+        if (!s) return fallback
+        var v = Number(s)
+        if (isFinite(v)) return v
+        var m = s.match(/^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*([pnu\u00B5\u03BCmkMG])?(?:Hz|hz|V|v|A|a|\u03A9|[Oo]hms?)?$/)
+        if (!m) return fallback
+        var base = Number(m[1])
+        if (!isFinite(base)) return fallback
+        var mult = 1.0
+        switch (m[2]) {
+            case "p": mult = 1e-12; break
+            case "n": mult = 1e-9; break
+            case "u":
+            case "\u00B5":
+            case "\u03BC": mult = 1e-6; break
+            case "m": mult = 1e-3; break
+            case "k": mult = 1e3; break
+            case "M": mult = 1e6; break
+            case "G": mult = 1e9; break
+        }
+        return base * mult
     }
 
     readonly property bool isMacOS: Qt.platform.os === "osx" || Qt.platform.os === "macos"

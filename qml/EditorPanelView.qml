@@ -131,7 +131,7 @@ Item {
                             onPressed: (mouse) => {
                                 mouse.accepted = true
                                 CircuitPanel.overlayClicked("editorPanel")
-                                tabContextMenu.targetIndex = tabBtn.index
+                                tabContextMenu.prepareForTab(tabBtn.index)
                                 var pt = mapToItem(root, mouse.x, mouse.y)
                                 tabContextMenu.popup(pt.x, pt.y)
                             }
@@ -230,6 +230,10 @@ Item {
             readonly property var docs: EditorPanel.documents || []
             readonly property int docCount: docs.length
             readonly property var targetDoc: (targetIndex >= 0 && targetIndex < docCount) ? docs[targetIndex] : null
+            readonly property string targetPath: (targetDoc && targetDoc.path) ? String(targetDoc.path) : ""
+            property bool targetInProject: false
+            property bool targetHasFile: false
+            property bool targetHasParentDir: false
             readonly property bool targetHasCompiler: Boolean(targetDoc && targetDoc.hasCompiler === true)
             readonly property bool targetHasSettings: Boolean(targetDoc && targetDoc.hasSettings === true)
             readonly property var allDevices: CircuitCanvas.firmwareDevices || []
@@ -252,6 +256,16 @@ Item {
             }
             readonly property bool showLoadFirmware: targetHasCompiler && activeDevice !== null
             readonly property bool showSetupFirmware: !targetHasCompiler && targetHasSettings
+            readonly property bool showFileActions: targetInProject || targetPath.length > 0
+
+            function prepareForTab(idx: int): void {
+                targetIndex = idx
+                var d = (idx >= 0 && idx < docCount) ? docs[idx] : null
+                var p = (d && d.path) ? String(d.path) : ""
+                targetInProject = p.length > 0 && FileBrowser.isInProject(p)
+                targetHasFile = p.length > 0 && FileBrowser.pathExists(p)
+                targetHasParentDir = p.length > 0 && FileBrowser.parentDirExists(p)
+            }
 
             function syncSubMenuRow(sub: AppContextMenu, shown: bool): void {
                 for (var i = 0; i < count; i++) {
@@ -328,6 +342,42 @@ Item {
 
             ContextMenuSeparator {
                 visible: tabContextMenu.showLoadFirmware || tabContextMenu.showSetupFirmware
+            }
+
+            ContextMenuItem {
+                visible: tabContextMenu.targetInProject
+                text: I18n.tr("Focus in File Tree")
+                iconLigature: "account_tree"
+                onTriggered: {
+                    if (tabContextMenu.targetPath.length > 0) {
+                        CircuitPanel.showSidePanel()
+                        App.sidePanelTab = 1
+                        FileBrowser.revealPath(tabContextMenu.targetPath)
+                    }
+                }
+            }
+            ContextMenuItem {
+                visible: tabContextMenu.targetPath.length > 0
+                enabled: tabContextMenu.targetHasFile
+                text: I18n.tr("Open Externally")
+                iconLigature: "open_in_new"
+                onTriggered: {
+                    if (tabContextMenu.targetPath.length > 0)
+                        FileBrowser.openExternally(tabContextMenu.targetPath)
+                }
+            }
+            ContextMenuItem {
+                visible: tabContextMenu.targetPath.length > 0
+                enabled: tabContextMenu.targetHasParentDir
+                text: I18n.tr("Open Containing Folder Externally")
+                iconLigature: "folder_open"
+                onTriggered: {
+                    if (tabContextMenu.targetPath.length > 0)
+                        FileBrowser.openParentExternally(tabContextMenu.targetPath)
+                }
+            }
+            ContextMenuSeparator {
+                visible: tabContextMenu.showFileActions
             }
 
             ContextMenuItem {

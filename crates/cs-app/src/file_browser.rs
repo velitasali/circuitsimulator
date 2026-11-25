@@ -9,8 +9,9 @@ use cs_engine::{i18n, project, settings};
 use qtbridge::{QObjectHolder, QmlMethodInvoker, qobject};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -133,6 +134,8 @@ impl FileBrowser {
     fn open_file(&mut self, path: String);
     #[qsignal]
     fn open_circuit(&mut self, path: String);
+    #[qsignal]
+    fn path_revealed(&mut self, path: String);
 
     fn root_path(&self) -> String {
         self.root_path.clone()
@@ -564,6 +567,115 @@ impl FileBrowser {
             open_in_system(&target);
         }
     }
+
+    #[qslot]
+    fn is_in_project(&self, path: String) -> bool {
+        resolve_project_entry(&self.root_path, &path).is_some()
+    }
+
+    #[qslot]
+    fn path_exists(&self, path: String) -> bool {
+        resolve_existing_path(&path).is_some()
+    }
+
+    #[qslot]
+    fn parent_dir_exists(&self, path: String) -> bool {
+        resolve_existing_parent_dir(&path).is_some()
+    }
+
+    fn reveal_path_inner(&mut self, path: &str) -> Option<(String, bool)> {
+        let resolved = resolve_project_entry(&self.root_path, path)?;
+        let mut hidden_changed = false;
+        if resolved.has_hidden_segment && !self.show_hidden {
+            self.show_hidden = true;
+            hidden_changed = true;
+        }
+        for dir in resolved.ancestor_dirs {
+            self.expanded_paths.insert(dir);
+        }
+        Some((resolved.entry_path, hidden_changed))
+    }
+
+    #[qslot]
+    fn reveal_path(&mut self, path: String) -> bool {
+        let Some((entry_path, hidden_changed)) = self.reveal_path_inner(&path) else {
+            return false;
+        };
+        if hidden_changed {
+            self.show_hidden_changed();
+        }
+        self.sync_watcher();
+        self.notify_entries_changed();
+        self.path_revealed(entry_path);
+        true
+    }
+}
+
+struct ResolvedProjectEntry {
+    entry_path: String,
+    ancestor_dirs: Vec<String>,
+    has_hidden_segment: bool,
+}
+
+fn resolve_project_entry(root_path: &str, path: &str) -> Option<ResolvedProjectEntry> {
+    let cleaned_root = strip_file_url(root_path);
+    let cleaned_target = strip_file_url(path);
+    if cleaned_root.is_empty() || cleaned_target.is_empty() {
+        return None;
+    }
+
+    let root = Path::new(&cleaned_root);
+    let target = Path::new(&cleaned_target);
+    if !root.is_dir() || !target.exists() {
+        return None;
+    }
+
+    let canon_root = fs::canonicalize(root).ok()?;
+    let rel = match fs::canonicalize(target)
+        .ok()
+        .and_then(|ct| ct.strip_prefix(&canon_root).ok().map(Path::to_path_buf))
+    {
+        Some(rel) if !rel.as_os_str().is_empty() => rel,
+        _ => {
+            let parent = target.parent()?;
+            let name = target.file_name()?;
+            let canon_parent = fs::canonicalize(parent).ok()?;
+            let parent_rel = canon_parent.strip_prefix(&canon_root).ok()?;
+            parent_rel.join(name)
+        }
+    };
+
+    let segments: Vec<&OsStr> = rel
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    if segments.is_empty() {
+        return None;
+    }
+
+    let mut has_hidden_segment = false;
+    let mut ancestor_dirs = Vec::new();
+    let mut cur = PathBuf::from(&cleaned_root);
+    for (idx, seg) in segments.iter().enumerate() {
+        if seg.to_string_lossy().starts_with('.') {
+            has_hidden_segment = true;
+        }
+        cur.push(seg);
+        let formatted = cur.to_string_lossy().replace('\\', "/");
+        if idx + 1 < segments.len() {
+            ancestor_dirs.push(formatted);
+        } else {
+            return Some(ResolvedProjectEntry {
+                entry_path: formatted,
+                ancestor_dirs,
+                has_hidden_segment,
+            });
+        }
+    }
+    None
 }
 
 fn remove_path_permanently(p: &Path) -> bool {
@@ -585,6 +697,33 @@ fn native_system_path(p: &Path) -> PathBuf {
     }
 }
 
+fn resolve_existing_path(path: &str) -> Option<PathBuf> {
+    let cleaned = strip_file_url(path);
+    if cleaned.is_empty() {
+        return None;
+    }
+    let native = native_system_path(Path::new(&cleaned));
+    native.exists().then_some(native)
+}
+
+fn resolve_existing_parent_dir(path: &str) -> Option<PathBuf> {
+    let cleaned = strip_file_url(path);
+    if cleaned.is_empty() {
+        return None;
+    }
+    let native = native_system_path(Path::new(&cleaned));
+    if let Some(parent) = native
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty() && p.exists())
+    {
+        Some(native_system_path(parent))
+    } else if native.is_dir() {
+        Some(native)
+    } else {
+        None
+    }
+}
+
 fn resolve_external_target(root_path: &str, path: &str) -> Option<PathBuf> {
     let cleaned = strip_file_url(path);
     let candidate = if cleaned.is_empty() {
@@ -600,7 +739,11 @@ fn resolve_external_target(root_path: &str, path: &str) -> Option<PathBuf> {
 }
 
 fn resolve_parent_target(root_path: &str, path: &str) -> Option<PathBuf> {
-    let target = resolve_external_target(root_path, path)?;
+    let cleaned = strip_file_url(path);
+    if !cleaned.is_empty() {
+        return resolve_existing_parent_dir(&cleaned);
+    }
+    let target = resolve_external_target(root_path, "")?;
     if let Some(parent) = target
         .parent()
         .filter(|p| !p.as_os_str().is_empty() && p.exists())
@@ -1079,6 +1222,104 @@ mod tests {
             assert!(!parent_of_file.to_string_lossy().contains('/'));
             assert!(!parent_of_dir.to_string_lossy().contains('/'));
         }
+
+        // Deleted file still resolves its existing parent directory.
+        let deleted_file = nested_dir.join("removed.c");
+        let deleted_forward = deleted_file.to_string_lossy().replace('\\', "/");
+        assert!(resolve_existing_path(&deleted_forward).is_none());
+        assert_eq!(
+            resolve_parent_target(&base_forward, &deleted_forward).unwrap(),
+            native_system_path(&nested_dir)
+        );
+        assert!(resolve_existing_path("").is_none());
+        assert!(resolve_existing_parent_dir("").is_none());
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_resolve_project_entry_and_reveal_expands_ancestors_and_hidden() {
+        let base = std::env::temp_dir().join("cs_test_reveal_project_entry");
+        let _ = fs::remove_dir_all(&base);
+        let proj = base.join("proj");
+        let sibling = base.join("proj2");
+        let nested_dir = proj.join("src").join("drivers");
+        let hidden_dir = proj.join(".hidden_cfg");
+        fs::create_dir_all(&nested_dir).unwrap();
+        fs::create_dir_all(&hidden_dir).unwrap();
+        fs::create_dir_all(&sibling).unwrap();
+
+        let top_file = proj.join("main.c");
+        let nested_file = nested_dir.join("uart.c");
+        let hidden_file = hidden_dir.join("config.json");
+        let outside_file = sibling.join("other.c");
+        for f in [&top_file, &nested_file, &hidden_file, &outside_file] {
+            fs::write(f, "test").unwrap();
+        }
+
+        let proj_str = proj.to_string_lossy().replace('\\', "/");
+        let top_str = top_file.to_string_lossy().replace('\\', "/");
+        let nested_str = nested_file.to_string_lossy().replace('\\', "/");
+        let hidden_str = hidden_file.to_string_lossy().replace('\\', "/");
+        let outside_str = outside_file.to_string_lossy().replace('\\', "/");
+
+        let mut fb = FileBrowser {
+            root_path: proj_str.clone(),
+            show_hidden: false,
+            clipboard: None,
+            expanded_paths: HashSet::new(),
+            expand_all: false,
+            watcher: None,
+            last_has_project: true,
+            last_visible_snapshot: None,
+        };
+
+        assert!(fb.is_in_project(top_str.clone()));
+        assert!(fb.is_in_project(nested_str.clone()));
+        assert!(fb.is_in_project(hidden_str.clone()));
+        assert!(!fb.is_in_project(outside_str.clone()));
+        assert!(!fb.is_in_project(proj_str.clone()));
+        assert!(!fb.is_in_project(String::new()));
+
+        // Nested file is not visible until revealed.
+        let entries_before = fb.entries();
+        assert!(
+            !entries_before
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["path"] == nested_str)
+        );
+
+        let (revealed_nested, hidden_changed) = fb.reveal_path_inner(&nested_str).unwrap();
+        assert_eq!(revealed_nested, nested_str);
+        assert!(!hidden_changed);
+        assert!(!fb.show_hidden);
+        let entries_after_nested = fb.entries();
+        assert!(
+            entries_after_nested
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["path"] == revealed_nested)
+        );
+
+        // Revealing a file under a dot-directory enables show_hidden and exposes it in entries.
+        let (revealed_hidden, hidden_changed) = fb.reveal_path_inner(&hidden_str).unwrap();
+        assert_eq!(revealed_hidden, hidden_str);
+        assert!(hidden_changed);
+        assert!(fb.show_hidden);
+        let entries_after_hidden = fb.entries();
+        assert!(
+            entries_after_hidden
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["path"] == revealed_hidden)
+        );
+
+        // Outside file cannot be revealed.
+        assert!(fb.reveal_path_inner(&outside_str).is_none());
 
         let _ = fs::remove_dir_all(&base);
     }

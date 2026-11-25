@@ -14,6 +14,7 @@ Item {
 
     property string selectedPath: ""
     property bool selectedIsDir: false
+    property string pendingRevealPath: ""
     property string trashTargetPath: ""
     property bool trashTargetIsDir: false
     readonly property string projectName: FileBrowser.rootPath
@@ -75,12 +76,51 @@ Item {
         }
     }
 
+    function scrollToEntryPath( path: string ): bool {
+        if ( !path || path.length === 0 || listView.height <= 0 )
+            return false
+        for ( var j = 0; j < entryModel.count; ++j ) {
+            var cur = entryModel.get( j )
+            if ( cur && cur.path === path ) {
+                listView.forceLayout()
+                listView.positionViewAtIndex( j, ListView.Center )
+                listView.forceActiveFocus()
+                return true
+            }
+        }
+        return false
+    }
+
+    function focusEntryPath( path: string ): void {
+        if ( !path || path.length === 0 )
+            return
+        root.syncEntries()
+        for ( var i = 0; i < entryModel.count; ++i ) {
+            var item = entryModel.get( i )
+            if ( item && item.path === path ) {
+                root.selectedPath = item.path
+                root.selectedIsDir = item.isDir === true
+                break
+            }
+        }
+        root.pendingRevealPath = path
+        Qt.callLater( function() {
+            if ( root.pendingRevealPath === path && root.scrollToEntryPath( path ) ) {
+                root.pendingRevealPath = ""
+            }
+        } )
+    }
+
     ListModel { id: entryModel }
 
     Connections {
         target: FileBrowser
         function onEntriesChanged(): void { root.syncEntries() }
-        function onRootPathChanged(): void { root.syncEntries() }
+        function onRootPathChanged(): void {
+            root.pendingRevealPath = ""
+            root.syncEntries()
+        }
+        function onPathRevealed( path: string ): void { root.focusEntryPath( path ) }
     }
     Component.onCompleted: {
         FileBrowser.startWatching()
@@ -1652,6 +1692,7 @@ Item {
                     anchors.fill: parent
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: ( mouse ) => {
+                        root.pendingRevealPath = ""
                         root.selectedPath = FileBrowser.rootPath
                         root.selectedIsDir = true
                         if ( mouse.button === Qt.RightButton ) {
@@ -1670,6 +1711,14 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.vertical: AppScrollBar {}
                     ScrollBar.horizontal: AppScrollBar {}
+                    onHeightChanged: {
+                        if ( height > 0 && root.pendingRevealPath.length > 0 ) {
+                            var p = root.pendingRevealPath
+                            if ( root.scrollToEntryPath( p ) ) {
+                                root.pendingRevealPath = ""
+                            }
+                        }
+                    }
 
                     delegate: Item {
                         id: rowDelegate
@@ -1745,10 +1794,12 @@ Item {
                         TapHandler {
                             acceptedButtons: Qt.LeftButton
                             onTapped: {
+                                root.pendingRevealPath = ""
                                 root.selectedPath = rowDelegate.model.path
                                 root.selectedIsDir = rowDelegate.model.isDir
                             }
                             onDoubleTapped: {
+                                root.pendingRevealPath = ""
                                 root.selectedPath = rowDelegate.model.path
                                 root.selectedIsDir = rowDelegate.model.isDir
                                 if ( rowDelegate.model.isDir ) FileBrowser.toggleExpand( rowDelegate.model.path )
@@ -1760,6 +1811,7 @@ Item {
                             acceptedButtons: Qt.RightButton
                             gesturePolicy: TapHandler.ReleaseWithinBounds
                             onTapped: {
+                                root.pendingRevealPath = ""
                                 root.selectedPath = rowDelegate.model.path
                                 root.selectedIsDir = rowDelegate.model.isDir
                                 contextMenu.popup()

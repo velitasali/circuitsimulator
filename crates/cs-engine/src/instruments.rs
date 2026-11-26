@@ -93,17 +93,14 @@ pub fn scope_h_divs(width: f64) -> f64 {
 }
 
 /// Vertical divisions in one scope track for an expanded window of `height`
-/// logical pixels. A closed window keeps 10.
-pub fn scope_v_divs_per_track(height: f64, tracks: i32) -> f64 {
+/// logical pixels. Each track scales its vertical division height by
+/// `1 / tracks`, so every track keeps the same division count as 1-track mode.
+/// A closed window keeps 10.
+pub fn scope_v_divs_per_track(height: f64, _tracks: i32) -> f64 {
     if !height.is_finite() || height < 2.0 {
         return 10.0;
     }
-    let tracks = match tracks {
-        2 => 2.0,
-        4 => 4.0,
-        _ => 1.0,
-    };
-    (height / tracks / SCOPE_DIV_PX).max(0.25)
+    (height / SCOPE_DIV_PX).max(0.25)
 }
 
 /// Time columns in the expanded logic analyzer. Cells are square: a column is
@@ -1388,7 +1385,10 @@ mod tests {
         assert_eq!(display_columns(10.0), DISPLAY_N);
         assert_eq!(scope_h_divs(0.0), 10.0);
         assert_eq!(scope_h_divs(SCOPE_DIV_PX * 10.0), 10.0);
-        assert_eq!(scope_v_divs_per_track(SCOPE_DIV_PX * 20.0, 2), 10.0);
+        assert_eq!(scope_v_divs_per_track(SCOPE_DIV_PX * 10.0, 1), 10.0);
+        assert_eq!(scope_v_divs_per_track(SCOPE_DIV_PX * 10.0, 2), 10.0);
+        assert_eq!(scope_v_divs_per_track(SCOPE_DIV_PX * 10.0, 4), 10.0);
+        assert_eq!(scope_v_divs_per_track(SCOPE_DIV_PX * 20.0, 2), 20.0);
         assert_eq!(la_h_divs(1000.0, 800.0), 10.0);
         assert_eq!(la_h_divs(1600.0, 800.0), 16.0);
 

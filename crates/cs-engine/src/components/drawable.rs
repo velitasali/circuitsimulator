@@ -427,6 +427,13 @@ fn scope_track_count(tracks: i32) -> usize {
     }
 }
 
+/// Vertical division height in the expanded oscilloscope window. Scaling by
+/// `1 / tracks` keeps the same number of vertical divisions per track across
+/// 1-, 2-, and 4-track modes, matching the on-canvas oscilloscope symbol.
+fn scope_v_div_px(cell: f64, tracks: i32) -> f64 {
+    cell / scope_track_count(tracks) as f64
+}
+
 /// Graticule in `rect` = `(x, y, w, h)`. `px` scales line widths. `tick` is the
 /// crosshair tick length in the same units as `rect`.
 fn paint_scope_grid(
@@ -456,8 +463,13 @@ fn paint_scope_grid(
     for gy in 1..v_divs {
         let y = y0 + h * (gy as f64) / (v_divs as f64);
         let is_center = track_centers.iter().any(|&tc| (y - tc).abs() < 0.5);
-        let c = if is_center { accent } else { grid };
-        let lw = px * if is_center { 1.2 } else { 0.75 };
+        let is_boundary = num_tracks > 1 && gy % 10 == 0;
+        let c = if is_center || is_boundary {
+            accent
+        } else {
+            grid
+        };
+        let lw = px * if is_center || is_boundary { 1.2 } else { 0.75 };
         d.line(x0, y, end_x, y, c, lw);
     }
     for gx in 1..10 {
@@ -599,19 +611,22 @@ fn paint_scope_waves(
         return;
     }
     let num_tracks = scope_track_count(tracks);
-    d.push_clip_rect(x0, y0, w, h);
+    let track_h = h / (num_tracks as f64);
 
     for (c, ch) in buf.channels.iter().enumerate().take(4) {
         if hidden.get(c).copied().unwrap_or(false) || !ch.connected || ch.samples.len() < 2 {
             continue;
         }
         let track_idx = c % num_tracks;
-        let track_h = h / (num_tracks as f64);
-        let track_center_y = y0 + (track_idx as f64 + 0.5) * track_h;
+        let track_top = y0 + (track_idx as f64) * track_h;
+        let track_bot = track_top + track_h;
+        let track_center_y = track_top + 0.5 * track_h;
         let vd = volt_divs.get(c).copied().unwrap_or(1.0);
         let vp = volt_pos.get(c).copied().unwrap_or(0.0);
         let color = parse_hex(&ch.color);
         let y_of = |v: f64| scope_trace_y(v, track_center_y, vp, div_px, vd);
+
+        d.push_clip_rect(x0, track_top, w, track_h);
 
         let pts = trace_points(ch, x0, w, y_of);
         d.polyline(&pts, color, px * 1.5, false);
@@ -622,22 +637,22 @@ fn paint_scope_waves(
                 let y_max = y_of(max_v);
                 let y_min = y_of(min_v);
                 let label_x = x0 + if c % 2 == 0 { 4.0 * px } else { w - 50.0 * px };
-                if (y0..=y0 + h).contains(&y_max) {
+                if (track_top..=track_bot).contains(&y_max) {
                     d.polyline(&[[x0, y_max], [end_x, y_max]], color, px * 0.5, true);
                     d.text_bold(
                         label_x,
-                        (y_max - 12.0 * px).max(y0),
+                        (y_max - 12.0 * px).max(track_top),
                         &format!("{max_v:.2}V"),
                         9.0 * px,
                         color,
                         Align::TopLeft,
                     );
                 }
-                if (y0..=y0 + h).contains(&y_min) {
+                if (track_top..=track_bot).contains(&y_min) {
                     d.polyline(&[[x0, y_min], [end_x, y_min]], color, px * 0.5, true);
                     d.text_bold(
                         label_x,
-                        (y_min + 2.0 * px).min(y0 + h - 10.0 * px),
+                        (y_min + 2.0 * px).min(track_bot - 10.0 * px).max(track_top),
                         &format!("{min_v:.2}V"),
                         9.0 * px,
                         color,
@@ -646,9 +661,9 @@ fn paint_scope_waves(
                 }
             }
         }
-    }
 
-    d.pop_clip();
+        d.pop_clip();
+    }
 }
 
 /// Positions `origin + k * step` that fall inside `(min, max)`. `k = 0` is the center.
@@ -678,8 +693,10 @@ fn for_each_grid_pos(origin: f64, step: f64, min: f64, max: f64, mut f: impl FnM
     }
 }
 
-/// Expanded-scope graticule. Divisions are `cell` pixels square, anchored on the
-/// trigger at the horizontal center and on each track's volt-position line.
+/// Expanded-scope graticule. Horizontal divisions are `cell` pixels wide,
+/// anchored on the trigger at the horizontal center. Vertical divisions scale
+/// by `1 / tracks` so each track keeps the same division count across 1-, 2-,
+/// and 4-track modes, anchored on each track's volt-position line.
 fn paint_scope_window_grid(
     d: &mut dyn Draw,
     rect: (f64, f64, f64, f64),
@@ -698,6 +715,7 @@ fn paint_scope_window_grid(
     let end_y = y0 + h;
     let h_center = x0 + w * 0.5;
     let num_tracks = scope_track_count(tracks);
+    let v_cell = scope_v_div_px(cell, tracks);
     let mut centers = [0.0; 4];
     for t in 0..num_tracks {
         centers[t] = y0 + (t as f64 + 0.5) * h / (num_tracks as f64);
@@ -715,29 +733,40 @@ fn paint_scope_window_grid(
     for (t, &tc) in track_centers.iter().enumerate() {
         let band_top = y0 + t as f64 * band_h;
         let band_bot = band_top + band_h;
-        for_each_grid_pos(tc, cell, band_top, band_bot, |y, center| {
+        for_each_grid_pos(tc, v_cell, band_top, band_bot, |y, center| {
             let c = if center { accent } else { grid };
             let lw = if center { center_w } else { major };
             d.line(x0, y, end_x, y, c, lw);
         });
     }
+    for t in 1..num_tracks {
+        let y = y0 + t as f64 * band_h;
+        d.line(x0, y, end_x, y, accent, center_w);
+    }
 
     let tick_w = px * 0.75;
-    let minor = cell / 5.0;
+    let h_minor = cell / 5.0;
+    let v_sub = if num_tracks >= 4 { 2.0 } else { 5.0 };
+    let v_minor = v_cell / v_sub;
     for &tc in track_centers {
-        for_each_grid_pos(h_center, minor, x0, end_x, |x, _| {
+        for_each_grid_pos(h_center, h_minor, x0, end_x, |x, _| {
             d.line(x, tc - tick, x, tc + tick, accent, tick_w);
         });
     }
-    for_each_grid_pos(y0 + h * 0.5, minor, y0, end_y, |y, _| {
-        d.line(h_center - tick, y, h_center + tick, y, accent, tick_w);
-    });
+    for (t, &tc) in track_centers.iter().enumerate() {
+        let band_top = y0 + t as f64 * band_h;
+        let band_bot = band_top + band_h;
+        for_each_grid_pos(tc, v_minor, band_top, band_bot, |y, _| {
+            d.line(h_center - tick, y, h_center + tick, y, accent, tick_w);
+        });
+    }
 }
 
 /// Scope window picture: graticule, traces, and the expanded-view min/max marks.
 /// Coordinates are the item's device-pixel rectangle. `px` is the device pixel
-/// ratio, so one division stays [`crate::instruments::SCOPE_DIV_PX`] logical
-/// pixels. The caller clears with `ScopePaper`.
+/// ratio, so one horizontal division stays [`crate::instruments::SCOPE_DIV_PX`]
+/// logical pixels and vertical divisions scale by `1 / tracks`. The caller clears
+/// with `ScopePaper`.
 pub fn paint_scope_screen(
     d: &mut dyn Draw,
     width: f64,
@@ -754,6 +783,7 @@ pub fn paint_scope_screen(
     let grid = scope_color(ColorId::ScopeWindowGrid);
     let accent = scope_color(ColorId::ScopeWindowAccent);
     let cell = crate::instruments::SCOPE_DIV_PX * px;
+    let v_cell = scope_v_div_px(cell, tracks);
     paint_scope_window_grid(d, rect, tracks, grid, accent, px, 1.5 * px, cell);
     let mid = width * 0.5;
     d.line(
@@ -765,7 +795,7 @@ pub fn paint_scope_screen(
         px * 1.5,
     );
     paint_scope_waves(
-        d, rect, traces, volt_divs, volt_pos, tracks, hidden, px, cell, true,
+        d, rect, traces, volt_divs, volt_pos, tracks, hidden, px, v_cell, true,
     );
 }
 
@@ -998,6 +1028,7 @@ pub fn scope_signal_at(
         return Vec::new();
     }
     let num_tracks = scope_track_count(tracks);
+    let track_div_px = scope_v_div_px(div_px, tracks);
     let mut out = Vec::new();
     for (c, ch) in traces.channels.iter().enumerate().take(4) {
         if hidden.get(c).copied().unwrap_or(false) || !ch.connected || ch.samples.len() < 2 {
@@ -1008,7 +1039,7 @@ pub fn scope_signal_at(
         let track_center_y = (track_idx as f64 + 0.5) * track_h;
         let vd = volt_divs.get(c).copied().unwrap_or(1.0);
         let vp = volt_pos.get(c).copied().unwrap_or(0.0);
-        let y_of = |v: f64| scope_trace_y(v, track_center_y, vp, div_px, vd);
+        let y_of = |v: f64| scope_trace_y(v, track_center_y, vp, track_div_px, vd);
         let values = levels_at(&trace_vertices(ch), fraction);
         push_levels(&mut out, c, fraction, width, &values, y_of);
     }
@@ -1454,6 +1485,165 @@ mod trace_hit_tests {
         assert_eq!(hits.len(), 1);
         near(hits[0].value, 1.0);
         near(hits[0].y, 52.0);
+    }
+
+    #[test]
+    fn multitrack_scales_divisions_and_clips_per_track() {
+        use super::paint_scope_screen;
+        use crate::canvas::Rect;
+        use crate::canvas::draw::{Align, Color, Draw};
+
+        struct ClipRecorder {
+            clips: Vec<(f64, f64, f64, f64)>,
+            lines: Vec<(f64, f64, f64, f64)>,
+            polylines: Vec<(Vec<[f64; 2]>, bool)>,
+            texts: Vec<(f64, f64, String)>,
+        }
+
+        impl Draw for ClipRecorder {
+            fn fill_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color) {}
+            fn stroke_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+            fn fill_round_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64, _: Color) {}
+            fn stroke_round_rect(
+                &mut self,
+                _: f64,
+                _: f64,
+                _: f64,
+                _: f64,
+                _: f64,
+                _: Color,
+                _: f64,
+            ) {
+            }
+            fn fill_circle(&mut self, _: f64, _: f64, _: f64, _: Color) {}
+            fn stroke_circle(&mut self, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+            fn fill_ellipse(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color) {}
+            fn stroke_ellipse(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+            fn fill_poly(&mut self, _: &[[f64; 2]], _: Color) {}
+            fn stroke_poly(&mut self, _: &[[f64; 2]], _: Color, _: f64, _: bool) {}
+            fn polyline(&mut self, pts: &[[f64; 2]], _: Color, _: f64, dash: bool) {
+                self.polylines.push((pts.to_vec(), dash));
+            }
+            fn line(&mut self, x0: f64, y0: f64, x1: f64, y1: f64, _: Color, _: f64) {
+                self.lines.push((x0, y0, x1, y1));
+            }
+            fn arc(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+            fn text(&mut self, x: f64, y: f64, s: &str, _: f64, _: Color, _: Align) {
+                self.texts.push((x, y, s.to_string()));
+            }
+            fn text_bold(&mut self, x: f64, y: f64, s: &str, _: f64, _: Color, _: Align) {
+                self.texts.push((x, y, s.to_string()));
+            }
+            fn grid_dots(&mut self, _: Rect, _: i32, _: Color) {}
+            fn push(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64) {}
+            fn pop(&mut self) {}
+            fn push_clip_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
+                self.clips.push((x, y, w, h));
+            }
+        }
+
+        // 480 px tall => 10 vertical divisions per track for 1, 2, or 4 tracks.
+        let h = SCOPE_DIV_PX * 10.0;
+        let w = 400.0;
+        let ch0 = channel(&[0.0, 1.0], &[4.0, 4.0]); // fits inside track 0 (+4 div)
+        let ch1 = channel(&[0.0, 1.0], &[8.0, 8.0]); // overflows above track 1 (+8 div > +5 div)
+        let buf = PlotBuffer {
+            channels: vec![ch0, ch1],
+            n: 2,
+        };
+
+        let mut rec = ClipRecorder {
+            clips: Vec::new(),
+            lines: Vec::new(),
+            polylines: Vec::new(),
+            texts: Vec::new(),
+        };
+        paint_scope_screen(
+            &mut rec,
+            w,
+            h,
+            Some(&buf),
+            &[1.0; 4],
+            &[0.0; 4],
+            2,
+            &[false; 4],
+            1.0,
+        );
+
+        // Each channel clips to its own 240 px band.
+        assert_eq!(
+            rec.clips,
+            vec![(0.0, 0.0, w, 240.0), (0.0, 240.0, w, 240.0)]
+        );
+
+        // Track divider is drawn at y = 240.0 across the full width.
+        assert!(
+            rec.lines.iter().any(|&(x0, y0, x1, y1)| x0 == 0.0
+                && x1 == w
+                && (y0 - 240.0).abs() < 1e-6
+                && (y1 - 240.0).abs() < 1e-6),
+            "expected a track divider at y = 240"
+        );
+
+        // Track 0 (ch0 = 4 V): center 120, v_div = 24 => y = 120 - 4*24 = 24 (inside track 0).
+        // Track 1 (ch1 = 8 V): center 360, v_div = 24 => y = 360 - 8*24 = 168 (above track 1, so no min/max label leaks into track 0).
+        let solid: Vec<&Vec<[f64; 2]>> = rec
+            .polylines
+            .iter()
+            .filter(|(_, dash)| !dash)
+            .map(|(pts, _)| pts)
+            .collect();
+        assert_eq!(solid.len(), 2);
+        near(solid[0][0][1], 24.0);
+        near(solid[1][0][1], 168.0);
+        assert!(rec.texts.iter().any(|(_, _, s)| s == "4.00V"));
+        assert!(
+            rec.texts.iter().all(|(_, _, s)| s != "8.00V"),
+            "overflowing track 1 marker must not render into track 0"
+        );
+
+        // Cursor hit y matches the painted trace y for both tracks.
+        let hits = scope_signal_at(
+            w,
+            h,
+            0.5,
+            SCOPE_DIV_PX,
+            &buf,
+            &[1.0; 4],
+            &[0.0; 4],
+            2,
+            &[false; 4],
+        );
+        assert_eq!(hits.len(), 2);
+        near(hits[0].y, 24.0);
+        near(hits[1].y, 168.0);
+
+        // 4-track mode: 480 px => 120 px/track, v_div = 12 px, +5 V stays inside track 0 (60 - 5*12 = 0).
+        let buf4 = PlotBuffer {
+            channels: vec![
+                channel(&[0.0, 1.0], &[5.0, 5.0]),
+                channel(&[0.0, 1.0], &[5.0, 5.0]),
+                channel(&[0.0, 1.0], &[5.0, 5.0]),
+                channel(&[0.0, 1.0], &[5.0, 5.0]),
+            ],
+            n: 2,
+        };
+        let hits4 = scope_signal_at(
+            w,
+            h,
+            0.5,
+            SCOPE_DIV_PX,
+            &buf4,
+            &[1.0; 4],
+            &[0.0; 4],
+            4,
+            &[false; 4],
+        );
+        assert_eq!(hits4.len(), 4);
+        near(hits4[0].y, 0.0);
+        near(hits4[1].y, 120.0);
+        near(hits4[2].y, 240.0);
+        near(hits4[3].y, 360.0);
     }
 
     #[test]

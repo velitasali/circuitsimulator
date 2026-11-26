@@ -424,12 +424,16 @@ Rectangle {
                     delegate: Rectangle {
                         id: hitDot
                         required property var modelData
+                        readonly property int numTracks: ( Oscilloscope.tracks === 2 || Oscilloscope.tracks === 4 ) ? Oscilloscope.tracks : 1
+                        readonly property int trackIdx: hitDot.modelData.channel % numTracks
+                        readonly property real trackH: cursorOverlay.height / numTracks
+                        readonly property real trackTop: trackIdx * trackH
                         width: 7
                         height: 7
                         radius: 3.5
                         x: Math.round( root.markerX ) - 3
                         y: Math.round( hitDot.modelData.y ) - 3
-                        visible: hitDot.modelData.y >= -1 && hitDot.modelData.y <= cursorOverlay.height + 1
+                        visible: hitDot.modelData.y >= trackTop - 1 && hitDot.modelData.y <= trackTop + trackH + 1
                         color: root.scopeChannelColor( hitDot.modelData.channel )
                         border.width: 1
                         border.color: Oscilloscope.cursorColor

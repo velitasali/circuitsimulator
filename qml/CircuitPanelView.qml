@@ -533,7 +533,13 @@ Item {
     Control {
         id: toolbar
         x: root.r("toolbar").x; y: root.r("toolbar").y
-        padding: 4
+        // Extra horizontal breathing room inside the pill caps, plus any extra
+        // vertical clearance if taller text/dropdown items expand the row height.
+        readonly property real endPadding: 5 + Math.max( 0, Math.round( ( toolbarRow.implicitHeight - toolbarGrip.implicitHeight ) / 2 ) )
+        topPadding: 4
+        bottomPadding: 4
+        leftPadding: toolbar.endPadding
+        rightPadding: toolbar.endPadding
         // Its x/y come back from updateOverlayLayout(), which needs the size it
         // just measured; this is the adjustSize() the QToolBar used to do.
         onImplicitWidthChanged: CircuitPanel.setToolbarSize( toolbar.implicitWidth, toolbar.implicitHeight )

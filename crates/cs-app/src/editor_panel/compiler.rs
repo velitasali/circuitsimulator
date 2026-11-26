@@ -173,6 +173,73 @@ impl EditorPanel {
         }
     }
 
+    /// Resolve an Arduino board selection to a valid FQBN (`packager:arch:board[:opts]`).
+    ///
+    /// When `self.arduino_boards` has not yet been populated from `arduino-cli board listall`
+    /// (e.g. cold-start Run before any sketch is opened in the editor), non-default board
+    /// names such as `"DOIT ESP32 DEVKIT V1"` would otherwise fall back to `Custom` with the
+    /// raw display name instead of an FQBN. In that case we first try a fast local `boards.txt`
+    /// scan under `Arduino15/packages`, and only fall back to `arduino-cli board listall` if
+    /// the board still isn't recognized.
+    pub(super) fn resolve_arduino_fqbn(
+        &mut self,
+        board: &str,
+        custom_board: &str,
+        raw_board: &str,
+        raw_custom_board: &str,
+        device: &str,
+        tool_path: &str,
+    ) -> String {
+        let qb = if !raw_board.is_empty() {
+            raw_board
+        } else {
+            board
+        };
+        let qc = if !raw_board.is_empty() {
+            raw_custom_board
+        } else {
+            custom_board
+        };
+
+        let (b, cb, _) = match_board(qb, qc, device, &self.arduino_boards);
+        let fqbn = resolve_board_fqbn(&b, &cb, &self.arduino_boards);
+        if fqbn.contains(':') {
+            return fqbn;
+        }
+
+        let local_boards = arduino::boards_from_arduino15();
+        let (b, cb, _) = match_board(qb, qc, device, &local_boards);
+        let local_fqbn = resolve_board_fqbn(&b, &cb, &local_boards);
+        if local_fqbn.contains(':') {
+            self.refresh_arduino_boards();
+            return local_fqbn;
+        }
+
+        if self.arduino_list_path.as_deref() != Some(tool_path) {
+            let loaded = if self.board_loading_path.as_deref() == Some(tool_path) {
+                self.board_rx.take().and_then(|rx| rx.recv().ok())
+            } else {
+                self.board_rx = None;
+                None
+            };
+            let (tp, boards) = match loaded {
+                Some(pair) => pair,
+                None => (tool_path.to_string(), list_arduino_boards(tool_path)),
+            };
+            self.arduino_list_path = Some(tp);
+            self.arduino_boards = boards;
+            self.board_loading_path = None;
+            self.reapply_arduino_board();
+            self.file_settings_changed();
+            self.compiling_changed();
+
+            let (b, cb, _) = match_board(qb, qc, device, &self.arduino_boards);
+            return resolve_board_fqbn(&b, &cb, &self.arduino_boards);
+        }
+
+        fqbn
+    }
+
     pub fn current_spec(&self) -> Option<&CompilerSpec> {
         let name = self.compiler_name();
         self.specs.get(&name)
@@ -251,6 +318,8 @@ impl EditorPanel {
             mut compiler_name,
             board,
             custom_board,
+            raw_board,
+            raw_custom_board,
             device,
             family,
             extra_args,
@@ -263,6 +332,8 @@ impl EditorPanel {
                 d.compiler.clone(),
                 d.board.clone(),
                 d.custom_board.clone(),
+                d.raw_board.clone(),
+                d.raw_custom_board.clone(),
                 d.device.clone(),
                 d.family.clone(),
                 d.extra_args.clone(),
@@ -335,8 +406,14 @@ impl EditorPanel {
                 ..Default::default()
             });
         let fqbn = if spec.is_arduino() {
-            let (b, cb, _) = match_board(&board, &custom_board, &device, &self.arduino_boards);
-            resolve_board_fqbn(&b, &cb, &self.arduino_boards)
+            self.resolve_arduino_fqbn(
+                &board,
+                &custom_board,
+                &raw_board,
+                &raw_custom_board,
+                &device,
+                &tool_path,
+            )
         } else {
             String::new()
         };
@@ -653,6 +730,8 @@ impl EditorPanel {
             mut compiler_name,
             board,
             custom_board,
+            raw_board,
+            raw_custom_board,
             device,
             family,
             extra_args,
@@ -666,6 +745,8 @@ impl EditorPanel {
                 d.compiler.clone(),
                 d.board.clone(),
                 d.custom_board.clone(),
+                d.raw_board.clone(),
+                d.raw_custom_board.clone(),
                 d.device.clone(),
                 d.family.clone(),
                 d.extra_args.clone(),
@@ -693,6 +774,8 @@ impl EditorPanel {
                 temp.compiler,
                 temp.board,
                 temp.custom_board,
+                temp.raw_board,
+                temp.raw_custom_board,
                 temp.device,
                 temp.family,
                 temp.extra_args,
@@ -768,8 +851,14 @@ impl EditorPanel {
         }
 
         let fqbn = if spec.is_arduino() {
-            let (b, cb, _) = match_board(&board, &custom_board, &device, &self.arduino_boards);
-            resolve_board_fqbn(&b, &cb, &self.arduino_boards)
+            self.resolve_arduino_fqbn(
+                &board,
+                &custom_board,
+                &raw_board,
+                &raw_custom_board,
+                &device,
+                &tool_path,
+            )
         } else {
             String::new()
         };

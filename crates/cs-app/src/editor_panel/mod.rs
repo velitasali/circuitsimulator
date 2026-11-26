@@ -2178,12 +2178,25 @@ impl EditorPanel {
 
     #[qslot]
     fn set_firmware_devices(&mut self, devices: Value) {
+        let has_arduino_file = devices.as_array().is_some_and(|arr| {
+            arr.iter().any(|item| {
+                let src = item
+                    .get("firmwareSource")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let lower = src.to_ascii_lowercase();
+                (lower.ends_with(".ino") || lower.ends_with(".pde")) && Path::new(src).is_file()
+            })
+        });
         let next_uids = build_firmware_device_uid_map(&devices);
         let next = build_firmware_mcu_map(devices);
         self.firmware_device_uids = next_uids;
         if self.firmware_mcus != next {
             self.firmware_mcus = next;
             self.documents_changed();
+        }
+        if has_arduino_file {
+            self.refresh_arduino_boards();
         }
     }
 
@@ -4056,5 +4069,134 @@ mod tests {
             ])
         );
         assert_eq!(panel.firmware_device_uids.get(&norm_unassigned), None);
+    }
+
+    #[test]
+    fn document_to_cfg_preserves_raw_board_before_board_discovery() {
+        let panel = EditorPanel::default_with_attached_qobject();
+        let panel = panel.borrow();
+        let settings = cs_engine::settings::AppSettings::default();
+        let mut doc = Document::untitled(1, "esp32_uart.ino".into());
+        doc.path = "/tmp/esp32_uart/esp32_uart.ino".into();
+        let cfg = cs_engine::editor::FileConfig {
+            compiler: "Arduino".into(),
+            board: "DOIT ESP32 DEVKIT V1".into(),
+            device: "esp32".into(),
+            ..Default::default()
+        };
+        // Apply with only default_boards() (simulating before async board discovery finishes).
+        doc.apply_cfg(cfg, &panel.specs, &settings, &default_boards());
+        assert_eq!(doc.board, "Custom");
+        assert_eq!(doc.custom_board, "DOIT ESP32 DEVKIT V1");
+        assert_eq!(doc.raw_board, "DOIT ESP32 DEVKIT V1");
+
+        // Persisting config before discovery must not overwrite Board with Custom.
+        let saved = doc.to_cfg();
+        assert_eq!(saved.board, "DOIT ESP32 DEVKIT V1");
+        assert_eq!(saved.custom_board, "");
+    }
+
+    #[test]
+    fn resolve_arduino_fqbn_uses_raw_board_and_local_packages_on_cold_start() {
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
+
+        // When arduino_boards already contains the board, raw_board resolves even if
+        // board/custom_board were temporarily mapped to Custom before discovery.
+        panel.arduino_boards.push(BoardEntry {
+            name: "DOIT ESP32 DEVKIT V1".into(),
+            fqbn: "esp32:esp32:esp32doit-devkit-v1".into(),
+        });
+        let fqbn = panel.resolve_arduino_fqbn(
+            "Custom",
+            "DOIT ESP32 DEVKIT V1",
+            "DOIT ESP32 DEVKIT V1",
+            "",
+            "esp32",
+            "",
+        );
+        assert_eq!(fqbn, "esp32:esp32:esp32doit-devkit-v1");
+
+        // When the machine has Arduino15 ESP32 installed, a completely cold panel
+        // (only default_boards()) still resolves DOIT ESP32 DEVKIT V1 to its FQBN
+        // without opening the firmware file first.
+        if cs_engine::editor::arduino::boards_from_arduino15()
+            .iter()
+            .any(|b| b.name.eq_ignore_ascii_case("DOIT ESP32 DEVKIT V1"))
+        {
+            panel.arduino_boards = default_boards();
+            panel.arduino_list_path = None;
+            let cold_fqbn = panel.resolve_arduino_fqbn(
+                "Custom",
+                "DOIT ESP32 DEVKIT V1",
+                "DOIT ESP32 DEVKIT V1",
+                "",
+                "esp32",
+                "",
+            );
+            assert_eq!(cold_fqbn, "esp32:esp32:esp32doit-devkit-v1");
+        }
+    }
+
+    #[test]
+    fn cold_start_compile_devices_for_sim_uses_cached_esp32_firmware_without_recompiling() {
+        if !cs_engine::editor::arduino::boards_from_arduino15()
+            .iter()
+            .any(|b| b.name.eq_ignore_ascii_case("DOIT ESP32 DEVKIT V1"))
+        {
+            return;
+        }
+
+        let dir = std::env::temp_dir().join("cs_test_cold_start_esp32_sim_run");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let ino = dir.join("esp32_uart.ino");
+        fs::write(&ino, "void setup() {}\nvoid loop() {}\n").unwrap();
+        let ino_str = ino.to_string_lossy().into_owned();
+        let cfg = cs_engine::editor::FileConfig {
+            compiler: "Arduino".into(),
+            board: "DOIT ESP32 DEVKIT V1".into(),
+            device: "esp32".into(),
+            ..Default::default()
+        };
+        cs_engine::editor::save_cfg(&ino_str, &cfg).unwrap();
+
+        let canon = fs::canonicalize(&ino)
+            .map(|p| p.to_string_lossy().trim_start_matches(r"\\?\").to_string())
+            .unwrap_or_else(|_| ino_str.clone());
+        let build_dir = cs_engine::editor::arduino::resolve_arduino_build_dir(
+            &canon,
+            "esp32:esp32:esp32doit-devkit-v1",
+        );
+        let _ = fs::remove_dir_all(&build_dir);
+        fs::create_dir_all(&build_dir).unwrap();
+        let payload = b"cached-esp32-merged-binary";
+        fs::write(build_dir.join("esp32_uart.ino.merged.bin"), payload).unwrap();
+        fs::write(dir.join("esp32_uart.bin"), payload).unwrap();
+
+        // Cold EditorPanel: no open docs, only default_boards() loaded.
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
+        assert_eq!(panel.docs.len(), 0);
+        assert!(panel.arduino_list_path.is_none());
+
+        let devices = json!([
+            { "uid": "esp32-1", "firmwareSource": ino_str, "isActive": true },
+        ]);
+        assert!(panel.compile_devices_for_sim_inner(devices, false));
+        assert!(
+            panel.compile_job.is_none(),
+            "expected up-to-date cached firmware hit without spawning arduino-cli compile"
+        );
+        assert_ne!(panel.compile_state, "error");
+        assert!(
+            panel.last_firmware.ends_with("esp32_uart.bin"),
+            "unexpected last_firmware: {}",
+            panel.last_firmware
+        );
+
+        let _ = fs::remove_dir_all(&build_dir);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

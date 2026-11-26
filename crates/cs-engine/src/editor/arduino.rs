@@ -1,7 +1,7 @@
 //! Arduino compilation via arduino-cli. C++ InoDebugger::compile.
 
 use std::cmp;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -873,11 +873,103 @@ pub fn parse_board_list(stdout: &str) -> Vec<BoardEntry> {
     entries
 }
 
-/// Discovered Arduino boards: default boards plus boards from `arduino-cli board listall`.
-pub fn list_arduino_boards(tool_path: &str) -> Vec<BoardEntry> {
+/// Parse `<board_id>.name=<display_name>` entries from an Arduino core's `boards.txt`.
+pub fn parse_boards_txt(boards_txt: &str, packager: &str, arch: &str) -> Vec<BoardEntry> {
+    let mut hidden: HashSet<String> = HashSet::new();
+    let mut raw: Vec<(String, String)> = Vec::new();
+    for line in boards_txt.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, val)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let val = val.trim();
+        if let Some(id) = key.strip_suffix(".hide") {
+            if !id.contains('.') && !val.eq_ignore_ascii_case("false") {
+                hidden.insert(id.to_string());
+            }
+        } else if let Some(id) = key.strip_suffix(".name") {
+            if !id.is_empty() && !id.contains('.') {
+                let name = val.replace([',', ';'], "").trim().to_string();
+                if !name.is_empty() {
+                    raw.push((id.to_string(), name));
+                }
+            }
+        }
+    }
+    let mut entries = Vec::new();
+    for (id, name) in raw {
+        if hidden.contains(&id) {
+            continue;
+        }
+        entries.push(BoardEntry {
+            name,
+            fqbn: format!("{packager}:{arch}:{id}"),
+        });
+    }
+    entries
+}
+
+fn append_boards_from_packages_dir(packages_dir: &Path, out: &mut Vec<BoardEntry>) {
+    let Ok(pkg_entries) = fs::read_dir(packages_dir) else {
+        return;
+    };
+    let mut pkg_paths: Vec<PathBuf> = pkg_entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    pkg_paths.sort();
+    for pkg_path in pkg_paths {
+        let Some(packager) = pkg_path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let hw_dir = pkg_path.join("hardware");
+        let Ok(arch_entries) = fs::read_dir(&hw_dir) else {
+            continue;
+        };
+        let mut arch_paths: Vec<PathBuf> = arch_entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        arch_paths.sort();
+        for arch_path in arch_paths {
+            let Some(arch) = arch_path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Some(ver_dir) = latest_subdir(&arch_path) else {
+                continue;
+            };
+            let Ok(text) = fs::read_to_string(ver_dir.join("boards.txt")) else {
+                continue;
+            };
+            for entry in parse_boards_txt(&text, packager, arch) {
+                if !out.iter().any(|b| b.name.eq_ignore_ascii_case(&entry.name)) {
+                    out.push(entry);
+                }
+            }
+        }
+    }
+}
+
+/// Fast local discovery of installed Arduino boards by reading `boards.txt`
+/// under `Arduino15/packages` (without spawning `arduino-cli`).
+pub fn boards_from_arduino15() -> Vec<BoardEntry> {
     let mut list = default_boards();
-    if let Some(cli) = find_arduino_cli(tool_path) {
-        let mut cmd = Command::new(&cli);
+    for a15 in arduino15_dirs() {
+        append_boards_from_packages_dir(&a15.join("packages"), &mut list);
+    }
+    list
+}
+
+fn list_arduino_boards_with_cli(cli: Option<&Path>) -> Vec<BoardEntry> {
+    let mut list = default_boards();
+    if let Some(cli) = cli {
+        let mut cmd = Command::new(cli);
         cmd.args(["board", "listall"]);
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
@@ -894,6 +986,11 @@ pub fn list_arduino_boards(tool_path: &str) -> Vec<BoardEntry> {
         }
     }
     list
+}
+
+/// Discovered Arduino boards: default boards plus boards from `arduino-cli board listall`.
+pub fn list_arduino_boards(tool_path: &str) -> Vec<BoardEntry> {
+    list_arduino_boards_with_cli(find_arduino_cli(tool_path).as_deref())
 }
 
 /// Formatted board list for UI ComboBox (Uno, Mega, Nano, Duemilanove, Custom, ...discovered).
@@ -1102,6 +1199,20 @@ pub fn match_board(
         } else {
             String::new()
         };
+        // If a display board name (not an FQBN) ended up in CustomBoard (e.g. saved
+        // before async board discovery completed), snap back to the matching board.
+        if !custom_val.is_empty() && !custom_val.contains(':') {
+            if let Some(entry) = boards
+                .iter()
+                .find(|b| b.name.eq_ignore_ascii_case(&custom_val))
+            {
+                return (
+                    entry.name.clone(),
+                    String::new(),
+                    device_for_board_or_fqbn(&entry.name, &entry.fqbn),
+                );
+            }
+        }
         let mcu = device_for_board_or_fqbn("Custom", &custom_val);
         return ("Custom".into(), custom_val, mcu);
     }
@@ -1393,6 +1504,19 @@ pub fn cached_up_to_date_firmware(file_path: &str, fqbn: &str, need_elf: bool) -
                 }
             }
         }
+        // Also check the DIO-overridden build directory on cold start before
+        // `DIO_BOARD_CACHE` has been populated for this session.
+        if !fqbn.to_ascii_lowercase().contains("flashmode=") {
+            let sep = if fqbn.matches(':').count() > 2 {
+                ","
+            } else {
+                ":"
+            };
+            let dio_fqbn = format!("{fqbn}{sep}FlashMode=dio");
+            if !candidate_fqbns.contains(&dio_fqbn) {
+                candidate_fqbns.push(dio_fqbn);
+            }
+        }
     }
     let built = candidate_fqbns.iter().find_map(|f| {
         let dir = resolve_arduino_build_dir(&canon_file, f);
@@ -1461,9 +1585,17 @@ pub fn start_arduino_compile(
     let (fqbn, dio_msg) = if device.contains(':') {
         resolve_dio_flash_mode_with_cli(device, Some(&cli))
     } else {
-        let boards = default_boards();
-        let (board, custom, _) = match_board(device, "", device, &boards);
-        let resolved = resolve_board_fqbn(&board, &custom, &boards);
+        let resolve_with = |boards: &[BoardEntry]| {
+            let (board, custom, _) = match_board(device, "", device, boards);
+            resolve_board_fqbn(&board, &custom, boards)
+        };
+        let mut resolved = resolve_with(&default_boards());
+        if !resolved.contains(':') {
+            resolved = resolve_with(&boards_from_arduino15());
+        }
+        if !resolved.contains(':') {
+            resolved = resolve_with(&list_arduino_boards_with_cli(Some(&cli)));
+        }
         if resolved.is_empty() {
             ("arduino:avr:uno".to_string(), None)
         } else {
@@ -2265,6 +2397,121 @@ mod tests {
             device_for_board_or_fqbn("DOIT ESP32 DEVKIT V1", ""),
             "esp32"
         );
+    }
+
+    #[test]
+    fn parse_boards_txt_extracts_visible_boards_and_skips_hidden_and_menus() {
+        let sample = concat!(
+            "# comment\n",
+            "menu.FlashMode=Flash Mode\n",
+            "esp32doit-devkit-v1.name=DOIT ESP32 DEVKIT V1\n",
+            "esp32doit-devkit-v1.menu.UploadSpeed.115200.name=115200\n",
+            "hidden1.name=Hidden Empty\n",
+            "hidden1.hide=\n",
+            "hidden2.name=Hidden True\n",
+            "hidden2.hide=true\n",
+            "visible_explicit.name=Visible Board, Rev2\n",
+            "visible_explicit.hide=false\n",
+        );
+        let entries = parse_boards_txt(sample, "esp32", "esp32");
+        assert_eq!(
+            entries,
+            vec![
+                BoardEntry {
+                    name: "DOIT ESP32 DEVKIT V1".into(),
+                    fqbn: "esp32:esp32:esp32doit-devkit-v1".into(),
+                },
+                BoardEntry {
+                    name: "Visible Board Rev2".into(),
+                    fqbn: "esp32:esp32:visible_explicit".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn append_boards_from_packages_dir_picks_latest_core_version() {
+        let root = std::env::temp_dir().join("cs_test_arduino15_boards_txt");
+        let _ = fs::remove_dir_all(&root);
+        let old_dir = root.join("esp32/hardware/esp32/2.0.14");
+        let new_dir = root.join("esp32/hardware/esp32/3.1.0");
+        fs::create_dir_all(&old_dir).unwrap();
+        fs::create_dir_all(&new_dir).unwrap();
+        fs::write(old_dir.join("boards.txt"), "legacy.name=Legacy ESP32\n").unwrap();
+        fs::write(
+            new_dir.join("boards.txt"),
+            "esp32doit-devkit-v1.name=DOIT ESP32 DEVKIT V1\n",
+        )
+        .unwrap();
+
+        let mut boards = default_boards();
+        append_boards_from_packages_dir(&root, &mut boards);
+        let (b, cb, dev) = match_board("DOIT ESP32 DEVKIT V1", "", "esp32", &boards);
+        assert_eq!(b, "DOIT ESP32 DEVKIT V1");
+        assert_eq!(cb, "");
+        assert_eq!(dev, "esp32");
+        assert_eq!(
+            resolve_board_fqbn(&b, &cb, &boards),
+            "esp32:esp32:esp32doit-devkit-v1"
+        );
+        assert!(!boards.iter().any(|e| e.name == "Legacy ESP32"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn match_board_heals_custom_display_name() {
+        let mut boards = default_boards();
+        boards.push(BoardEntry {
+            name: "DOIT ESP32 DEVKIT V1".into(),
+            fqbn: "esp32:esp32:esp32doit-devkit-v1".into(),
+        });
+
+        // A display board name accidentally stored under Custom snaps back to the named board.
+        let (b, cb, dev) = match_board("Custom", "DOIT ESP32 DEVKIT V1", "esp32", &boards);
+        assert_eq!(b, "DOIT ESP32 DEVKIT V1");
+        assert_eq!(cb, "");
+        assert_eq!(dev, "esp32");
+        assert_eq!(
+            resolve_board_fqbn(&b, &cb, &boards),
+            "esp32:esp32:esp32doit-devkit-v1"
+        );
+
+        // An actual custom FQBN stays Custom.
+        let (b, cb, _) = match_board("Custom", "esp32:esp32:my_custom", "esp32", &boards);
+        assert_eq!(b, "Custom");
+        assert_eq!(cb, "esp32:esp32:my_custom");
+    }
+
+    #[test]
+    fn cached_up_to_date_firmware_matches_cold_start_esp32_dio_build() {
+        let dir = std::env::temp_dir().join("cs_test_cold_start_esp32_cache");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let ino = dir.join("app.ino");
+        fs::write(&ino, "void setup() {}\nvoid loop() {}\n").unwrap();
+        let ino_str = ino.to_string_lossy().into_owned();
+        let canon = fs::canonicalize(&ino)
+            .map(|p| strip_windows_verbatim(&p.to_string_lossy()))
+            .unwrap_or_else(|_| ino_str.clone());
+
+        // Simulate a prior session's FlashMode=dio build for generic esp32:esp32:esp32
+        // without populating DIO_BOARD_CACHE in this process.
+        let dio_build = resolve_arduino_build_dir(&canon, "esp32:esp32:esp32:FlashMode=dio");
+        let _ = fs::remove_dir_all(&dio_build);
+        fs::create_dir_all(&dio_build).unwrap();
+        let merged = dio_build.join("app.ino.merged.bin");
+        let dest = dir.join("app.bin");
+        let payload = b"esp32-merged-firmware-bytes";
+        fs::write(&merged, payload).unwrap();
+        fs::write(&dest, payload).unwrap();
+
+        let found = cached_up_to_date_firmware(&ino_str, "esp32:esp32:esp32", false);
+        assert_eq!(found, Some(PathBuf::from(&canon).with_extension("bin")));
+
+        let _ = fs::remove_dir_all(&dio_build);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

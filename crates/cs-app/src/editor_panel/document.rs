@@ -119,6 +119,15 @@ impl Document {
     }
 
     pub fn to_cfg(&self) -> FileConfig {
+        let (board, custom_board) = if self.board.eq_ignore_ascii_case("custom")
+            && !self.raw_board.is_empty()
+            && !self.raw_board.eq_ignore_ascii_case("custom")
+            && !self.custom_board.contains(':')
+        {
+            (self.raw_board.clone(), self.raw_custom_board.clone())
+        } else {
+            (self.board.clone(), self.custom_board.clone())
+        };
         FileConfig {
             compiler: self.compiler.clone(),
             load_compiler: self.load_compiler,
@@ -127,8 +136,8 @@ impl Document {
             circuit: self.circuit.clone(),
             file_list: self.file_list.clone(),
             breakpoints: self.breakpoints.clone(),
-            board: self.board.clone(),
-            custom_board: self.custom_board.clone(),
+            board,
+            custom_board,
             device: self.device.clone(),
             family: self.family.clone(),
             extra_args: self.extra_args.clone(),

@@ -2,8 +2,8 @@
 
 use super::EditorPanel;
 use cs_engine::editor::{
-    self, CompileCtx, document_words, filter_completions, identifier_prefix, language_id_for_path,
-    match_board, resolve_board_fqbn, write_compile_flags,
+    self, CompileCtx, arduino, document_words, filter_completions, identifier_prefix,
+    language_id_for_path, match_board, resolve_board_fqbn, write_compile_flags,
 };
 use cs_engine::highlighter;
 use serde_json::{Value, json};
@@ -80,9 +80,25 @@ impl EditorPanel {
         };
         let spec = self.specs.get(&compiler_name).cloned().unwrap_or_default();
         let fqbn = if spec.is_arduino() || compiler_name.eq_ignore_ascii_case("arduino") {
-            let (b, cb, _) =
-                match_board(&d.board, &d.custom_board, &d.device, &self.arduino_boards);
-            resolve_board_fqbn(&b, &cb, &self.arduino_boards)
+            let qb = if !d.raw_board.is_empty() {
+                d.raw_board.as_str()
+            } else {
+                d.board.as_str()
+            };
+            let qc = if !d.raw_board.is_empty() {
+                d.raw_custom_board.as_str()
+            } else {
+                d.custom_board.as_str()
+            };
+            let (b, cb, _) = match_board(qb, qc, &d.device, &self.arduino_boards);
+            let resolved = resolve_board_fqbn(&b, &cb, &self.arduino_boards);
+            if resolved.contains(':') {
+                resolved
+            } else {
+                let local_boards = arduino::boards_from_arduino15();
+                let (b, cb, _) = match_board(qb, qc, &d.device, &local_boards);
+                resolve_board_fqbn(&b, &cb, &local_boards)
+            }
         } else {
             String::new()
         };

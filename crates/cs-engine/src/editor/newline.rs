@@ -1,10 +1,20 @@
 //! Context-aware newline indentation and smart bracket expansion.
 //! Parity with C++ `CodeEditor::handleNewline`.
 
+use std::sync::OnceLock;
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use super::format::detect_spacing_style;
+
+fn unbraced_ctrl_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"^(if\s*\(.*\)|else|else\s+if\s*\(.*\)|for\s*\(.*\)|while\s*\(.*\)|do)$")
+            .unwrap()
+    })
+}
 
 /// Represents the text replacement and cursor update to execute a newline edit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,19 +93,22 @@ pub fn calculate_newline(
         let orig_replace_start = raw_edit.replace_start;
         let orig_replace_end = raw_edit.replace_end + sel_byte_diff;
 
-        let modified_text = format!(
-            "{}{}{}",
-            &text[..orig_replace_start],
-            &raw_edit.insert_text,
-            &text[orig_replace_end..]
-        );
+        let replace_start = byte_to_utf16_offset(text, orig_replace_start);
+        let replace_end = replace_start
+            + byte_to_utf16_offset(
+                &text[orig_replace_start..],
+                orig_replace_end.saturating_sub(orig_replace_start),
+            );
+        let cursor_delta_bytes = raw_edit.new_cursor_pos.saturating_sub(orig_replace_start);
+        let new_cursor_pos =
+            replace_start + byte_to_utf16_offset(&raw_edit.insert_text, cursor_delta_bytes);
 
         NewlineEdit {
             valid: true,
-            replace_start: byte_to_utf16_offset(text, orig_replace_start),
-            replace_end: byte_to_utf16_offset(text, orig_replace_end),
+            replace_start,
+            replace_end,
             insert_text: raw_edit.insert_text,
-            new_cursor_pos: byte_to_utf16_offset(&modified_text, raw_edit.new_cursor_pos),
+            new_cursor_pos,
         }
     } else {
         let cursor_byte = utf16_to_byte_offset(text, cursor_utf16);
@@ -105,19 +118,24 @@ pub fn calculate_newline(
             return NewlineEdit::default();
         }
 
-        let modified_text = format!(
-            "{}{}{}",
-            &text[..raw_edit.replace_start],
-            &raw_edit.insert_text,
-            &text[raw_edit.replace_end..]
-        );
+        let replace_start = byte_to_utf16_offset(text, raw_edit.replace_start);
+        let replace_end = replace_start
+            + byte_to_utf16_offset(
+                &text[raw_edit.replace_start..],
+                raw_edit.replace_end.saturating_sub(raw_edit.replace_start),
+            );
+        let cursor_delta_bytes = raw_edit
+            .new_cursor_pos
+            .saturating_sub(raw_edit.replace_start);
+        let new_cursor_pos =
+            replace_start + byte_to_utf16_offset(&raw_edit.insert_text, cursor_delta_bytes);
 
         NewlineEdit {
             valid: true,
-            replace_start: byte_to_utf16_offset(text, raw_edit.replace_start),
-            replace_end: byte_to_utf16_offset(text, raw_edit.replace_end),
+            replace_start,
+            replace_end,
             insert_text: raw_edit.insert_text,
-            new_cursor_pos: byte_to_utf16_offset(&modified_text, raw_edit.new_cursor_pos),
+            new_cursor_pos,
         }
     }
 }
@@ -235,9 +253,7 @@ fn calculate_newline_bytes(
 
     // Check 3: Check if indentation should increase
     let mut extra_indent = false;
-    let unbraced_ctrl_re =
-        Regex::new(r"^(if\s*\(.*\)|else|else\s+if\s*\(.*\)|for\s*\(.*\)|while\s*\(.*\)|do)$")
-            .unwrap();
+    let unbraced_ctrl_re = unbraced_ctrl_re();
 
     if !in_block_comment {
         if trimmed_before.ends_with('{')

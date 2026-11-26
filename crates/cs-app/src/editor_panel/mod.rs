@@ -36,6 +36,9 @@ pub struct EditorPanel {
     current: i32,
     dark: bool,
     highlight_html: String,
+    highlight_start_line: i32,
+    highlight_viewport_start: usize,
+    highlight_viewport_end: usize,
     font_family: String,
     font_size: i32,
     tab_size: i32,
@@ -141,6 +144,9 @@ impl Default for EditorPanel {
             current: -1,
             dark: false,
             highlight_html: String::new(),
+            highlight_start_line: 0,
+            highlight_viewport_start: 0,
+            highlight_viewport_end: 200,
             font_family: s.editor_font_family.clone(),
             font_size: s.editor_font_size,
             tab_size: s.editor_tab_size,
@@ -291,20 +297,52 @@ impl EditorPanel {
         }
     }
 
+    fn render_highlight_window(&mut self) {
+        let (start_line, html) = if let Some(d) = self.current_doc() {
+            let total = d.highlight_cache.line_count();
+            let (win_start, win_end) = if total <= 200 {
+                (0, total)
+            } else {
+                let s = self.highlight_viewport_start.min(total.saturating_sub(1));
+                let e = self.highlight_viewport_end.max(s + 1).min(total);
+                (s, e)
+            };
+            d.highlight_cache.render_range(
+                win_start,
+                win_end,
+                &self.font_family,
+                self.font_size,
+                self.dark,
+            )
+        } else {
+            (
+                0,
+                highlighter::highlight_html(
+                    "",
+                    None,
+                    self.dark,
+                    self.show_spaces,
+                    &self.font_family,
+                    self.font_size,
+                ),
+            )
+        };
+        let start_i32 = start_line as i32;
+        if self.highlight_start_line != start_i32 || self.highlight_html != html {
+            self.highlight_start_line = start_i32;
+            self.highlight_html = html;
+            self.highlight_changed();
+        }
+    }
+
     fn rehighlight(&mut self) {
-        let (text, syntax) = self
-            .current_doc()
-            .map(|d| (d.text.clone(), d.syntax.clone()))
-            .unwrap_or_default();
-        self.highlight_html = highlighter::highlight_html(
-            &text,
-            syntax.as_deref(),
-            self.dark,
-            self.show_spaces,
-            &self.font_family,
-            self.font_size,
-        );
-        self.highlight_changed();
+        let dark = self.dark;
+        let show_spaces = self.show_spaces;
+        if let Some(d) = self.current_doc_mut() {
+            d.highlight_cache
+                .update(&d.text, d.syntax.as_deref(), dark, show_spaces);
+        }
+        self.render_highlight_window();
     }
 
     fn apply_editor_settings(&mut self, s: &AppSettings) {
@@ -622,6 +660,11 @@ impl EditorPanel {
     qproperty!(
         "highlightHtml",
         Read = highlight_html,
+        Notify = highlight_changed
+    );
+    qproperty!(
+        "highlightStartLine",
+        Read = highlight_start_line,
         Notify = highlight_changed
     );
     qproperty!(
@@ -1120,6 +1163,9 @@ impl EditorPanel {
     pub fn highlight_html(&self) -> String {
         self.highlight_html.clone()
     }
+    pub fn highlight_start_line(&self) -> i32 {
+        self.highlight_start_line
+    }
     pub fn dark(&self) -> bool {
         self.dark
     }
@@ -1421,6 +1467,10 @@ impl EditorPanel {
     }
 
     pub fn set_current_text(&mut self, text: String) {
+        self.apply_text_edit(text);
+    }
+
+    fn apply_text_edit(&mut self, text: String) {
         let mut changed = false;
         let mut dirty_toggled = false;
         let mut marks_need_update = false;
@@ -1464,6 +1514,29 @@ impl EditorPanel {
                 let prefix = identifier_prefix(&text, cursor_byte).to_string();
                 let member_trigger = lsp::is_member_trigger(&text, cursor_byte);
                 if prefix.len() >= 2 || (member_trigger && self.lsp.is_initialized()) {
+                    if self.completion_visible
+                        && !member_trigger
+                        && prefix.len() > self.completion_prefix.len()
+                        && prefix
+                            .get(..self.completion_prefix.len())
+                            .is_some_and(|h| h.eq_ignore_ascii_case(&self.completion_prefix))
+                    {
+                        if let Some(arr) = self.completions.as_array() {
+                            let narrowed: Vec<Value> = arr
+                                .iter()
+                                .filter(|item| {
+                                    item.get("text")
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|t| t.get(..prefix.len()))
+                                        .is_some_and(|h| h.eq_ignore_ascii_case(&prefix))
+                                })
+                                .cloned()
+                                .collect();
+                            if !narrowed.is_empty() {
+                                self.set_completion_items(narrowed, &prefix);
+                            }
+                        }
+                    }
                     self.complete_at(false);
                 } else {
                     self.hide_completions();
@@ -1556,7 +1629,7 @@ impl EditorPanel {
                 let cursor_byte =
                     editor::utf16_to_byte_offset(&text, self.cursor_pos.max(0) as usize);
                 let prefix = identifier_prefix(&text, cursor_byte);
-                if prefix.is_empty() {
+                if prefix.is_empty() && !lsp::is_member_trigger(&text, cursor_byte) {
                     self.hide_completions();
                 }
             }
@@ -3032,6 +3105,59 @@ impl EditorPanel {
     }
 
     #[qslot]
+    fn update_text(&mut self, text: String, cursor_pos: i32) {
+        let clamped = cursor_pos.max(0);
+        if self.cursor_pos != clamped {
+            self.cursor_pos = clamped;
+            self.cursor_changed();
+        }
+        self.apply_text_edit(text);
+    }
+
+    #[qslot]
+    fn set_highlight_viewport(&mut self, start_line: i32, end_line: i32) {
+        let s = start_line.max(0) as usize;
+        let e = end_line.max(start_line + 1) as usize;
+        if self.highlight_viewport_start == s && self.highlight_viewport_end == e {
+            return;
+        }
+        self.highlight_viewport_start = s;
+        self.highlight_viewport_end = e;
+        if let Some(d) = self.current_doc() {
+            if d.highlight_cache.line_count() == 0 && !d.text.is_empty() {
+                self.rehighlight();
+                return;
+            }
+        }
+        self.render_highlight_window();
+    }
+
+    #[qslot]
+    fn calculate_newline_for_current(
+        &self,
+        cursor_pos: i32,
+        sel_start: i32,
+        sel_end: i32,
+    ) -> Value {
+        let text = self.current_doc().map(|d| d.text.as_str()).unwrap_or("");
+        let edit = calculate_newline(
+            text,
+            cursor_pos.max(0) as usize,
+            sel_start.max(0) as usize,
+            sel_end.max(0) as usize,
+            self.space_tabs,
+            self.tab_size,
+        );
+        json!({
+            "valid": edit.valid,
+            "replaceStart": edit.replace_start,
+            "replaceEnd": edit.replace_end,
+            "insertText": edit.insert_text,
+            "newCursorPos": edit.new_cursor_pos,
+        })
+    }
+
+    #[qslot]
     fn calculate_newline(
         &self,
         text: String,
@@ -4198,5 +4324,62 @@ mod tests {
 
         let _ = fs::remove_dir_all(&build_dir);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_text_keeps_completions_visible_while_typing_prefix() {
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
+        panel.new_file();
+        panel.docs[0].text = "void displaySetup() {}\nvoid dispatch() {}\ndis".to_string();
+        panel.cursor_pos = panel.docs[0].text.len() as i32;
+        panel.set_completion_items(
+            vec![
+                json!({ "text": "displaySetup", "insertText": "displaySetup", "detail": "", "kind": 3 }),
+                json!({ "text": "dispatch", "insertText": "dispatch", "detail": "", "kind": 3 }),
+            ],
+            "dis",
+        );
+        assert!(panel.completion_visible());
+
+        // Typing 'p' atomically updates text and cursor together without hiding completions.
+        let next = "void displaySetup() {}\nvoid dispatch() {}\ndisp".to_string();
+        let next_pos = next.len() as i32;
+        panel.update_text(next, next_pos);
+        assert!(panel.completion_visible());
+        assert_eq!(panel.completion_prefix(), "disp");
+
+        // Typing 'l' narrows smoothly to displaySetup (excluding dispatch) without hiding completions.
+        let next2 = "void displaySetup() {}\nvoid dispatch() {}\ndispl".to_string();
+        let next2_pos = next2.len() as i32;
+        panel.update_text(next2, next2_pos);
+        assert!(panel.completion_visible());
+        assert_eq!(panel.completion_prefix(), "displ");
+        let items = panel.completions();
+        let arr = items.as_array().unwrap();
+        assert!(arr.iter().any(|v| v["text"] == "displaySetup"), "{arr:?}");
+        assert!(!arr.iter().any(|v| v["text"] == "dispatch"), "{arr:?}");
+    }
+
+    #[test]
+    fn highlight_viewport_windows_large_documents() {
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
+        panel.new_file();
+        let lines: Vec<String> = (1..=434)
+            .map(|i| format!("int line_{i} = {i}; // marker_{i}"))
+            .collect();
+        panel.docs[0].syntax = Some("cpp.syntax".to_string());
+        panel.docs[0].text = lines.join("\n");
+        panel.rehighlight();
+
+        assert_eq!(panel.highlight_start_line(), 0);
+        assert!(panel.highlight_html().contains("marker_1"));
+        assert!(!panel.highlight_html().contains("marker_400"));
+
+        panel.set_highlight_viewport(350, 434);
+        assert_eq!(panel.highlight_start_line(), 350);
+        assert!(panel.highlight_html().contains("marker_400"));
+        assert!(!panel.highlight_html().contains("marker_1\n"));
     }
 }

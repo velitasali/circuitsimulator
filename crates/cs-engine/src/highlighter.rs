@@ -41,10 +41,13 @@ impl SpanStyle {
     }
 }
 
-struct Rule {
-    re: Regex,
-    style: SpanStyle,
-    on_lower: bool,
+enum Rule {
+    Keywords(HashMap<String, SpanStyle>),
+    Regex {
+        re: Regex,
+        style: SpanStyle,
+        on_lower: bool,
+    },
 }
 
 struct Syntax {
@@ -341,13 +344,27 @@ fn parse_syntax(src: &str, dark: bool, show_spaces: bool) -> Syntax {
                     }
                 } else {
                     for exp in words.iter().skip(1) {
+                        if !exp.starts_with('"')
+                            && !exp.is_empty()
+                            && exp.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                        {
+                            let kw = exp.to_ascii_lowercase();
+                            if let Some(Rule::Keywords(map)) = out.rules.last_mut() {
+                                map.insert(kw, style);
+                            } else {
+                                let mut map = HashMap::new();
+                                map.insert(kw, style);
+                                out.rules.push(Rule::Keywords(map));
+                            }
+                            continue;
+                        }
                         let pat = if exp.starts_with('"') {
                             rem_quotes(exp).to_string()
                         } else {
                             format!(r"\b{exp}\b")
                         };
                         if let Some(re) = compile_re(&pat) {
-                            out.rules.push(Rule {
+                            out.rules.push(Rule::Regex {
                                 re,
                                 style,
                                 on_lower: true,
@@ -368,14 +385,14 @@ fn parse_syntax(src: &str, dark: bool, show_spaces: bool) -> Syntax {
             italic: false,
         };
         if let Some(re) = compile_re(" ") {
-            out.rules.push(Rule {
+            out.rules.push(Rule::Regex {
                 re,
                 style: space,
                 on_lower: true,
             });
         }
         if let Some(re) = compile_re("\t") {
-            out.rules.push(Rule {
+            out.rules.push(Rule::Regex {
                 re,
                 style: space,
                 on_lower: true,
@@ -384,6 +401,67 @@ fn parse_syntax(src: &str, dark: bool, show_spaces: bool) -> Syntax {
     }
 
     out
+}
+
+#[inline]
+fn is_ascii_word(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+fn is_word_boundary_left(hay: &str, start: usize) -> bool {
+    if start == 0 {
+        return true;
+    }
+    let prev = hay.as_bytes()[start - 1];
+    if prev < 0x80 {
+        !is_ascii_word(prev)
+    } else {
+        hay[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_alphanumeric() && c != '_')
+    }
+}
+
+fn is_word_boundary_right(hay: &str, end: usize) -> bool {
+    if end >= hay.len() {
+        return true;
+    }
+    let next = hay.as_bytes()[end];
+    if next < 0x80 {
+        !is_ascii_word(next)
+    } else {
+        hay[end..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphanumeric() && c != '_')
+    }
+}
+
+fn apply_keywords(hay: &str, map: &HashMap<String, SpanStyle>, fmt: &mut [Option<SpanStyle>]) {
+    let bytes = hay.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i < len {
+        if is_ascii_word(bytes[i]) {
+            let start = i;
+            i += 1;
+            while i < len && is_ascii_word(bytes[i]) {
+                i += 1;
+            }
+            if is_word_boundary_left(hay, start) && is_word_boundary_right(hay, i) {
+                if let Some(&style) = map.get(&hay[start..i]) {
+                    let s = start.min(fmt.len());
+                    let e = i.min(fmt.len());
+                    for slot in fmt.iter_mut().take(e).skip(s) {
+                        *slot = Some(style);
+                    }
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
 }
 
 fn apply_rule(text: &str, hay: &str, re: &Regex, style: SpanStyle, fmt: &mut [Option<SpanStyle>]) {
@@ -483,6 +561,215 @@ fn cached_syntax(name: &str, src: &str, dark: bool, show_spaces: bool) -> Arc<Sy
     compiled
 }
 
+fn highlight_single_line(line: &str, syn: &Syntax, in_multi: &mut bool) -> String {
+    let mut fmt = vec![None; line.len()];
+    let lower = if line.is_ascii() {
+        line.to_ascii_lowercase()
+    } else {
+        line.to_lowercase()
+    };
+    for rule in &syn.rules {
+        match rule {
+            Rule::Keywords(map) => apply_keywords(lower.as_str(), map, &mut fmt),
+            Rule::Regex {
+                re,
+                style,
+                on_lower,
+            } => {
+                let hay = if *on_lower { lower.as_str() } else { line };
+                apply_rule(line, hay, re, *style, &mut fmt);
+            }
+        }
+    }
+    if let (Some(start), Some(end)) = (&syn.multi_start, &syn.multi_end) {
+        let mut start_index = if *in_multi {
+            Some(0usize)
+        } else {
+            start.find(line).map(|m| m.start())
+        };
+        while let Some(from) = start_index {
+            let from = from.min(line.len());
+            let (comment_end, closed) = match end.find(&line[from..]) {
+                Some(m) => (from + m.end(), true),
+                None => (line.len(), false),
+            };
+            for slot in fmt.iter_mut().take(comment_end).skip(from) {
+                *slot = Some(syn.multi_style);
+            }
+            *in_multi = !closed;
+            if !closed {
+                break;
+            }
+            start_index = start
+                .find(&line[comment_end..])
+                .map(|m| comment_end + m.start());
+        }
+    }
+    spans_to_html(line, &fmt)
+}
+
+/// Per-document incremental line highlight cache.
+/// Re-highlights only edited lines (plus any trailing lines whose multiline
+/// comment entry state changed) and renders arbitrary line windows in O(window).
+#[derive(Default)]
+pub struct HighlightCache {
+    syntax: Option<String>,
+    dark: bool,
+    show_spaces: bool,
+    lines: Vec<String>,
+    html_lines: Vec<String>,
+    in_multi_after: Vec<bool>,
+}
+
+impl HighlightCache {
+    pub fn line_count(&self) -> usize {
+        self.html_lines.len()
+    }
+
+    pub fn update(&mut self, text: &str, syntax_file: Option<&str>, dark: bool, show_spaces: bool) {
+        let syn = syntax_file.and_then(|name| {
+            syntax_map()
+                .get(name)
+                .map(|src| cached_syntax(name, src, dark, show_spaces))
+        });
+        let normalized_syntax = syn.as_ref().and_then(|_| syntax_file.map(str::to_string));
+
+        let config_changed = self.syntax != normalized_syntax
+            || self.dark != dark
+            || self.show_spaces != show_spaces;
+
+        let new_lines: Vec<&str> = if text.is_empty() {
+            vec![""]
+        } else {
+            text.split('\n').collect()
+        };
+
+        if config_changed || self.lines.is_empty() {
+            self.syntax = normalized_syntax;
+            self.dark = dark;
+            self.show_spaces = show_spaces;
+            self.lines.clear();
+            self.html_lines.clear();
+            self.in_multi_after.clear();
+            self.lines.reserve(new_lines.len());
+            self.html_lines.reserve(new_lines.len());
+            self.in_multi_after.reserve(new_lines.len());
+
+            let mut in_multi = false;
+            for line in new_lines {
+                let html = match &syn {
+                    Some(s) => highlight_single_line(line, s, &mut in_multi),
+                    None => html_escape(line),
+                };
+                self.lines.push(line.to_string());
+                self.html_lines.push(html);
+                self.in_multi_after.push(in_multi);
+            }
+            return;
+        }
+
+        let old_len = self.lines.len();
+        let new_len = new_lines.len();
+
+        let mut prefix = 0usize;
+        let min_len = old_len.min(new_len);
+        while prefix < min_len && self.lines[prefix] == new_lines[prefix] {
+            prefix += 1;
+        }
+
+        if prefix == old_len && prefix == new_len {
+            return;
+        }
+
+        let mut suffix = 0usize;
+        while suffix < (old_len - prefix)
+            && suffix < (new_len - prefix)
+            && self.lines[old_len - 1 - suffix] == new_lines[new_len - 1 - suffix]
+        {
+            suffix += 1;
+        }
+
+        let old_mid_end = old_len - suffix;
+        let new_mid_end = new_len - suffix;
+
+        let mut in_multi = if prefix > 0 {
+            self.in_multi_after[prefix - 1]
+        } else {
+            false
+        };
+
+        let mut mid_lines = Vec::with_capacity(new_mid_end - prefix);
+        let mut mid_html = Vec::with_capacity(new_mid_end - prefix);
+        let mut mid_multi = Vec::with_capacity(new_mid_end - prefix);
+        for line in &new_lines[prefix..new_mid_end] {
+            let html = match &syn {
+                Some(s) => highlight_single_line(line, s, &mut in_multi),
+                None => html_escape(line),
+            };
+            mid_lines.push((*line).to_string());
+            mid_html.push(html);
+            mid_multi.push(in_multi);
+        }
+
+        let old_suffix_entry_multi = if old_mid_end > 0 {
+            self.in_multi_after[old_mid_end - 1]
+        } else {
+            false
+        };
+
+        self.lines.splice(prefix..old_mid_end, mid_lines);
+        self.html_lines.splice(prefix..old_mid_end, mid_html);
+        self.in_multi_after.splice(prefix..old_mid_end, mid_multi);
+
+        if syn.is_some() && in_multi != old_suffix_entry_multi {
+            let s = syn.as_ref().unwrap();
+            let mut idx = new_mid_end;
+            while idx < self.lines.len() {
+                let prev_after = self.in_multi_after[idx];
+                self.html_lines[idx] = highlight_single_line(&self.lines[idx], s, &mut in_multi);
+                self.in_multi_after[idx] = in_multi;
+                if in_multi == prev_after {
+                    break;
+                }
+                idx += 1;
+            }
+        }
+    }
+
+    pub fn render_range(
+        &self,
+        start_line: usize,
+        end_line: usize,
+        font_family: &str,
+        font_size: i32,
+        dark: bool,
+    ) -> (usize, String) {
+        let total = self.html_lines.len();
+        if total == 0 {
+            let mut html = pre_open(font_family, font_size, dark);
+            html.push_str("\n</pre>");
+            return (0, html);
+        }
+        let s = start_line.min(total - 1);
+        let e = end_line.max(s + 1).min(total);
+        let est: usize = self.html_lines[s..e]
+            .iter()
+            .map(|l| l.len() + 1)
+            .sum::<usize>()
+            + 96;
+        let mut html = String::with_capacity(est);
+        html.push_str(&pre_open(font_family, font_size, dark));
+        for (idx, line_html) in self.html_lines[s..e].iter().enumerate() {
+            if idx > 0 {
+                html.push('\n');
+            }
+            html.push_str(line_html);
+        }
+        html.push_str("\n</pre>");
+        (s, html)
+    }
+}
+
 /// Highlight `text` to an HTML fragment suitable for `Text.RichText`.
 pub fn highlight_html(
     text: &str,
@@ -507,37 +794,7 @@ pub fn highlight_html(
     let mut html = pre_open(font_family, font_size, dark);
     let mut in_multi = false;
     for (li, line) in lines.iter().enumerate() {
-        let mut fmt = vec![None; line.len()];
-        let lower = line.to_lowercase();
-        for rule in &syn.rules {
-            let hay = if rule.on_lower { lower.as_str() } else { line };
-            apply_rule(line, hay, &rule.re, rule.style, &mut fmt);
-        }
-        if let (Some(start), Some(end)) = (&syn.multi_start, &syn.multi_end) {
-            let mut start_index = if in_multi {
-                Some(0usize)
-            } else {
-                start.find(line).map(|m| m.start())
-            };
-            while let Some(from) = start_index {
-                let from = from.min(line.len());
-                let (comment_end, closed) = match end.find(&line[from..]) {
-                    Some(m) => (from + m.end(), true),
-                    None => (line.len(), false),
-                };
-                for slot in fmt.iter_mut().take(comment_end).skip(from) {
-                    *slot = Some(syn.multi_style);
-                }
-                in_multi = !closed;
-                if !closed {
-                    break;
-                }
-                start_index = start
-                    .find(&line[comment_end..])
-                    .map(|m| comment_end + m.start());
-            }
-        }
-        html.push_str(&spans_to_html(line, &fmt));
+        html.push_str(&highlight_single_line(line, &syn, &mut in_multi));
         if li + 1 < lines.len() {
             html.push('\n');
         }
@@ -723,5 +980,50 @@ mod tests {
 
         let plain = highlight_html("\nhello\n", None, false, false, "Ubuntu Mono", 14);
         assert!(plain.contains("\">\n\nhello\n\n</pre>"), "{plain}");
+    }
+
+    #[test]
+    fn highlight_cache_matches_full_highlight_across_edits_and_windows() {
+        let mut cache = HighlightCache::default();
+        let initial = "int a = 1;\n/* comment\nline2\n*/\nvoid loop() {\n  return;\n}\n";
+        cache.update(initial, Some("cpp.syntax"), false, false);
+        let (start, full) = cache.render_range(0, cache.line_count(), "Ubuntu Mono", 14, false);
+        assert_eq!(start, 0);
+        assert_eq!(
+            full,
+            highlight_html(initial, Some("cpp.syntax"), false, false, "Ubuntu Mono", 14)
+        );
+
+        // Insert a newline inside loop()
+        let edited = "int a = 1;\n/* comment\nline2\n*/\nvoid loop() {\n\n  return;\n}\n";
+        cache.update(edited, Some("cpp.syntax"), false, false);
+        let (_, full_edited) = cache.render_range(0, cache.line_count(), "Ubuntu Mono", 14, false);
+        assert_eq!(
+            full_edited,
+            highlight_html(edited, Some("cpp.syntax"), false, false, "Ubuntu Mono", 14)
+        );
+
+        // Remove closing `*/` so multiline comment propagates to remaining lines
+        let unclosed = "int a = 1;\n/* comment\nline2\n\nvoid loop() {\n\n  return;\n}\n";
+        cache.update(unclosed, Some("cpp.syntax"), false, false);
+        let (_, full_unclosed) =
+            cache.render_range(0, cache.line_count(), "Ubuntu Mono", 14, false);
+        assert_eq!(
+            full_unclosed,
+            highlight_html(
+                unclosed,
+                Some("cpp.syntax"),
+                false,
+                false,
+                "Ubuntu Mono",
+                14
+            )
+        );
+
+        // Window slice starts at line 4
+        let (ws, window) = cache.render_range(4, 6, "Ubuntu Mono", 14, false);
+        assert_eq!(ws, 4);
+        assert!(window.contains("void"), "{window}");
+        assert!(!window.contains("int a"), "{window}");
     }
 }

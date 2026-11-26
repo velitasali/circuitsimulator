@@ -2,6 +2,7 @@
 
 use cs_engine::backup;
 use cs_engine::editor::{self, BoardEntry, CompilerSpec, FileConfig, match_board};
+use cs_engine::highlighter::HighlightCache;
 use cs_engine::settings::AppSettings;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -38,6 +39,7 @@ pub struct Document {
     pub text: String,
     pub dirty: bool,
     pub syntax: Option<String>,
+    pub highlight_cache: HighlightCache,
     pub breakpoints: Vec<i32>,
     pub errors: Vec<i32>,
     pub warnings: Vec<i32>,
@@ -71,6 +73,7 @@ impl Document {
             text: String::new(),
             dirty: false,
             syntax: None,
+            highlight_cache: HighlightCache::default(),
             breakpoints: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),

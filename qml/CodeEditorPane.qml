@@ -23,6 +23,10 @@ Item {
     property real averageCharacterWidth: 8
     property bool hoverTooltipVisible: false
     property rect hoverTooltipRect: Qt.rect(0, 0, 0, 0)
+    property bool _pushingToModel: false
+    property bool _pendingCursorSync: false
+    property int _hlWinStart: 0
+    property int _hlWinEnd: 0
 
     visible: isActive
     enabled: isActive
@@ -37,9 +41,60 @@ Item {
 
     function syncTextFromModel(modelText: string): void {
         if (area.text !== modelText) {
+            pane._pendingCursorSync = false
             area._syncingFromModel = true
             area.text = modelText
             area._syncingFromModel = false
+            if (pane.isActive)
+                pane.syncHighlightViewport(true)
+        }
+    }
+
+    function _flushCursorPos(): void {
+        if (!pane._pendingCursorSync || !pane.isActive || area._syncingFromModel || area._batchEditing)
+            return
+        pane._pendingCursorSync = false
+        EditorPanel.cursorPos = area.cursorPosition
+    }
+
+    function pushBufferToModel(): void {
+        if (!pane.isActive || area._syncingFromModel || area._batchEditing)
+            return
+        pane._pendingCursorSync = false
+        pane._pushingToModel = true
+        EditorPanel.updateText(area.text, area.cursorPosition)
+        pane._pushingToModel = false
+    }
+
+    function syncHighlightViewport(force: bool): void {
+        if (!pane.isActive)
+            return
+        var lh = Math.max(1, pane.lineHeight)
+        var total = Math.max(1, area.lineCount)
+        if (total <= 200) {
+            if (force || pane._hlWinStart !== 0 || pane._hlWinEnd !== total) {
+                pane._hlWinStart = 0
+                pane._hlWinEnd = total
+                EditorPanel.setHighlightViewport(0, total)
+            }
+            return
+        }
+        var firstVis = Math.max(0, Math.floor((flick.contentY - area.topPadding) / lh))
+        var visLines = Math.max(1, Math.ceil(flick.height / lh))
+        var lastVis = Math.min(total - 1, firstVis + visLines)
+        var margin = 12
+        var overscan = 45
+        var needUpdate = force
+            || pane._hlWinEnd <= pane._hlWinStart
+            || (firstVis < pane._hlWinStart + margin && pane._hlWinStart > 0)
+            || (lastVis + 1 > pane._hlWinEnd - margin && pane._hlWinEnd < total)
+            || pane._hlWinStart >= total
+        if (needUpdate) {
+            var ws = Math.max(0, firstVis - overscan)
+            var we = Math.min(total, lastVis + 1 + overscan)
+            pane._hlWinStart = ws
+            pane._hlWinEnd = we
+            EditorPanel.setHighlightViewport(ws, we)
         }
     }
 
@@ -70,7 +125,10 @@ Item {
     }
 
     onIsActiveChanged: {
-        if (!isActive) {
+        if (isActive) {
+            syncHighlightViewport(true)
+        } else {
+            _pendingCursorSync = false
             clearHoverLinkState()
         }
     }
@@ -84,7 +142,10 @@ Item {
             if (pane.isActive) pane.hideHoverRequested()
         }
         onContentYChanged: {
-            if (pane.isActive) pane.hideHoverRequested()
+            if (pane.isActive) {
+                pane.hideHoverRequested()
+                pane.syncHighlightViewport(false)
+            }
         }
         contentWidth: Math.max(width, area.implicitWidth)
         contentHeight: Math.max(height, area.implicitHeight)
@@ -98,6 +159,8 @@ Item {
         onHeightChanged: {
             contentY = Math.max(0, Math.min(contentY, Math.max(0, contentHeight - height)))
             contentY += 1; contentY -= 1
+            if (pane.isActive)
+                pane.syncHighlightViewport(false)
         }
         onContentWidthChanged: {
             if (contentX > contentWidth - width)
@@ -149,15 +212,25 @@ Item {
             color: highlight.visible ? "transparent" : EditorPanel.textColor
             selectedTextColor: appTheme.highlightedText
             selectionColor: appTheme.highlight
-            cursorDelegate: Rectangle {
-                width: 2
-                color: EditorPanel.textColor
-                visible: pane.isActive && area.cursorVisible
+            // Suppress Qt's built-in cursorDelegate visual: in Qt 6, QQuickTextEdit
+            // imperatively hides cursorDelegate when scrolled out of a Flickable
+            // viewport and does not re-show it when clicking a visible line without
+            // scrolling. Render our own cursor Rectangle bound to cursorRectangle.
+            cursorDelegate: Item {
+                width: 0
+                height: 0
+                visible: false
             }
             selectByMouse: true
             persistentSelection: true
             tabStopDistance: Math.max(4, pane.averageCharacterWidth * EditorPanel.tabSize)
             property bool _syncingFromModel: false
+            property bool _batchEditing: false
+
+            onLineCountChanged: {
+                if (pane.isActive)
+                    pane.syncHighlightViewport(false)
+            }
 
             onCursorRectangleChanged: {
                 if (pane.isActive && !_syncingFromModel)
@@ -165,14 +238,13 @@ Item {
             }
 
             onTextChanged: {
-                if (!pane.isActive || _syncingFromModel) return
-                EditorPanel.cursorPos = cursorPosition
-                if (text !== EditorPanel.currentText)
-                    EditorPanel.currentText = text
+                if (!pane.isActive || _syncingFromModel || _batchEditing) return
+                pane.pushBufferToModel()
             }
             onCursorPositionChanged: {
-                if (!pane.isActive || _syncingFromModel) return
-                EditorPanel.cursorPos = cursorPosition
+                if (!pane.isActive || _syncingFromModel || _batchEditing) return
+                pane._pendingCursorSync = true
+                Qt.callLater(pane._flushCursorPos)
             }
             onActiveFocusChanged: {
                 if (!pane.isActive) return
@@ -227,13 +299,24 @@ Item {
                 id: highlight
                 z: -1
                 x: area.leftPadding
-                y: area.topPadding
+                y: area.topPadding + EditorPanel.highlightStartLine * pane.lineHeight
                 textFormat: Text.RichText
                 text: pane.isActive ? EditorPanel.highlightHtml : ""
                 font: pane.editorFont
                 color: EditorPanel.textColor
                 wrapMode: Text.NoWrap
                 visible: pane.isActive && EditorPanel.highlightHtml.length > 0
+            }
+
+            Rectangle {
+                id: editorCursor
+                z: 1
+                x: area.cursorRectangle.x
+                y: area.cursorRectangle.y
+                width: 2
+                height: area.cursorRectangle.height > 0 ? area.cursorRectangle.height : pane.lineHeight
+                color: EditorPanel.textColor
+                visible: pane.isActive && area.activeFocus && area.cursorVisible
             }
 
             Repeater {
@@ -393,8 +476,11 @@ Item {
 
             function insertPair(event: var, open: string, close: string, flag: bool): bool {
                 if (!flag || event.text !== open) return false
+                area._batchEditing = true
                 area.insert(area.cursorPosition, open + close)
                 area.cursorPosition = area.cursorPosition - 1
+                area._batchEditing = false
+                pane.pushBufferToModel()
                 event.accepted = true
                 if (open === "(") EditorPanel.requestSignature(area.cursorPosition)
                 return true
@@ -430,8 +516,9 @@ Item {
                     }
                 }
                 if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    var edit = EditorPanel.calculateNewline(area.text, area.cursorPosition, area.selectionStart, area.selectionEnd)
+                    var edit = EditorPanel.calculateNewlineForCurrent(area.cursorPosition, area.selectionStart, area.selectionEnd)
                     if (edit && edit.valid) {
+                        area._batchEditing = true
                         if (edit.replaceStart < edit.replaceEnd) {
                             area.remove(edit.replaceStart, edit.replaceEnd)
                         }
@@ -439,6 +526,8 @@ Item {
                             area.insert(edit.replaceStart, edit.insertText)
                         }
                         area.cursorPosition = edit.newCursorPos
+                        area._batchEditing = false
+                        pane.pushBufferToModel()
                         event.accepted = true
                         return
                     }

@@ -160,12 +160,26 @@ Item {
     readonly property int cursorLine: {
         var a = root.activeArea
         if (!a) return 0
-        var t = a.text.substring(0, a.cursorPosition)
-        return t.length === 0 ? 0 : t.split('\n').length - 1
+        var lh = Math.max(1, root.lineHeight)
+        var line = Math.round((a.cursorRectangle.y - a.topPadding) / lh)
+        return Math.max(0, Math.min(Math.max(0, root.activeLineCount - 1), line))
     }
     readonly property var breakpoints: EditorPanel.breakpoints
     readonly property var errors: EditorPanel.errors
     readonly property var warnings: EditorPanel.warnings
+    readonly property var breakpointSet: root._toLineSet(root.breakpoints)
+    readonly property var errorSet: root._toLineSet(root.errors)
+    readonly property var warningSet: root._toLineSet(root.warnings)
+    readonly property int firstVisibleLine: Math.max(0, Math.floor((root.activeContentY - root.activeTopPadding) / Math.max(1, root.lineHeight)) - 2)
+    readonly property int visibleGutterSlots: Math.max(1, Math.ceil(gutterFlick.height / Math.max(1, root.lineHeight)) + 5)
+
+    function _toLineSet(list: var): var {
+        var map = ({})
+        if (!list) return map
+        for (var i = 0; i < list.length; ++i)
+            map[Number(list[i])] = true
+        return map
+    }
 
     property int hoverTargetX: -1
     property int hoverTargetY: -1
@@ -199,7 +213,9 @@ Item {
 
     function applyCompletion(edit: var): void {
         var a = root.activeArea
-        if (!a || !edit || !edit.valid) return
+        var p = root.activePane
+        if (!a || !p || !edit || !edit.valid) return
+        a._batchEditing = true
         if (edit.replaceStart < edit.replaceEnd) {
             a.remove(edit.replaceStart, edit.replaceEnd)
         }
@@ -207,7 +223,8 @@ Item {
             a.insert(edit.replaceStart, edit.insertText)
         }
         a.cursorPosition = edit.newCursorPos
-        EditorPanel.cursorPos = edit.newCursorPos
+        a._batchEditing = false
+        p.pushBufferToModel()
         EditorPanel.finishCompletion()
         a.forceActiveFocus()
     }
@@ -287,9 +304,9 @@ Item {
                 id: hoverBpDot
                 visible: root.hoveredGutterLine >= 1
                          && root.hoveredGutterLine <= root.activeLineCount
-                         && !root.containsLine(root.breakpoints, root.hoveredGutterLine)
-                         && !root.containsLine(root.errors, root.hoveredGutterLine)
-                         && !root.containsLine(root.warnings, root.hoveredGutterLine)
+                         && root.breakpointSet[root.hoveredGutterLine] !== true
+                         && root.errorSet[root.hoveredGutterLine] !== true
+                         && root.warningSet[root.hoveredGutterLine] !== true
                          && EditorPanel.debugLine !== root.hoveredGutterLine
                 z: 1
                 width: root.markerSize
@@ -303,17 +320,19 @@ Item {
             }
 
             Repeater {
-                model: Math.max( 1, root.activeLineCount )
+                model: root.visibleGutterSlots
                 delegate: Item {
                     id: gutterLine
                     required property int index
-                    y: root.activeTopPadding + gutterLine.index * root.lineHeight
+                    readonly property int lineIndex: root.firstVisibleLine + gutterLine.index
+                    readonly property int line: gutterLine.lineIndex + 1
+                    visible: gutterLine.lineIndex < root.activeLineCount
+                    y: root.activeTopPadding + gutterLine.lineIndex * root.lineHeight
                     width: gutter.width
                     height: root.lineHeight
-                    readonly property int line: gutterLine.index + 1
-                    readonly property bool isBp: root.containsLine(root.breakpoints, gutterLine.line)
-                    readonly property bool isErr: root.containsLine(root.errors, gutterLine.line)
-                    readonly property bool isWarn: root.containsLine(root.warnings, gutterLine.line)
+                    readonly property bool isBp: root.breakpointSet[gutterLine.line] === true
+                    readonly property bool isErr: root.errorSet[gutterLine.line] === true
+                    readonly property bool isWarn: root.warningSet[gutterLine.line] === true
                     readonly property bool isDbg: EditorPanel.debugLine === gutterLine.line
 
                     Rectangle {
@@ -367,8 +386,8 @@ Item {
                         text: gutterLine.line
                         font.family: root.editorFont.family
                         font.pixelSize: root.editorFont.pixelSize
-                        color: gutterLine.index === root.cursorLine ? EditorPanel.gutterActiveNumColor : EditorPanel.gutterNumColor
-                        font.bold: gutterLine.index === root.cursorLine
+                        color: gutterLine.lineIndex === root.cursorLine ? EditorPanel.gutterActiveNumColor : EditorPanel.gutterNumColor
+                        font.bold: gutterLine.lineIndex === root.cursorLine
                     }
                 }
             }
@@ -622,6 +641,7 @@ Item {
     Popup {
         id: signaturePopup
         visible: EditorPanel.signatureVisible && EditorPanel.signatureHtml.length > 0
+        focus: false
         z: 1000
         x: Math.max(gutter.width + 4, Math.min(root.width - width - 10, gutter.width + root.activeCursorRect.x + root.activeLeftPadding - root.activeContentX))
         y: {
@@ -1042,7 +1062,7 @@ Item {
         }
         function onCurrentTextChanged(): void {
             root.syncActivePane()
-            if (root.activePane) {
+            if (root.activePane && !root.activePane._pushingToModel) {
                 root.activePane.syncTextFromModel(EditorPanel.currentText)
             }
         }

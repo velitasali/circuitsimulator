@@ -1,6 +1,7 @@
 //! Simulation info card. Colours are hex strings, not `QColor`.
 
 use crate::macos_host;
+use cs_engine::canvas::DEFAULT_CURR_SPEED_SLIDER;
 use cs_engine::i18n;
 use cs_engine::theme::{ColorId, ColorTheme};
 use qtbridge::qobject;
@@ -39,7 +40,7 @@ impl Default for InfoWidget {
             mcu_device: "---".into(),
             mcu_name: "---".into(),
             has_mcu: false,
-            slider_value: 150,
+            slider_value: DEFAULT_CURR_SPEED_SLIDER,
             panel_background: String::new(),
             panel_border: String::new(),
             text_color: String::new(),
@@ -96,6 +97,7 @@ impl InfoWidget {
         Write = set_slider_value,
         Notify = speed_changed
     );
+    qproperty!("defaultSliderValue", Read = default_slider_value, Constant);
     qproperty!(
         "panelBackground",
         Read = panel_background,
@@ -140,6 +142,9 @@ impl InfoWidget {
     }
     fn slider_value(&self) -> i32 {
         self.slider_value
+    }
+    fn default_slider_value(&self) -> i32 {
+        DEFAULT_CURR_SPEED_SLIDER
     }
     fn panel_background(&self) -> String {
         self.panel_background.clone()
@@ -298,5 +303,12 @@ mod tests {
     fn test_format_circ_time() {
         let t = format_circ_time(1_000_000_000_000); // 1 sec
         assert!(t.contains("00:00:01 s"));
+    }
+
+    #[test]
+    fn test_default_slider_value() {
+        let w = InfoWidget::default();
+        assert_eq!(w.slider_value(), DEFAULT_CURR_SPEED_SLIDER);
+        assert_eq!(w.default_slider_value(), DEFAULT_CURR_SPEED_SLIDER);
     }
 }

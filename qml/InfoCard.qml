@@ -155,20 +155,55 @@ AppSurface {
         // Connector on every repaint.
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 4
+            spacing: 2
 
             AppText {
-                text: I18n.tr( "Current Speed" )
+                text: I18n.tr( "Current Flow Animation Speed" )
                 font.pixelSize: App.fontSmall
                 font.bold: true
                 color: InfoWidget.textColor
+                Layout.bottomMargin: 2
             }
             AppSlider {
+                id: currSpeedSlider
                 from: 1
                 to: 1000
+                defaultValue: InfoWidget.defaultSliderValue
                 value: InfoWidget.sliderValue
                 Layout.fillWidth: true
-                onMoved: InfoWidget.sliderValue = value
+                onMoved: InfoWidget.sliderValue = Math.round(value)
+                Binding on value {
+                    value: InfoWidget.sliderValue
+                    when: !currSpeedSlider.pressed
+                }
+            }
+            Item {
+                Layout.fillWidth: true
+                implicitHeight: defaultLabel.implicitHeight
+
+                AppText {
+                    id: defaultLabel
+                    text: I18n.tr( "Default" )
+                    font.pixelSize: App.fontMicro
+                    color: currSpeedSlider.atDefault || defaultLabelMouse.containsMouse
+                           ? currSpeedSlider.palette.highlight
+                           : InfoWidget.textColor
+                    opacity: currSpeedSlider.atDefault || defaultLabelMouse.containsMouse
+                             ? 1.0 : 0.6
+                    x: Math.max(0, Math.min(parent.width - width,
+                                            Math.round(currSpeedSlider.defaultGuideX - width / 2)))
+
+                    Behavior on opacity { NumberAnimation { duration: 90 } }
+
+                    MouseArea {
+                        id: defaultLabelMouse
+                        anchors.fill: parent
+                        anchors.margins: -4
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: InfoWidget.sliderValue = InfoWidget.defaultSliderValue
+                    }
+                }
             }
         }
     }

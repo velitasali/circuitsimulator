@@ -217,6 +217,23 @@ mod tests {
     }
 
     #[test]
+    fn turkish_current_flow_animation_speed() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        set_locale("tr");
+        assert_eq!(
+            tr("Current Flow Animation Speed"),
+            "Akım Akışı Animasyon Hızı"
+        );
+        assert_eq!(tr("Default"), "Varsayılan");
+        set_locale("en");
+        assert_eq!(
+            tr("Current Flow Animation Speed"),
+            "Current Flow Animation Speed"
+        );
+        assert_eq!(tr("Default"), "Default");
+    }
+
+    #[test]
     fn entities() {
         assert_eq!(decode_entities("&amp;File"), "&File");
         assert_eq!(decode_entities("A &#xa; B"), "A \n B");

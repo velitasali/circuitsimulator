@@ -8917,8 +8917,8 @@ Değişikliklerinizi kaydetmek istiyor musunuz?</translation>
         <translation>Mevcut Tuval Boyutu:</translation>
     </message>
     <message>
-        <source>Current Speed</source>
-        <translation>Mevcut Hız</translation>
+        <source>Current Flow Animation Speed</source>
+        <translation>Akım Akışı Animasyon Hızı</translation>
     </message>
     <message>
         <source>DIRTY REGIONS</source>
@@ -8927,6 +8927,10 @@ Değişikliklerinizi kaydetmek istiyor musunuz?</translation>
     <message>
         <source>Data files (*.data)</source>
         <translation>Veri dosyaları (*.data)</translation>
+    </message>
+    <message>
+        <source>Default</source>
+        <translation>Varsayılan</translation>
     </message>
     <message>
         <source>Defaults for new circuits</source>

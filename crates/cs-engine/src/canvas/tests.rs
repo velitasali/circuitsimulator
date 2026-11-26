@@ -2706,7 +2706,7 @@ fn chevron_step_advances_with_current_speed_slider() {
     let fast_step = fast.chevron_step(&wire_id);
     assert!(
         fast_step > slow * 2.0,
-        "higher Current Speed slider must move chevrons faster; slow={slow} fast={fast_step}"
+        "higher Current Flow Animation Speed slider must move chevrons faster; slow={slow} fast={fast_step}"
     );
 }
 

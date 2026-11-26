@@ -8919,8 +8919,8 @@ Do you want to save your changes?</translation>
         <translation>Current Canvas Size:</translation>
     </message>
     <message>
-        <source>Current Speed</source>
-        <translation>Current Speed</translation>
+        <source>Current Flow Animation Speed</source>
+        <translation>Current Flow Animation Speed</translation>
     </message>
     <message>
         <source>DIRTY REGIONS</source>
@@ -8929,6 +8929,10 @@ Do you want to save your changes?</translation>
     <message>
         <source>Data files (*.data)</source>
         <translation>Data files (*.data)</translation>
+    </message>
+    <message>
+        <source>Default</source>
+        <translation>Default</translation>
     </message>
     <message>
         <source>Defaults for new circuits</source>

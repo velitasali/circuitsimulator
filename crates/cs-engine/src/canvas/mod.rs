@@ -94,10 +94,13 @@ pub(crate) fn with_pin_id_idx<R>(
     f(&format!("{comp_id}-{prefix}{idx}"))
 }
 
+/// Default slider position for the current flow animation speed (`1.0x`).
+pub const DEFAULT_CURR_SPEED_SLIDER: i32 = 150;
+
 /// C++ `CurrentWidget::setSliderValue`: `pow(slider/150, 4.5)`. Default
 /// slider 150 yields speed 1.0.
 pub fn curr_speed_from_slider(slider: i32) -> f64 {
-    (f64::from(slider.clamp(1, 1000)) / 150.0).powf(4.5)
+    (f64::from(slider.clamp(1, 1000)) / f64::from(DEFAULT_CURR_SPEED_SLIDER)).powf(4.5)
 }
 
 /// C++ `Connector::updateStep` wrap of `m_step` into `[0, 8)`.

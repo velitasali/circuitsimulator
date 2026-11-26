@@ -317,7 +317,9 @@ Dialog {
                             visible: delegateItem.modelData.shortcut && delegateItem.modelData.shortcut.length > 0
                             text: UiUtils.formatShortcut(delegateItem.modelData.shortcut || "")
                             font.pixelSize: App.fontSmall
-                            color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.mid
+                            color: delegateItem.index === list.currentIndex
+                                ? appTheme.highlightedText
+                                : Qt.alpha(appTheme.windowText, 0.68)
                             horizontalAlignment: Text.AlignRight
                             verticalAlignment: Text.AlignVCenter
                         }

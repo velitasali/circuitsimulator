@@ -125,7 +125,9 @@ Dialog {
                         visible: Boolean(delegateItem.modelData.badge)
                         text: delegateItem.modelData.badge || ""
                         font.pixelSize: App.fontMicro
-                        color: delegateItem.index === list.currentIndex ? appTheme.highlightedText : appTheme.mid
+                        color: delegateItem.index === list.currentIndex
+                            ? appTheme.highlightedText
+                            : Qt.alpha(appTheme.windowText, 0.68)
                         horizontalAlignment: Text.AlignRight
                         verticalAlignment: Text.AlignVCenter
                     }

@@ -5,6 +5,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
+#[cfg(test)]
+use std::sync::MutexGuard;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -232,6 +234,12 @@ fn sessions() -> &'static Mutex<HashMap<String, Monitor>> {
 fn dirty_set() -> &'static Mutex<HashSet<String>> {
     static DIRTY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     DIRTY.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+#[cfg(test)]
+pub(crate) fn test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Ensure a session exists in the registry.

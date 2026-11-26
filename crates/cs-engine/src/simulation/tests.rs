@@ -3125,6 +3125,7 @@ fn named_net_regroup_keeps_voltage_stamps_and_other_channels() {
 
 #[test]
 fn test_serial_term_tx_and_rx_loopback() {
+    let _guard = serial::test_lock();
     let mut c = Circuit::new();
     c.add_serial_term("Term1", 9600);
     // Loopback wire: Term1-tx -> Term1-rx
@@ -3155,6 +3156,7 @@ fn test_serial_term_tx_and_rx_loopback() {
 
 #[test]
 fn test_serial_port_tx_and_rx_loopback() {
+    let _guard = serial::test_lock();
     let mut c = Circuit::new();
     c.add_serial_port("SP1", "COM1", 19200);
     // Loopback wire: SP1-tx -> SP1-rx

@@ -2621,7 +2621,7 @@ pub fn instantiate_qemu_view(id: &str, device: &str, search: &SubcSearch) -> Qem
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Circuit;
+    use crate::{Circuit, serial};
 
     #[test]
     fn flash_image_rejects_wrong_size() {
@@ -2969,13 +2969,11 @@ mod tests {
         assert_eq!(q.arena.reg_data, 1000);
     }
 
-    static TEST_SERIAL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn esp32_serial_monitor_publish_and_receive() {
-        let _guard = TEST_SERIAL_LOCK.lock().unwrap();
-        crate::serial::clear("Esp32-1:USART1");
-        crate::serial::clear("default");
+        let _guard = serial::test_lock();
+        serial::clear("Esp32-1:USART1");
+        serial::clear("default");
         let mut q = QemuComp::esp32("Esp32-1");
         q.stamp_init(0);
         q.post(SimAction::Write, ESP32_UART0_START, b'H' as u64, 1);
@@ -2985,28 +2983,28 @@ mod tests {
         while let Some(delay) = q.next_event_delay(now) {
             now += delay;
             q.run_event(&|_| 0.0, now);
-            if !crate::serial::out_text("Esp32-1:USART1").is_empty() {
+            if !serial::out_text("Esp32-1:USART1").is_empty() {
                 break;
             }
         }
 
-        assert_eq!(crate::serial::out_text("Esp32-1:USART1"), "H");
-        assert_eq!(crate::serial::out_text("default"), "H");
+        assert_eq!(serial::out_text("Esp32-1:USART1"), "H");
+        assert_eq!(serial::out_text("default"), "H");
 
         // Host UI sends character 'X'
-        crate::serial::send_text("Esp32-1:USART1", "X");
+        serial::send_text("Esp32-1:USART1", "X");
         q.run_event(&|_| 0.0, now + 1);
 
-        assert_eq!(crate::serial::in_text("Esp32-1:USART1"), "X");
+        assert_eq!(serial::in_text("Esp32-1:USART1"), "X");
         assert_eq!(q.usarts[0].rx_fifo.pop_front(), Some(b'X'));
     }
 
     #[test]
     fn esp32_usart_catch_up_drains_fifo() {
-        let _guard = TEST_SERIAL_LOCK.lock().unwrap();
-        crate::serial::clear("Esp32-1:USART1");
-        crate::serial::clear("Esp32-1");
-        crate::serial::clear("default");
+        let _guard = serial::test_lock();
+        serial::clear("Esp32-1:USART1");
+        serial::clear("Esp32-1");
+        serial::clear("default");
         let mut q = QemuComp::esp32("Esp32-1");
         q.stamp_init(0);
         for byte in [b'A', b'B', b'C'] {
@@ -3015,16 +3013,16 @@ mod tests {
         }
         let period = q.usarts[0].module.period;
         q.catch_up_peripherals(1 + period * 40);
-        assert_eq!(crate::serial::out_text("Esp32-1:USART1"), "ABC");
-        assert_eq!(crate::serial::out_text("default"), "ABC");
+        assert_eq!(serial::out_text("Esp32-1:USART1"), "ABC");
+        assert_eq!(serial::out_text("default"), "ABC");
         assert!(q.usarts[0].tx_fifo.is_empty());
     }
 
     #[test]
     fn stm32_serial_monitor_publish_and_receive() {
-        let _guard = TEST_SERIAL_LOCK.lock().unwrap();
-        crate::serial::clear("STM32-1:USART1");
-        crate::serial::clear("default");
+        let _guard = serial::test_lock();
+        serial::clear("STM32-1:USART1");
+        serial::clear("default");
         let mut q = QemuComp::stm32("STM32-1", 5);
         q.stamp_init(0);
         // Enable UE | TE | RE
@@ -3043,19 +3041,19 @@ mod tests {
         while let Some(delay) = q.next_event_delay(now) {
             now += delay;
             q.run_event(&|_| 0.0, now);
-            if !crate::serial::out_text("STM32-1:USART1").is_empty() {
+            if !serial::out_text("STM32-1:USART1").is_empty() {
                 break;
             }
         }
 
-        assert_eq!(crate::serial::out_text("STM32-1:USART1"), "A");
-        assert_eq!(crate::serial::out_text("default"), "A");
+        assert_eq!(serial::out_text("STM32-1:USART1"), "A");
+        assert_eq!(serial::out_text("default"), "A");
 
         // Host UI sends character 'Y'
-        crate::serial::send_text("STM32-1:USART1", "Y");
+        serial::send_text("STM32-1:USART1", "Y");
         q.run_event(&|_| 0.0, now + 1);
 
-        assert_eq!(crate::serial::in_text("STM32-1:USART1"), "Y");
+        assert_eq!(serial::in_text("STM32-1:USART1"), "Y");
         // Read USART_DR
         q.post(SimAction::Read, STM32_USART1_START + 0x04, 0, now + 2);
         q.process_pending();
@@ -3190,12 +3188,12 @@ mod tests {
 
     #[test]
     fn two_esp32_exchange_uart_over_wired_pins() {
-        let _guard = TEST_SERIAL_LOCK.lock().unwrap();
-        crate::serial::clear("Esp32-1:USART1");
-        crate::serial::clear("Esp32-2:USART1");
-        crate::serial::clear("Esp32-1");
-        crate::serial::clear("Esp32-2");
-        crate::serial::clear("default");
+        let _guard = serial::test_lock();
+        serial::clear("Esp32-1:USART1");
+        serial::clear("Esp32-2:USART1");
+        serial::clear("Esp32-1");
+        serial::clear("Esp32-2");
+        serial::clear("default");
 
         let mut c = Circuit::new();
         c.add_qemu_esp32("Esp32-1")
@@ -3222,10 +3220,10 @@ mod tests {
         // Run 2 ms of circuit time (12 bytes @ 115200 baud ≈ 1.04 ms)
         c.run_ps(2_000_000_000).unwrap();
 
-        assert_eq!(crate::serial::out_text("Esp32-1:USART1"), "Hello mars!\n");
-        assert_eq!(crate::serial::out_text("Esp32-2:USART1"), "Hello world\n");
-        assert_eq!(crate::serial::in_text("Esp32-2:USART1"), "Hello mars!\n");
-        assert_eq!(crate::serial::in_text("Esp32-1:USART1"), "Hello world\n");
+        assert_eq!(serial::out_text("Esp32-1:USART1"), "Hello mars!\n");
+        assert_eq!(serial::out_text("Esp32-2:USART1"), "Hello world\n");
+        assert_eq!(serial::in_text("Esp32-2:USART1"), "Hello mars!\n");
+        assert_eq!(serial::in_text("Esp32-1:USART1"), "Hello world\n");
 
         let rx1: Vec<u8> = c.qemu_mut("Esp32-1").unwrap().usarts[0]
             .rx_fifo
@@ -3243,7 +3241,8 @@ mod tests {
 
     #[test]
     fn deferred_uart_status_poll_wakes_on_tx_rx_irq_or_timeout() {
-        let mut q = QemuComp::esp32("Esp32-1");
+        let _guard = serial::test_lock();
+        let mut q = QemuComp::esp32("Esp32-defer");
         q.stamp_init(1);
         let status_addr = ESP32_UART0_START + 0x1C;
 

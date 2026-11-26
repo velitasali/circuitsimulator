@@ -89,7 +89,7 @@ Item {
 
     y: {
         var ph = root.parent ? root.parent.height : 0
-        var minY = root.topInset + root.edgeMargin
+        var minY = root.topInset > 0 ? root.topInset : root.edgeMargin
         var maxY = Math.max(minY, ph - root.height - root.edgeMargin)
         return Math.max(minY, Math.min(maxY, Math.round(root.anchorY - root.height / 2)))
     }

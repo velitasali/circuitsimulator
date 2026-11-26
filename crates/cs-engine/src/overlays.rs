@@ -254,6 +254,17 @@ impl Overlays {
         true
     }
 
+    /// Top Y bound for overlays. When a custom title bar supplies a non-zero
+    /// `top_inset`, overlays sit directly below it without an extra
+    /// `OVERLAY_MARGIN` gap.
+    fn top_min(&self) -> i32 {
+        if self.top_inset > 0 {
+            self.top_inset
+        } else {
+            OVERLAY_MARGIN
+        }
+    }
+
     pub fn set_toolbar_size(&mut self, w: i32, h: i32) -> bool {
         if self.toolbar_w == w && self.toolbar_h == h {
             return false;
@@ -522,7 +533,7 @@ impl Overlays {
         let dx = x - self.gesture.start_mouse.0;
         let dy = y - self.gesture.start_mouse.1;
         let margin = OVERLAY_MARGIN;
-        let top_min = margin + self.top_inset;
+        let top_min = self.top_min();
         let view_w = self.view_w;
         let view_h = self.view_h;
         let g = self.gesture.clone();
@@ -718,7 +729,7 @@ fn toolbar_anchored(
 
 fn layout(s: &Overlays) -> OverlaySnapshot {
     let margin = OVERLAY_MARGIN;
-    let top_min = margin + s.top_inset;
+    let top_min = s.top_min();
     let btn = HANDLE_BTN;
     let gap = HANDLE_GAP;
 
@@ -1199,7 +1210,7 @@ mod tests {
         assert!(o.set_top_inset(32));
         assert!(!o.set_top_inset(32));
 
-        let top_min = OVERLAY_MARGIN + 32;
+        let top_min = 32;
         let sp = o.snapshot().rect("sidePanel");
         assert_eq!(sp.y, top_min);
         assert_eq!(sp.h, 800 - top_min - OVERLAY_MARGIN);
@@ -1220,6 +1231,12 @@ mod tests {
         o.gesture_move(tb.x + 10, 0);
         o.gesture_end();
         assert_eq!(o.snapshot().rect("toolbar").y, top_min);
+
+        // Clearing top_inset restores the default top OVERLAY_MARGIN.
+        assert!(o.set_top_inset(0));
+        assert_eq!(o.snapshot().rect("sidePanel").y, OVERLAY_MARGIN);
+        assert_eq!(o.snapshot().rect("editorPanel").y, OVERLAY_MARGIN);
+        assert_eq!(o.snapshot().rect("toolbar").y, OVERLAY_MARGIN);
     }
 
     #[test]
@@ -1259,7 +1276,7 @@ mod tests {
         let natural = 400;
         o.set_info_card_size(220, natural);
 
-        let top_min = OVERLAY_MARGIN + inset;
+        let top_min = inset;
         let bottom_limit = view_h - OVERLAY_MARGIN;
         let mid = (inset + view_h) / 2;
 

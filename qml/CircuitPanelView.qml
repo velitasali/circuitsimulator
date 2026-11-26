@@ -39,11 +39,12 @@ Item {
         return toolbar.y + toolbar.height / 2 > ( root.topInset + root.height ) / 2
     }
 
-    // Free gap on the side the popup opens into, inside the 8px screen inset.
+    // Free gap on the side the popup opens into, inside the 8px screen inset
+    // (or flush with the custom title bar when one is active).
     function toolbarPopupRoom(): real {
         var inset = 8
         var gap = 4
-        var minY = root.topInset + inset
+        var minY = root.topInset > 0 ? root.topInset : inset
         var limitBottom = root.height - inset
         if ( root.toolbarOpensUpward() )
             return Math.max( 0, toolbar.y - gap - minY )

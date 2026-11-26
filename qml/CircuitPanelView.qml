@@ -7,44 +7,161 @@ import QtQuick.Templates as T
 import cs_app
 import cs_ui
 
-/* The circuit area: the canvas, and the overlays floating over it.
+/* The circuit area: the canvas, and the 4-corner overlays floating over it.
  *
- * The side panel, the editor panel, the toolbar and the sim-info card are not
- * siblings of the canvas -- they float above it and may overlap each other
- * freely -- which is why they are laid out here rather than in main.qml.
- *
- * None of the placement logic lives in this file. CircuitWidget still computes
- * every rect from its stored drag/resize/snap state and publishes them as
- * `overlayRects`; this only binds to them and sends gestures back. That is what
- * kept the port from having to re-derive any of that behaviour.
+ * Five independent overlays (components, files, editor, simLog, compLog) live
+ * in four corners (tl, bl, tr, br). Each overlay can be toggled between hover
+ * mode (floating with drop shadow) and always-visible pinned mode (docked flush
+ * with the window margin). All geometry lives in `cs_engine::overlays`.
  */
 Item {
     id: root
     objectName: "circuitPanelRoot"
     SystemPalette { id: appTheme }
     readonly property var rects: CircuitPanel.overlayRects
+    readonly property var emptyRectObj: ({ x: 0, y: 0, w: 0, h: 0 })
+    readonly property var emptyPanelObj: ({
+        visible: false, floating: false, pinned: false, activePinned: false,
+        corner: "tl", isLeft: true, x: 0, y: 0, w: 0, h: 0, z: 1,
+        button: { x: 0, y: 0, w: 0, h: 0 },
+        resize: { x: 0, y: 0, w: 0, h: 0 }
+    })
+    readonly property var emptyCornerObj: ({
+        x: 0, y: 0, w: 0, h: 0,
+        pinned: { x: 0, y: 0, w: 0, h: 0 },
+        hover: { x: 0, y: 0, w: 0, h: 0 }
+    })
+    readonly property var emptyHandleObj: ({ visible: false, x: 0, y: 0, w: 0, h: 0 })
+
+    readonly property string floatingPanelId: (rects && rects.floatingPanel) ? String(rects.floatingPanel) : ""
+    readonly property string floatingReason: (rects && rects.floatingReason) ? String(rects.floatingReason) : ""
+
+    property string hoveredButtonId: ""
+    property string hoveredPanelId: ""
+
+    property bool dragActive: false
+    property string dragPanelId: ""
+    property real dragX: 0
+    property real dragY: 0
+    property string dragTargetCorner: ""
 
     // Overlay rects are JSON {x,y,w,h}, not QRectF.
     function r( key: string ): rect {
-        var v = rects[key]
+        var v = rects ? rects[key] : null
         if ( v === undefined || v === null )
             return Qt.rect( 0, 0, 0, 0 )
         var w = ( v.w !== undefined ) ? v.w : v.width
         var h = ( v.h !== undefined ) ? v.h : v.height
         return Qt.rect( v.x, v.y, w, h )
     }
-    function overlayZ( key: string ): real { return rects[key + "Z"] !== undefined ? rects[key + "Z"] : 1 }
+    function overlayZ( key: string ): real { return (rects && rects[key + "Z"] !== undefined) ? rects[key + "Z"] : 5 }
+
+    function panelInfo( id: string ): var {
+        if ( rects && rects.panels && rects.panels[id] )
+            return rects.panels[id]
+        return root.emptyPanelObj
+    }
+
+    function cornerInfo( key: string ): var {
+        if ( rects && rects.corners && rects.corners[key] )
+            return rects.corners[key]
+        return root.emptyCornerObj
+    }
+
+    function handleInfo( key: string ): var {
+        if ( rects && rects[key] )
+            return rects[key]
+        return root.emptyHandleObj
+    }
+
+    function panelIcon( id: string ): string {
+        if ( id === "components" ) return "developer_board"
+        if ( id === "files" ) return "folder_open"
+        if ( id === "editor" ) return "code"
+        if ( id === "simLog" ) return "terminal"
+        if ( id === "compLog" ) return "bug_report"
+        return "dock_to_left"
+    }
+
+    function panelLabel( id: string ): string {
+        var _tick = App.i18nTick
+        if ( id === "components" ) return I18n.tr( "Components" )
+        if ( id === "files" ) return I18n.tr( "Files" )
+        if ( id === "editor" ) return I18n.tr( "Editor" )
+        if ( id === "simLog" ) return I18n.tr( "Simulator Messages" )
+        if ( id === "compLog" ) return I18n.tr( "Compiler Messages" )
+        return id
+    }
+
+    function cornerLabel( key: string ): string {
+        var _tick = App.i18nTick
+        if ( key === "tl" ) return I18n.tr( "Top Left" )
+        if ( key === "bl" ) return I18n.tr( "Bottom Left" )
+        if ( key === "tr" ) return I18n.tr( "Top Right" )
+        if ( key === "br" ) return I18n.tr( "Bottom Right" )
+        return key
+    }
+
+    function cornerAtPoint( px: real, py: real ): string {
+        var left = px < root.width / 2
+        var top = py < ( root.topInset + root.height ) / 2
+        return ( top ? "t" : "b" ) + ( left ? "l" : "r" )
+    }
+
+    function floatingInputFocused(): bool {
+        if ( root.floatingPanelId === "components" && componentSearch.activeFocus )
+            return true
+        if ( root.floatingPanelId === "editor" && EditorPanel.focused )
+            return true
+        return false
+    }
+
+    function scheduleHoverClose(): void {
+        if ( root.hoveredButtonId === "" && root.hoveredPanelId === "" && !floatResize.pressed )
+            hoverCloseTimer.restart()
+    }
+
+    Timer {
+        id: hoverCloseTimer
+        interval: 90
+        repeat: false
+        onTriggered: {
+            if ( root.hoveredButtonId === "" && root.hoveredPanelId === ""
+                 && !floatResize.pressed && !cornerBtnMenu.opened && !root.floatingInputFocused() ) {
+                CircuitPanel.setHoverPanel( "" )
+            }
+        }
+    }
+
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.dragActive
+                 || ( root.floatingPanelId !== ""
+                      && !EditorPanel.completionVisible
+                      && !CommandCenter.visible
+                      && !TabSwitcher.visible
+                      && !UiUtils.hasModalOverlay( root.Overlay.overlay, null ) )
+        onActivated: {
+            if ( root.dragActive ) {
+                root.dragActive = false
+                root.dragPanelId = ""
+                root.dragTargetCorner = ""
+            } else {
+                CircuitPanel.dismissFloating()
+            }
+        }
+    }
 
     function toolbarOpensUpward(): bool {
         return toolbar.y + toolbar.height / 2 > ( root.topInset + root.height ) / 2
     }
 
-    // Free gap on the side the popup opens into, inside the 8px screen inset
-    // (or flush with the custom title bar when one is active).
+    // Free gap on the side the popup opens into, inside the 12px screen inset
+    // (equal top padding below the custom title bar when one is active).
     function toolbarPopupRoom(): real {
-        var inset = 8
+        var inset = 12
         var gap = 4
-        var minY = root.topInset > 0 ? root.topInset : inset
+        var minY = root.topInset + inset
         var limitBottom = root.height - inset
         if ( root.toolbarOpensUpward() )
             return Math.max( 0, toolbar.y - gap - minY )
@@ -150,18 +267,160 @@ Item {
         source: "CircuitView.qml"
     }
 
-    // ---- Side panel ------------------------------------------------------
-    AppSurface {
-        id: sidePanel
-        // MainWindow walks the QML active-focus chain for these names to work
-        // out which panel the keyboard is in; see MainWindow::qmlFocusInside.
-        objectName: "sidePanel"
-        visible: root.rects.sidePanelVisible === true
-        x: root.r("sidePanel").x; y: root.r("sidePanel").y
-        width: root.r("sidePanel").width; height: root.r("sidePanel").height
+    // ---- Reusable 4-corner overlay shell ---------------------------------
+    component OverlayShell: AppSurface {
+        id: shell
+        required property string panelId
+        property int contentMargin: 6
+        readonly property var info: root.panelInfo( shell.panelId )
+        readonly property bool shown: shell.info.visible === true
+        readonly property bool isFloatingNow: shell.info.floating === true
+        default property alias bodyContent: bodyHost.data
+
+        // Snapshot of last live rect so hover close animations fade & slide in place.
+        property real lastX: 0
+        property real lastY: 0
+        property real lastW: 0
+        property real lastH: 0
+        property real lastZ: 7
+        property bool lastIsLeft: true
+        property bool wasFloating: false
+        property real animProgress: 0.0
+
+        readonly property bool animateMode: shell.shown ? shell.isFloatingNow : shell.wasFloating
+        readonly property bool effectiveIsLeft: shell.shown ? ( shell.info.isLeft !== false ) : shell.lastIsLeft
+
+        Component.onCompleted: {
+            if ( shell.info && shell.info.visible === true ) {
+                shell.lastX = shell.info.x
+                shell.lastY = shell.info.y
+                shell.lastW = shell.info.w
+                shell.lastH = shell.info.h
+                shell.lastZ = shell.info.z
+                shell.lastIsLeft = shell.info.isLeft !== false
+                shell.wasFloating = shell.info.floating === true
+                shell.animProgress = 1.0
+            }
+        }
+
+        onInfoChanged: {
+            if ( shell.info && shell.info.visible === true ) {
+                shell.lastX = shell.info.x
+                shell.lastY = shell.info.y
+                shell.lastW = shell.info.w
+                shell.lastH = shell.info.h
+                shell.lastZ = shell.info.z
+                shell.lastIsLeft = shell.info.isLeft !== false
+                shell.wasFloating = shell.info.floating === true
+            }
+        }
+
+        onShownChanged: {
+            hoverOpenAnim.stop()
+            hoverCloseAnim.stop()
+            if ( shell.shown ) {
+                if ( shell.isFloatingNow ) {
+                    hoverOpenAnim.from = shell.animProgress
+                    hoverOpenAnim.start()
+                } else {
+                    shell.animProgress = 1.0
+                }
+            } else {
+                if ( root.hoveredPanelId === shell.panelId )
+                    root.hoveredPanelId = ""
+                if ( shell.wasFloating ) {
+                    hoverCloseAnim.from = shell.animProgress
+                    hoverCloseAnim.start()
+                } else {
+                    shell.animProgress = 0.0
+                }
+            }
+        }
+
+        NumberAnimation {
+            id: hoverOpenAnim
+            target: shell
+            property: "animProgress"
+            to: 1.0
+            duration: 130
+            easing.type: Easing.OutCubic
+        }
+
+        NumberAnimation {
+            id: hoverCloseAnim
+            target: shell
+            property: "animProgress"
+            to: 0.0
+            duration: 100
+            easing.type: Easing.InCubic
+        }
+
+        visible: shell.shown || shell.animProgress > 0.005
+        enabled: shell.shown
+        x: shell.shown ? shell.info.x : shell.lastX
+        y: shell.shown ? shell.info.y : shell.lastY
+        width: shell.shown ? shell.info.w : shell.lastW
+        height: shell.shown ? shell.info.h : shell.lastH
+        z: shell.shown ? shell.info.z : ( shell.lastZ - 0.2 )
+        opacity: ( shell.shown && !shell.isFloatingNow ) ? 1.0 : shell.animProgress
         surfaceColor: appTheme.window
         radius: 14
-        z: root.overlayZ( "sidePanel" )
+        shadowEnabled: shell.animateMode
+        elevation: 1.0
+
+        transform: Translate {
+            x: shell.animateMode
+               ? ( 1.0 - shell.animProgress ) * ( shell.effectiveIsLeft ? -12 : 12 )
+               : 0
+        }
+
+        // Absorbs unhandled pointer events so clicks/scrolls never leak to the canvas.
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.AllButtons
+            onPressed: (m) => { CircuitPanel.overlayClicked( shell.panelId ) }
+            onWheel: (wheel) => { wheel.accepted = true }
+        }
+
+        WheelHandler {
+            target: null
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            orientation: Qt.Horizontal | Qt.Vertical
+        }
+
+        HoverHandler {
+            id: shellHover
+            enabled: shell.shown
+            onHoveredChanged: {
+                if ( shell.shown && shellHover.hovered ) {
+                    hoverCloseTimer.stop()
+                    root.hoveredPanelId = shell.panelId
+                } else if ( root.hoveredPanelId === shell.panelId ) {
+                    root.hoveredPanelId = ""
+                    root.scheduleHoverClose()
+                }
+            }
+        }
+
+        DropArea {
+            anchors.fill: parent
+            onEntered: (drag) => { drag.accepted = true }
+            onDropped: (drop) => { drop.accept() }
+        }
+
+        Item {
+            id: bodyHost
+            anchors.fill: parent
+            anchors.margins: shell.contentMargin
+        }
+    }
+
+    // ---- Components overlay ----------------------------------------------
+    OverlayShell {
+        id: componentsOverlay
+        objectName: "componentsPanel"
+        panelId: "components"
 
         function clearComponentHover(): void {
             var view = componentListLoader.item as ComponentListView
@@ -174,178 +433,50 @@ Item {
         onWidthChanged: clearComponentHover()
         onHeightChanged: clearComponentHover()
 
-        // Absorbs unhandled pointer events (clicks on empty space, scrolling over margins)
-        // and prevents any pointer events from leaking to the canvas below.
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            acceptedButtons: Qt.AllButtons
-            onPressed: (m) => { CircuitPanel.overlayClicked( "sidePanel" ) }
-            onWheel: (wheel) => { wheel.accepted = true }
-        }
-
-        WheelHandler {
-            target: null
-            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            orientation: Qt.Horizontal | Qt.Vertical
-        }
-
-        HoverHandler {}
-
-        DropArea {
-            anchors.fill: parent
-            onEntered: (drag) => { drag.accepted = true }
-            onDropped: (drop) => { drop.accept() }
-        }
-
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 6
             spacing: 4
 
-            // The tab strip is the app's QSS QTabBar look, not the platform
-            // QQC2 TabBar (a segmented control on macOS). The QSS rules that
-            // used to style #sidePanel QTabBar no longer reach it.
-            AppTabBar {
-                id: sideTabs
+            AppTextField {
+                id: componentSearch
+                objectName: "componentSearch"
                 Layout.fillWidth: true
-                centered: true
+                placeholderText: I18n.tr( "Search components" )
+                onPressed: CircuitPanel.overlayClicked( "components" )
+                onActiveFocusChanged: {
+                    if ( activeFocus && componentsOverlay.info.floating === true )
+                        CircuitPanel.openPanel( "components" )
+                    else if ( !activeFocus )
+                        root.scheduleHoverClose()
+                }
+                onTextChanged: {
+                    App.setSearchFilter( componentSearch.text )
+                    ComponentList.search( componentSearch.text )
+                }
 
-                // Material Symbols glyphs, as the QSS gave this tab bar. Four
-                // word labels do not fit a 250px panel -- they overflowed it and
-                // spilled onto the canvas -- and the names live in the tooltips.
-                Repeater {
-                    model: [ { glyph: "developer_board", label: "Components" },
-                             { glyph: "folder_open",     label: "Files" },
-                             { glyph: "terminal",        label: "Simulator Messages" },
-                             { glyph: "bug_report",      label: "Compiler Messages" } ]
-                    delegate: AppTabButton {
-                        id: sideTab
-                        required property var modelData
-                        text: I18n.tr(sideTab.modelData.label)
-                        leftPadding: 12
-                        rightPadding: 12
-                        ToolTip.visible: sideTab.hovered
-                        ToolTip.text: I18n.tr(sideTab.modelData.label)
-                        onClicked: CircuitPanel.overlayClicked( "sidePanel" )
-                        contentItem: AppIcon {
-                            icon: sideTab.modelData.glyph
-                            size: 16
-                            color: sideTab.checked ? appTheme.highlightedText : appTheme.windowText
-                        }
+                Connections {
+                    target: App
+                    function onFocusSearchRequested(): void {
+                        CircuitPanel.showComponents()
+                        componentSearch.forceActiveFocus()
+                        componentSearch.selectAll()
                     }
                 }
-
-                // Two-way with MainWindow.sidePanelTab: clicking a tab pushes
-                // out, and showSidePanelTab() (Focus Files, Show Simulator
-                // Messages, the command palette) pushes back in. A plain
-                // `currentIndex: app.sidePanelTab` would not survive the first
-                // click, which breaks the binding; RestoreNone re-asserts it.
-                onCurrentIndexChanged: {
-                    sidePanel.clearComponentHover()
-                    CircuitPanel.overlayClicked( "sidePanel" )
-                    App.sidePanelTab = sideTabs.currentIndex
-                }
-            }
-            Binding {
-                target: sideTabs
-                property: "currentIndex"
-                value: App.sidePanelTab
-                restoreMode: Binding.RestoreNone
             }
 
-            StackLayout {
+            Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                currentIndex: sideTabs.currentIndex
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: 4
-                    AppTextField {
-                        id: componentSearch
-                        objectName: "componentSearch"
-                        Layout.fillWidth: true
-                        placeholderText: App.searchPlaceholder
-                        onPressed: CircuitPanel.overlayClicked( "sidePanel" )
-                        onTextChanged: {
-                            App.setSearchFilter( componentSearch.text )
-                            ComponentList.search( componentSearch.text )
-                        }
-
-                        Connections {
-                            target: App
-                            function onFocusSearchRequested(): void {
-                                componentSearch.forceActiveFocus()
-                                componentSearch.selectAll()
-                            }
-                        }
-                    }
-                    // Container card: the same framed treatment PropDialog gives the
-                    // area below its tab bar. Only the listing itself sits inside it --
-                    // the search field above stays outside, as it is not part of the list.
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        radius: 10
-                        color: appTheme.base
-                        border.color: appTheme.mid
-                        border.width: 1
-                        clip: true
-
-                        Loader {
-                            id: componentListLoader
-                            anchors.fill: parent
-                            source: "ComponentListView.qml"
-                        }
-                    }
-                }
+                radius: 10
+                color: appTheme.base
+                border.color: appTheme.mid
+                border.width: 1
+                clip: true
 
                 Loader {
-                    objectName: "fileBrowser"
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    source: "FileBrowserView.qml"
-                }
-
-                // Two log panes, so the backend comes in as `ctx` rather than a
-                // context property -- one engine can hold only one `outPanel`.
-                // Framed like the other tabs' listings; a log has no toolbar to
-                // keep outside it, so the card just wraps the whole pane.
-                Item {
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 10
-                        color: appTheme.base
-                        border.color: appTheme.mid
-                        border.width: 1
-                        clip: true
-
-                        Loader {
-                            id: simLogLoader
-                            anchors.fill: parent
-                            source: "OutPanelText.qml"
-                            onLoaded: (simLogLoader.item as OutPanelText).ctx = SimulatorLog
-                        }
-                    }
-                }
-                Item {
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 10
-                        color: appTheme.base
-                        border.color: appTheme.mid
-                        border.width: 1
-                        clip: true
-
-                        Loader {
-                            id: compLogLoader
-                            anchors.fill: parent
-                            source: "OutPanelText.qml"
-                            onLoaded: (compLogLoader.item as OutPanelText).ctx = CompilerLog
-                        }
-                    }
+                    id: componentListLoader
+                    anchors.fill: parent
+                    source: "ComponentListView.qml"
                 }
             }
         }
@@ -354,178 +485,619 @@ Item {
     ComponentHoverCard {
         id: componentHoverCard
         readonly property ComponentListView listView: componentListLoader.item as ComponentListView
-        active: sidePanel.visible && sideTabs.currentIndex === 0 && listView !== null && listView.hoverCardVisible
+        active: componentsOverlay.visible && listView !== null && listView.hoverCardVisible
         info: listView ? listView.hoveredItemInfo : null
         anchorY: {
-            var _panelY = sidePanel.y
+            var _panelY = componentsOverlay.y
             return ( listView && listView.hoverCardVisible )
                 ? componentListLoader.mapToItem( root, 0, listView.hoveredRowCenterY ).y
                 : 0
         }
-        panelRect: Qt.rect( sidePanel.x, sidePanel.y, sidePanel.width, sidePanel.height )
-        preferRight: root.rects.sidePanelClusterRight !== false
+        panelRect: Qt.rect( componentsOverlay.x, componentsOverlay.y, componentsOverlay.width, componentsOverlay.height )
+        preferRight: componentsOverlay.info.isLeft !== false
         topInset: root.topInset
     }
 
-    // ---- Editor panel ----------------------------------------------------
-    AppSurface {
-        // NOT `id: editorPanel`: that shadowed the `editorPanel` context property
-        // for everything this Loader creates, so editorpanel.qml's `ctx` resolved
-        // to this Rectangle instead of EditorWidget and every binding on it read
-        // as undefined. The objectName is what the focus tests match on.
-        id: editorPanelOverlay
+    // ---- File Tree overlay -----------------------------------------------
+    OverlayShell {
+        id: filesOverlay
+        objectName: "filesPanel"
+        panelId: "files"
+
+        Loader {
+            objectName: "fileBrowser"
+            anchors.fill: parent
+            source: "FileBrowserView.qml"
+        }
+    }
+
+    // ---- File Editor overlay ---------------------------------------------
+    OverlayShell {
+        id: editorOverlay
         objectName: "editorPanel"
-        visible: root.rects.editorPanelVisible === true
-        x: root.r("editorPanel").x; y: root.r("editorPanel").y
-        width: root.r("editorPanel").width; height: root.r("editorPanel").height
-        surfaceColor: appTheme.window
-        radius: 14
-        z: root.overlayZ( "editorPanel" )
+        panelId: "editor"
+        contentMargin: 1
 
-        // Absorbs unhandled pointer events (clicks on empty space, scrolling over margins)
-        // and prevents any pointer events from leaking to the canvas below.
-        MouseArea {
+        Loader {
             anchors.fill: parent
-            hoverEnabled: true
-            acceptedButtons: Qt.AllButtons
-            onPressed: (m) => { CircuitPanel.overlayClicked( "editorPanel" ) }
-            onWheel: (wheel) => { wheel.accepted = true }
+            source: "EditorPanelView.qml"
         }
-
-        WheelHandler {
-            target: null
-            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            orientation: Qt.Horizontal | Qt.Vertical
-        }
-
-        HoverHandler {}
-
-        DropArea {
-            anchors.fill: parent
-            onEntered: (drag) => { drag.accepted = true }
-            onDropped: (drop) => { drop.accept() }
-        }
-
-        Loader { anchors.fill: parent; anchors.margins: 1; source: "EditorPanelView.qml" }
     }
 
-    // ---- Resize / drag handles -------------------------------------------
-    // Invisible strips on the panel borders, exactly where the QWidget handles
-    // were. Each forwards to the same CircuitWidget gesture handlers.
-    Repeater {
-        model: [
-            { key: "spResizeRight",  cursor: Qt.SizeHorCursor, id: "sidePanelRight",   panel: "sidePanel"   },
-            { key: "spResizeBottom", cursor: Qt.SizeVerCursor, id: "sidePanelBottom",  panel: "sidePanel"   },
-            { key: "spResizeLeft",   cursor: Qt.SizeHorCursor, id: "sidePanelLeft",    panel: "sidePanel"   },
-            { key: "spResizeTop",    cursor: Qt.SizeVerCursor, id: "sidePanelTop",     panel: "sidePanel"   },
-            { key: "epResizeLeft",   cursor: Qt.SizeHorCursor, id: "editorPanelLeft",  panel: "editorPanel" },
-            { key: "epResizeBottom", cursor: Qt.SizeVerCursor, id: "editorPanelBottom",panel: "editorPanel" },
-            { key: "epResizeRight",  cursor: Qt.SizeHorCursor, id: "editorPanelRight", panel: "editorPanel" },
-            { key: "epResizeTop",    cursor: Qt.SizeVerCursor, id: "editorPanelTop",   panel: "editorPanel" },
-            { key: "spResizeTL", cursor: Qt.SizeFDiagCursor, id: "sidePanelTL",   panel: "sidePanel"   },
-            { key: "spResizeTR", cursor: Qt.SizeBDiagCursor, id: "sidePanelTR",   panel: "sidePanel"   },
-            { key: "spResizeBL", cursor: Qt.SizeBDiagCursor, id: "sidePanelBL",   panel: "sidePanel"   },
-            { key: "spResizeBR", cursor: Qt.SizeFDiagCursor, id: "sidePanelBR",   panel: "sidePanel"   },
-            { key: "epResizeTL", cursor: Qt.SizeFDiagCursor, id: "editorPanelTL", panel: "editorPanel" },
-            { key: "epResizeTR", cursor: Qt.SizeBDiagCursor, id: "editorPanelTR", panel: "editorPanel" },
-            { key: "epResizeBL", cursor: Qt.SizeBDiagCursor, id: "editorPanelBL", panel: "editorPanel" },
-            { key: "epResizeBR", cursor: Qt.SizeFDiagCursor, id: "editorPanelBR", panel: "editorPanel" }
-        ]
-        delegate: MouseArea {
-            id: resizeHandle
-            required property var modelData
-            // A hidden panel keeps publishing its rects, so without the second
-            // half these strips stayed live over bare canvas.
-            visible: root.r( resizeHandle.modelData.key ).width > 0
-                     && root.rects[ resizeHandle.modelData.panel + "Visible" ] === true
-            x: root.r( resizeHandle.modelData.key ).x;     y: root.r( resizeHandle.modelData.key ).y
-            width: root.r( resizeHandle.modelData.key ).width
-            height: root.r( resizeHandle.modelData.key ).height
-            cursorShape: resizeHandle.modelData.cursor
-            // Just above the panel they belong to, so they keep their place in
-            // the overlay stack. At z 0 the panel covered them: a corner sits
-            // 7px inside it, leaving only a 3px sliver of it grabbable -- and
-            // over a panel's own controls, nothing of it at all.
-            z: root.overlayZ( resizeHandle.modelData.panel ) + 0.5
-            onPressed: (m) => {
-                CircuitPanel.overlayClicked( resizeHandle.modelData.panel )
-                var p = resizeHandle.mapToItem( root, m.x, m.y )
-                CircuitPanel.gestureBegin( resizeHandle.modelData.id, p.x, p.y )
+    // ---- Simulator Messages overlay --------------------------------------
+    OverlayShell {
+        id: simLogOverlay
+        objectName: "simLogPanel"
+        panelId: "simLog"
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 4
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 2
+                spacing: 6
+
+                AppIcon {
+                    icon: "terminal"
+                    size: 16
+                    color: appTheme.windowText
+                    opacity: 0.8
+                }
+                AppText {
+                    text: I18n.tr( "Simulator Messages" )
+                    font.pixelSize: App.fontSmall
+                    font.bold: true
+                    color: appTheme.windowText
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                AppToolButton {
+                    Layout.preferredWidth: 22
+                    Layout.preferredHeight: 22
+                    padding: 0
+                    ToolTip.visible: hovered
+                    ToolTip.text: I18n.tr( "Clear Log" )
+                    onClicked: SimulatorLog.clear()
+                    contentItem: Item {
+                        implicitWidth: 16
+                        implicitHeight: 16
+                        AppIcon {
+                            anchors.centerIn: parent
+                            icon: "delete"
+                            size: 15
+                            color: appTheme.windowText
+                        }
+                    }
+                }
             }
-            onPositionChanged: (m) => { var p = resizeHandle.mapToItem( root, m.x, m.y ); CircuitPanel.gestureMove( p.x, p.y ) }
-            onReleased: CircuitPanel.gestureEnd()
-            // Back to the default size, as double-clicking a splitter did.
-            onDoubleClicked: CircuitPanel.resetOverlaySize( resizeHandle.modelData.id.startsWith( "sidePanel" )
-                                                   ? "sidePanel" : "editorPanel" )
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: 10
+                color: appTheme.base
+                border.color: appTheme.mid
+                border.width: 1
+                clip: true
+
+                Loader {
+                    id: simLogLoader
+                    anchors.fill: parent
+                    source: "OutPanelText.qml"
+                    onLoaded: (simLogLoader.item as OutPanelText).ctx = SimulatorLog
+                }
+            }
         }
     }
 
-    /* ---- Panel grips and show/hide pills ---------------------------------
-     * One pair per panel, sitting on the side that faces the canvas.
-     * CircuitWidget already handled the "sidePanel"/"editorPanel" drag gestures;
-     * nothing in the QML had ever started one, so the panels could not be moved
-     * at all, and there was no way to hide one but the View menu.
-     */
-    Repeater {
-        model: [
-            { key: "spDragHandle", id: "sidePanel",   toggle: false },
-            { key: "spToggle",     id: "sidePanel",   toggle: true  },
-            { key: "epDragHandle", id: "editorPanel", toggle: false },
-            { key: "epToggle",     id: "editorPanel", toggle: true  }
-        ]
-        delegate: AppSurface {
-            id: handle
-            required property var modelData
-            readonly property rect box: root.r( handle.modelData.key )
-            readonly property bool panelVisible: root.rects[ handle.modelData.id + "Visible" ] === true
-            // A toggle stays put when its panel is hidden -- it is what brings it
-            // back; a grip has nothing to drag then.
-            visible: handle.box.width > 0 && ( handle.modelData.toggle || handle.panelVisible )
-            x: handle.box.x; y: handle.box.y
-            width: handle.box.width; height: handle.box.height
-            radius: handle.height / 2
-            surfaceColor: pointer.containsMouse ? appTheme.midlight : appTheme.base
-            z: root.overlayZ( handle.modelData.id ) + 0.5
+    // ---- Compiler Messages overlay ---------------------------------------
+    OverlayShell {
+        id: compLogOverlay
+        objectName: "compLogPanel"
+        panelId: "compLog"
 
-            AppIcon {
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 4
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: 4
+                Layout.rightMargin: 2
+                spacing: 6
+
+                AppIcon {
+                    icon: "bug_report"
+                    size: 16
+                    color: appTheme.windowText
+                    opacity: 0.8
+                }
+                AppText {
+                    text: I18n.tr( "Compiler Messages" )
+                    font.pixelSize: App.fontSmall
+                    font.bold: true
+                    color: appTheme.windowText
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                AppToolButton {
+                    Layout.preferredWidth: 22
+                    Layout.preferredHeight: 22
+                    padding: 0
+                    ToolTip.visible: hovered
+                    ToolTip.text: I18n.tr( "Clear Log" )
+                    onClicked: CompilerLog.clear()
+                    contentItem: Item {
+                        implicitWidth: 16
+                        implicitHeight: 16
+                        AppIcon {
+                            anchors.centerIn: parent
+                            icon: "delete"
+                            size: 15
+                            color: appTheme.windowText
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: 10
+                color: appTheme.base
+                border.color: appTheme.mid
+                border.width: 1
+                clip: true
+
+                Loader {
+                    id: compLogLoader
+                    anchors.fill: parent
+                    source: "OutPanelText.qml"
+                    onLoaded: (compLogLoader.item as OutPanelText).ctx = CompilerLog
+                }
+            }
+        }
+    }
+
+    // ---- Vertical split drag handles (MCU Monitor SplitView style) -------
+    Repeater {
+        model: ["leftSplit", "rightSplit"]
+        delegate: Item {
+            id: splitHandle
+            required property string modelData
+            readonly property var hInfo: root.handleInfo( splitHandle.modelData )
+            visible: hInfo.visible === true
+            x: hInfo.x
+            y: hInfo.y
+            width: hInfo.w
+            height: hInfo.h
+            z: 3
+
+            Rectangle {
                 anchors.centerIn: parent
-                // A drag handle always shows its grip dots. A toggle points
-                // towards the panel it will act on: towards where the panel
-                // currently sits while visible (the direction hiding it will
-                // travel), and towards where it will reappear once hidden --
-                // the opposite direction, since the pill has jumped to the far
-                // margin by then (see CircuitWidget::updateOverlayLayout).
-                icon: !handle.modelData.toggle ? "drag_indicator"
-                    : ( root.rects[ handle.modelData.id + "ClusterRight" ] === handle.panelVisible )
-                      ? "chevron_left" : "chevron_right"
-                size: 16
-                color: appTheme.windowText
+                width: Math.min( 36, parent.width * 0.3 )
+                height: 2
+                radius: 1
+                color: ( splitMouse.pressed || splitMouse.containsMouse ) ? appTheme.highlight : appTheme.mid
             }
 
             MouseArea {
-                id: pointer
+                id: splitMouse
                 anchors.fill: parent
                 hoverEnabled: true
-                cursorShape: handle.modelData.toggle ? Qt.PointingHandCursor : Qt.SizeAllCursor
-                onClicked: if ( handle.modelData.toggle ) {
-                    CircuitPanel.overlayClicked( handle.modelData.id )
-                    CircuitPanel.togglePanel( handle.modelData.id )
-                }
-                onDoubleClicked: if ( !handle.modelData.toggle ) CircuitPanel.resetOverlayPos( handle.modelData.id )
+                cursorShape: Qt.SizeVerCursor
                 onPressed: (m) => {
-                    CircuitPanel.overlayClicked( handle.modelData.id )
-                    if ( !handle.modelData.toggle ) {
-                        var p = pointer.mapToItem( root, m.x, m.y )
-                        CircuitPanel.gestureBegin( handle.modelData.id, p.x, p.y )
-                    }
+                    var p = splitMouse.mapToItem( root, m.x, m.y )
+                    CircuitPanel.gestureBegin( splitHandle.modelData, p.x, p.y )
                 }
                 onPositionChanged: (m) => {
-                    if ( !handle.modelData.toggle && pointer.pressed ) {
-                        var p = pointer.mapToItem( root, m.x, m.y )
+                    if ( splitMouse.pressed ) {
+                        var p = splitMouse.mapToItem( root, m.x, m.y )
                         CircuitPanel.gestureMove( p.x, p.y )
                     }
                 }
-                onReleased: if ( !handle.modelData.toggle ) CircuitPanel.gestureEnd()
+                onReleased: CircuitPanel.gestureEnd()
+                onDoubleClicked: CircuitPanel.resetOverlaySize( splitHandle.modelData )
+            }
+        }
+    }
+
+    // ---- Horizontal width resize strips (docked columns + floating panel) -
+    Repeater {
+        model: ["leftResize", "rightResize"]
+        delegate: MouseArea {
+            id: colResize
+            required property string modelData
+            readonly property var hInfo: root.handleInfo( colResize.modelData )
+            visible: hInfo.visible === true
+            x: hInfo.x
+            y: hInfo.y
+            width: hInfo.w
+            height: hInfo.h
+            z: 3
+            cursorShape: Qt.SizeHorCursor
+            onPressed: (m) => {
+                var p = colResize.mapToItem( root, m.x, m.y )
+                CircuitPanel.gestureBegin( colResize.modelData, p.x, p.y )
+            }
+            onPositionChanged: (m) => {
+                if ( colResize.pressed ) {
+                    var p = colResize.mapToItem( root, m.x, m.y )
+                    CircuitPanel.gestureMove( p.x, p.y )
+                }
+            }
+            onReleased: CircuitPanel.gestureEnd()
+            onDoubleClicked: CircuitPanel.resetOverlaySize( colResize.modelData )
+        }
+    }
+
+    MouseArea {
+        id: floatResize
+        readonly property var fpInfo: root.floatingPanelId !== "" ? root.panelInfo( root.floatingPanelId ) : root.emptyPanelObj
+        readonly property var rr: fpInfo.resize || root.emptyRectObj
+        visible: root.floatingPanelId !== "" && fpInfo.visible === true && fpInfo.floating === true && rr.w > 0
+        x: rr.x
+        y: rr.y
+        width: rr.w
+        height: rr.h
+        z: 7.5
+        cursorShape: Qt.SizeHorCursor
+        onPressed: (m) => {
+            hoverCloseTimer.stop()
+            var p = floatResize.mapToItem( root, m.x, m.y )
+            CircuitPanel.gestureBegin( "floatResize", p.x, p.y )
+        }
+        onPositionChanged: (m) => {
+            if ( floatResize.pressed ) {
+                var p = floatResize.mapToItem( root, m.x, m.y )
+                CircuitPanel.gestureMove( p.x, p.y )
+            }
+        }
+        onReleased: {
+            CircuitPanel.gestureEnd()
+            root.scheduleHoverClose()
+        }
+        onDoubleClicked: CircuitPanel.resetOverlaySize( "floatResize" )
+    }
+
+    // ---- 4 Corner pill backgrounds (separate pinned & hover pills) -------
+    Repeater {
+        model: ["tl", "bl", "tr", "br"]
+        delegate: Item {
+            id: cornerGroupBg
+            required property string modelData
+            readonly property var cInfo: root.cornerInfo( cornerGroupBg.modelData )
+            readonly property var pinRect: cInfo.pinned || root.emptyRectObj
+            readonly property var hovRect: cInfo.hover || root.emptyRectObj
+
+            // Pinned (always-visible) group pill: subtle accent border distinguishes it from hover pills.
+            AppSurface {
+                visible: cornerGroupBg.pinRect.w > 0 && cornerGroupBg.pinRect.h > 0
+                x: cornerGroupBg.pinRect.x
+                y: cornerGroupBg.pinRect.y
+                width: cornerGroupBg.pinRect.w
+                height: cornerGroupBg.pinRect.h
+                radius: 10
+                surfaceColor: appTheme.base
+                border.color: Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.45 )
+                z: 4
+            }
+
+            // Hover-mode group pill: neutral surface.
+            AppSurface {
+                visible: cornerGroupBg.hovRect.w > 0 && cornerGroupBg.hovRect.h > 0
+                x: cornerGroupBg.hovRect.x
+                y: cornerGroupBg.hovRect.y
+                width: cornerGroupBg.hovRect.w
+                height: cornerGroupBg.hovRect.h
+                radius: 10
+                surfaceColor: appTheme.base
+                z: 4
+            }
+        }
+    }
+
+    // ---- 5 Persistent corner icon buttons (never recreated on layout updates)
+    Repeater {
+        model: ["components", "files", "editor", "simLog", "compLog"]
+        delegate: Rectangle {
+            id: cornerBtn
+            required property string modelData
+            readonly property string panelId: cornerBtn.modelData
+            readonly property var info: root.panelInfo( cornerBtn.panelId )
+            readonly property var btnRect: info.button || root.emptyRectObj
+            readonly property bool isPinned: info.pinned === true
+            readonly property bool isActivePinned: info.activePinned === true
+            readonly property bool isFloating: info.floating === true
+            readonly property bool isDraggingThis: root.dragActive && root.dragPanelId === cornerBtn.panelId
+
+            visible: cornerBtn.btnRect.w > 0 && cornerBtn.btnRect.h > 0
+            x: cornerBtn.btnRect.x
+            y: cornerBtn.btnRect.y
+            width: cornerBtn.btnRect.w
+            height: cornerBtn.btnRect.h
+            radius: 7
+            z: 5
+            opacity: cornerBtn.isDraggingThis ? 0.35 : 1.0
+
+            // Clear visual hierarchy:
+            // - Active pinned: solid highlight fill + highlightedText icon
+            // - Inactive pinned (same corner): soft highlight tint + highlight border + pin dot
+            // - Hover mode: neutral transparent button + muted icon (brightens on hover/floating)
+            color: cornerBtn.isActivePinned
+                     ? ( btnMouse.pressed ? Qt.darker( appTheme.highlight, 1.12 ) : appTheme.highlight )
+                 : cornerBtn.isPinned
+                     ? ( btnMouse.pressed
+                           ? Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.30 )
+                           : btnMouse.containsMouse
+                               ? Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.24 )
+                               : Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.14 ) )
+                 : btnMouse.pressed
+                     ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.18 )
+                 : ( btnMouse.containsMouse || cornerBtn.isFloating )
+                     ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.10 )
+                     : "transparent"
+
+            border.width: ( cornerBtn.isPinned && !cornerBtn.isActivePinned ) ? 1 : 0
+            border.color: Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.55 )
+
+            Behavior on color { ColorAnimation { duration: 80 } }
+
+            AppIcon {
+                anchors.centerIn: parent
+                icon: root.panelIcon( cornerBtn.panelId )
+                size: 16
+                color: cornerBtn.isActivePinned
+                       ? appTheme.highlightedText
+                       : cornerBtn.isPinned
+                           ? appTheme.highlight
+                           : appTheme.windowText
+                opacity: ( cornerBtn.isPinned || btnMouse.containsMouse || cornerBtn.isFloating ) ? 1.0 : 0.68
+            }
+
+            // Pin indicator dot when another pinned panel is active in the same corner.
+            Rectangle {
+                visible: cornerBtn.isPinned && !cornerBtn.isActivePinned
+                width: 4
+                height: 4
+                radius: 2
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: 3
+                anchors.bottomMargin: 3
+                color: appTheme.highlight
+            }
+
+            Timer {
+                id: singleClickTimer
+                interval: 210
+                repeat: false
+                onTriggered: CircuitPanel.clickCornerButton( cornerBtn.panelId )
+            }
+
+            MouseArea {
+                id: btnMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                cursorShape: root.dragActive ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+
+                property real pressRootX: 0
+                property real pressRootY: 0
+                property bool leftDown: false
+
+                onEntered: {
+                    if ( !root.dragActive ) {
+                        hoverCloseTimer.stop()
+                        root.hoveredButtonId = cornerBtn.panelId
+                        CircuitPanel.setHoverPanel( cornerBtn.panelId )
+                    }
+                }
+                onExited: {
+                    if ( root.hoveredButtonId === cornerBtn.panelId ) {
+                        root.hoveredButtonId = ""
+                        root.scheduleHoverClose()
+                    }
+                }
+                onPressed: (m) => {
+                    if ( m.button === Qt.RightButton ) {
+                        singleClickTimer.stop()
+                        hoverCloseTimer.stop()
+                        cornerBtnMenu.openFor( cornerBtn.panelId, String( cornerBtn.info.corner || "tl" ), cornerBtn.isPinned )
+                        return
+                    }
+                    var pt = btnMouse.mapToItem( root, m.x, m.y )
+                    pressRootX = pt.x
+                    pressRootY = pt.y
+                    leftDown = true
+                }
+                onPositionChanged: (m) => {
+                    if ( !leftDown )
+                        return
+                    var pt = btnMouse.mapToItem( root, m.x, m.y )
+                    if ( !root.dragActive ) {
+                        var dx = pt.x - pressRootX
+                        var dy = pt.y - pressRootY
+                        if ( dx * dx + dy * dy >= 36 ) {
+                            singleClickTimer.stop()
+                            root.dragActive = true
+                            root.dragPanelId = cornerBtn.panelId
+                            CircuitPanel.setHoverPanel( "" )
+                        }
+                    }
+                    if ( root.dragActive ) {
+                        root.dragX = pt.x
+                        root.dragY = pt.y
+                        root.dragTargetCorner = root.cornerAtPoint( pt.x, pt.y )
+                    }
+                }
+                onReleased: (m) => {
+                    if ( m.button !== Qt.LeftButton )
+                        return
+                    var wasDrag = root.dragActive
+                    var draggedId = root.dragPanelId
+                    var targetCorner = root.dragTargetCorner
+                    leftDown = false
+                    root.dragActive = false
+                    root.dragPanelId = ""
+                    root.dragTargetCorner = ""
+
+                    if ( wasDrag ) {
+                        singleClickTimer.stop()
+                        if ( draggedId !== "" && targetCorner !== "" )
+                            CircuitPanel.movePanelToCorner( draggedId, targetCorner )
+                    } else if ( singleClickTimer.running ) {
+                        singleClickTimer.stop()
+                        CircuitPanel.doubleClickCornerButton( cornerBtn.panelId )
+                    } else {
+                        singleClickTimer.restart()
+                    }
+                }
+                onCanceled: {
+                    leftDown = false
+                    singleClickTimer.stop()
+                    root.dragActive = false
+                    root.dragPanelId = ""
+                    root.dragTargetCorner = ""
+                }
+
+                ToolTip.visible: btnMouse.containsMouse && !root.dragActive && !cornerBtnMenu.opened
+                ToolTip.delay: 500
+                ToolTip.text: {
+                    var name = root.panelLabel( cornerBtn.panelId )
+                    if ( cornerBtn.isActivePinned )
+                        return name + " — " + I18n.tr( "Docked (click to collapse, double-click for hover mode, drag to move)" )
+                    if ( cornerBtn.isPinned )
+                        return name + " — " + I18n.tr( "Docked (click to show, double-click for hover mode, drag to move)" )
+                    return name + " — " + I18n.tr( "Hover mode (click to open/close, double-click to dock, drag to move)" )
+                }
+            }
+        }
+    }
+
+    // ---- Corner button context menu --------------------------------------
+    AppContextMenu {
+        id: cornerBtnMenu
+        popupType: Popup.Item
+        property string targetPanelId: ""
+        property string targetCorner: "tl"
+        property bool targetPinned: false
+
+        function openFor( panelId: string, corner: string, pinned: bool ): void {
+            targetPanelId = panelId
+            targetCorner = corner
+            targetPinned = pinned
+            popup()
+        }
+
+        ContextMenuItem {
+            text: cornerBtnMenu.targetPinned ? I18n.tr( "Switch to Hover Mode" ) : I18n.tr( "Switch to Docked Mode" )
+            iconLigature: cornerBtnMenu.targetPinned ? "visibility_off" : "visibility"
+            onTriggered: CircuitPanel.setPanelPinned( cornerBtnMenu.targetPanelId, !cornerBtnMenu.targetPinned )
+        }
+        ContextMenuSeparator {}
+        ContextMenuItem {
+            text: I18n.tr( "Move to Top Left" )
+            checkable: true
+            checked: cornerBtnMenu.targetCorner === "tl"
+            onTriggered: CircuitPanel.movePanelToCorner( cornerBtnMenu.targetPanelId, "tl" )
+        }
+        ContextMenuItem {
+            text: I18n.tr( "Move to Bottom Left" )
+            checkable: true
+            checked: cornerBtnMenu.targetCorner === "bl"
+            onTriggered: CircuitPanel.movePanelToCorner( cornerBtnMenu.targetPanelId, "bl" )
+        }
+        ContextMenuItem {
+            text: I18n.tr( "Move to Top Right" )
+            checkable: true
+            checked: cornerBtnMenu.targetCorner === "tr"
+            onTriggered: CircuitPanel.movePanelToCorner( cornerBtnMenu.targetPanelId, "tr" )
+        }
+        ContextMenuItem {
+            text: I18n.tr( "Move to Bottom Right" )
+            checkable: true
+            checked: cornerBtnMenu.targetCorner === "br"
+            onTriggered: CircuitPanel.movePanelToCorner( cornerBtnMenu.targetPanelId, "br" )
+        }
+        ContextMenuSeparator {}
+        ContextMenuItem {
+            text: I18n.tr( "Reset Overlay Layout" )
+            iconLigature: "restart_alt"
+            onTriggered: CircuitPanel.resetOverlayLayout()
+        }
+    }
+
+    // ---- 4-Corner drag drop targets & ghost pill -------------------------
+    Repeater {
+        model: ["tl", "bl", "tr", "br"]
+        delegate: Rectangle {
+            id: dropZone
+            required property string modelData
+            readonly property bool isTarget: root.dragTargetCorner === dropZone.modelData
+            readonly property bool isLeft: dropZone.modelData === "tl" || dropZone.modelData === "bl"
+            readonly property bool isTop: dropZone.modelData === "tl" || dropZone.modelData === "tr"
+            readonly property int pad: 12
+            readonly property int topY: root.topInset + pad
+            readonly property int zoneW: Math.min( 160, Math.max( 90, root.width * 0.22 ) )
+            readonly property int zoneH: Math.min( 110, Math.max( 64, ( root.height - topY - pad ) * 0.26 ) )
+
+            visible: root.dragActive
+            z: 20
+            x: isLeft ? pad : ( root.width - pad - zoneW )
+            y: isTop ? topY : ( root.height - pad - zoneH )
+            width: zoneW
+            height: zoneH
+            radius: 14
+            color: isTarget
+                   ? Qt.rgba( appTheme.highlight.r, appTheme.highlight.g, appTheme.highlight.b, 0.22 )
+                   : Qt.rgba( appTheme.window.r, appTheme.window.g, appTheme.window.b, 0.72 )
+            border.width: isTarget ? 2 : 1
+            border.color: isTarget ? appTheme.highlight : appTheme.mid
+
+            AppText {
+                anchors.centerIn: parent
+                text: root.cornerLabel( dropZone.modelData )
+                font.pixelSize: App.fontSmall
+                font.bold: dropZone.isTarget
+                color: dropZone.isTarget ? appTheme.highlight : appTheme.windowText
+                opacity: dropZone.isTarget ? 1.0 : 0.75
+            }
+        }
+    }
+
+    AppSurface {
+        id: dragGhost
+        visible: root.dragActive && root.dragPanelId !== ""
+        z: 21
+        radius: height / 2
+        shadowEnabled: true
+        elevation: 1.0
+        width: ghostRow.implicitWidth + 20
+        height: 30
+        x: Math.max( 8, Math.min( root.width - width - 8, root.dragX - width / 2 ) )
+        y: Math.max( root.topInset + 8, Math.min( root.height - height - 8, root.dragY - height / 2 ) )
+
+        Row {
+            id: ghostRow
+            anchors.centerIn: parent
+            spacing: 6
+
+            AppIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                icon: root.panelIcon( root.dragPanelId )
+                size: 16
+                color: appTheme.highlight
+            }
+            AppText {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.panelLabel( root.dragPanelId )
+                font.pixelSize: App.fontSmall
+                font.bold: true
+                color: appTheme.windowText
             }
         }
     }
@@ -800,10 +1372,7 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
                     CircuitPanel.overlayClicked( "toolbar" )
-                    CircuitPanel.showSidePanel()
-                    App.sidePanelTab = 3
-                    if ( compilePill.st && compilePill.st.state === "error" )
-                        CircuitPanel.showEditor()
+                    CircuitPanel.showCompLog()
                 }
             }
 
@@ -1338,12 +1907,7 @@ Item {
             CircuitPanel.setCanvasOverflow(text)
         }
         function onSimChanged(): void {
-            var starting = !CircuitPanel.simRunning && CircuitCanvas.simRunning
             CircuitPanel.syncSimState( CircuitCanvas.simRunning, CircuitCanvas.simPaused )
-            if ( starting ) {
-                CircuitPanel.showSidePanel()
-                App.sidePanelTab = 2
-            }
             if ( CircuitCanvas.simError )
                 CircuitPanel.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
             else if ( CircuitCanvas.simWarning )
@@ -1410,7 +1974,15 @@ Item {
         target: EditorPanel
         function onRequestShow(): void { CircuitPanel.showEditor() }
         function onRequestHide(): void { CircuitPanel.hideEditor() }
-        function onFocusedChanged(): void { if ( EditorPanel.focused ) CircuitPanel.overlayClicked( "editorPanel" ) }
+        function onFocusedChanged(): void {
+            if ( EditorPanel.focused ) {
+                CircuitPanel.overlayClicked( "editor" )
+                if ( root.floatingPanelId === "editor" )
+                    CircuitPanel.openPanel( "editor" )
+            } else {
+                root.scheduleHoverClose()
+            }
+        }
         function onDebugStateChanged(): void { CircuitPanel.refreshDebugToolbar() }
         function onCompilingChanged(): void {
             CircuitPanel.setCompileStatus( EditorPanel.compileStatus )
@@ -1423,6 +1995,11 @@ Item {
                 compileAutoHideTimer.stop()
             }
         }
+    }
+
+    Connections {
+        target: AppDialog
+        function onSettingsReset(): void { CircuitPanel.reloadOverlayLayout() }
     }
 
     Connections {

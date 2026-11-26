@@ -3,6 +3,7 @@
 
 use crate::macos_host;
 use crate::path_util::strip_file_url;
+use cs_engine::overlays::OverlayLayoutConfig;
 use cs_engine::settings::{self, AppSettings, CircSettings, LANGUAGES, TIME_UNITS};
 use qtbridge::qobject;
 
@@ -319,6 +320,8 @@ impl AppDialog {
     fn request_reset(&mut self);
     #[qsignal]
     fn recent_circuits_changed(&mut self);
+    #[qsignal]
+    fn settings_reset(&mut self);
 
     fn languages(&self) -> Vec<String> {
         LANGUAGES.iter().map(|(_, n)| (*n).to_string()).collect()
@@ -658,6 +661,7 @@ impl AppDialog {
         cs_engine::i18n::set_locale("en");
         settings::edit(|s| {
             s.shortcuts.clear();
+            s.overlay_layout = OverlayLayoutConfig::default();
         });
         self.persist();
         self.app_changed();
@@ -666,6 +670,7 @@ impl AppDialog {
         self.editor_changed();
         self.debug_changed();
         self.log_word_wrap_changed();
+        self.settings_reset();
     }
 
     #[qslot]

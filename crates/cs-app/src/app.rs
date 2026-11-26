@@ -21,8 +21,6 @@ pub struct App {
     settings_visible: bool,
     circuit_settings_visible: bool,
     installer_visible: bool,
-    side_panel_tab: i32,
-    search_placeholder: String,
     font_family: String,
     font_mono_family: String,
     font_size: i32,
@@ -54,8 +52,6 @@ impl Default for App {
             settings_visible: false,
             circuit_settings_visible: false,
             installer_visible: false,
-            side_panel_tab: 0,
-            search_placeholder: cs_engine::i18n::tr("Search components"),
             font_family: s.font_name.clone(),
             font_mono_family: s.editor_font_family.clone(),
             font_size: 13,
@@ -157,17 +153,6 @@ impl App {
         Notify = installer_visible_changed
     );
     qproperty!("i18nTick", Read = i18n_tick, Notify = i18n_tick_changed);
-    qproperty!(
-        "sidePanelTab",
-        Read = side_panel_tab,
-        Write = set_side_panel_tab,
-        Notify = side_panel_tab_changed
-    );
-    qproperty!(
-        "searchPlaceholder",
-        Read = search_placeholder,
-        Notify = search_placeholder_changed
-    );
     qproperty!("fontFamily", Read = font_family, Notify = font_changed);
     qproperty!(
         "fontMonoFamily",
@@ -228,10 +213,6 @@ impl App {
     fn request_show_installer(&mut self);
     #[qsignal]
     fn i18n_tick_changed(&mut self);
-    #[qsignal]
-    fn side_panel_tab_changed(&mut self);
-    #[qsignal]
-    fn search_placeholder_changed(&mut self);
     #[qsignal]
     fn font_changed(&mut self);
     #[qsignal]
@@ -321,14 +302,6 @@ impl App {
 
     fn installer_visible(&self) -> bool {
         self.installer_visible
-    }
-
-    fn side_panel_tab(&self) -> i32 {
-        self.side_panel_tab
-    }
-
-    fn search_placeholder(&self) -> String {
-        self.search_placeholder.clone()
     }
 
     fn font_family(&self) -> String {
@@ -505,20 +478,6 @@ impl App {
         }
     }
 
-    fn set_side_panel_tab(&mut self, index: i32) {
-        if self.side_panel_tab == index {
-            return;
-        }
-        self.side_panel_tab = index.clamp(0, 3);
-        self.side_panel_tab_changed();
-        self.search_placeholder = match self.side_panel_tab {
-            0 => cs_engine::i18n::tr("Search components"),
-            1 => cs_engine::i18n::tr("Search files"),
-            _ => cs_engine::i18n::tr("Search"),
-        };
-        self.search_placeholder_changed();
-    }
-
     #[qslot]
     fn show_about(&mut self) {
         self.set_about_visible(true);
@@ -622,12 +581,6 @@ impl App {
         if font_changed {
             self.font_changed();
         }
-        self.search_placeholder = match self.side_panel_tab {
-            0 => cs_engine::i18n::tr("Search components"),
-            1 => cs_engine::i18n::tr("Search files"),
-            _ => cs_engine::i18n::tr("Search"),
-        };
-        self.search_placeholder_changed();
         self.i18n_tick = self.i18n_tick.wrapping_add(1);
         self.i18n_tick_changed();
     }
@@ -640,7 +593,6 @@ impl App {
 
     #[qslot]
     fn focus_search_component(&mut self) {
-        self.set_side_panel_tab(0);
         self.focus_search_requested();
     }
 

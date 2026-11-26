@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+use crate::overlays::OverlayLayoutConfig;
 use crate::units::{join_time, split_time};
 
 /// C++ `CircuitDefaults` hardcoded fallbacks.
@@ -88,6 +89,8 @@ pub struct AppSettings {
     pub project_sessions: BTreeMap<String, crate::project::ProjectSession>,
     #[serde(default)]
     pub shortcuts: BTreeMap<String, String>,
+    #[serde(default)]
+    pub overlay_layout: OverlayLayoutConfig,
 }
 
 impl Default for AppSettings {
@@ -139,6 +142,7 @@ impl Default for AppSettings {
             installed_components: BTreeMap::new(),
             project_sessions: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
+            overlay_layout: OverlayLayoutConfig::default(),
         }
     }
 }
@@ -216,6 +220,7 @@ impl AppSettings {
         trim_recent(&mut self.recent_files, MAX_RECENT_FILES);
         trim_recent(&mut self.recent_projects, MAX_RECENT_PROJECTS);
         trim_recent(&mut self.recent_components, MAX_RECENT_COMPONENTS);
+        self.overlay_layout.clamp();
     }
 
     pub fn language_index(&self) -> i32 {

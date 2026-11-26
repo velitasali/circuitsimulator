@@ -6,11 +6,12 @@ use crate::macos_host;
 use crate::ui_icon::UiIcon;
 use cs_engine::canvas::scene::ProgrammableDevice;
 use cs_engine::debug::{BreakReason, DebugSession, DebugState};
-use cs_engine::overlays::{OverlayEntry, OverlaySnapshot, Overlays};
+use cs_engine::overlays::{Corner, IRect, OverlaySnapshot, Overlays, PanelId};
+use cs_engine::settings;
 use cs_engine::subcircuit::SubcTreeNode;
 use cs_engine::theme::{ColorId, ColorTheme};
 use qtbridge::qobject;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NavEntry {
@@ -156,8 +157,9 @@ pub struct CircuitPanel {
 impl Default for CircuitPanel {
     fn default() -> Self {
         let dark = macos_host::current_theme_dark();
+        let layout_cfg = settings::get().overlay_layout;
         Self {
-            overlays: Overlays::new(),
+            overlays: Overlays::from_config(&layout_cfg),
             coords_x: 0,
             coords_y: 0,
             zoom_text: "100%".into(),
@@ -193,17 +195,90 @@ impl Default for CircuitPanel {
     }
 }
 
+fn rect_json(r: IRect) -> Value {
+    json!({ "x": r.x, "y": r.y, "w": r.w, "h": r.h })
+}
+
 fn snapshot_json(s: &OverlaySnapshot) -> Value {
-    let mut map = serde_json::Map::new();
-    for (k, v) in &s.entries {
-        let val = match v {
-            OverlayEntry::Rect(r) => json!({ "x": r.x, "y": r.y, "w": r.w, "h": r.h }),
-            OverlayEntry::Flag(b) => json!(b),
-            OverlayEntry::Int(i) => json!(i),
-        };
-        map.insert(k.clone(), val);
+    let mut panels = Map::new();
+    for (&pid, l) in &s.panels {
+        panels.insert(
+            pid.as_str().into(),
+            json!({
+                "visible": l.visible,
+                "floating": l.floating,
+                "pinned": l.pinned,
+                "activePinned": l.active_pinned,
+                "corner": l.corner,
+                "isLeft": l.is_left,
+                "x": l.rect.x,
+                "y": l.rect.y,
+                "w": l.rect.w,
+                "h": l.rect.h,
+                "button": rect_json(l.button),
+                "z": l.z,
+                "resize": rect_json(l.resize),
+            }),
+        );
     }
-    Value::Object(map)
+
+    let mut corners = Map::new();
+    for c in Corner::ALL {
+        let strip = &s.corners[c.index()];
+        corners.insert(
+            c.as_str().into(),
+            json!({
+                "x": strip.rect.x,
+                "y": strip.rect.y,
+                "w": strip.rect.w,
+                "h": strip.rect.h,
+                "pinned": rect_json(strip.pinned_rect),
+                "hover": rect_json(strip.hover_rect),
+            }),
+        );
+    }
+
+    json!({
+        "margin": s.margin,
+        "topMin": s.top_min,
+        "bottomMax": s.bottom_max,
+        "toolbar": rect_json(s.toolbar),
+        "toolbarZ": s.toolbar_z,
+        "infoCard": rect_json(s.info_card),
+        "infoCardZ": s.info_card_z,
+        "panels": panels,
+        "corners": corners,
+        "leftSplit": {
+            "visible": s.left_split.visible,
+            "x": s.left_split.rect.x,
+            "y": s.left_split.rect.y,
+            "w": s.left_split.rect.w,
+            "h": s.left_split.rect.h,
+        },
+        "rightSplit": {
+            "visible": s.right_split.visible,
+            "x": s.right_split.rect.x,
+            "y": s.right_split.rect.y,
+            "w": s.right_split.rect.w,
+            "h": s.right_split.rect.h,
+        },
+        "leftResize": {
+            "visible": s.left_resize.visible,
+            "x": s.left_resize.rect.x,
+            "y": s.left_resize.rect.y,
+            "w": s.left_resize.rect.w,
+            "h": s.left_resize.rect.h,
+        },
+        "rightResize": {
+            "visible": s.right_resize.visible,
+            "x": s.right_resize.rect.x,
+            "y": s.right_resize.rect.y,
+            "w": s.right_resize.rect.w,
+            "h": s.right_resize.rect.h,
+        },
+        "floatingPanel": s.floating_panel.map(|p| p.as_str()).unwrap_or(""),
+        "floatingReason": s.floating_reason,
+    })
 }
 
 #[qobject(Singleton, ConvertToCamelCase)]
@@ -849,7 +924,7 @@ impl CircuitPanel {
             separator(false),
             widget("compileStatus", self.compile_status_visible()),
             widget("msg", !self.message_text.is_empty()),
-            widget("coords", true),
+            widget("coords", !self.custom_titlebar),
             separator(true),
             widget("warnings", !self.warnings_text.is_empty()),
             widget("canvasOverflow", !self.canvas_overflow_text.is_empty()),
@@ -912,6 +987,13 @@ impl CircuitPanel {
         }
     }
 
+    fn persist_layout(&self) {
+        let cfg = self.overlays.to_config();
+        settings::edit(|s| {
+            s.overlay_layout = cfg;
+        });
+    }
+
     #[qslot]
     fn overlay_clicked(&mut self, id: String) {
         if self.overlays.overlay_clicked(&id) {
@@ -920,16 +1002,123 @@ impl CircuitPanel {
     }
 
     #[qslot]
-    fn toggle_panel(&mut self, id: String) {
-        if self.overlays.toggle_panel(&id) {
+    fn click_corner_button(&mut self, panel_id: String) {
+        let Some(panel) = PanelId::parse(&panel_id) else {
+            return;
+        };
+        let (layout_changed, config_changed) = self.overlays.button_clicked(panel);
+        if config_changed {
+            self.persist_layout();
+        }
+        if layout_changed {
             self.overlay_layout_changed();
-            self.toolbar_changed();
+        }
+    }
+
+    #[qslot]
+    fn double_click_corner_button(&mut self, panel_id: String) {
+        let Some(panel) = PanelId::parse(&panel_id) else {
+            return;
+        };
+        if self.overlays.button_double_clicked(panel) {
+            self.persist_layout();
+            self.overlay_layout_changed();
+        }
+    }
+
+    #[qslot]
+    fn set_panel_pinned(&mut self, panel_id: String, pinned: bool) {
+        let Some(panel) = PanelId::parse(&panel_id) else {
+            return;
+        };
+        if self.overlays.set_panel_pinned(panel, pinned) {
+            self.persist_layout();
+            self.overlay_layout_changed();
+        }
+    }
+
+    #[qslot]
+    fn set_hover_panel(&mut self, panel_id: String) {
+        let target = if panel_id.is_empty() {
+            None
+        } else {
+            PanelId::parse(&panel_id)
+        };
+        if self.overlays.set_hover_panel(target) {
+            self.overlay_layout_changed();
+        }
+    }
+
+    #[qslot]
+    fn open_panel(&mut self, panel_id: String) {
+        let Some(panel) = PanelId::parse(&panel_id) else {
+            return;
+        };
+        let (layout_changed, config_changed) = self.overlays.open_temporary(panel);
+        if config_changed {
+            self.persist_layout();
+        }
+        if layout_changed {
+            self.overlay_layout_changed();
+        }
+    }
+
+    #[qslot]
+    fn dismiss_floating(&mut self) {
+        if self.overlays.dismiss_floating() {
+            self.overlay_layout_changed();
+        }
+    }
+
+    #[qslot]
+    fn move_panel_to_corner(&mut self, panel_id: String, corner: String) {
+        let (Some(panel), Some(target)) = (PanelId::parse(&panel_id), Corner::parse(&corner))
+        else {
+            return;
+        };
+        if self.overlays.move_panel_to_corner(panel, target) {
+            self.persist_layout();
+            self.overlay_layout_changed();
+        }
+    }
+
+    #[qslot]
+    fn reset_overlay_layout(&mut self) {
+        self.overlays.reset_layout();
+        self.persist_layout();
+        self.overlay_layout_changed();
+    }
+
+    #[qslot]
+    fn reload_overlay_layout(&mut self) {
+        let cfg = settings::get().overlay_layout;
+        self.overlays.apply_config(&cfg);
+        self.overlay_layout_changed();
+    }
+
+    #[qslot]
+    fn toggle_panel(&mut self, id: String) {
+        let target = match id.as_str() {
+            "sidePanel" => Some(PanelId::Components),
+            "editorPanel" => Some(PanelId::Editor),
+            other => PanelId::parse(other),
+        };
+        if let Some(panel) = target {
+            if self.overlays.button_double_clicked(panel) {
+                self.persist_layout();
+                self.overlay_layout_changed();
+                self.toolbar_changed();
+            }
         }
     }
 
     #[qslot]
     fn toggle_active_overlay(&mut self) -> bool {
-        if self.overlays.toggle_active_overlay() {
+        let (layout_changed, config_changed) = self.overlays.toggle_active_overlay();
+        if config_changed {
+            self.persist_layout();
+        }
+        if layout_changed {
             self.overlay_layout_changed();
             self.toolbar_changed();
             self.info_visible_changed();
@@ -945,33 +1134,33 @@ impl CircuitPanel {
     }
 
     #[qslot]
-    fn show_side_panel(&mut self) {
-        if self.overlays.set_side_shown(true) {
-            self.overlay_layout_changed();
-        } else if self.overlays.overlay_clicked("sidePanel") {
-            self.overlay_layout_changed();
-        }
+    fn show_components(&mut self) {
+        self.open_panel("components".into());
     }
 
     #[qslot]
-    fn hide_side_panel(&mut self) {
-        if self.overlays.set_side_shown(false) {
-            self.overlay_layout_changed();
-        }
+    fn show_files(&mut self) {
+        self.open_panel("files".into());
+    }
+
+    #[qslot]
+    fn show_sim_log(&mut self) {
+        self.open_panel("simLog".into());
+    }
+
+    #[qslot]
+    fn show_comp_log(&mut self) {
+        self.open_panel("compLog".into());
     }
 
     #[qslot]
     fn show_editor(&mut self) {
-        if self.overlays.set_editor_shown(true) {
-            self.overlay_layout_changed();
-        } else if self.overlays.overlay_clicked("editorPanel") {
-            self.overlay_layout_changed();
-        }
+        self.open_panel("editor".into());
     }
 
     #[qslot]
     fn hide_editor(&mut self) {
-        if self.overlays.set_editor_shown(false) {
+        if self.overlays.hide_if_floating(PanelId::Editor) {
             self.overlay_layout_changed();
         }
     }
@@ -986,6 +1175,7 @@ impl CircuitPanel {
     #[qslot]
     fn reset_overlay_size(&mut self, id: String) {
         if self.overlays.reset_size(&id) {
+            self.persist_layout();
             self.overlay_layout_changed();
         }
     }
@@ -1009,7 +1199,10 @@ impl CircuitPanel {
 
     #[qslot]
     fn gesture_end(&mut self) {
-        self.overlays.gesture_end();
+        let config_changed = self.overlays.gesture_end();
+        if config_changed {
+            self.persist_layout();
+        }
         self.overlay_layout_changed();
     }
 
@@ -1217,7 +1410,8 @@ impl CircuitPanel {
             return false;
         }
         self.custom_titlebar = enabled;
-        self.refresh_sim_message()
+        self.refresh_sim_message();
+        true
     }
 
     #[qslot]
@@ -1266,8 +1460,7 @@ impl CircuitPanel {
         self.paused = false;
         if self.running {
             let _ = self.overlays.set_info_shown(self.sim_info_enabled);
-            let _ = self.overlays.set_side_shown(true);
-            let _ = self.overlays.overlay_clicked("sidePanel");
+            let _ = self.overlays.open_temporary(PanelId::SimLog);
         } else {
             let _ = self.overlays.set_info_shown(false);
         }
@@ -1957,39 +2150,46 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_start_shows_side_panel_and_info() {
+    fn test_sync_start_shows_sim_log_and_info() {
         let mut panel = CircuitPanel::default();
-        assert!(panel.overlays.set_side_shown(false));
+        panel.overlays = Overlays::new();
+        panel.overlays.set_view_size(1200, 800);
+        // Unpin SimLog to exercise opening it temporarily when starting simulation.
+        panel.overlays.set_panel_pinned(PanelId::SimLog, false);
+        assert!(!panel.overlays.is_panel_visible(PanelId::SimLog));
         assert!(!panel.info_visible());
 
         assert!(panel.sync_sim_state_data(true, false));
         assert!(panel.running);
         assert!(!panel.paused);
         assert_eq!(panel.message_text, "Running");
-        assert!(panel.overlays.side_shown());
+        assert!(panel.overlays.is_panel_visible(PanelId::SimLog));
         assert!(panel.info_visible());
     }
 
     #[test]
     fn test_sync_pause_leaves_overlays_alone() {
         let mut panel = CircuitPanel::default();
+        panel.overlays = Overlays::new();
+        panel.overlays.set_view_size(1200, 800);
+        panel.overlays.set_panel_pinned(PanelId::SimLog, false);
         panel.sync_sim_state_data(true, false);
         panel.set_info_hidden();
-        assert!(panel.overlays.set_side_shown(false));
+        assert!(panel.overlays.dismiss_floating());
         assert!(!panel.info_visible());
-        assert!(!panel.overlays.side_shown());
+        assert!(!panel.overlays.is_panel_visible(PanelId::SimLog));
 
         assert!(panel.sync_sim_state_data(true, true));
         assert!(panel.paused);
         assert_eq!(panel.message_text, "Paused");
         assert!(!panel.info_visible());
-        assert!(!panel.overlays.side_shown());
+        assert!(!panel.overlays.is_panel_visible(PanelId::SimLog));
 
         assert!(panel.sync_sim_state_data(true, false));
         assert!(!panel.paused);
         assert_eq!(panel.message_text, "Running");
         assert!(!panel.info_visible());
-        assert!(!panel.overlays.side_shown());
+        assert!(!panel.overlays.is_panel_visible(PanelId::SimLog));
     }
 
     #[test]
@@ -2169,8 +2369,22 @@ mod tests {
                 == true
         };
 
-        // Enable custom title bar: overlay toolbar must not show Running/Breakpoint/Paused.
-        panel.set_custom_titlebar_data(true);
+        let coords_visible = |p: &CircuitPanel| {
+            p.toolbar_items_for_debug(p.debug_active)
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["widget"] == "coords")
+                .unwrap()["visible"]
+                == true
+        };
+
+        // Initially no custom title bar: coordinates stay in overlay toolbar.
+        assert!(coords_visible(&panel));
+
+        // Enable custom title bar: overlay toolbar must not show Running/Breakpoint/Paused or coords.
+        assert!(panel.set_custom_titlebar_data(true));
+        assert!(!coords_visible(&panel));
 
         assert!(panel.sync_sim_state_with_debug(true, false, false, false));
         assert!(panel.sim_running());
@@ -2207,8 +2421,9 @@ mod tests {
         assert!(panel.message_text.is_empty());
         assert!(!msg_visible(&panel));
 
-        // Fallback when custom title bar is unavailable: overlay toolbar shows the state again.
+        // Fallback when custom title bar is unavailable: overlay toolbar shows the state and coords again.
         assert!(panel.set_custom_titlebar_data(false));
+        assert!(coords_visible(&panel));
         assert_eq!(panel.message_text, "Paused");
         assert!(msg_visible(&panel));
 

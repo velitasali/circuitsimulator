@@ -97,6 +97,7 @@ Item {
 
         onPressed: (ev) => {
             root.forceActiveFocus()
+            CircuitPanel.dismissFloating()
             const wasLinking = CircuitCanvas.linkingFrom.length > 0
             CircuitCanvas.mousePress(ev.button, ev.x, ev.y, ev.modifiers)
             if (wasLinking)

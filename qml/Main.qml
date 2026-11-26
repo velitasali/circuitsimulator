@@ -725,24 +725,21 @@ ApplicationWindow {
                 CircuitCanvas.animateCurr = !CircuitCanvas.animateCurr
                 AppMenuBar.setChecked("sim.animateCurr", CircuitCanvas.animateCurr)
             } else if (id === "view.searchComp") {
-                CircuitPanel.showSidePanel()
+                CircuitPanel.showComponents()
                 App.focusSearchComponent()
             } else if (id === "view.focusFiles") {
-                CircuitPanel.showSidePanel()
-                App.sidePanelTab = 1
+                CircuitPanel.showFiles()
             } else if (id === "view.focusEditor") {
                 CircuitPanel.showEditor()
                 EditorPanel.focusEditor()
             } else if (id === "view.focusSimLog") {
-                CircuitPanel.showSidePanel()
-                App.sidePanelTab = 2
+                CircuitPanel.showSimLog()
             } else if (id === "view.focusCompLog") {
-                CircuitPanel.showSidePanel()
-                App.sidePanelTab = 3
+                CircuitPanel.showCompLog()
             } else if (id === "view.sidePanel") {
-                CircuitPanel.togglePanel("sidePanel")
+                CircuitPanel.togglePanel("components")
             } else if (id === "view.editorPanel") {
-                CircuitPanel.togglePanel("editorPanel")
+                CircuitPanel.togglePanel("editor")
             } else if (id === "view.toggleActivePanel") {
                 CircuitPanel.toggleActiveOverlay()
             } else if (id === "view.libManager") {
@@ -1262,8 +1259,7 @@ ApplicationWindow {
         }
         function onRequestCompilerLog() {
             CompilerLog.clear()
-            CircuitPanel.showSidePanel()
-            App.sidePanelTab = 3
+            CircuitPanel.showCompLog()
         }
         function onRequestUpload() {
             CircuitCanvas.uploadFirmwareTo(EditorPanel.lastFirmware, EditorPanel.lastUploadTarget)

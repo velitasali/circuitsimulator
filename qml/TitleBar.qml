@@ -51,8 +51,13 @@ Item {
 
     readonly property int leftEdge: bar.leadingInset > 0 ? bar.leadingInset : 8
     readonly property int updatePillWidth: 26
-    readonly property int rightEdge: (captionCluster.visible ? captionCluster.width : 0)
+    readonly property int baseRightEdge: (captionCluster.visible ? captionCluster.width : 0)
         + (Updater.updateAvailable ? (bar.updatePillWidth + bar.pillGap) : 0) + 12
+    readonly property int coordsPillWidth: Math.ceil(coordsRow.implicitWidth) + 14
+    readonly property bool coordsVisible: (bar.width - bar.leftEdge - bar.baseRightEdge
+        - bar.leftUtilityWidth - bar.pillGap - bar.coordsPillWidth - bar.pillGap) >= bar.titleContentMinWidth
+    readonly property int rightEdge: bar.baseRightEdge
+        + (bar.coordsVisible ? (bar.coordsPillWidth + bar.pillGap) : 0)
     readonly property int usableWidth: Math.max(0, bar.width - bar.leftEdge - bar.rightEdge)
     readonly property int pillGap: 8
     // 2px padding on each side + two 22px icon buttons + 2px spacing.
@@ -60,9 +65,9 @@ Item {
     // 2px padding on each side + one 22px icon button.
     readonly property int commandCenterPillWidth: 26
     readonly property int leftUtilityWidth: bar.historyPillWidth + bar.pillGap + bar.commandCenterPillWidth
-    // icon 16 + row spacing 4 + pill padding 14. The row drops a hidden MenuBar,
+    // icon 16 + row spacing 4. The row drops a hidden MenuBar,
     // so the fit check cannot read menuPill.implicitWidth.
-    readonly property int menuPillChrome: 34
+    readonly property int menuPillChrome: 20
     readonly property int menuPillWidth: Math.ceil(menuBar.implicitWidth) + bar.menuPillChrome
     // Floors of the title pill once the menu icon has moved onto the menu pill:
     // sim chip, project badge (48), file label (64), plus the pill's own padding.
@@ -478,7 +483,7 @@ Item {
         onPressed: App.titlebarMouseDown()
     }
 
-    // Left (non-macOS when wide enough): app icon + inline menu bar over a translucent pill.
+    // Left (non-macOS when wide enough): app icon + inline menu bar (no pill background).
     // The container stays visible so the bar's contentWidth can be measured. The MenuBar
     // itself hides when it does not fit; that width does not collapse with visible.
     Item {
@@ -498,17 +503,16 @@ Item {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             height: 26
-            implicitWidth: Math.ceil(menuPillRow.implicitWidth) + 14
+            implicitWidth: Math.ceil(menuPillRow.implicitWidth)
             width: implicitWidth
             radius: height / 2
-            color: Qt.alpha(bar.backdropColor, 0.70)
+            color: "transparent"
             antialiasing: true
             opacity: bar.windowActive ? 1.0 : 0.7
 
             Row {
                 id: menuPillRow
                 anchors.left: parent.left
-                anchors.leftMargin: 8
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 4
 
@@ -536,7 +540,7 @@ Item {
                     topPadding: 0
                     bottomPadding: 0
                     spacing: 1
-                    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontSmall })
+                    font: Qt.font({ family: App.fontFamily, pixelSize: App.fontNormal })
                     background: null
 
                     Keys.onPressed: (event) => {
@@ -619,13 +623,11 @@ Item {
 
                                 AppText {
                                     text: barItem.mnemonic.lead
-                                    font.pixelSize: App.fontSmall
                                     color: appTheme.windowText
                                     opacity: barItem.labelOpacity
                                 }
                                 AppText {
                                     text: barItem.mnemonic.mark
-                                    font.pixelSize: App.fontSmall
                                     font.underline: true
                                     visible: text !== ""
                                     color: appTheme.windowText
@@ -633,7 +635,6 @@ Item {
                                 }
                                 AppText {
                                     text: barItem.mnemonic.tail
-                                    font.pixelSize: App.fontSmall
                                     color: appTheme.windowText
                                     opacity: barItem.labelOpacity
                                 }
@@ -869,7 +870,6 @@ Item {
                 AppText {
                     id: simStateText
                     anchors.centerIn: parent
-                    font.pixelSize: App.fontSmall
                     text: CircuitPanel.simAtBreakpoint
                         ? I18n.tr("Breakpoint")
                         : CircuitCanvas.simPaused
@@ -904,7 +904,6 @@ Item {
                     id: projText
                     anchors.centerIn: parent
                     width: Math.min(Math.ceil(implicitWidth), Math.max(0, parent.width - 10))
-                    font.pixelSize: App.fontSmall
                     text: bar.projectName
                     color: appTheme.windowText
                     elide: Text.ElideRight
@@ -956,7 +955,6 @@ Item {
                         id: fileLabelText
                         anchors.verticalCenter: parent.verticalCenter
                         width: Math.min(Math.ceil(implicitWidth), Math.max(0, fileBtn.width - 8 - fileBtn.modifiedExtra))
-                        font.pixelSize: App.fontSmall
                         text: bar.fileLabel
                         color: appTheme.windowText
                         elide: Text.ElideMiddle
@@ -990,6 +988,70 @@ Item {
                             CircuitCanvas.loadPath(path)
                     }
                 }
+            }
+        }
+    }
+
+    // Live canvas cursor coordinates pill on the right side of the custom title bar.
+    Rectangle {
+        id: coordsPill
+        visible: bar.coordsVisible
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.right: updatePill.visible
+            ? updatePill.left
+            : (captionCluster.visible ? captionCluster.left : parent.right)
+        anchors.rightMargin: 8
+        width: bar.coordsPillWidth
+        height: Math.ceil(coordsRow.implicitHeight) + 4
+        radius: height / 2
+        color: Qt.alpha(bar.backdropColor, 0.70)
+        antialiasing: true
+        opacity: bar.windowActive ? 1.0 : 0.7
+
+        // Distinguishing neutral tint matching the overlay toolbar's coordinates pill.
+        Rectangle {
+            anchors.fill: parent
+            radius: height / 2
+            color: Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.10)
+            antialiasing: true
+        }
+
+        TextMetrics {
+            id: coordsValueMetrics
+            font.family: App.fontFamily
+            font.pixelSize: App.fontNormal
+            text: "-99999"
+        }
+
+        Row {
+            id: coordsRow
+            anchors.centerIn: parent
+            spacing: 3
+
+            AppText {
+                anchors.verticalCenter: parent.verticalCenter
+                text: App.translate("X")
+                color: Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.6)
+            }
+            AppText {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(coordsValueMetrics.width, implicitWidth)
+                horizontalAlignment: Text.AlignRight
+                text: CircuitPanel.coordsX
+                color: appTheme.windowText
+            }
+            AppText {
+                anchors.verticalCenter: parent.verticalCenter
+                leftPadding: 7
+                text: App.translate("Y")
+                color: Qt.rgba(appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.6)
+            }
+            AppText {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(coordsValueMetrics.width, implicitWidth)
+                horizontalAlignment: Text.AlignRight
+                text: CircuitPanel.coordsY
+                color: appTheme.windowText
             }
         }
     }

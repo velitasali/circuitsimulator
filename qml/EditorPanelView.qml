@@ -350,8 +350,7 @@ Item {
                 iconLigature: "account_tree"
                 onTriggered: {
                     if (tabContextMenu.targetPath.length > 0) {
-                        CircuitPanel.showSidePanel()
-                        App.sidePanelTab = 1
+                        CircuitPanel.showFiles()
                         FileBrowser.revealPath(tabContextMenu.targetPath)
                     }
                 }

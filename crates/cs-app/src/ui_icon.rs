@@ -54,7 +54,6 @@ define_ui_icons! {
     BugReport => "bug_report",
     Build => "build",
     Check => "check",
-    ChevronLeft => "chevron_left",
     ChevronRight => "chevron_right",
     Circle => "circle",
     Close => "close",

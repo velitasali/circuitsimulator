@@ -559,17 +559,24 @@ fn test_subcircuit_saved_sim1_relative_firmware_serial() {
 fn test_opening_serial_port_and_live_refresh_keep_mcu_running() {
     let _guard = SERIAL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut canvas = Canvas::empty();
+    // Run at 2% sim speed (1 ms/tick at 20 fps -> ~16,000 AVR cycles/tick) so debug builds
+    // stay well below the per-frame wall-clock budget even under heavy CI contention.
+    canvas
+        .scene_mut()
+        .settings_mut()
+        .set_ps_per_sec(20_000_000_000);
     assert!(canvas.scene_add_component_spec("mega328,MCU", Point::zero()));
     let mcu_uid = canvas.scene().items()[0].id.clone();
     let port_id = canvas.scene_mut().add_serial_port(200.0, 100.0);
     let res_id = canvas.scene_mut().add_resistor(-120.0, 100.0, 100.0);
 
     // Firmware: configure PORTD2 as output, then repeatedly toggle PORTD2 via PIND (I/O 0x09)
-    // with a short delay loop so pin voltage visibly alternates across ticks.
+    // with a ~22,275-cycle (~1.39 ms at 16 MHz) delay loop. With 1 ms ticks this advances
+    // ~0.72 half-periods per tick, avoiding stroboscopic aliasing across common FPS values.
     // 0x0000: LDI r16, 0x04          (0xE004)
     // 0x0001: OUT DDRD (0x0A), r16   (0xB90A)
     // 0x0002: OUT PIND (0x09), r16   (0xB909)  ; toggle PORTD2
-    // 0x0003: LDI r17, 0xFF          (0xEF1F)
+    // 0x0003: LDI r17, 0x1D          (0xE11D)
     // 0x0004: LDI r18, 0xFF          (0xEF2F)
     // 0x0005: DEC r18                (0x952A)
     // 0x0006: BRNE -2 (to 0x0005)    (0xF7F1)
@@ -579,7 +586,7 @@ fn test_opening_serial_port_and_live_refresh_keep_mcu_running() {
     let hex = avr_hex_from_segments(&[(
         0x0000,
         &[
-            0xE004, 0xB90A, 0xB909, 0xEF1F, 0xEF2F, 0x952A, 0xF7F1, 0x951A, 0xF7D9, 0xCFF8,
+            0xE004, 0xB90A, 0xB909, 0xE11D, 0xEF2F, 0x952A, 0xF7F1, 0x951A, 0xF7D9, 0xCFF8,
         ],
     )]);
 
@@ -612,9 +619,10 @@ fn test_opening_serial_port_and_live_refresh_keep_mcu_running() {
         edges
     };
 
+    let before_edges = count_toggles(&mut canvas, 20);
     assert!(
-        count_toggles(&mut canvas, 15) >= 2,
-        "MCU must toggle PORTD2 before opening SerialPort"
+        before_edges >= 2,
+        "MCU must toggle PORTD2 before opening SerialPort (saw {before_edges} edges)"
     );
 
     // 1. Click Open on SerialPort while simulation is running.
@@ -628,16 +636,18 @@ fn test_opening_serial_port_and_live_refresh_keep_mcu_running() {
         Some((format!("{port_id}:Serial"), format!("{port_id}-Serial"))),
         "Clicking Open on SerialPort must still open serial monitor"
     );
+    let after_open_edges = count_toggles(&mut canvas, 20);
     assert!(
-        count_toggles(&mut canvas, 15) >= 2,
-        "MCU must keep running and toggling after opening SerialPort"
+        after_open_edges >= 2,
+        "MCU must keep running and toggling after opening SerialPort (saw {after_open_edges} edges)"
     );
 
     // 2. Refresh another component live (exercises Circuit::re_solve()).
     canvas.refresh_sim_component(&res_id);
+    let after_refresh_edges = count_toggles(&mut canvas, 20);
     assert!(
-        count_toggles(&mut canvas, 15) >= 2,
-        "MCU must keep running and toggling after live re_solve() on another component"
+        after_refresh_edges >= 2,
+        "MCU must keep running and toggling after live re_solve() on another component (saw {after_refresh_edges} edges)"
     );
 
     canvas.power_off();

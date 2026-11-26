@@ -108,6 +108,9 @@ Item {
     property int topInset: 0
     onTopInsetChanged: CircuitPanel.setTopInset( topInset )
 
+    property bool customTitlebar: App.customTitlebar
+    onCustomTitlebarChanged: CircuitPanel.setCustomTitlebar( customTitlebar )
+
     property bool inlineMenuBarVisible: false
     onInlineMenuBarVisibleChanged: {
         if ( !inlineMenuBarVisible )
@@ -128,6 +131,7 @@ Item {
     onHeightChanged: root.publishViewSize()
     Component.onCompleted: {
         CircuitPanel.setTopInset( root.topInset )
+        CircuitPanel.setCustomTitlebar( root.customTitlebar )
         root.publishViewSize()
         CircuitPanel.setZoomPercent( CircuitCanvas.zoom )
         CircuitPanel.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
@@ -1344,6 +1348,8 @@ Item {
                 CircuitPanel.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
             else if ( CircuitCanvas.simWarning )
                 CircuitPanel.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
+            else
+                CircuitPanel.clearMessage()
         }
     }
 
@@ -1355,9 +1361,15 @@ Item {
                 CircuitPanel.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
             else if ( CircuitCanvas.simWarning )
                 CircuitPanel.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
+            else
+                CircuitPanel.clearMessage()
         }
         function onThemeChanged(): void {
             CircuitPanel.reloadI18n()
+            if ( CircuitCanvas.simError )
+                CircuitPanel.setMessage( App.translate( CircuitCanvas.simError ), CircuitCanvas.msgErrorBg, CircuitCanvas.msgErrorText )
+            else if ( CircuitCanvas.simWarning )
+                CircuitPanel.setMessage( App.translate( CircuitCanvas.simWarning ), CircuitCanvas.msgWarnBg, CircuitCanvas.msgWarnText )
         }
     }
 

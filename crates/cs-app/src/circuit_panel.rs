@@ -126,6 +126,9 @@ pub struct CircuitPanel {
     message_text: String,
     message_bg: String,
     message_color: String,
+    custom_message_text: String,
+    custom_message_bg: String,
+    custom_message_color: String,
     warnings_text: String,
     warnings_crashed: bool,
     overload_panel_visible: bool,
@@ -134,7 +137,9 @@ pub struct CircuitPanel {
     zoom_menu_open: bool,
     running: bool,
     paused: bool,
+    at_breakpoint: bool,
     debug_active: bool,
+    custom_titlebar: bool,
     sim_info_enabled: bool,
     subc_stack: Vec<NavEntry>,
     root_subc_children: Vec<SubcTreeNode>,
@@ -159,6 +164,9 @@ impl Default for CircuitPanel {
             message_text: String::new(),
             message_bg: ColorTheme::get_hex(ColorId::MsgOkBg, dark),
             message_color: ColorTheme::get_hex(ColorId::MsgOkText, dark),
+            custom_message_text: String::new(),
+            custom_message_bg: String::new(),
+            custom_message_color: String::new(),
             warnings_text: String::new(),
             warnings_crashed: false,
             overload_panel_visible: false,
@@ -167,7 +175,9 @@ impl Default for CircuitPanel {
             zoom_menu_open: false,
             running: false,
             paused: false,
+            at_breakpoint: false,
             debug_active: false,
+            custom_titlebar: false,
             sim_info_enabled: true,
             subc_stack: Vec::new(),
             root_subc_children: Vec::new(),
@@ -259,6 +269,11 @@ impl CircuitPanel {
     qproperty!("simRunning", Read = sim_running, Notify = toolbar_changed);
     qproperty!("simPaused", Read = sim_paused, Notify = toolbar_changed);
     qproperty!(
+        "simAtBreakpoint",
+        Read = sim_at_breakpoint,
+        Notify = toolbar_changed
+    );
+    qproperty!(
         "compileStatus",
         Read = compile_status,
         Notify = toolbar_changed
@@ -324,6 +339,9 @@ impl CircuitPanel {
     }
     fn sim_paused(&self) -> bool {
         self.paused
+    }
+    fn sim_at_breakpoint(&self) -> bool {
+        self.at_breakpoint
     }
 
     fn overlay_rects(&self) -> Value {
@@ -1032,6 +1050,9 @@ impl CircuitPanel {
     #[qslot]
     fn refresh_debug_toolbar(&mut self) {
         self.debug_active = DebugSession::global().is_active();
+        self.at_breakpoint =
+            Self::current_debug_at_breakpoint(self.running, self.paused, self.debug_active);
+        self.refresh_sim_message();
         self.toolbar_changed();
     }
 
@@ -1127,22 +1148,117 @@ impl CircuitPanel {
         self.toolbar_changed();
     }
 
+    fn current_debug_at_breakpoint(running: bool, paused: bool, debug_active: bool) -> bool {
+        running
+            && paused
+            && debug_active
+            && matches!(
+                DebugSession::global().state(),
+                DebugState::Paused(BreakReason::Breakpoint { .. })
+            )
+    }
+
+    fn refresh_sim_message(&mut self) -> bool {
+        let (next_text, next_bg, next_color) = if !self.custom_message_text.is_empty() {
+            (
+                self.custom_message_text.clone(),
+                if self.custom_message_bg.is_empty() {
+                    self.message_bg.clone()
+                } else {
+                    self.custom_message_bg.clone()
+                },
+                if self.custom_message_color.is_empty() {
+                    self.message_color.clone()
+                } else {
+                    self.custom_message_color.clone()
+                },
+            )
+        } else if self.running && !self.custom_titlebar {
+            let dark = macos_host::current_theme_dark();
+            if self.paused {
+                let text = if self.at_breakpoint {
+                    cs_engine::i18n::tr("Breakpoint")
+                } else {
+                    cs_engine::i18n::tr("Paused")
+                };
+                (
+                    text,
+                    ColorTheme::get_hex(ColorId::MsgWarnBg, dark),
+                    ColorTheme::get_hex(ColorId::MsgWarnText, dark),
+                )
+            } else {
+                (
+                    cs_engine::i18n::tr("Running"),
+                    ColorTheme::get_hex(ColorId::MsgOkBg, dark),
+                    ColorTheme::get_hex(ColorId::MsgOkText, dark),
+                )
+            }
+        } else {
+            (
+                String::new(),
+                self.message_bg.clone(),
+                self.message_color.clone(),
+            )
+        };
+
+        let changed = self.message_text != next_text
+            || self.message_bg != next_bg
+            || self.message_color != next_color;
+        if changed {
+            self.message_text = next_text;
+            self.message_bg = next_bg;
+            self.message_color = next_color;
+        }
+        changed
+    }
+
+    fn set_custom_titlebar_data(&mut self, enabled: bool) -> bool {
+        if self.custom_titlebar == enabled {
+            return false;
+        }
+        self.custom_titlebar = enabled;
+        self.refresh_sim_message()
+    }
+
+    #[qslot]
+    fn set_custom_titlebar(&mut self, enabled: bool) {
+        if self.set_custom_titlebar_data(enabled) {
+            self.toolbar_changed();
+        }
+    }
+
+    fn set_message_data(&mut self, text: String, bg: String, color: String) -> bool {
+        self.custom_message_text = text;
+        self.custom_message_bg = bg;
+        self.custom_message_color = color;
+        self.refresh_sim_message()
+    }
+
     #[qslot]
     fn set_message(&mut self, text: String, bg: String, color: String) {
-        let changed = self.message_text != text
-            || (!bg.is_empty() && self.message_bg != bg)
-            || (!color.is_empty() && self.message_color != color);
-        if !changed {
-            return;
+        if self.set_message_data(text, bg, color) {
+            self.toolbar_changed();
         }
-        self.message_text = text;
-        if !bg.is_empty() {
-            self.message_bg = bg;
+    }
+
+    fn clear_message_data(&mut self) -> bool {
+        if self.custom_message_text.is_empty()
+            && self.custom_message_bg.is_empty()
+            && self.custom_message_color.is_empty()
+        {
+            return false;
         }
-        if !color.is_empty() {
-            self.message_color = color;
+        self.custom_message_text.clear();
+        self.custom_message_bg.clear();
+        self.custom_message_color.clear();
+        self.refresh_sim_message()
+    }
+
+    #[qslot]
+    fn clear_message(&mut self) {
+        if self.clear_message_data() {
+            self.toolbar_changed();
         }
-        self.toolbar_changed();
     }
 
     fn set_sim_running_state(&mut self, running: bool) {
@@ -1159,65 +1275,51 @@ impl CircuitPanel {
 
     #[qslot]
     fn reload_i18n(&mut self) {
-        if self.running {
-            let dark = macos_host::current_theme_dark();
-            self.message_text = if self.paused {
-                cs_engine::i18n::tr("Paused")
-            } else {
-                cs_engine::i18n::tr("Running")
-            };
-            let (bg_id, text_id) = if self.paused {
-                (ColorId::MsgWarnBg, ColorId::MsgWarnText)
-            } else {
-                (ColorId::MsgOkBg, ColorId::MsgOkText)
-            };
-            self.message_bg = ColorTheme::get_hex(bg_id, dark);
-            self.message_color = ColorTheme::get_hex(text_id, dark);
-        }
+        self.refresh_sim_message();
         self.toolbar_changed();
         self.subc_nav_changed();
         self.device_sel_changed();
     }
 
-    fn sync_sim_state_data(&mut self, running: bool, paused: bool) -> bool {
-        let debug_now = DebugSession::global().is_active();
-        if self.running == running
-            && self.paused == paused
-            && self.debug_active == debug_now
-            && (!running || !self.message_text.is_empty())
-        {
-            return false;
-        }
-        // Opening the side panel and the info card belongs to a start or stop.
-        // Pause and resume only change the banner.
-        if self.running != running {
+    fn sync_sim_state_with_debug(
+        &mut self,
+        running: bool,
+        paused: bool,
+        debug_now: bool,
+        at_bp: bool,
+    ) -> bool {
+        let was_running = self.running;
+        let was_paused = self.paused;
+        let was_debug = self.debug_active;
+        let was_at_bp = self.at_breakpoint;
+
+        if was_running != running {
             self.set_sim_running_state(running);
         }
-        self.paused = paused;
+        self.paused = running && paused;
         self.debug_active = debug_now;
-        let dark = macos_host::current_theme_dark();
+        self.at_breakpoint = running && paused && at_bp;
         if !self.running {
-            self.message_text.clear();
-        } else if self.paused {
-            let at_bp = debug_now
-                && matches!(
-                    DebugSession::global().state(),
-                    DebugState::Paused(BreakReason::Breakpoint { .. })
-                );
-            self.message_text = if at_bp {
-                cs_engine::i18n::tr("Breakpoint")
-            } else {
-                cs_engine::i18n::tr("Paused")
-            };
-            self.message_bg = ColorTheme::get_hex(ColorId::MsgWarnBg, dark);
-            self.message_color = ColorTheme::get_hex(ColorId::MsgWarnText, dark);
-        } else {
-            self.message_text = cs_engine::i18n::tr("Running");
-            self.message_bg = ColorTheme::get_hex(ColorId::MsgOkBg, dark);
-            self.message_color = ColorTheme::get_hex(ColorId::MsgOkText, dark);
+            self.custom_message_text.clear();
+            self.custom_message_bg.clear();
+            self.custom_message_color.clear();
+        }
+        let msg_changed = self.refresh_sim_message();
+        let state_changed = was_running != self.running
+            || was_paused != self.paused
+            || was_debug != self.debug_active
+            || was_at_bp != self.at_breakpoint;
+        if !state_changed && !msg_changed {
+            return false;
         }
         macos_host::set_sim_state(self.running, self.paused);
         true
+    }
+
+    fn sync_sim_state_data(&mut self, running: bool, paused: bool) -> bool {
+        let debug_now = DebugSession::global().is_active();
+        let at_bp = Self::current_debug_at_breakpoint(running, paused, debug_now);
+        self.sync_sim_state_with_debug(running, paused, debug_now, at_bp)
     }
 
     #[qslot]
@@ -2052,5 +2154,73 @@ mod tests {
         let step_over_btn = find_id(&active, "stepOver").expect("stepOver button");
         assert_eq!(step_over_btn["visible"], true);
         assert_eq!(step_over_btn["tooltip"], "Step Over");
+    }
+
+    #[test]
+    fn test_sim_status_moves_to_titlebar_when_custom_titlebar_available() {
+        let mut panel = CircuitPanel::default();
+        let msg_visible = |p: &CircuitPanel| {
+            p.toolbar_items_for_debug(p.debug_active)
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["widget"] == "msg")
+                .unwrap()["visible"]
+                == true
+        };
+
+        // Enable custom title bar: overlay toolbar must not show Running/Breakpoint/Paused.
+        panel.set_custom_titlebar_data(true);
+
+        assert!(panel.sync_sim_state_with_debug(true, false, false, false));
+        assert!(panel.sim_running());
+        assert!(!panel.sim_paused());
+        assert!(!panel.sim_at_breakpoint());
+        assert!(panel.message_text.is_empty());
+        assert!(!msg_visible(&panel));
+
+        // Breakpoint hit: simAtBreakpoint is exposed for the title bar, overlay stays hidden.
+        assert!(panel.sync_sim_state_with_debug(true, true, true, true));
+        assert!(panel.sim_running());
+        assert!(panel.sim_paused());
+        assert!(panel.sim_at_breakpoint());
+        assert!(panel.message_text.is_empty());
+        assert!(!msg_visible(&panel));
+
+        // Step complete / manual pause: simAtBreakpoint clears while simPaused stays true.
+        assert!(panel.sync_sim_state_with_debug(true, true, true, false));
+        assert!(panel.sim_paused());
+        assert!(!panel.sim_at_breakpoint());
+        assert!(panel.message_text.is_empty());
+        assert!(!msg_visible(&panel));
+
+        // Explicit warning/error message still displays in overlay toolbar and clears cleanly.
+        assert!(panel.set_message_data(
+            "NonLinear Not Converging".into(),
+            "#ffa500".into(),
+            "#ffffff".into(),
+        ));
+        assert_eq!(panel.message_text, "NonLinear Not Converging");
+        assert!(msg_visible(&panel));
+
+        assert!(panel.clear_message_data());
+        assert!(panel.message_text.is_empty());
+        assert!(!msg_visible(&panel));
+
+        // Fallback when custom title bar is unavailable: overlay toolbar shows the state again.
+        assert!(panel.set_custom_titlebar_data(false));
+        assert_eq!(panel.message_text, "Paused");
+        assert!(msg_visible(&panel));
+
+        assert!(panel.sync_sim_state_with_debug(true, true, true, true));
+        assert_eq!(panel.message_text, "Breakpoint");
+        assert!(panel.sim_at_breakpoint());
+
+        assert!(panel.sync_sim_state_with_debug(false, false, false, false));
+        assert!(!panel.sim_running());
+        assert!(!panel.sim_paused());
+        assert!(!panel.sim_at_breakpoint());
+        assert!(panel.message_text.is_empty());
+        assert!(!msg_visible(&panel));
     }
 }

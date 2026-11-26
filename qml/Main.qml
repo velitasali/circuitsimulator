@@ -107,7 +107,13 @@ ApplicationWindow {
     height: 800 + ((win.linuxCustomChrome && !win.linuxWayland) ? win.linuxBaseShadowMargin * 2 : 0)
     title: {
         var _tick = App.i18nTick
-        var state = CircuitCanvas.simRunning ? (CircuitCanvas.simPaused ? App.translate("[Paused] ") : App.translate("[Running] ")) : ""
+        var state = CircuitCanvas.simRunning
+            ? (CircuitPanel.simAtBreakpoint
+                ? App.translate("[Breakpoint] ")
+                : CircuitCanvas.simPaused
+                    ? App.translate("[Paused] ")
+                    : App.translate("[Running] "))
+            : ""
         var proj = FileBrowser.rootPath ? ("[" + FileBrowser.rootPath.split("/").filter(Boolean).pop() + "] ") : ""
         var file = CircuitCanvas.fileName ? CircuitCanvas.fileName : App.translate("Untitled")
         var changed = CircuitCanvas.modified ? " •" : ""
@@ -181,6 +187,12 @@ ApplicationWindow {
             target: circuitPanelLoader.item
             property: "topInset"
             value: titleBar.visible ? titleBar.height : 0
+        }
+
+        Binding {
+            target: circuitPanelLoader.item
+            property: "customTitlebar"
+            value: titleBar.visible
         }
 
         Binding {

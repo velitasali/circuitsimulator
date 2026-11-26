@@ -860,7 +860,7 @@ Item {
             Rectangle {
                 visible: CircuitCanvas.simRunning
                 radius: height / 2
-                color: CircuitCanvas.simPaused ? CircuitCanvas.msgWarnBg : CircuitCanvas.msgOkBg
+                color: (CircuitCanvas.simPaused || CircuitPanel.simAtBreakpoint) ? CircuitCanvas.msgWarnBg : CircuitCanvas.msgOkBg
                 implicitWidth: Math.ceil(simStateText.implicitWidth) + 12
                 implicitHeight: Math.ceil(simStateText.implicitHeight) + 4
                 Layout.preferredWidth: implicitWidth
@@ -870,8 +870,12 @@ Item {
                     id: simStateText
                     anchors.centerIn: parent
                     font.pixelSize: App.fontSmall
-                    text: CircuitCanvas.simPaused ? I18n.tr("Paused") : I18n.tr("Running")
-                    color: CircuitCanvas.simPaused ? CircuitCanvas.msgWarnText : CircuitCanvas.msgOkText
+                    text: CircuitPanel.simAtBreakpoint
+                        ? I18n.tr("Breakpoint")
+                        : CircuitCanvas.simPaused
+                            ? I18n.tr("Paused")
+                            : I18n.tr("Running")
+                    color: (CircuitCanvas.simPaused || CircuitPanel.simAtBreakpoint) ? CircuitCanvas.msgWarnText : CircuitCanvas.msgOkText
                 }
             }
 

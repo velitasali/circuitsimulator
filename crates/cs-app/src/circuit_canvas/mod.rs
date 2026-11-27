@@ -2489,6 +2489,11 @@ impl CircuitCanvas {
     }
 
     #[qslot]
+    fn set_fit_area(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        self.inner.set_fit_rect(x, y, w, h);
+    }
+
+    #[qslot]
     fn record_repaint(&mut self, rects: Value, is_full: bool) {
         self.repaint_recorded(rects, is_full, json!([]));
     }

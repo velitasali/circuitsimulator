@@ -360,6 +360,22 @@ fn zoom_to_fit_centers_items() {
 }
 
 #[test]
+fn zoom_to_fit_respects_available_area() {
+    let mut c = Canvas::empty();
+    c.set_view_size(1200.0, 800.0);
+    c.set_fit_rect(56.0, 88.0, 720.0, 700.0);
+    c.scene.add_default_resistor(0.0, 0.0);
+    c.zoom_to_fit();
+    let r = c
+        .scene
+        .items_bounding_rect()
+        .adjust(-20.0, -20.0, 20.0, 20.0);
+    let mapped = c.viewport.map_from_circuit(r.center());
+    assert!((mapped.x - (56.0 + 360.0)).abs() < 1e-6);
+    assert!((mapped.y - (88.0 + 350.0)).abs() < 1e-6);
+}
+
+#[test]
 fn geometry_edits_keep_simulation_time() {
     let mut c = Canvas::with_demo_divider();
     c.set_view_size(800.0, 600.0);

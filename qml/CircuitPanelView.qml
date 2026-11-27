@@ -191,6 +191,13 @@ Item {
     // own size (a closed Menu reports 0, so pass the measured one). Popups whose
     // height stays bound to their content take `capToRoom` and a `heightCap`
     // property; writing `height` would drop that binding.
+    function clampPopupX( rawX: real, w: real ): real {
+        var avail = root.r( "availableArea" )
+        if ( avail.width >= w && avail.width > 0 )
+            return Math.max( avail.x, Math.min( avail.x + avail.width - w, rawX ) )
+        return Math.max( 8, Math.min( root.width - w - 8, rawX ) )
+    }
+
     function placeToolbarPopup( popup: T.Popup, anchor: Item, alignRight: bool,
                                 width: real, naturalHeight: real, capToRoom: bool ): void {
         var room = root.toolbarPopupRoom()
@@ -202,7 +209,7 @@ Item {
         var w = width > 0 ? width : popup.width
         var localX = alignRight ? anchor.width - w : 0
         var pt = anchor.mapToItem( root, localX, 0 )
-        popup.x = Math.max( 8, Math.min( root.width - w - 8, pt.x ) )
+        popup.x = root.clampPopupX( pt.x, w )
         popup.y = root.toolbarPopupY( shownH )
     }
 
@@ -215,7 +222,7 @@ Item {
         var shownH = Math.max( 0, Math.min( menuH, root.toolbarPopupRoom() ) )
         root.fitMenuHeight( appMenu, menuH, shownH )
         var anchorPt = appMenuBtn.mapToItem( root, 0, 0 )
-        var targetX = Math.max( 8, Math.min( root.width - menuW - 8, anchorPt.x ) )
+        var targetX = root.clampPopupX( anchorPt.x, menuW )
         var targetY = root.toolbarPopupY( shownH )
         var localPt = root.mapToItem( appMenuBtn, targetX, targetY )
         appMenu.x = localPt.x
@@ -244,12 +251,18 @@ Item {
     // m_viewSize stayed (-1,-1) and every panel came out with a negative height,
     // which is why the side and editor panels never appeared.
     function publishViewSize(): void { CircuitPanel.setViewSize( root.width, root.height ) }
+    function syncCanvasFitArea(): void {
+        var fa = root.r( "fitArea" )
+        CircuitCanvas.setFitArea( fa.x, fa.y, fa.width, fa.height )
+    }
+    onRectsChanged: root.syncCanvasFitArea()
     onWidthChanged: root.publishViewSize()
     onHeightChanged: root.publishViewSize()
     Component.onCompleted: {
         CircuitPanel.setTopInset( root.topInset )
         CircuitPanel.setCustomTitlebar( root.customTitlebar )
         root.publishViewSize()
+        root.syncCanvasFitArea()
         CircuitPanel.setZoomPercent( CircuitCanvas.zoom )
         CircuitPanel.resetSubcircuits( CircuitCanvas.filePath, CircuitCanvas.fileName, CircuitCanvas.subcircuitTree )
         CircuitPanel.updateDevices( CircuitCanvas.programmableDevices )

@@ -16,6 +16,7 @@ pub struct Viewport {
     center: Point,
     view_w: f64,
     view_h: f64,
+    fit_rect: Option<Rect>,
     scene: Rect,
 }
 
@@ -32,6 +33,7 @@ impl Viewport {
             center: Point::zero(),
             view_w: 1200.0,
             view_h: 800.0,
+            fit_rect: None,
             scene: Rect::new(-scene_w * 0.5, -scene_h * 0.5, scene_w, scene_h),
         }
     }
@@ -151,13 +153,62 @@ impl Viewport {
         true
     }
 
+    /// Sets the unobstructed sub-rectangle (in item coordinates) used for
+    /// `zoom_to_rect`, `zoom_in`, `zoom_out`, and `center_on`.
+    /// Passing `None` or a non-positive rectangle falls back to the full view.
+    pub fn set_fit_rect(&mut self, r: Option<Rect>) -> bool {
+        let clean = r.filter(|r| r.w > 0.0 && r.h > 0.0);
+        if self.fit_rect == clean {
+            return false;
+        }
+        self.fit_rect = clean;
+        true
+    }
+
+    /// Effective available rectangle in item coordinates, clamped to the view.
+    pub fn effective_fit_rect(&self) -> Rect {
+        let full = Rect::new(0.0, 0.0, self.view_w, self.view_h);
+        let Some(fr) = self.fit_rect else {
+            return full;
+        };
+        let x0 = fr.left().clamp(0.0, self.view_w);
+        let y0 = fr.top().clamp(0.0, self.view_h);
+        let x1 = fr.right().clamp(x0, self.view_w);
+        let y1 = fr.bottom().clamp(y0, self.view_h);
+        let w = x1 - x0;
+        let h = y1 - y0;
+        if w > 1.0 && h > 1.0 {
+            Rect::new(x0, y0, w, h)
+        } else {
+            full
+        }
+    }
+
+    fn center_for_scene_point_in_fit(&self, scene_pt: Point, fit: Rect) -> Point {
+        if self.zoom <= 0.0 {
+            return scene_pt;
+        }
+        let offset_x = fit.center().x - self.view_w * 0.5;
+        let offset_y = fit.center().y - self.view_h * 0.5;
+        Point::new(
+            scene_pt.x - offset_x / self.zoom,
+            scene_pt.y - offset_y / self.zoom,
+        )
+    }
+
+    pub fn center_on(&mut self, scene_pt: Point) -> bool {
+        let fit = self.effective_fit_rect();
+        let target = self.center_for_scene_point_in_fit(scene_pt, fit);
+        self.set_center(target)
+    }
+
     pub fn zoom_in(&mut self) -> bool {
-        let mid = Point::new(self.view_w * 0.5, self.view_h * 0.5);
+        let mid = self.effective_fit_rect().center();
         self.zoom_by(ZOOM_STEP, mid)
     }
 
     pub fn zoom_out(&mut self) -> bool {
-        let mid = Point::new(self.view_w * 0.5, self.view_h * 0.5);
+        let mid = self.effective_fit_rect().center();
         self.zoom_by(1.0 / ZOOM_STEP, mid)
     }
 
@@ -165,14 +216,16 @@ impl Viewport {
         self.set_zoom(1.0)
     }
 
-    /// Fit `r` (already padded) in the view. C++ `zoomToFit` / `zoomSelected`.
+    /// Fit `r` (already padded) in the effective available area. C++ `zoomToFit` / `zoomSelected`.
     pub fn zoom_to_rect(&mut self, r: Rect) -> bool {
         if r.is_empty() || r.is_null() {
             return false;
         }
-        let z = (self.view_w / r.w).min(self.view_h / r.h);
+        let fit = self.effective_fit_rect();
+        let z = (fit.w / r.w).min(fit.h / r.h);
         let z_changed = self.set_zoom(z);
-        let c_changed = self.set_center(r.center());
+        let target = self.center_for_scene_point_in_fit(r.center(), fit);
+        let c_changed = self.set_center(target);
         z_changed || c_changed
     }
 
@@ -307,5 +360,57 @@ mod tests {
         assert!(h_scroll_size > 0.0 && h_scroll_size <= 1.0);
         assert!(v_scroll_pos >= 0.0 && v_scroll_pos <= 1.0);
         assert!(h_scroll_pos >= 0.0 && h_scroll_pos <= 1.0);
+    }
+
+    #[test]
+    fn zoom_to_rect_respects_fit_rect() {
+        let mut v = Viewport::new(3200.0, 2400.0);
+        v.set_view_size(1200.0, 800.0);
+        // Simulate right-docked editor leaving [56..776] x [88..788] available.
+        let fit = Rect::new(56.0, 88.0, 720.0, 700.0);
+        assert!(v.set_fit_rect(Some(fit)));
+
+        let target = Rect::new(-180.0, -50.0, 360.0, 100.0);
+        assert!(v.zoom_to_rect(target));
+
+        // Width-constrained: 720 / 360 = 2.0.
+        assert!((v.zoom() - 2.0).abs() < 1e-9);
+        // Target center maps to fit_rect center, not full-view center.
+        let mapped_center = v.map_from_circuit(target.center());
+        assert!((mapped_center.x - fit.center().x).abs() < 1e-9);
+        assert!((mapped_center.y - fit.center().y).abs() < 1e-9);
+
+        // Target edges map exactly inside fit_rect.
+        let mapped = v.map_rect_from_circuit(target);
+        assert!((mapped.left() - fit.left()).abs() < 1e-9);
+        assert!((mapped.right() - fit.right()).abs() < 1e-9);
+        assert!(mapped.top() >= fit.top() - 1e-9);
+        assert!(mapped.bottom() <= fit.bottom() + 1e-9);
+
+        // Clearing fit_rect restores full-view fitting.
+        assert!(v.set_fit_rect(None));
+        assert!(v.zoom_to_rect(target));
+        let full_center = v.map_from_circuit(target.center());
+        assert!((full_center.x - 600.0).abs() < 1e-9);
+        assert!((full_center.y - 400.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn zoom_in_and_center_on_use_fit_rect_center() {
+        let mut v = Viewport::new(3200.0, 2400.0);
+        v.set_view_size(1200.0, 800.0);
+        let fit = Rect::new(56.0, 88.0, 720.0, 700.0);
+        v.set_fit_rect(Some(fit));
+
+        let pt = Point::new(40.0, -24.0);
+        assert!(v.center_on(pt));
+        let before = v.map_from_circuit(pt);
+        assert!((before.x - fit.center().x).abs() < 1e-9);
+        assert!((before.y - fit.center().y).abs() < 1e-9);
+
+        assert!(v.zoom_in());
+        let after = v.map_from_circuit(pt);
+        assert!((after.x - fit.center().x).abs() < 1e-9);
+        assert!((after.y - fit.center().y).abs() < 1e-9);
     }
 }

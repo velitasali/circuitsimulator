@@ -282,6 +282,8 @@ pub struct OverlaySnapshot {
     pub margin: i32,
     pub top_min: i32,
     pub bottom_max: i32,
+    pub available_area: IRect,
+    pub fit_area: IRect,
     pub toolbar: IRect,
     pub toolbar_z: i32,
     pub info_card: IRect,
@@ -1053,6 +1055,31 @@ fn clamp_i(v: i32, lo: i32, hi: i32) -> i32 {
     if lo <= hi { v.clamp(lo, hi) } else { lo }
 }
 
+/// Clamp a horizontal position for an item of `size` inside the tightest bounds
+/// that can accommodate it: first the clear area inside corner strips, then the
+/// space between docked columns, and finally the window margins.
+fn clamp_horiz_to_available(
+    raw: i32,
+    size: i32,
+    clear_lo: i32,
+    clear_hi: i32,
+    dock_lo: i32,
+    dock_hi: i32,
+    view_lo: i32,
+    view_hi: i32,
+) -> i32 {
+    let clear_max = clear_hi - size;
+    if clear_lo <= clear_max {
+        return raw.clamp(clear_lo, clear_max);
+    }
+    let dock_max = dock_hi - size;
+    if dock_lo <= dock_max {
+        return raw.clamp(dock_lo, dock_max);
+    }
+    let view_max = view_lo.max(view_hi - size);
+    clamp_i(raw, view_lo, view_max)
+}
+
 fn strip_height(count: usize) -> i32 {
     if count == 0 {
         return 0;
@@ -1460,18 +1487,106 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
         }
     }
 
+    // Available area between docked overlays (and clear of corner button strips).
+    let has_left_strip = tl_total > 0 || bl_total > 0;
+    let has_right_strip = tr_total > 0 || br_total > 0;
+    let dock_left = if has_left_dock && eff_left_w > 0 {
+        margin + eff_left_w + PANEL_GAP
+    } else {
+        margin
+    };
+    let dock_right = if has_right_dock && eff_right_w > 0 {
+        (s.view_w - margin - eff_right_w - PANEL_GAP).max(dock_left)
+    } else {
+        (s.view_w - margin).max(dock_left)
+    };
+    let clear_left = if has_left_strip {
+        left_btn_x + STRIP_W + PANEL_GAP
+    } else {
+        dock_left
+    };
+    let clear_right = if has_right_strip {
+        (right_btn_x - PANEL_GAP).max(clear_left)
+    } else {
+        dock_right.max(clear_left)
+    };
+    let clear_w = (clear_right - clear_left).max(0);
+    let dock_w = (dock_right - dock_left).max(0);
+    let available_area = if s.view_w > 0 && s.view_h > 0 && avail_h > 0 {
+        if clear_w > 0 {
+            IRect::new(clear_left, top_min, clear_w, avail_h)
+        } else if dock_w > 0 {
+            IRect::new(dock_left, top_min, dock_w, avail_h)
+        } else {
+            IRect::default()
+        }
+    } else {
+        IRect::default()
+    };
+
     // Floating toolbar + simulation info card.
     let tb_w = s.toolbar_w;
     let tb_h = s.toolbar_h;
+    let view_right = (s.view_w - margin).max(margin);
     let (tb_x, tb_y) = if s.toolbar_pos.0 >= 0 {
-        let max_x = margin.max(s.view_w - margin - tb_w);
         let max_y = top_min.max(s.view_h - margin - tb_h);
         (
-            clamp_i(s.toolbar_pos.0, margin, max_x),
+            clamp_horiz_to_available(
+                s.toolbar_pos.0,
+                tb_w,
+                clear_left,
+                clear_right,
+                dock_left,
+                dock_right,
+                margin,
+                view_right,
+            ),
             clamp_i(s.toolbar_pos.1, top_min, max_y),
         )
     } else {
-        ((s.view_w - tb_w) / 2, top_min)
+        let centered = if clear_w >= tb_w {
+            clear_left + (clear_w - tb_w) / 2
+        } else {
+            dock_left + (dock_w - tb_w) / 2
+        };
+        (
+            clamp_horiz_to_available(
+                centered,
+                tb_w,
+                clear_left,
+                clear_right,
+                dock_left,
+                dock_right,
+                margin,
+                view_right,
+            ),
+            top_min,
+        )
+    };
+
+    // Fit area for zoom-to-fit / zoom-to-selection: same horizontal bounds as
+    // `available_area`, and vertically clear of the overlay toolbar when the
+    // toolbar sits near the top or bottom edge.
+    let fit_area = if available_area.w > 0 && available_area.h > 0 {
+        let (fit_top, fit_bottom) = if tb_h > 0 {
+            if tb_y <= top_min + tb_h {
+                ((tb_y + tb_h + PANEL_GAP).min(bottom_max), bottom_max)
+            } else if tb_y + tb_h >= bottom_max - tb_h {
+                (top_min, (tb_y - PANEL_GAP).max(top_min))
+            } else {
+                (top_min, bottom_max)
+            }
+        } else {
+            (top_min, bottom_max)
+        };
+        let fit_h = (fit_bottom - fit_top).max(0);
+        if fit_h > 0 {
+            IRect::new(available_area.x, fit_top, available_area.w, fit_h)
+        } else {
+            available_area
+        }
+    } else {
+        IRect::default()
     };
 
     let ic_w = s.info_w;
@@ -1479,8 +1594,16 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
     let (ic_y, ic_h) = toolbar_anchored(opens_up, tb_y, tb_h, s.info_h, top_min, bottom_max);
     let ic_x = {
         let raw = tb_x + tb_w - ic_w;
-        let max_x = margin.max(s.view_w - margin - ic_w);
-        clamp_i(raw, margin, max_x)
+        clamp_horiz_to_available(
+            raw,
+            ic_w,
+            clear_left,
+            clear_right,
+            dock_left,
+            dock_right,
+            margin,
+            view_right,
+        )
     };
 
     let toolbar_z = if s.toolbar_raised { 8 } else { 5 };
@@ -1489,6 +1612,8 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
         margin,
         top_min,
         bottom_max,
+        available_area,
+        fit_area,
         toolbar: IRect::new(tb_x, tb_y, tb_w, tb_h),
         toolbar_z,
         info_card: IRect::new(ic_x, ic_y, ic_w, ic_h),
@@ -1795,5 +1920,96 @@ mod tests {
         let tb_bot = o.snapshot().toolbar;
         let ic_bot = o.snapshot().info_card;
         assert_eq!(ic_bot.y, tb_bot.y - ic_bot.h - 4);
+    }
+
+    #[test]
+    fn toolbar_and_fit_area_follow_docked_overlays() {
+        let mut o = sized();
+
+        // Unpin SimLog and CompLog so ONLY Editor is docked on the top right.
+        o.set_panel_pinned(PanelId::SimLog, false);
+        o.set_panel_pinned(PanelId::CompLog, false);
+        assert!(o.is_pinned(PanelId::Editor));
+
+        let snap_right = o.snapshot().clone();
+        let expected_clear_left = OVERLAY_MARGIN + STRIP_W + PANEL_GAP;
+        let expected_clear_right =
+            1200 - OVERLAY_MARGIN - DEFAULT_RIGHT_WIDTH - PANEL_GAP - STRIP_W - PANEL_GAP;
+        assert_eq!(snap_right.available_area.x, expected_clear_left);
+        assert_eq!(
+            snap_right.available_area.x + snap_right.available_area.w,
+            expected_clear_right
+        );
+
+        // Toolbar is centered in the left-shifted available area (closer to left edge).
+        let avail_center = snap_right.available_area.x + snap_right.available_area.w / 2;
+        let tb_center = snap_right.toolbar.x + snap_right.toolbar.w / 2;
+        assert!((tb_center - avail_center).abs() <= 1);
+        assert!(
+            tb_center < 600,
+            "toolbar should sit left of window center when only right editor is docked"
+        );
+
+        // Fit area shares horizontal bounds and clears the top toolbar vertically.
+        assert_eq!(snap_right.fit_area.x, snap_right.available_area.x);
+        assert_eq!(snap_right.fit_area.w, snap_right.available_area.w);
+        assert_eq!(
+            snap_right.fit_area.y,
+            snap_right.toolbar.y + snap_right.toolbar.h + PANEL_GAP
+        );
+
+        // Floating hover overlay on the left must NOT shift the toolbar or shrink available_area.
+        o.set_hover_panel(Some(PanelId::Components));
+        assert_eq!(o.snapshot().available_area, snap_right.available_area);
+        assert_eq!(o.snapshot().toolbar, snap_right.toolbar);
+        assert_eq!(o.snapshot().fit_area, snap_right.fit_area);
+        o.set_hover_panel(None);
+
+        // Collapsing the right docked Editor restores full-width available area and centers toolbar.
+        o.button_clicked(PanelId::Editor);
+        let snap_none = o.snapshot().clone();
+        assert_eq!(
+            snap_none.toolbar.x + snap_none.toolbar.w / 2,
+            600,
+            "toolbar should center in full window when no overlay is docked"
+        );
+        assert!(snap_none.available_area.w > snap_right.available_area.w);
+
+        // Docking ONLY Components on the top left shifts toolbar closer to the right edge.
+        o.set_panel_pinned(PanelId::Components, true);
+        let snap_left = o.snapshot().clone();
+        let left_tb_center = snap_left.toolbar.x + snap_left.toolbar.w / 2;
+        assert!(
+            left_tb_center > 600,
+            "toolbar should sit right of window center when only left panel is docked"
+        );
+        assert_eq!(
+            snap_left.available_area.x,
+            OVERLAY_MARGIN + DEFAULT_LEFT_WIDTH + PANEL_GAP + STRIP_W + PANEL_GAP
+        );
+    }
+
+    #[test]
+    fn dragged_toolbar_clamps_out_of_docked_overlay() {
+        let mut o = sized();
+        o.set_panel_pinned(PanelId::Editor, false);
+        o.set_panel_pinned(PanelId::SimLog, false);
+        o.set_panel_pinned(PanelId::CompLog, false);
+
+        // Drag toolbar far to the right while nothing is docked.
+        let tb = o.snapshot().toolbar;
+        o.gesture_begin("toolbar", tb.x + 10, tb.y + 10);
+        o.gesture_move(tb.x + 10 + 500, tb.y + 10);
+        o.gesture_end();
+        let dragged_right_x = o.snapshot().toolbar.x;
+        assert!(dragged_right_x > 650);
+
+        // Docking Editor on the right clamps the dragged toolbar inside the available area.
+        o.set_panel_pinned(PanelId::Editor, true);
+        let snap = o.snapshot();
+        assert!(
+            snap.toolbar.x + snap.toolbar.w <= snap.available_area.x + snap.available_area.w,
+            "dragged toolbar should not overlap right docked overlay"
+        );
     }
 }

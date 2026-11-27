@@ -242,6 +242,8 @@ fn snapshot_json(s: &OverlaySnapshot) -> Value {
         "margin": s.margin,
         "topMin": s.top_min,
         "bottomMax": s.bottom_max,
+        "availableArea": rect_json(s.available_area),
+        "fitArea": rect_json(s.fit_area),
         "toolbar": rect_json(s.toolbar),
         "toolbarZ": s.toolbar_z,
         "infoCard": rect_json(s.info_card),

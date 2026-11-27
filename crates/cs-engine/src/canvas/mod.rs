@@ -905,6 +905,15 @@ impl Canvas {
         c
     }
 
+    pub fn set_fit_rect(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        let rect = if w > 0.0 && h > 0.0 {
+            Some(Rect::new(x, y, w, h))
+        } else {
+            None
+        };
+        self.viewport.set_fit_rect(rect);
+    }
+
     pub fn set_zoom(&mut self, z: f64) -> Change {
         let before = self.viewport.center();
         if !self.viewport.set_zoom(z) {
@@ -1026,7 +1035,7 @@ impl Canvas {
         let rect = self.scene.items()[idx].full_rect();
         let center = rect.center();
         let items_changed = self.select_only(idx);
-        let center_changed = self.viewport.set_center(center);
+        let center_changed = self.viewport.center_on(center);
         self.sync_last_scene();
         let mut c = Change {
             items: items_changed,

@@ -202,7 +202,8 @@ pub(super) fn items_json(canvas: &Canvas) -> Value {
                     String::new(),
                 )
             };
-            let is_rst = pin_type.eq_ignore_ascii_case("rst");
+            let is_rst =
+                pin_type.eq_ignore_ascii_case("rst") || pin_type.eq_ignore_ascii_case("!rst");
             let is_un = unused
                 || pin_type.eq_ignore_ascii_case("nc")
                 || pin_type.eq_ignore_ascii_case("unused");

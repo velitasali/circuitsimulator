@@ -47,6 +47,21 @@ impl PkgPin {
         t == "nc" || t == "unused"
     }
 
+    /// Hidden placeholder pin (`type="nul"`) used by SimulIDE packages that share a
+    /// peripheral definition with larger-pin-count variants (e.g. DIP-28 `mega328`
+    /// omitting TQFP-32's `ADC6`/`ADC7`).
+    pub fn is_nul(&self) -> bool {
+        self.pin_type.eq_ignore_ascii_case("nul")
+    }
+
+    pub fn is_reset(&self) -> bool {
+        self.pin_type.eq_ignore_ascii_case("rst") || self.pin_type.eq_ignore_ascii_case("!rst")
+    }
+
+    pub fn is_reset_active_high(&self) -> bool {
+        self.pin_type.eq_ignore_ascii_case("!rst")
+    }
+
     pub fn is_bus(&self) -> bool {
         self.pin_type.eq_ignore_ascii_case("bus")
     }
@@ -149,7 +164,7 @@ impl Package {
     }
 
     pub fn electrical_pins(&self) -> impl Iterator<Item = &PkgPin> {
-        self.pins.iter().filter(|p| !p.unused())
+        self.pins.iter().filter(|p| !p.unused() && !p.is_nul())
     }
 
     pub fn find_pin(&self, id: &str) -> Option<&PkgPin> {
@@ -389,6 +404,8 @@ pub fn package_to_xml(pkg: &Package) -> String {
             "nul"
         } else if pin.pin_type == "rst" {
             "rst"
+        } else if pin.pin_type == "!rst" {
+            "!rst"
         } else {
             ""
         };
@@ -441,6 +458,8 @@ pub fn package_pins_to_prop(pins: &[PkgPin]) -> String {
             "nul"
         } else if pin.pin_type == "rst" {
             "rst"
+        } else if pin.pin_type == "!rst" {
+            "!rst"
         } else {
             ""
         };

@@ -475,7 +475,11 @@ impl Item {
     /// Iterate over local pin coordinate points with zero heap allocations when package is present.
     pub fn for_each_pin_point<F: FnMut(f64, f64)>(&self, mut f: F) {
         if let Some(package) = self.kind.package() {
+            let hide_nul = !matches!(self.kind, Part::SubPackage(_));
             for p in &package.pins {
+                if hide_nul && p.is_nul() {
+                    continue;
+                }
                 f(p.xpos as f64, p.ypos as f64);
             }
         } else {
@@ -508,9 +512,11 @@ impl Item {
 
     pub fn pins(&self) -> Vec<Pin> {
         if let Some(package) = self.kind.package() {
+            let hide_nul = !matches!(self.kind, Part::SubPackage(_));
             return package
                 .pins
                 .iter()
+                .filter(|p| !(hide_nul && p.is_nul()))
                 .map(|p| Pin {
                     id: format!("{}-{}", self.id, p.id),
                     item_id: self.id.clone(),
@@ -562,7 +568,7 @@ impl Item {
             if pp.unused()
                 || pp.pin_type.eq_ignore_ascii_case("nc")
                 || pp.pin_type.eq_ignore_ascii_case("unused")
-                || pp.pin_type.eq_ignore_ascii_case("rst")
+                || pp.is_reset()
             {
                 return None;
             }

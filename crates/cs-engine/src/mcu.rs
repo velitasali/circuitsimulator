@@ -32,10 +32,11 @@ pub struct McuComp {
     pub device: Device,
     pub pins: Vec<IoPin>,
     pub node_indices: Vec<Option<usize>>,
-    /// Dedicated active-low reset pin from the MCU package (`<pin type="rst" />`),
-    /// when not already exposed as a GPIO port pin (e.g. ATmega2560 `RST`).
+    /// Dedicated reset pin from the MCU package (`<pin type="rst" />` or `type="!rst"`),
+    /// when not already exposed as a GPIO port pin (e.g. ATmega2560 `RST`, 8051 `RST`).
     pub reset_pin: Option<IoPin>,
     pub reset_node_idx: Option<usize>,
+    pub reset_active_high: bool,
     pub reset_held: bool,
     /// C++ `m_autoLoad`: reload `firmware` at simulation start.
     pub auto_load: bool,
@@ -222,6 +223,7 @@ impl McuComp {
             node_indices: vec![None; n_pins],
             reset_pin: None,
             reset_node_idx: None,
+            reset_active_high: false,
             reset_held: false,
             auto_load: false,
             force_freq: true,
@@ -511,7 +513,8 @@ impl McuComp {
         if let (Some(rst), Some(node_idx)) = (&mut self.reset_pin, self.reset_node_idx) {
             if let Some(n) = nodes.get(node_idx) {
                 let high = rst.get_inp_state(n.volt);
-                if !high {
+                let asserted = if self.reset_active_high { high } else { !high };
+                if asserted {
                     if !self.reset_held {
                         self.device.reset();
                         self.reset_held = true;
@@ -535,7 +538,8 @@ impl McuComp {
         if let Some(rst) = &mut self.reset_pin {
             if let Some(v) = v_of(&rst.id) {
                 let high = rst.get_inp_state(v);
-                if !high {
+                let asserted = if self.reset_active_high { high } else { !high };
+                if asserted {
                     if !self.reset_held {
                         self.device.reset();
                         self.reset_held = true;
@@ -959,21 +963,21 @@ fn attach_package_reset_pin(mcu: &mut McuComp, id: &str, spec: &McuItemSpec, sea
     let Some(pkg) = pkg else {
         return;
     };
-    let Some(rst) = pkg
-        .pins
-        .iter()
-        .find(|p| p.pin_type.eq_ignore_ascii_case("rst") && !p.id.is_empty())
-    else {
+    let Some(rst) = pkg.pins.iter().find(|p| p.is_reset() && !p.id.is_empty()) else {
         return;
     };
     if match_gpio(mcu, id, &rst.id).is_some() {
         return;
     }
     let vdd = mcu.device.vdd;
+    let active_high = rst.is_reset_active_high();
     let mut pin = IoPin::input(format!("{id}-{}", rst.id));
     pin.set_levels(vdd, 0.0);
     pin.set_thresholds(vdd / 2.0, vdd / 2.0);
-    pin.set_pullup(1e5);
+    if !active_high {
+        pin.set_pullup(1e5);
+    }
+    mcu.reset_active_high = active_high;
     mcu.reset_pin = Some(pin);
 }
 

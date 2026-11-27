@@ -187,6 +187,8 @@ pub struct Port {
     pub and_bus_with_latch: bool,
     /// C++ `<ioport>` (`IoPort`): 16-bit address/data buses, no SFR `out_ctrl`.
     pub is_io: bool,
+    /// Optional shared reset pin name declared via `<port resetpin="..."/>`.
+    pub reset_pin: Option<String>,
     /// C++ `McuPort::m_interrupt` pin-change INT.
     pub interrupt: Option<usize>,
     /// C++ `McuPort::m_intMask`.
@@ -232,6 +234,7 @@ impl Port {
             always_out: false,
             and_bus_with_latch: false,
             is_io: spec.is_io,
+            reset_pin: (!spec.reset_pin.is_empty()).then(|| spec.reset_pin.clone()),
             interrupt: None,
             int_mask: 0,
             rst_int_mask: true,

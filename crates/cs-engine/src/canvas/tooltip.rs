@@ -1,7 +1,11 @@
 //! Hover tooltip formatting and pin description generators.
 
-use crate::canvas::scene::{HitTarget, Part};
+use cs_mcu::CoreKind;
+
+use crate::canvas::pin::Pin;
+use crate::canvas::scene::{HitTarget, Item, Part};
 use crate::canvas::{Canvas, Point};
+use crate::components::{Mcu, QemuDevice};
 use crate::digital::FlipFlopKind;
 use crate::elements::pins::PinSuffix;
 use crate::i18n;
@@ -275,10 +279,7 @@ fn component_hover_info(it: &crate::canvas::scene::Item) -> String {
     s
 }
 
-fn pin_description(
-    pin: &crate::canvas::pin::Pin,
-    item: Option<&crate::canvas::scene::Item>,
-) -> String {
+fn pin_description(pin: &Pin, item: Option<&Item>) -> String {
     let pin_id = if let Some(it) = item {
         if let Some(rest) = pin.id.strip_prefix(&it.id) {
             rest.strip_prefix('-').unwrap_or(rest)
@@ -292,6 +293,16 @@ fn pin_description(
 
     if let Some(it) = item {
         match &it.kind {
+            Part::Mcu(mcu) => {
+                if let Some(desc) = mcu_pin_description(mcu, pin, pin_id, &pin_lower) {
+                    return desc;
+                }
+            }
+            Part::QemuDevice(qdev) => {
+                if let Some(desc) = qemu_pin_description(qdev, pin, pin_id) {
+                    return desc;
+                }
+            }
             Part::Mux(mux) => {
                 if pin_lower == "out" {
                     return i18n::tr("Non-inverted output");
@@ -1714,4 +1725,181 @@ fn pin_description(
         }
     };
     i18n::tr(&desc)
+}
+
+fn mcu_pin_description(mcu: &Mcu, pin: &Pin, pin_id: &str, pin_lower: &str) -> Option<String> {
+    let label_upper = pin.label.trim().to_ascii_uppercase();
+    let label_trimmed = label_upper.strip_prefix('!').unwrap_or(&label_upper);
+    let pin_upper = pin_id.to_ascii_uppercase();
+
+    if let Some(pp) = mcu.package.find_pin(pin_id)
+        && pp.is_reset()
+    {
+        if pp.is_reset_active_high() {
+            return Some(i18n::tr("Reset input (active high)"));
+        }
+        if pin_lower == "mclr" || label_trimmed == "MCLR" {
+            return Some(i18n::tr("Master Clear / Reset input (MCLR)"));
+        }
+        return Some(i18n::tr("Reset input (active low)"));
+    }
+
+    if matches!(label_trimmed, "A+" | "AVCC" | "AVDD" | "VDDA")
+        || matches!(pin_upper.as_str(), "PORTV0" | "PV0")
+    {
+        return Some(i18n::tr("Analog positive supply voltage (AVCC)"));
+    }
+    if matches!(label_trimmed, "AR" | "AREF") || matches!(pin_upper.as_str(), "PORTV1" | "PV1") {
+        return Some(i18n::tr("Analog reference voltage (AREF)"));
+    }
+    if let Some(num) = label_trimmed.strip_prefix("ADC")
+        && !num.is_empty()
+        && num.chars().all(|c| c.is_ascii_digit())
+    {
+        return Some(format!(
+            "{} {num} (ADC{num})",
+            i18n::tr("Analog input channel")
+        ));
+    }
+    if matches!(label_trimmed, "OSC" | "OSC1" | "OSC2") {
+        return Some(i18n::tr("Oscillator pin"));
+    }
+
+    for port in mcu.mcu.device.ports() {
+        if port.is_io || port.name.eq_ignore_ascii_case("PORTV") {
+            continue;
+        }
+        let matched = port.pins.iter().find(|p| {
+            pin_id
+                .strip_prefix(&port.name)
+                .is_some_and(|rest| rest == p.label || rest.parse::<u8>().ok() == Some(p.number))
+                || p.name.rsplit('-').next() == Some(pin_id)
+        });
+        let Some(gpin) = matched else {
+            continue;
+        };
+        let is_reset = port
+            .reset_pin
+            .as_deref()
+            .is_some_and(|r| r.eq_ignore_ascii_case(pin_id));
+        let port_suffix = port.name.strip_prefix("PORT").unwrap_or(&port.name);
+        let num = gpin.number;
+
+        return Some(match mcu.mcu.device.core {
+            CoreKind::Avr => {
+                let short = format!("P{port_suffix}{num}");
+                if is_reset {
+                    format!(
+                        "{} {port_suffix} {} {num} ({short} / RESET)",
+                        i18n::tr("Port"),
+                        i18n::tr("pin")
+                    )
+                } else {
+                    format!(
+                        "{} {port_suffix} {} {num} ({short})",
+                        i18n::tr("Port"),
+                        i18n::tr("pin")
+                    )
+                }
+            }
+            CoreKind::Pic12 | CoreKind::Pic14 => {
+                if port_suffix.eq_ignore_ascii_case("P") {
+                    let short = format!("GP{num}");
+                    if is_reset {
+                        format!("GPIO {} {num} ({short} / MCLR)", i18n::tr("pin"))
+                    } else {
+                        format!("GPIO {} {num} ({short})", i18n::tr("pin"))
+                    }
+                } else {
+                    let short = format!("R{port_suffix}{num}");
+                    if is_reset {
+                        format!(
+                            "{} {port_suffix} {} {num} ({short} / MCLR)",
+                            i18n::tr("Port"),
+                            i18n::tr("pin")
+                        )
+                    } else {
+                        format!(
+                            "{} {port_suffix} {} {num} ({short})",
+                            i18n::tr("Port"),
+                            i18n::tr("pin")
+                        )
+                    }
+                }
+            }
+            CoreKind::I51 => {
+                let short = format!("P{port_suffix}.{num}");
+                format!(
+                    "{} {port_suffix} {} {num} ({short})",
+                    i18n::tr("Port"),
+                    i18n::tr("pin")
+                )
+            }
+            _ => {
+                if is_reset {
+                    format!(
+                        "{} {port_suffix} {} {num} (RESET)",
+                        i18n::tr("Port"),
+                        i18n::tr("pin")
+                    )
+                } else {
+                    format!(
+                        "{} {port_suffix} {} {num}",
+                        i18n::tr("Port"),
+                        i18n::tr("pin")
+                    )
+                }
+            }
+        });
+    }
+
+    None
+}
+
+fn qemu_pin_description(qdev: &QemuDevice, pin: &Pin, pin_id: &str) -> Option<String> {
+    let label_upper = pin.label.trim().to_ascii_uppercase();
+    let label_trimmed = label_upper.strip_prefix('!').unwrap_or(&label_upper);
+
+    if let Some(pp) = qdev.package.find_pin(pin_id)
+        && pp.is_reset()
+    {
+        return Some(if pp.is_reset_active_high() {
+            i18n::tr("Reset input (active high)")
+        } else {
+            i18n::tr("Reset input (active low)")
+        });
+    }
+
+    match label_trimmed {
+        "XTALI" => return Some(i18n::tr("Crystal oscillator input (XTAL_IN)")),
+        "XTALO" => return Some(i18n::tr("Crystal oscillator output (XTAL_OUT)")),
+        "LNA" => return Some(i18n::tr("RF antenna / LNA pin")),
+        "CA1" => return Some(i18n::tr("External capacitor pin (CAP1)")),
+        "CA2" => return Some(i18n::tr("External capacitor pin (CAP2)")),
+        _ => {}
+    }
+
+    if let Some(rest) = label_trimmed.strip_prefix('G')
+        && !rest.is_empty()
+        && rest.chars().all(|c| c.is_ascii_digit())
+        && let Ok(num) = rest.parse::<u32>()
+    {
+        return Some(format!("GPIO {num} ({label_trimmed})"));
+    }
+
+    if label_trimmed.starts_with('P')
+        && label_trimmed.len() >= 3
+        && let Some(port) = label_trimmed.chars().nth(1)
+        && port.is_ascii_alphabetic()
+        && label_trimmed[2..].chars().all(|c| c.is_ascii_digit())
+    {
+        let num = &label_trimmed[2..];
+        return Some(format!(
+            "{} {port} {} {num} ({label_trimmed})",
+            i18n::tr("Port"),
+            i18n::tr("pin")
+        ));
+    }
+
+    None
 }

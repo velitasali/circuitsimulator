@@ -26,7 +26,7 @@
     <pin type=""    xpos="48"   ypos="8"    angle="0"   length="8"  id="AREF" label="Aref"/>
     <pin type=""    xpos="48"   ypos="16"   angle="0"   length="8"  id="AVCC1"label="AVcc"/>
     <pin type="nc"  xpos="48"   ypos="56"   angle="0"   length="8"  id="UVCC" label="UVcc"/>
-    <pin type="nc"  xpos="48"   ypos="64"   angle="0"   length="8"  id=""     label="D-"  />
+    <pin type="nc"  xpos="48"   ypos="64"   angle="0"   length="8"  id="D-"   label="D-"  />
     <pin type="nc"  xpos="48"   ypos="72"   angle="0"   length="8"  id="D+"   label="D+"  />
     <pin type="nc"  xpos="48"   ypos="88"   angle="0"   length="8"  id="UCAP" label="Ucap"/>
     <pin type="nc"  xpos="48"   ypos="96"   angle="0"   length="8"  id="VBUS" label="VBus"/>

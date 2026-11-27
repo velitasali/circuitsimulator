@@ -595,6 +595,7 @@ impl Component for Mcu {
         self.package
             .pins
             .iter()
+            .filter(|p| !p.is_nul())
             .map(|p| {
                 CompPin::new(
                     p.id.clone(),

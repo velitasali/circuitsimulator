@@ -82,7 +82,7 @@
     <pin type=""    xpos="208"  ypos="-8"   angle="90"  length="8"  id="PA2"  label="A2"  />
     <pin type=""    xpos="200"  ypos="-8"   angle="90"  length="8"  id="PA1"  label="A1"  />
     <pin type=""    xpos="192"  ypos="-8"   angle="90"  length="8"  id="PA0"  label="A0"  />
-    <pin type=""    xpos="184"  ypos="-8"   angle="90"  length="8"  id="PJ7"  label=" J7" />
+    <pin type=""    xpos="184"  ypos="-8"   angle="90"  length="8"  id="PJ7"  label="J7"  />
     <pin type="nc"  xpos="176"  ypos="-8"   angle="90"  length="8"  id="VCC3" label="Vcc" />
     <pin type="nc"  xpos="168"  ypos="-8"   angle="90"  length="8"  id="GND3" label="Gnd" />
     <pin type=""    xpos="160"  ypos="-8"   angle="90"  length="8"  id="PK7"  label="K7"  />

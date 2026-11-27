@@ -871,9 +871,11 @@ pub fn board_children(src: &str, package: &Package, logic_symbol: bool) -> Vec<B
 /// Compute all simulation pin IDs belonging to `part` under `sim_id`.
 pub fn part_pin_ids(sim_id: &str, part: &Part) -> Vec<String> {
     if let Some(pkg) = part.package() {
+        let hide_nul = !matches!(part, Part::SubPackage(_));
         return pkg
             .pins
             .iter()
+            .filter(|p| !(hide_nul && p.is_nul()))
             .map(|p| format!("{sim_id}-{}", p.id))
             .collect();
     }

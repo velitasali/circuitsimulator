@@ -25,7 +25,6 @@
     <pin type=""    xpos="32"   ypos="160"  angle="270" length="8"  id="PG4"  label="G4"  />
     <pin type="rst" xpos="40"   ypos="160"  angle="270" length="8"  id="RST"  label="Rst" />
     <pin type="nc"  xpos="48"   ypos="160"  angle="270" length="8"  id="VCC1" label="Vcc" />
-    <pin type="nc"  xpos="48"   ypos="160"  angle="270" length="8"  id="VCC1" label="Vcc" />
     <pin type="nc"  xpos="56"   ypos="160"  angle="270" length="8"  id="GND1" label="Gnd" />
     <pin type="nc"  xpos="64"   ypos="160"  angle="270" length="8"  id="XTAL2"label="XTAL2"/>
     <pin type="nc"  xpos="72"   ypos="160"  angle="270" length="8"  id="XTAL1"label="XTAL1"/>

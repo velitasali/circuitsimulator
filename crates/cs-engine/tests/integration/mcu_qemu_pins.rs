@@ -1,8 +1,12 @@
+use std::path::PathBuf;
+
 use cs_engine::canvas::{Canvas, Item, Palette, PinDirection, Point, export};
+use cs_engine::catalog::Catalog;
 use cs_engine::components::Part;
 use cs_engine::digital::PinMode;
-use cs_engine::package::Package;
+use cs_engine::package::{Package, PkgPin};
 use cs_engine::qemu::QemuComp;
+use cs_engine::subcircuit::SubcSearch;
 
 #[test]
 fn test_mcu_gpio_pins_default_direction_and_reset() {
@@ -612,4 +616,287 @@ fn test_mcu_info_tracks_active_device_and_board_mcus() {
     assert!(has);
     assert_eq!(dev, "atmega328");
     assert_eq!(name, "Arduino-1 / atmega328");
+}
+
+#[test]
+fn mega328_hides_nul_pins_and_shows_accurate_hover_tooltips() {
+    let mut canvas = Canvas::empty();
+    assert!(canvas.scene_add_component_spec("mega328,MCU", Point::zero()));
+    let mcu = canvas
+        .scene()
+        .items()
+        .iter()
+        .find(|it| matches!(it.kind, Part::Mcu(_)))
+        .expect("mega328 must be present")
+        .clone();
+
+    // DIP-28 must expose exactly 28 physical pins (hiding type="nul" PV2/PV3 placeholders).
+    let pins = mcu.pins();
+    assert_eq!(pins.len(), 28, "DIP-28 mega328 should have 28 pins");
+    assert!(!pins.iter().any(|p| p.id.ends_with("-PORTV2")));
+    assert!(!pins.iter().any(|p| p.id.ends_with("-PORTV3")));
+    assert_eq!(
+        mcu.local_total_bounding_rect().top(),
+        0.0,
+        "hidden top nul pins must not expand bounding rect above y=0"
+    );
+
+    let tip_for = |suffix: &str| {
+        let pin = pins
+            .iter()
+            .find(|p| p.id.ends_with(suffix))
+            .unwrap_or_else(|| panic!("missing pin {suffix}"));
+        let scene_pt = mcu.pin_scene_pos(pin);
+        canvas
+            .hover_tooltip(scene_pt)
+            .unwrap_or_else(|| panic!("missing hover tooltip for {suffix}"))
+    };
+
+    let d0_tip = tip_for("-PORTD0");
+    assert!(
+        d0_tip.contains("Port D pin 0 (PD0)"),
+        "expected Port D pin 0 tooltip, got: {d0_tip}"
+    );
+    assert!(
+        !d0_tip.contains("Data line"),
+        "D0 on AVR must not be mislabeled as a Data line: {d0_tip}"
+    );
+
+    let b0_tip = tip_for("-PORTB0");
+    assert!(
+        b0_tip.contains("Port B pin 0 (PB0)"),
+        "expected Port B pin 0 tooltip, got: {b0_tip}"
+    );
+
+    let c6_tip = tip_for("-PORTC6");
+    assert!(
+        c6_tip.contains("Port C pin 6 (PC6 / RESET)"),
+        "expected PC6 / RESET tooltip, got: {c6_tip}"
+    );
+
+    let avcc_tip = tip_for("-PORTV0");
+    assert!(
+        avcc_tip.contains("Analog positive supply voltage (AVCC)"),
+        "expected AVCC tooltip for A+, got: {avcc_tip}"
+    );
+
+    let aref_tip = tip_for("-PORTV1");
+    assert!(
+        aref_tip.contains("Analog reference voltage (AREF)"),
+        "expected AREF tooltip for Ar, got: {aref_tip}"
+    );
+
+    let vcc_tip = tip_for("-VCC");
+    assert!(
+        vcc_tip.contains("Positive supply voltage") && vcc_tip.contains("Unused"),
+        "expected unused VCC tooltip, got: {vcc_tip}"
+    );
+
+    let gnd_tip = tip_for("-GND1");
+    assert!(
+        gnd_tip.contains("Ground / 0V reference") && gnd_tip.contains("Unused"),
+        "expected unused GND tooltip, got: {gnd_tip}"
+    );
+
+    // Logic Symbol view also hides PV2/PV3 nul placeholders (25 pins instead of 27).
+    canvas.set_prop_text_for(&mcu.id, "LogicSymbol".into(), "true".into());
+    let mcu_ls = canvas.scene().item_by_id(&mcu.id).unwrap();
+    let ls_pins = mcu_ls.pins();
+    assert_eq!(ls_pins.len(), 25, "mega328 LS should hide 2 nul pins");
+    assert!(!ls_pins.iter().any(|p| p.id.ends_with("-PORTV2")));
+    assert!(!ls_pins.iter().any(|p| p.id.ends_with("-PORTV3")));
+}
+
+#[test]
+fn m328_tqfp_keeps_adc6_adc7_and_subpackage_keeps_nul_editable() {
+    let mut canvas = Canvas::empty();
+    assert!(canvas.scene_add_component_spec("m328 TQFP,MCU", Point::zero()));
+    let tqfp = canvas
+        .scene()
+        .items()
+        .iter()
+        .find(|it| matches!(it.kind, Part::Mcu(_)))
+        .expect("m328 TQFP must be present")
+        .clone();
+    let pins = tqfp.pins();
+    assert_eq!(pins.len(), 32, "TQFP-32 must expose all 32 physical pins");
+    let adc6 = pins
+        .iter()
+        .find(|p| p.id.ends_with("-PORTV2"))
+        .expect("TQFP-32 must have ADC6 (PORTV2)");
+    let adc6_tip = canvas
+        .hover_tooltip(tqfp.pin_scene_pos(adc6))
+        .expect("ADC6 tooltip");
+    assert!(
+        adc6_tip.contains("Analog input channel 6 (ADC6)"),
+        "expected ADC6 tooltip, got: {adc6_tip}"
+    );
+
+    // SubPackage (package designer) must still expose type="nul" pins for editing.
+    let mut pkg = Package::default();
+    pkg.pins.push(PkgPin::new("PV2", "", "nul", 8, -8, 90));
+    let sp = Item::subpackage("SubPackage-1", 0.0, 0.0, pkg);
+    assert_eq!(sp.pins().len(), 1);
+}
+
+fn fixture_mcu_search() -> SubcSearch {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/components");
+    let mut cat = Catalog::new();
+    for dir in ["AVR", "MCS51", "MCS65", "PIC", "Z80"] {
+        cat.load_dir(&root.join(dir));
+    }
+    SubcSearch::default().with_catalog(cat)
+}
+
+#[test]
+fn other_mcus_packages_active_high_reset_and_qemu_tooltips() {
+    let search = fixture_mcu_search();
+
+    // 1. mega32 Logic Symbol: PV0 must be AVcc and PV1 must be Aref.
+    let mut canvas = Canvas::empty();
+    let m32_id = canvas
+        .scene_mut()
+        .add_mcu("mega32", 0.0, 0.0, &search)
+        .expect("mega32");
+    canvas.set_prop_text_for(&m32_id, "LogicSymbol".into(), "true".into());
+    let m32_ls = canvas.scene().item_by_id(&m32_id).unwrap().clone();
+    let ls_pins = m32_ls.pins();
+    let avcc = ls_pins
+        .iter()
+        .find(|p| p.id.ends_with("-PORTV0"))
+        .expect("mega32 PORTV0");
+    let aref = ls_pins
+        .iter()
+        .find(|p| p.id.ends_with("-PORTV1"))
+        .expect("mega32 PORTV1");
+    assert_eq!(avcc.label, "AVcc");
+    assert_eq!(aref.label, "Aref");
+    assert!(
+        canvas
+            .hover_tooltip(m32_ls.pin_scene_pos(avcc))
+            .unwrap()
+            .contains("AVCC")
+    );
+    assert!(
+        canvas
+            .hover_tooltip(m32_ls.pin_scene_pos(aref))
+            .unwrap()
+            .contains("AREF")
+    );
+
+    // 2. mega1281 (64-pin TQFP) has no duplicate VCC1 pin.
+    let mut c1281 = Canvas::empty();
+    let m1281_id = c1281
+        .scene_mut()
+        .add_mcu("mega1281", 0.0, 0.0, &search)
+        .expect("mega1281");
+    let m1281 = c1281.scene().item_by_id(&m1281_id).unwrap();
+    assert_eq!(m1281.pins().len(), 64);
+
+    // 3. mega2560 (m640.package) PJ7 label has no leading whitespace.
+    let mut c2560 = Canvas::empty();
+    let m2560_id = c2560
+        .scene_mut()
+        .add_mcu("mega2560", 0.0, 0.0, &search)
+        .expect("mega2560");
+    let m2560 = c2560.scene().item_by_id(&m2560_id).unwrap();
+    let pj7 = m2560
+        .pins()
+        .into_iter()
+        .find(|p| p.id.ends_with("-PORTJ7"))
+        .expect("PJ7");
+    assert_eq!(pj7.label, "J7");
+
+    // 4. 8051 active-high reset pin (!rst) is attached and described accurately.
+    let mut c8051 = Canvas::empty();
+    let m8051_id = c8051
+        .scene_mut()
+        .add_mcu("8051", 0.0, 0.0, &search)
+        .expect("8051");
+    let m8051 = c8051.scene().item_by_id(&m8051_id).unwrap().clone();
+    if let Part::Mcu(ref mcu) = m8051.kind {
+        assert!(mcu.mcu.reset_pin.is_some(), "8051 RST pin must be attached");
+        assert!(mcu.mcu.reset_active_high, "8051 RST must be active-high");
+        assert!(
+            !mcu.mcu.reset_pin.as_ref().unwrap().has_pullup(),
+            "active-high RST must not have an internal pullup"
+        );
+    }
+    assert_eq!(m8051.default_pin_direction("RST"), None);
+    let rst_pin = m8051
+        .pins()
+        .into_iter()
+        .find(|p| p.id.ends_with("-RST"))
+        .expect("8051 RST pin");
+    let rst_tip = c8051
+        .hover_tooltip(m8051.pin_scene_pos(&rst_pin))
+        .expect("8051 RST tooltip");
+    assert!(
+        rst_tip.contains("Reset input (active high)"),
+        "expected active-high reset tooltip, got: {rst_tip}"
+    );
+
+    // 5. p16F84 PX0 (Osc) has clean pin_type (not typo "n").
+    let mut cpic = Canvas::empty();
+    let pic_id = cpic
+        .scene_mut()
+        .add_mcu("p16F84", 0.0, 0.0, &search)
+        .expect("p16F84");
+    let pic = cpic.scene().item_by_id(&pic_id).unwrap();
+    let px0 = pic
+        .package()
+        .unwrap()
+        .find_pin("PORTX0")
+        .expect("p16F84 PORTX0");
+    assert_eq!(px0.pin_type, "");
+
+    // 6. QEMU devices (ESP32, STM32F103) show clear GPIO / crystal / reset tooltips.
+    let mut cesp = Canvas::empty();
+    assert!(cesp.scene_add_component_spec("ESP32,QemuDevice", Point::zero()));
+    let esp = cesp
+        .scene()
+        .items()
+        .iter()
+        .find(|it| matches!(it.kind, Part::QemuDevice(_)))
+        .expect("ESP32")
+        .clone();
+    let esp_pins = esp.pins();
+    let g05 = esp_pins.iter().find(|p| p.id.ends_with("-G05")).unwrap();
+    let xtali = esp_pins.iter().find(|p| p.id.ends_with("-XTALi")).unwrap();
+    let esp_rst = esp_pins.iter().find(|p| p.id.ends_with("-Rst")).unwrap();
+    assert!(
+        cesp.hover_tooltip(esp.pin_scene_pos(g05))
+            .unwrap()
+            .contains("GPIO 5 (G05)")
+    );
+    assert!(
+        cesp.hover_tooltip(esp.pin_scene_pos(xtali))
+            .unwrap()
+            .contains("Crystal oscillator input (XTAL_IN)")
+    );
+    assert!(
+        cesp.hover_tooltip(esp.pin_scene_pos(esp_rst))
+            .unwrap()
+            .contains("Reset input (active low)")
+    );
+
+    let mut cstm = Canvas::empty();
+    assert!(cstm.scene_add_component_spec("STM32F103,QemuDevice", Point::zero()));
+    let stm = cstm
+        .scene()
+        .items()
+        .iter()
+        .find(|it| matches!(it.kind, Part::QemuDevice(_)))
+        .expect("STM32F103")
+        .clone();
+    let pa0 = stm
+        .pins()
+        .into_iter()
+        .find(|p| p.id.ends_with("-PA0"))
+        .unwrap();
+    assert!(
+        cstm.hover_tooltip(stm.pin_scene_pos(&pa0))
+            .unwrap()
+            .contains("Port A pin 0 (PA0)")
+    );
 }

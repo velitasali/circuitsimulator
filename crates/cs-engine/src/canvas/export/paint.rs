@@ -625,13 +625,19 @@ pub fn paint_chip_pin_labels(d: &mut dyn Draw, it: &Item) {
     };
     let pkg = it.kind.package();
     let pins = it.pins();
-    for (idx, pin) in pins.iter().enumerate() {
+    for pin in &pins {
         if pin.label.is_empty() {
             continue;
         }
+        let pin_id_local = pin
+            .id
+            .strip_prefix(it.id.as_str())
+            .unwrap_or("")
+            .strip_prefix('-')
+            .unwrap_or(&pin.id);
         let len = if pin.length == 0.0 { 8.0 } else { pin.length };
         let space = pkg
-            .and_then(|p| p.pins.get(idx))
+            .and_then(|p| p.find_pin(pin_id_local))
             .map(|p| p.space.max(0) as f64)
             .unwrap_or(0.0);
         let offset = len + space.max(2.0);

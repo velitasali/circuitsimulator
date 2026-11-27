@@ -104,6 +104,35 @@ impl Scene {
         false
     }
 
+    pub fn reset_item_label_pos(&mut self, uid: &str) -> bool {
+        let Some(it) = self.item_by_id_mut(uid) else {
+            return false;
+        };
+        let (dx, dy) = it.default_label_pos();
+        if !it.custom_label_pos && (it.label_x - dx).abs() < 1e-6 && (it.label_y - dy).abs() < 1e-6
+        {
+            return false;
+        }
+        it.custom_label_pos = false;
+        it.label_x = dx;
+        it.label_y = dy;
+        true
+    }
+
+    pub fn reset_item_val_label_pos(&mut self, uid: &str) -> bool {
+        let Some(it) = self.item_by_id_mut(uid) else {
+            return false;
+        };
+        let (dx, dy) = it.default_val_pos();
+        if !it.custom_val_pos && (it.val_x - dx).abs() < 1e-6 && (it.val_y - dy).abs() < 1e-6 {
+            return false;
+        }
+        it.custom_val_pos = false;
+        it.val_x = dx;
+        it.val_y = dy;
+        true
+    }
+
     pub fn selected_indices(&self) -> Vec<usize> {
         self.items
             .iter()

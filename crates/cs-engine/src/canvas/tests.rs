@@ -1,7 +1,9 @@
 //! Canvas unit and regression tests.
 
 use super::*;
+use crate::canvas::export::text;
 use crate::canvas::geom::to_grid as snap_point;
+use crate::canvas::scene::HitTarget;
 use crate::components::ComponentChange;
 
 #[test]
@@ -2137,6 +2139,332 @@ fn test_hit_label_and_drag_label_and_value_with_undo() {
         0,
     );
     assert!(c.can_undo());
+}
+
+#[test]
+fn test_label_cardinal_detents_hysteresis_and_reset() {
+    let mut c = Canvas::empty();
+    c.scene_mut().add_default_resistor(100.0, 100.0);
+    c.scene_mut().items_mut()[0].show_id = true;
+    c.scene_mut().items_mut()[0].show_val = true;
+
+    let res = &c.scene().items()[0];
+    let uid = res.id.clone();
+    let top_slot = res.label_detent_slot(false, LabelDetent::Top);
+    let left_slot = res.label_detent_slot(false, LabelDetent::Left);
+    let right_slot = res.label_detent_slot(false, LabelDetent::Right);
+    let bottom_slot = res.label_detent_slot(false, LabelDetent::Bottom);
+    let val_bottom_slot = res.label_detent_slot(true, LabelDetent::Bottom);
+    let val_right_slot = res.label_detent_slot(true, LabelDetent::Right);
+
+    assert!(top_slot.is_default);
+    assert!(!left_slot.is_default);
+    assert!(val_bottom_slot.is_default);
+    assert!(!val_right_slot.is_default);
+
+    // Start dragging ID label from default Top detent.
+    let grab_scene = res.map_local(Point::new(top_slot.anchor.x + 4.0, top_slot.anchor.y + 4.0));
+    let grab_item = c.viewport().map_from_circuit(grab_scene);
+    c.mouse_press(BUTTON_LEFT, grab_item.x, grab_item.y, 0);
+    assert_eq!(c.active_label_detent(), None);
+
+    // Small drag within release radius stays magnetically locked on Top and shows detent guide.
+    c.mouse_move(grab_item.x + 3.0, grab_item.y - 2.0, BUTTON_LEFT, 0);
+    assert_eq!(c.active_label_detent(), Some((0, false, LabelDetent::Top)));
+    assert!(!c.scene().items()[0].custom_label_pos);
+    assert_eq!(
+        c.scene().items()[0].label_pos(),
+        (top_slot.anchor.x, top_slot.anchor.y)
+    );
+
+    // Releasing while never leaving the starting detent does not create an undo step.
+    c.mouse_release(BUTTON_LEFT, grab_item.x + 3.0, grab_item.y - 2.0, 0);
+    assert_eq!(c.active_label_detent(), None);
+    assert!(!c.can_undo());
+
+    // Drag past release radius into free space, then onto Left, Right, Bottom, and back to Top.
+    c.mouse_press(BUTTON_LEFT, grab_item.x, grab_item.y, 0);
+    c.mouse_move(grab_item.x + 30.0, grab_item.y - 30.0, BUTTON_LEFT, 0);
+    assert_eq!(c.active_label_detent(), None);
+    assert!(c.scene().items()[0].custom_label_pos);
+
+    for slot in [left_slot, right_slot, bottom_slot] {
+        let delta = slot.anchor.sub(top_slot.anchor);
+        let near_scene = Point::new(grab_scene.x + delta.x + 2.0, grab_scene.y + delta.y - 1.0);
+        let near_item = c.viewport().map_from_circuit(near_scene);
+        c.mouse_move(near_item.x, near_item.y, BUTTON_LEFT, 0);
+        assert_eq!(c.active_label_detent(), Some((0, false, slot.kind)));
+        let (lx, ly) = c.scene().items()[0].label_pos();
+        assert!((lx - slot.anchor.x).abs() < 1e-6);
+        assert!((ly - slot.anchor.y).abs() < 1e-6);
+        assert!(c.scene().items()[0].custom_label_pos);
+    }
+
+    // Drag back near Top (default): snaps to Top and restores dynamic centering (custom_label_pos = false).
+    let near_top = c
+        .viewport()
+        .map_from_circuit(Point::new(grab_scene.x + 2.0, grab_scene.y - 2.0));
+    c.mouse_move(near_top.x, near_top.y, BUTTON_LEFT, 0);
+    assert_eq!(c.active_label_detent(), Some((0, false, LabelDetent::Top)));
+    assert!(!c.scene().items()[0].custom_label_pos);
+
+    // Move to Right and release so it has a custom position for Reset Position testing.
+    let delta_right = right_slot.anchor.sub(top_slot.anchor);
+    let right_item = c.viewport().map_from_circuit(Point::new(
+        grab_scene.x + delta_right.x,
+        grab_scene.y + delta_right.y,
+    ));
+    c.mouse_move(right_item.x, right_item.y, BUTTON_LEFT, 0);
+    c.mouse_release(BUTTON_LEFT, right_item.x, right_item.y, 0);
+    assert_eq!(c.active_label_detent(), None);
+    assert!(c.scene().items()[0].custom_label_pos);
+    assert!(c.can_undo());
+
+    // Right-click reports custom pos, and reset_item_label_pos restores dynamic default with undo.
+    let right_hit_scene = c.scene().items()[0].map_local(Point::new(
+        right_slot.anchor.x + 4.0,
+        right_slot.anchor.y + 4.0,
+    ));
+    let right_hit_item = c.viewport().map_from_circuit(right_hit_scene);
+    c.mouse_press(BUTTON_RIGHT, right_hit_item.x, right_hit_item.y, 0);
+    assert!(c.has_label_hit());
+    assert!(!c.hit_label_is_val());
+    assert!(c.hit_label_has_custom_pos());
+
+    let ch = c.reset_item_label_pos(&uid);
+    assert!(ch.items);
+    assert!(ch.history);
+    assert!(!c.scene().items()[0].custom_label_pos);
+    assert!(!c.hit_label_has_custom_pos());
+    assert_eq!(
+        c.scene().items()[0].label_pos(),
+        (top_slot.anchor.x, top_slot.anchor.y)
+    );
+    // Resetting an already-default label is a no-op.
+    assert!(!c.reset_item_label_pos(&uid).history);
+
+    // Value label: snap to Right, then snap back to Bottom (default) clearing custom_val_pos,
+    // and test reset_item_val_label_pos.
+    let val_grab_scene = c.scene().items()[0].map_local(Point::new(
+        val_bottom_slot.anchor.x + 4.0,
+        val_bottom_slot.anchor.y + 4.0,
+    ));
+    let val_grab_item = c.viewport().map_from_circuit(val_grab_scene);
+    c.mouse_press(BUTTON_LEFT, val_grab_item.x, val_grab_item.y, 0);
+    let val_delta_right = val_right_slot.anchor.sub(val_bottom_slot.anchor);
+    let val_right_item = c.viewport().map_from_circuit(Point::new(
+        val_grab_scene.x + val_delta_right.x + 1.0,
+        val_grab_scene.y + val_delta_right.y - 1.0,
+    ));
+    c.mouse_move(val_right_item.x, val_right_item.y, BUTTON_LEFT, 0);
+    assert_eq!(c.active_label_detent(), Some((0, true, LabelDetent::Right)));
+    assert!(c.scene().items()[0].custom_val_pos);
+    c.mouse_release(BUTTON_LEFT, val_right_item.x, val_right_item.y, 0);
+
+    let ch = c.reset_item_val_label_pos(&uid);
+    assert!(ch.history);
+    assert!(!c.scene().items()[0].custom_val_pos);
+    assert_eq!(
+        c.scene().items()[0].val_pos(),
+        (val_bottom_slot.anchor.x, val_bottom_slot.anchor.y)
+    );
+}
+
+#[test]
+fn test_esp32_label_detents_clear_pins_and_crossing_guides_activate_per_axis() {
+    let mut c = Canvas::empty();
+    assert!(c.scene_add_component_spec("Esp32,QemuDevice", Point::new(100.0, 100.0)));
+    c.scene_mut().items_mut()[0].show_id = true;
+    c.scene_mut().items_mut()[0].show_val = true;
+
+    let esp = &c.scene().items()[0];
+    let body = esp.body_rect();
+    let clearance = esp.label_clearance_rect();
+
+    // ESP32 has pins sticking out all 4 sides (-8 and 128 on a 120x120 body),
+    // so clearance must extend beyond body_rect on all 4 sides including pin tip rings.
+    assert!(clearance.left() <= body.left() - 10.0);
+    assert!(clearance.right() >= body.right() + 10.0);
+    assert!(clearance.top() <= body.top() - 10.0);
+    assert!(clearance.bottom() >= body.bottom() + 10.0);
+
+    // All 4 cardinal slots must sit strictly outside the pin clearance rect.
+    for kind in [
+        LabelDetent::Top,
+        LabelDetent::Bottom,
+        LabelDetent::Left,
+        LabelDetent::Right,
+    ] {
+        let slot = esp.label_detent_slot(false, kind);
+        let lbox = esp.label_local_box(false, slot.anchor);
+        match kind {
+            LabelDetent::Top => assert!(lbox.bottom() < clearance.top()),
+            LabelDetent::Bottom => assert!(lbox.top() > clearance.bottom()),
+            LabelDetent::Left => assert!(lbox.right() < clearance.left()),
+            LabelDetent::Right => assert!(lbox.left() > clearance.right()),
+        }
+    }
+
+    // Drag ID label straight up 40px above the Top detent: Y breaks free while X stays
+    // locked to the vertical centerline, showing only the X guide.
+    let top_slot = esp.label_detent_slot(false, LabelDetent::Top);
+    let grab_scene = esp.map_local(Point::new(top_slot.anchor.x + 4.0, top_slot.anchor.y + 4.0));
+    let grab_item = c.viewport().map_from_circuit(grab_scene);
+    c.mouse_press(BUTTON_LEFT, grab_item.x, grab_item.y, 0);
+
+    let high_center = c
+        .viewport()
+        .map_from_circuit(Point::new(grab_scene.x + 2.0, grab_scene.y - 40.0));
+    c.mouse_move(high_center.x, high_center.y, BUTTON_LEFT, 0);
+    assert_eq!(
+        c.active_label_guides(),
+        Some(ActiveLabelGuides {
+            index: 0,
+            is_val: false,
+            x: Some(LabelAxisX::Center),
+            y: None,
+        })
+    );
+    assert_eq!(c.active_label_detent(), None);
+    let (lx, ly) = c.scene().items()[0].label_pos();
+    assert!((lx - top_slot.anchor.x).abs() < 1e-6);
+    assert!((ly - (top_slot.anchor.y - 40.0)).abs() <= 1.0);
+
+    // Drag far to the right and cross the horizontal centerline: Y locks to Center while X is free.
+    let axes = c.scene().items()[0].label_detent_axes(false);
+    let dy_to_cy = axes.y_center - top_slot.anchor.y;
+    let far_right_center = c.viewport().map_from_circuit(Point::new(
+        grab_scene.x + 140.0,
+        grab_scene.y + dy_to_cy + 1.5,
+    ));
+    c.mouse_move(far_right_center.x, far_right_center.y, BUTTON_LEFT, 0);
+    assert_eq!(
+        c.active_label_guides(),
+        Some(ActiveLabelGuides {
+            index: 0,
+            is_val: false,
+            x: None,
+            y: Some(LabelAxisY::Center),
+        })
+    );
+    assert_eq!(c.active_label_detent(), None);
+    let (_, ly2) = c.scene().items()[0].label_pos();
+    assert!((ly2 - axes.y_center).abs() < 1e-6);
+
+    c.mouse_release(BUTTON_LEFT, far_right_center.x, far_right_center.y, 0);
+    assert_eq!(c.active_label_guides(), None);
+}
+
+#[test]
+fn test_label_hitbox_matches_text_bounds_and_does_not_block_body() {
+    let mut c = Canvas::empty();
+    c.scene_mut().add_default_resistor(100.0, 100.0);
+    c.scene_mut().items_mut()[0].show_id = true;
+    c.scene_mut().items_mut()[0].show_val = true;
+
+    let res = &c.scene().items()[0];
+    let body = res.body_rect();
+    // Every vertical point inside the resistor body must hit the body, never its own labels.
+    for dy in [body.top() + 0.5, 0.0, body.bottom() - 0.5] {
+        let pt = res.map_local(Point::new(0.0, dy));
+        assert_eq!(res.hit_label(pt), None);
+        assert!(matches!(
+            c.scene().hit_top(pt),
+            Some(HitTarget::Body { index: 0 })
+        ));
+    }
+
+    // Points just outside the ID label text box must not hit the label.
+    let (lx, ly) = res.label_pos();
+    let tw = text::text_width(&res.label, 9.0, false);
+    assert_eq!(
+        res.hit_label(res.map_local(Point::new(lx + tw * 0.5, ly + 5.0))),
+        Some(false)
+    );
+    assert_eq!(
+        res.hit_label(res.map_local(Point::new(lx - 2.5, ly + 5.0))),
+        None
+    );
+    assert_eq!(
+        res.hit_label(res.map_local(Point::new(lx + tw + 2.5, ly + 5.0))),
+        None
+    );
+    assert_eq!(
+        res.hit_label(res.map_local(Point::new(lx + tw * 0.5, ly - 2.0))),
+        None
+    );
+    assert_eq!(
+        res.hit_label(res.map_local(Point::new(lx + tw * 0.5, ly + 12.0))),
+        None
+    );
+}
+
+#[test]
+fn test_label_guide_catches_fast_crossing_and_direction_reversal() {
+    let mut c = Canvas::empty();
+    c.scene_mut().add_default_resistor(100.0, 100.0);
+    c.scene_mut().items_mut()[0].show_id = true;
+
+    let res = &c.scene().items()[0];
+    let top_slot = res.label_detent_slot(false, LabelDetent::Top);
+    let grab_scene = res.map_local(Point::new(top_slot.anchor.x + 4.0, top_slot.anchor.y + 4.0));
+    let grab_item = c.viewport().map_from_circuit(grab_scene);
+
+    c.mouse_press(BUTTON_LEFT, grab_item.x, grab_item.y, 0);
+
+    // 1. Pull past release_r (8.5px) to +9.5px (still < rearm_r = 12px) so Center X unlocks
+    //    and enters suppressed state, then immediately reverse back to Center X: must re-capture.
+    let pulled = c
+        .viewport()
+        .map_from_circuit(Point::new(grab_scene.x + 9.5, grab_scene.y - 30.0));
+    c.mouse_move(pulled.x, pulled.y, BUTTON_LEFT, 0);
+    assert_eq!(c.active_label_guides(), None);
+
+    let reversed = c
+        .viewport()
+        .map_from_circuit(Point::new(grab_scene.x + 1.0, grab_scene.y - 30.0));
+    c.mouse_move(reversed.x, reversed.y, BUTTON_LEFT, 0);
+    assert_eq!(
+        c.active_label_guides(),
+        Some(ActiveLabelGuides {
+            index: 0,
+            is_val: false,
+            x: Some(LabelAxisX::Center),
+            y: None,
+        })
+    );
+
+    // 2. Move far left (-20px) so Center X is fully released, then jump across Center X in a
+    //    single fast step from -7px to +7px (outside capture_r = 5px, within release_r = 8.5px):
+    //    crossing detection must catch Center X instead of skipping over it.
+    let far_left = c
+        .viewport()
+        .map_from_circuit(Point::new(grab_scene.x - 20.0, grab_scene.y - 30.0));
+    c.mouse_move(far_left.x, far_left.y, BUTTON_LEFT, 0);
+    assert_eq!(c.active_label_guides(), None);
+
+    let approach = c
+        .viewport()
+        .map_from_circuit(Point::new(grab_scene.x - 7.0, grab_scene.y - 30.0));
+    c.mouse_move(approach.x, approach.y, BUTTON_LEFT, 0);
+    assert_eq!(c.active_label_guides(), None);
+
+    let fast_cross = c
+        .viewport()
+        .map_from_circuit(Point::new(grab_scene.x + 7.0, grab_scene.y - 30.0));
+    c.mouse_move(fast_cross.x, fast_cross.y, BUTTON_LEFT, 0);
+    assert_eq!(
+        c.active_label_guides(),
+        Some(ActiveLabelGuides {
+            index: 0,
+            is_val: false,
+            x: Some(LabelAxisX::Center),
+            y: None,
+        })
+    );
+    assert!((c.scene().items()[0].label_pos().0 - top_slot.anchor.x).abs() < 1e-6);
+
+    c.mouse_release(BUTTON_LEFT, fast_cross.x, fast_cross.y, 0);
 }
 
 #[test]

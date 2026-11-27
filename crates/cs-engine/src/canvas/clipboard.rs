@@ -288,4 +288,18 @@ impl Canvas {
             scene.rotate_item_val_label(&uid_s, angle_deg)
         })
     }
+
+    pub fn reset_item_label_pos(&mut self, uid: &str) -> Change {
+        let uid_s = uid.to_string();
+        self.apply_component_edit(ComponentChange::document(uid), |scene| {
+            scene.reset_item_label_pos(&uid_s)
+        })
+    }
+
+    pub fn reset_item_val_label_pos(&mut self, uid: &str) -> Change {
+        let uid_s = uid.to_string();
+        self.apply_component_edit(ComponentChange::document(uid), |scene| {
+            scene.reset_item_val_label_pos(&uid_s)
+        })
+    }
 }

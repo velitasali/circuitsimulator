@@ -10,7 +10,10 @@ mod tests;
 pub mod wires;
 
 pub use crate::components::*;
-pub use item::{CanvasOverflowInfo, Item, ProgrammableDevice, SELECTION_MARGIN};
+pub use item::{
+    CanvasOverflowInfo, Item, LabelAxisX, LabelAxisY, LabelDetent, LabelDetentAxes,
+    LabelDetentSlot, ProgrammableDevice, SELECTION_MARGIN,
+};
 pub use item_props::{PropGroup, PropRow, prop_group};
 pub use selection::HitTarget;
 

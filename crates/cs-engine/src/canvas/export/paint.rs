@@ -1,7 +1,7 @@
 use crate::canvas::draw::{Align, Color, Draw, PaintCtx, Palette, parse_hex};
 use crate::canvas::geom::{Point, Rect};
 use crate::canvas::pin::Pin;
-use crate::canvas::scene::Item;
+use crate::canvas::scene::{Item, LabelAxisX, LabelAxisY};
 use crate::canvas::wire::Wire;
 use crate::canvas::{LinkMode, Scene};
 use crate::theme::{BUS_WIRE_WIDTH, COMPONENT_BORDER_WIDTH, WIRE_WIDTH};
@@ -51,6 +51,94 @@ pub fn paint_scene(d: &mut dyn Draw, ctx: &PaintCtx<'_>) {
         paint_wire_chevrons(d, ctx, w);
     }
     paint_linking_overlay(d, ctx, scene);
+    paint_label_detent_overlay(d, ctx, scene);
+}
+
+pub fn paint_label_detent_overlay(d: &mut dyn Draw, ctx: &PaintCtx<'_>, scene: &Scene) {
+    let Some(guides) = ctx.canvas.active_label_guides() else {
+        return;
+    };
+    let Some(it) = scene.items().get(guides.index) else {
+        return;
+    };
+    let body = it.body_rect();
+    let clearance = it.label_clearance_rect();
+    let cx = body.x + body.w * 0.5;
+    let cy = body.y + body.h * 0.5;
+    let (ax, ay) = if guides.is_val {
+        it.val_pos()
+    } else {
+        it.label_pos()
+    };
+    let lbox = it.label_local_box(guides.is_val, Point::new(ax, ay));
+    let accent = ctx.pal.band;
+
+    d.push(it.x, it.y, it.rotation, it.hflip as f64, it.vflip as f64);
+
+    if let Some(x_axis) = guides.x {
+        let (gx, alpha) = match x_axis {
+            LabelAxisX::Center => (cx, 0.55),
+            LabelAxisX::LeftMargin => (
+                clearance.left(),
+                if guides.y == Some(LabelAxisY::Center) {
+                    0.35
+                } else {
+                    0.45
+                },
+            ),
+            LabelAxisX::RightMargin => (
+                clearance.right(),
+                if guides.y == Some(LabelAxisY::Center) {
+                    0.35
+                } else {
+                    0.45
+                },
+            ),
+        };
+        let y0 = clearance.top().min(lbox.top() - 3.0);
+        let y1 = clearance.bottom().max(lbox.bottom() + 3.0);
+        d.polyline(&[[gx, y0], [gx, y1]], accent.fade(alpha), 0.8, true);
+    }
+
+    if let Some(y_axis) = guides.y {
+        let (gy, alpha) = match y_axis {
+            LabelAxisY::Center => (cy, 0.55),
+            LabelAxisY::TopMargin => (
+                clearance.top(),
+                if guides.x == Some(LabelAxisX::Center) {
+                    0.35
+                } else {
+                    0.45
+                },
+            ),
+            LabelAxisY::BottomMargin => (
+                clearance.bottom(),
+                if guides.x == Some(LabelAxisX::Center) {
+                    0.35
+                } else {
+                    0.45
+                },
+            ),
+        };
+        let x0 = clearance.left().min(lbox.left() - 3.0);
+        let x1 = clearance.right().max(lbox.right() + 3.0);
+        d.polyline(&[[x0, gy], [x1, gy]], accent.fade(alpha), 0.8, true);
+    }
+
+    let cardinal_dot = match (guides.x, guides.y) {
+        (Some(LabelAxisX::Center), Some(LabelAxisY::TopMargin)) => Some((cx, clearance.top())),
+        (Some(LabelAxisX::Center), Some(LabelAxisY::BottomMargin)) => {
+            Some((cx, clearance.bottom()))
+        }
+        (Some(LabelAxisX::LeftMargin), Some(LabelAxisY::Center)) => Some((clearance.left(), cy)),
+        (Some(LabelAxisX::RightMargin), Some(LabelAxisY::Center)) => Some((clearance.right(), cy)),
+        _ => None,
+    };
+    if let Some((dx, dy)) = cardinal_dot {
+        d.fill_circle(dx, dy, 1.8, accent.fade(0.85));
+    }
+
+    d.pop();
 }
 
 pub fn paint_board_layout_overlay(d: &mut dyn Draw, ctx: &PaintCtx<'_>, scene: &Scene) {

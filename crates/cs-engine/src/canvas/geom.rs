@@ -46,7 +46,7 @@ impl Point {
 /// Exact `(sin, cos)` for multiples of 90°, falling back to `to_radians()`.
 /// Avoids `cos(90°) ≈ 6.12e-17` drift on rotated component pins.
 #[inline]
-fn sin_cos_deg(deg: f64) -> (f64, f64) {
+pub(crate) fn sin_cos_deg(deg: f64) -> (f64, f64) {
     let rem = deg.rem_euclid(360.0);
     if (rem - 0.0).abs() < 1e-9 || (rem - 360.0).abs() < 1e-9 {
         (0.0, 1.0)

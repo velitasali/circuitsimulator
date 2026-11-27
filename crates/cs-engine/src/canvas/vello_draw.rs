@@ -240,6 +240,7 @@ fn record_scene(
             }
         }
         paint::paint_linking_overlay(&mut draw, &ctx, circuit);
+        paint::paint_label_detent_overlay(&mut draw, &ctx, circuit);
     }
     while let Some(open) = draw.clips.pop() {
         if open {

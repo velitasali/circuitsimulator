@@ -898,6 +898,11 @@ impl CircuitCanvas {
         Notify = items_changed
     );
     qproperty!("hasLabelHit", Read = has_label_hit, Notify = items_changed);
+    qproperty!(
+        "hitLabelHasCustomPos",
+        Read = hit_label_has_custom_pos,
+        Notify = items_changed
+    );
     qproperty!("hitPinId", Read = hit_pin_id, Notify = items_changed);
     qproperty!(
         "hitPinItemUid",
@@ -1959,6 +1964,10 @@ impl CircuitCanvas {
 
     fn hit_label_is_val(&self) -> bool {
         self.inner.hit_label_is_val()
+    }
+
+    fn hit_label_has_custom_pos(&self) -> bool {
+        self.inner.hit_label_has_custom_pos()
     }
 
     fn has_label_hit(&self) -> bool {
@@ -3885,6 +3894,18 @@ impl CircuitCanvas {
     #[qslot]
     fn rotate_item_val_label(&mut self, uid: String, angle: i32) {
         let c = self.inner.rotate_item_val_label(&uid, angle);
+        self.apply(c);
+    }
+
+    #[qslot]
+    fn reset_item_label_pos(&mut self, uid: String) {
+        let c = self.inner.reset_item_label_pos(&uid);
+        self.apply(c);
+    }
+
+    #[qslot]
+    fn reset_item_val_label_pos(&mut self, uid: String) {
+        let c = self.inner.reset_item_val_label_pos(&uid);
         self.apply(c);
     }
 

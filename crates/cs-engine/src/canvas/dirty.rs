@@ -9,10 +9,11 @@ use rustc_hash::FxHashSet;
 
 use super::Canvas;
 use super::board_layout;
+use super::drag::AxisDetentState;
 use super::geom::{Point, Rect, map_local};
 use super::pin::Pin;
 use super::scene::wires::pin_belongs;
-use super::scene::{Item, Part};
+use super::scene::{Item, LabelAxisX, LabelAxisY, Part};
 use super::wire::{Wire, WireHit};
 use crate::elements::pins;
 
@@ -505,6 +506,7 @@ impl Canvas {
         Some(id)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn nudge_item_label(
         &mut self,
         index: usize,
@@ -512,27 +514,165 @@ impl Canvas {
         origin: Point,
         start_pos: Point,
         scene: Point,
+        x_detent: &mut AxisDetentState<LabelAxisX>,
+        y_detent: &mut AxisDetentState<LabelAxisY>,
     ) -> bool {
+        fn update_axis<T: Copy + Eq>(
+            raw: f64,
+            all_targets: &[(T, f64)],
+            eligible: &[(T, f64)],
+            state: &mut AxisDetentState<T>,
+            capture_r: f64,
+            release_r: f64,
+            rearm_r: f64,
+        ) -> f64 {
+            let prev = state.last_raw;
+            let crossed = |target: f64| -> bool {
+                prev.is_some_and(|p| (p < target && raw >= target) || (p > target && raw <= target))
+            };
+            let can_capture = |target: f64, dist: f64| -> bool {
+                dist <= capture_r || (crossed(target) && dist <= release_r)
+            };
+
+            if let Some(sup) = state.suppressed {
+                if let Some(&(_, sup_val)) = all_targets.iter().find(|(k, _)| *k == sup) {
+                    let dist = (raw - sup_val).abs();
+                    let moving_toward = prev.is_some_and(|p| dist < (p - sup_val).abs());
+                    if dist >= rearm_r
+                        || !eligible.iter().any(|(k, _)| *k == sup)
+                        || crossed(sup_val)
+                        || (moving_toward && dist <= capture_r * 0.5)
+                    {
+                        state.suppressed = None;
+                    }
+                } else {
+                    state.suppressed = None;
+                }
+            }
+
+            let nearest_other = eligible
+                .iter()
+                .filter(|(k, _)| Some(*k) != state.locked && Some(*k) != state.suppressed)
+                .map(|&(k, v)| (k, v, (raw - v).abs()))
+                .min_by(|a, b| a.2.total_cmp(&b.2));
+
+            if let Some(locked) = state.locked {
+                if let Some(&(_, locked_val)) = eligible.iter().find(|(k, _)| *k == locked) {
+                    let locked_dist = (raw - locked_val).abs();
+                    if let Some((other_k, other_v, other_dist)) = nearest_other {
+                        if can_capture(other_v, other_dist) && other_dist < locked_dist {
+                            state.locked = Some(other_k);
+                            state.suppressed = None;
+                        } else if locked_dist > release_r {
+                            state.locked = None;
+                            state.suppressed = if locked_dist >= rearm_r {
+                                None
+                            } else {
+                                Some(locked)
+                            };
+                            if can_capture(other_v, other_dist) {
+                                state.locked = Some(other_k);
+                            }
+                        }
+                    } else if locked_dist > release_r {
+                        state.locked = None;
+                        state.suppressed = if locked_dist >= rearm_r {
+                            None
+                        } else {
+                            Some(locked)
+                        };
+                    }
+                } else {
+                    state.locked = None;
+                    state.suppressed = None;
+                    if let Some((other_k, other_v, other_dist)) = nearest_other {
+                        if can_capture(other_v, other_dist) {
+                            state.locked = Some(other_k);
+                        }
+                    }
+                }
+            } else if let Some((other_k, other_v, other_dist)) = nearest_other {
+                if can_capture(other_v, other_dist) {
+                    state.locked = Some(other_k);
+                }
+            }
+
+            state.last_raw = Some(raw);
+
+            if let Some(locked) = state.locked {
+                if let Some(&(_, val)) = eligible.iter().find(|(k, _)| *k == locked) {
+                    return val;
+                }
+            }
+            raw.round()
+        }
+
         let Some(item) = self.scene.items().get(index) else {
             return false;
         };
         let id = item.id.clone();
         self.dirty_item_now(&id);
+        let zoom = self.viewport.zoom().max(0.1);
+        let capture_r = (6.0 / zoom).clamp(3.0, 5.0);
+        let release_r = (10.0 / zoom).clamp(5.0, 8.5);
+        let rearm_r = (14.0 / zoom).clamp(7.0, 12.0);
+
         let Some(item) = self.scene.items_mut().get_mut(index) else {
             return false;
         };
         let local_origin = item.map_scene(origin);
         let local_now = item.map_scene(scene);
-        let dx = local_now.x - local_origin.x;
-        let dy = local_now.y - local_origin.y;
-        if !is_val {
-            item.label_x = (start_pos.x + dx).round();
-            item.label_y = (start_pos.y + dy).round();
-            item.custom_label_pos = true;
+        let raw = Point::new(
+            start_pos.x + (local_now.x - local_origin.x),
+            start_pos.y + (local_now.y - local_origin.y),
+        );
+        let axes = item.label_detent_axes(is_val);
+        let raw_cx = raw.x + axes.box_center_offset.x;
+        let raw_cy = raw.y + axes.box_center_offset.y;
+
+        const MARGIN_BAND_PAD: f64 = 16.0;
+        let near_y_band = raw_cy >= axes.clearance.top() - MARGIN_BAND_PAD
+            && raw_cy <= axes.clearance.bottom() + MARGIN_BAND_PAD;
+        let near_x_band = raw_cx >= axes.clearance.left() - MARGIN_BAND_PAD
+            && raw_cx <= axes.clearance.right() + MARGIN_BAND_PAD;
+
+        let all_x = [
+            (LabelAxisX::Center, axes.x_center),
+            (LabelAxisX::LeftMargin, axes.x_left_margin),
+            (LabelAxisX::RightMargin, axes.x_right_margin),
+        ];
+        let eligible_x: &[(LabelAxisX, f64)] = if near_y_band { &all_x } else { &all_x[..1] };
+
+        let all_y = [
+            (LabelAxisY::Center, axes.y_center),
+            (LabelAxisY::TopMargin, axes.y_top_margin),
+            (LabelAxisY::BottomMargin, axes.y_bottom_margin),
+        ];
+        let eligible_y: &[(LabelAxisY, f64)] = if near_x_band { &all_y } else { &all_y[..1] };
+
+        let final_x = update_axis(
+            raw.x, &all_x, eligible_x, x_detent, capture_r, release_r, rearm_r,
+        );
+        let final_y = update_axis(
+            raw.y, &all_y, eligible_y, y_detent, capture_r, release_r, rearm_r,
+        );
+
+        let at_default = if !is_val {
+            x_detent.locked == Some(LabelAxisX::Center)
+                && y_detent.locked == Some(LabelAxisY::TopMargin)
         } else {
-            item.val_x = (start_pos.x + dx).round();
-            item.val_y = (start_pos.y + dy).round();
-            item.custom_val_pos = true;
+            x_detent.locked == Some(LabelAxisX::Center)
+                && y_detent.locked == Some(LabelAxisY::BottomMargin)
+        };
+
+        if !is_val {
+            item.label_x = final_x;
+            item.label_y = final_y;
+            item.custom_label_pos = !at_default;
+        } else {
+            item.val_x = final_x;
+            item.val_y = final_y;
+            item.custom_val_pos = !at_default;
         }
         self.dirty_item_now(&id);
         true

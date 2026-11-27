@@ -2,9 +2,9 @@
 
 use std::mem;
 
-use crate::canvas::drag::{Drag, WireEditMode};
+use crate::canvas::drag::{AxisDetentState, Drag, WireEditMode};
 use crate::canvas::geom::to_grid as snap_point;
-use crate::canvas::scene::{HitTarget, Part};
+use crate::canvas::scene::{HitTarget, LabelAxisX, LabelAxisY, Part};
 use crate::canvas::wire::WireHit;
 use crate::canvas::{Canvas, Point, Rect};
 use crate::components::{self, ComponentChange};
@@ -482,13 +482,46 @@ impl Canvas {
                     item.label_pos()
                 };
                 let start_pos = Point::new(lx, ly);
+                let start_custom = if is_val {
+                    item.custom_val_pos
+                } else {
+                    item.custom_label_pos
+                };
+                let axes = item.label_detent_axes(is_val);
+                let init_x = [
+                    (LabelAxisX::Center, axes.x_center),
+                    (LabelAxisX::LeftMargin, axes.x_left_margin),
+                    (LabelAxisX::RightMargin, axes.x_right_margin),
+                ]
+                .into_iter()
+                .find(|(_, v)| (start_pos.x - *v).abs() <= 1.0)
+                .map(|(k, _)| k);
+                let init_y = [
+                    (LabelAxisY::Center, axes.y_center),
+                    (LabelAxisY::TopMargin, axes.y_top_margin),
+                    (LabelAxisY::BottomMargin, axes.y_bottom_margin),
+                ]
+                .into_iter()
+                .find(|(_, v)| (start_pos.y - *v).abs() <= 1.0)
+                .map(|(k, _)| k);
                 self.pending = Some(self.snapshot());
                 self.drag = Drag::MoveLabel {
                     index,
                     is_val,
                     origin: scene,
                     start_pos,
+                    start_custom,
                     last_scene: scene,
+                    x_detent: AxisDetentState {
+                        locked: init_x,
+                        suppressed: None,
+                        last_raw: Some(start_pos.x),
+                    },
+                    y_detent: AxisDetentState {
+                        locked: init_y,
+                        suppressed: None,
+                        last_raw: Some(start_pos.y),
+                    },
                 };
                 c.merge(self.set_cursor(CursorKind::ClosedHand));
                 c.items = true;
@@ -590,15 +623,29 @@ impl Canvas {
                 is_val,
                 origin,
                 start_pos,
+                start_custom,
                 last_scene: _,
+                mut x_detent,
+                mut y_detent,
             } => {
-                let _ = self.nudge_item_label(index, is_val, origin, start_pos, scene);
+                let _ = self.nudge_item_label(
+                    index,
+                    is_val,
+                    origin,
+                    start_pos,
+                    scene,
+                    &mut x_detent,
+                    &mut y_detent,
+                );
                 self.drag = Drag::MoveLabel {
                     index,
                     is_val,
                     origin,
                     start_pos,
+                    start_custom,
                     last_scene: scene,
+                    x_detent,
+                    y_detent,
                 };
             }
             Drag::Wire { .. } => {
@@ -808,12 +855,39 @@ impl Canvas {
                 c.merge(self.update_hover(self.last_scene, mods));
             }
             Drag::MoveLabel {
-                last_scene, origin, ..
+                index,
+                is_val,
+                start_pos,
+                start_custom,
+                x_detent,
+                y_detent,
+                ..
             } => {
-                if last_scene != origin {
+                let mut changed = false;
+                if let Some(item) = self.scene.items().get(index) {
+                    let uid = item.id.clone();
+                    let (cur_x, cur_y) = if is_val {
+                        item.val_pos()
+                    } else {
+                        item.label_pos()
+                    };
+                    let cur_custom = if is_val {
+                        item.custom_val_pos
+                    } else {
+                        item.custom_label_pos
+                    };
+                    changed = cur_custom != start_custom
+                        || (cur_x - start_pos.x).abs() > 1e-6
+                        || (cur_y - start_pos.y).abs() > 1e-6;
+                    if x_detent.locked.is_some() || y_detent.locked.is_some() {
+                        self.dirty_item_now(&uid);
+                    }
+                }
+                if changed {
                     if self.commit_pending() {
                         c.history = true;
                     }
+                    c.items = true;
                 } else {
                     self.pending = None;
                 }
@@ -865,6 +939,19 @@ impl Canvas {
                     }
                 }
                 c.wires = true;
+            }
+            Drag::MoveLabel {
+                index,
+                x_detent,
+                y_detent,
+                ..
+            } => {
+                if x_detent.locked.is_some() || y_detent.locked.is_some() {
+                    if let Some(item) = self.scene.items().get(index) {
+                        let uid = item.id.clone();
+                        self.dirty_item_now(&uid);
+                    }
+                }
             }
             Drag::Interact { index } => {
                 if let Some(item) = self.scene.items_mut().get_mut(index) {

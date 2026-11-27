@@ -46,8 +46,8 @@ pub use image_buf::ImageBuf;
 pub use pin::{PIN_HIT_RADIUS, Pin, PinDirection, PinGeom};
 pub use place::PlaceKind;
 pub use scene::{
-    CanvasOverflowInfo, Item, Part, PropGroup, PropRow, Scene, resistor_hit_rect,
-    resistor_selection_rect,
+    CanvasOverflowInfo, Item, LabelAxisX, LabelAxisY, LabelDetent, LabelDetentAxes,
+    LabelDetentSlot, Part, PropGroup, PropRow, Scene, resistor_hit_rect, resistor_selection_rect,
 };
 pub use vello_gpu::{VelloGpu, read_texture, read_texture_until, readback_stride, render_draw};
 pub use viewport::{
@@ -112,6 +112,15 @@ pub(crate) fn wrap_chevron_step(mut step: f64) -> f64 {
         step += 8.0;
     }
     step
+}
+
+/// Active label alignment guides while dragging a label across or onto detents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActiveLabelGuides {
+    pub index: usize,
+    pub is_val: bool,
+    pub x: Option<LabelAxisX>,
+    pub y: Option<LabelAxisY>,
 }
 
 /// Active interactive linking session on the canvas.
@@ -834,6 +843,56 @@ impl Canvas {
 
     pub fn has_label_hit(&self) -> bool {
         self.hit_label_info.is_some()
+    }
+
+    pub fn hit_label_has_custom_pos(&self) -> bool {
+        let Some((uid, is_val)) = &self.hit_label_info else {
+            return false;
+        };
+        let Some(it) = self.scene.item_by_id(uid) else {
+            return false;
+        };
+        if *is_val {
+            it.custom_val_pos
+        } else {
+            it.custom_label_pos
+        }
+    }
+
+    pub fn active_label_guides(&self) -> Option<ActiveLabelGuides> {
+        match self.drag {
+            Drag::MoveLabel {
+                index,
+                is_val,
+                origin,
+                last_scene,
+                x_detent,
+                y_detent,
+                ..
+            } if last_scene != origin
+                && (x_detent.locked.is_some() || y_detent.locked.is_some()) =>
+            {
+                Some(ActiveLabelGuides {
+                    index,
+                    is_val,
+                    x: x_detent.locked,
+                    y: y_detent.locked,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn active_label_detent(&self) -> Option<(usize, bool, LabelDetent)> {
+        let g = self.active_label_guides()?;
+        let kind = match (g.x, g.y) {
+            (Some(LabelAxisX::Center), Some(LabelAxisY::TopMargin)) => LabelDetent::Top,
+            (Some(LabelAxisX::Center), Some(LabelAxisY::BottomMargin)) => LabelDetent::Bottom,
+            (Some(LabelAxisX::LeftMargin), Some(LabelAxisY::Center)) => LabelDetent::Left,
+            (Some(LabelAxisX::RightMargin), Some(LabelAxisY::Center)) => LabelDetent::Right,
+            _ => return None,
+        };
+        Some((g.index, g.is_val, kind))
     }
 
     pub fn has_pin_hit(&self) -> bool {

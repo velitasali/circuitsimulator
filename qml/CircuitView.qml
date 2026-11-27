@@ -214,6 +214,7 @@ Item {
         id: labelMenu
         readonly property string uid: CircuitCanvas.hitLabelUid
         readonly property bool isVal: CircuitCanvas.hitLabelIsVal
+        readonly property bool hasCustomPos: CircuitCanvas.hitLabelHasCustomPos
 
         ContextMenuItem {
             text: I18n.tr("Rotate CW")
@@ -245,6 +246,18 @@ Item {
                     CircuitCanvas.rotateItemValLabel(labelMenu.uid, 180)
                 else
                     CircuitCanvas.rotateItemLabel(labelMenu.uid, 180)
+            }
+        }
+        ContextMenuSeparator {}
+        ContextMenuItem {
+            text: I18n.tr("Reset Position")
+            iconLigature: "restart_alt"
+            enabled: labelMenu.hasCustomPos
+            onTriggered: {
+                if (labelMenu.isVal)
+                    CircuitCanvas.resetItemValLabelPos(labelMenu.uid)
+                else
+                    CircuitCanvas.resetItemLabelPos(labelMenu.uid)
             }
         }
     }

@@ -1,9 +1,92 @@
 use crate::canvas::export::text::text_width;
-use crate::canvas::geom::{Point, Rect, map_local, map_rect, map_scene};
+use crate::canvas::geom::{Point, Rect, map_local, map_rect, map_scene, sin_cos_deg};
 use crate::canvas::pin::Pin;
 use crate::circ1::BoardPlacement;
 pub use crate::components::*;
 use crate::package::SubcType;
+
+const LABEL_FONT_SIZE: f64 = 9.0;
+const LABEL_TEXT_HEIGHT: f64 = 10.0;
+const LABEL_HIT_PAD_X: f64 = 1.0;
+const LABEL_HIT_PAD_Y: f64 = 0.5;
+const LABEL_DETENT_V_GAP: f64 = 2.0;
+const LABEL_DETENT_H_GAP: f64 = 3.0;
+const LABEL_PIN_TIP_PAD: f64 = 2.0;
+
+/// Cardinal detent position around a component's clearance footprint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LabelDetent {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+/// Independent horizontal (X) axis detent target for a component label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LabelAxisX {
+    Center,
+    LeftMargin,
+    RightMargin,
+}
+
+/// Independent vertical (Y) axis detent target for a component label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LabelAxisY {
+    Center,
+    TopMargin,
+    BottomMargin,
+}
+
+/// Resolved 1D axis detent targets for a label in component-local coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LabelDetentAxes {
+    pub x_center: f64,
+    pub x_left_margin: f64,
+    pub x_right_margin: f64,
+    pub y_center: f64,
+    pub y_top_margin: f64,
+    pub y_bottom_margin: f64,
+    /// Offset from label anchor to label bounding-box center `(ox, oy)`.
+    pub box_center_offset: Point,
+    /// Clearance rect around body + protruding exterior pins.
+    pub clearance: Rect,
+}
+
+/// Resolved geometry of a cardinal detent slot in component-local coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LabelDetentSlot {
+    pub kind: LabelDetent,
+    /// Top-left anchor `(x, y)` passed to `Draw::push` when painting the label.
+    pub anchor: Point,
+    /// Visual center of the label bounding box when placed at `anchor`.
+    pub center: Point,
+    /// Cardinal midpoint on the component's clearance edge.
+    pub body_anchor: Point,
+    /// True when this slot is the label's dynamic default (`Top` for ID, `Bottom` for value).
+    pub is_default: bool,
+}
+
+fn label_box_extents(tw: f64, th: f64, rot_deg: i32) -> (f64, f64, f64, f64) {
+    let (s, c) = sin_cos_deg(rot_deg as f64);
+    let corners = [
+        (0.0, 0.0),
+        (tw * c, tw * s),
+        (tw * c - th * s, tw * s + th * c),
+        (-th * s, th * c),
+    ];
+    let mut min_x = corners[0].0;
+    let mut max_x = corners[0].0;
+    let mut min_y = corners[0].1;
+    let mut max_y = corners[0].1;
+    for &(x, y) in &corners[1..] {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    }
+    (min_x, max_x, min_y, max_y)
+}
 
 /// Canvas overflow status and required dimensions.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -155,25 +238,137 @@ impl Item {
         }
     }
 
+    /// Local bounding rectangle covering `body_rect()` plus any exterior pins that
+    /// protrude beyond the body (including their 2px tip ring), used so labels and
+    /// detents clear pins on chips like ESP32, DIP packages, and two-terminal parts.
+    pub fn label_clearance_rect(&self) -> Rect {
+        let body = self.body_rect();
+        let mut min_x = body.left();
+        let mut max_x = body.right();
+        let mut min_y = body.top();
+        let mut max_y = body.bottom();
+        self.for_each_pin_point(|px, py| {
+            if px < body.left() {
+                min_x = min_x.min(px - LABEL_PIN_TIP_PAD);
+            }
+            if px > body.right() {
+                max_x = max_x.max(px + LABEL_PIN_TIP_PAD);
+            }
+            if py < body.top() {
+                min_y = min_y.min(py - LABEL_PIN_TIP_PAD);
+            }
+            if py > body.bottom() {
+                max_y = max_y.max(py + LABEL_PIN_TIP_PAD);
+            }
+        });
+        Rect::new(
+            min_x,
+            min_y,
+            (max_x - min_x).max(1.0),
+            (max_y - min_y).max(1.0),
+        )
+    }
+
+    /// Axis-aligned local bounding box of the label when placed at `anchor`.
+    pub fn label_local_box(&self, is_val: bool, anchor: Point) -> Rect {
+        let (tw, rot) = if is_val {
+            let val_text = self.val_label_text();
+            (text_width(&val_text, LABEL_FONT_SIZE, false), self.val_rot)
+        } else {
+            (
+                text_width(&self.label, LABEL_FONT_SIZE, false),
+                self.label_rot,
+            )
+        };
+        let (min_x, max_x, min_y, max_y) = label_box_extents(tw, LABEL_TEXT_HEIGHT, rot);
+        Rect::new(
+            anchor.x + min_x,
+            anchor.y + min_y,
+            (max_x - min_x).max(1.0),
+            (max_y - min_y).max(1.0),
+        )
+    }
+
+    /// Independent X and Y detent axis targets in component-local coordinates.
+    pub fn label_detent_axes(&self, is_val: bool) -> LabelDetentAxes {
+        let body = self.body_rect();
+        let clearance = self.label_clearance_rect();
+        let cx = body.x + body.w * 0.5;
+        let cy = body.y + body.h * 0.5;
+        let (tw, rot) = if is_val {
+            let val_text = self.val_label_text();
+            (text_width(&val_text, LABEL_FONT_SIZE, false), self.val_rot)
+        } else {
+            (
+                text_width(&self.label, LABEL_FONT_SIZE, false),
+                self.label_rot,
+            )
+        };
+        let (min_x, max_x, min_y, max_y) = label_box_extents(tw, LABEL_TEXT_HEIGHT, rot);
+        let ox = (min_x + max_x) * 0.5;
+        let oy = (min_y + max_y) * 0.5;
+        LabelDetentAxes {
+            x_center: cx - ox,
+            x_left_margin: clearance.left() - LABEL_DETENT_H_GAP - max_x,
+            x_right_margin: clearance.right() + LABEL_DETENT_H_GAP - min_x,
+            y_center: cy - oy,
+            y_top_margin: clearance.top() - LABEL_DETENT_V_GAP - max_y,
+            y_bottom_margin: clearance.bottom() + LABEL_DETENT_V_GAP - min_y,
+            box_center_offset: Point::new(ox, oy),
+            clearance,
+        }
+    }
+
+    /// Compute a cardinal detent slot around `label_clearance_rect()` in component-local space.
+    pub fn label_detent_slot(&self, is_val: bool, kind: LabelDetent) -> LabelDetentSlot {
+        let body = self.body_rect();
+        let cx = body.x + body.w * 0.5;
+        let cy = body.y + body.h * 0.5;
+        let axes = self.label_detent_axes(is_val);
+        let ox = axes.box_center_offset.x;
+        let oy = axes.box_center_offset.y;
+
+        let (anchor, body_anchor, is_default) = match kind {
+            LabelDetent::Top => (
+                Point::new(axes.x_center, axes.y_top_margin),
+                Point::new(cx, axes.clearance.top()),
+                !is_val,
+            ),
+            LabelDetent::Bottom => (
+                Point::new(axes.x_center, axes.y_bottom_margin),
+                Point::new(cx, axes.clearance.bottom()),
+                is_val,
+            ),
+            LabelDetent::Left => (
+                Point::new(axes.x_left_margin, axes.y_center),
+                Point::new(axes.clearance.left(), cy),
+                false,
+            ),
+            LabelDetent::Right => (
+                Point::new(axes.x_right_margin, axes.y_center),
+                Point::new(axes.clearance.right(), cy),
+                false,
+            ),
+        };
+        LabelDetentSlot {
+            kind,
+            anchor,
+            center: Point::new(anchor.x + ox, anchor.y + oy),
+            body_anchor,
+            is_default,
+        }
+    }
+
     /// Calculate default label position horizontally centered above the component's clickable area.
     pub fn default_label_pos(&self) -> (f64, f64) {
-        let rect = self.body_rect();
-        let cx = rect.x + rect.w * 0.5;
-        let tw = text_width(&self.label, 9.0, false);
-        let x = cx - tw * 0.5;
-        let y = rect.y - 12.0;
-        (x, y)
+        let p = self.label_detent_slot(false, LabelDetent::Top).anchor;
+        (p.x, p.y)
     }
 
     /// Calculate default value position horizontally centered below the component's clickable area.
     pub fn default_val_pos(&self) -> (f64, f64) {
-        let rect = self.body_rect();
-        let cx = rect.x + rect.w * 0.5;
-        let val_text = self.val_label_text();
-        let tw = text_width(&val_text, 9.0, false);
-        let x = cx - tw * 0.5;
-        let y = rect.y + rect.h + 2.0;
-        (x, y)
+        let p = self.label_detent_slot(true, LabelDetent::Bottom).anchor;
+        (p.x, p.y)
     }
 
     pub fn label_pos(&self) -> (f64, f64) {
@@ -547,39 +742,35 @@ impl Item {
         }
 
         let local_pt = self.map_scene(scene);
+        let hits_box = |pos: (f64, f64), text: &str, rot_deg: i32| -> bool {
+            let tw = text_width(text, LABEL_FONT_SIZE, false);
+            if tw <= 0.0 {
+                return false;
+            }
+            let dx = local_pt.x - pos.0;
+            let dy = local_pt.y - pos.1;
+            let (s, c) = sin_cos_deg(-rot_deg as f64);
+            let rx = dx * c - dy * s;
+            let ry = dx * s + dy * c;
+            rx >= -LABEL_HIT_PAD_X
+                && rx <= tw + LABEL_HIT_PAD_X
+                && ry >= -LABEL_HIT_PAD_Y
+                && ry <= LABEL_TEXT_HEIGHT + LABEL_HIT_PAD_Y
+        };
 
         // Value label is painted after the id label, so it is the upper one.
         if self.show_val {
             let val_text = self.val_label_text();
-            if !val_text.is_empty() {
-                let (vx, vy) = self.val_pos();
-                let tw = text_width(&val_text, 9.0, false).max(12.0);
-                let approx_h = 14.0;
-                let dx = local_pt.x - vx;
-                let dy = local_pt.y - vy;
-                let rad = (-self.val_rot as f64).to_radians();
-                let (s, c) = (rad.sin(), rad.cos());
-                let rx = dx * c - dy * s;
-                let ry = dx * s + dy * c;
-                if rx >= -4.0 && rx <= tw + 4.0 && ry >= -4.0 && ry <= approx_h + 4.0 {
-                    return Some(true);
-                }
+            if !val_text.is_empty() && hits_box(self.val_pos(), &val_text, self.val_rot) {
+                return Some(true);
             }
         }
 
-        if self.show_id && !self.label.is_empty() {
-            let (lx, ly) = self.label_pos();
-            let tw = text_width(&self.label, 9.0, false).max(12.0);
-            let approx_h = 14.0;
-            let dx = local_pt.x - lx;
-            let dy = local_pt.y - ly;
-            let rad = (-self.label_rot as f64).to_radians();
-            let (s, c) = (rad.sin(), rad.cos());
-            let rx = dx * c - dy * s;
-            let ry = dx * s + dy * c;
-            if rx >= -4.0 && rx <= tw + 4.0 && ry >= -4.0 && ry <= approx_h + 4.0 {
-                return Some(false);
-            }
+        if self.show_id
+            && !self.label.is_empty()
+            && hits_box(self.label_pos(), &self.label, self.label_rot)
+        {
+            return Some(false);
         }
 
         None

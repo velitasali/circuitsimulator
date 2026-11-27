@@ -1,7 +1,7 @@
 //! Dynamic time sources and Trapezoidal / Euler numerical integration for reactive elements.
 
 use crate::digital::secs_to_ps;
-use crate::elements::{Kind, LAMP_THERMAL_TAU};
+use crate::elements::{self, Kind, LAMP_THERMAL_TAU};
 
 use super::Circuit;
 
@@ -88,26 +88,49 @@ impl Circuit {
         let mut changed = false;
         for (c, cache) in self.components.iter_mut().zip(&self.pin_caches) {
             match &mut c.kind {
-                Kind::Capacitor { volt, .. }
-                | Kind::ElCapacitor { volt, .. }
-                | Kind::VarCapacitor { volt, .. } => {
+                Kind::Capacitor {
+                    capacitance,
+                    resistance,
+                    volt,
+                }
+                | Kind::ElCapacitor {
+                    capacitance,
+                    resistance,
+                    volt,
+                }
+                | Kind::VarCapacitor {
+                    capacitance,
+                    resistance,
+                    volt,
+                } => {
                     let (Some(n0), Some(n1)) = (cache.left, cache.right) else {
                         continue;
                     };
-                    if n0 >= nodes.len() || n1 >= nodes.len() {
+                    if n0 >= nodes.len() || n1 >= nodes.len() || *capacitance <= 0.0 {
                         continue;
                     }
-                    let new_volt = nodes[n0].volt - nodes[n1].volt;
+                    let v_term = nodes[n0].volt - nodes[n1].volt;
+                    let new_volt = if *resistance <= 0.0 {
+                        v_term
+                    } else {
+                        let g = elements::capacitor_companion_g(*capacitance, *resistance, dt);
+                        let i = g * (v_term - *volt);
+                        *volt + (dt / *capacitance) * i
+                    };
                     if (*volt - new_volt).abs() > 1e-6 {
                         changed = true;
                     }
                     *volt = new_volt;
                 }
                 Kind::Inductor {
-                    inductance, ieq, ..
+                    inductance,
+                    resistance,
+                    ieq,
                 }
                 | Kind::VarInductor {
-                    inductance, ieq, ..
+                    inductance,
+                    resistance,
+                    ieq,
                 } => {
                     let (Some(n0), Some(n1)) = (cache.left, cache.right) else {
                         continue;
@@ -115,12 +138,14 @@ impl Circuit {
                     if n0 >= nodes.len() || n1 >= nodes.len() {
                         continue;
                     }
-                    let g = dt / *inductance;
-                    let di = (nodes[n0].volt - nodes[n1].volt) * g;
-                    if di.abs() > 1e-8 {
+                    let v_term = nodes[n0].volt - nodes[n1].volt;
+                    let (g, i_src) =
+                        elements::inductor_companion(*inductance, *resistance, *ieq, dt);
+                    let new_ieq = i_src - g * v_term;
+                    if (new_ieq - *ieq).abs() > 1e-8 {
                         changed = true;
                     }
-                    *ieq -= di;
+                    *ieq = new_ieq;
                 }
                 Kind::Transformer { state } => {
                     if state.update_step(cache, nodes, dt) {

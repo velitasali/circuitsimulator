@@ -971,6 +971,9 @@ impl Item {
     pub fn max_current(&self) -> f64 {
         match &self.kind {
             Part::Led(p) => p.max_current,
+            Part::SevenSegment(p) => p.max_current,
+            Part::LedBar(p) => p.max_current,
+            Part::LedMatrix(p) => p.max_current,
             _ => 0.03,
         }
     }

@@ -1281,6 +1281,16 @@ impl Comp {
                     )
                 })
                 .collect(),
+            keypad_pins: match self.kind {
+                Kind::KeyPad { rows, cols, .. } => {
+                    let r = rows.max(1);
+                    let c = cols.max(1);
+                    (0..(r + c))
+                        .map(|i| pin_net.get(&format!("{}-Pin{i}", self.id)).copied())
+                        .collect()
+                }
+                _ => Vec::new(),
+            },
         }
     }
 

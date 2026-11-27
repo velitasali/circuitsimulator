@@ -5,8 +5,8 @@ use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_float};
 use super::resistor::paint_resistor_body;
 use super::{CompPin, Component, Stampable, TwoTerminal};
-use crate::canvas::Rect;
 use crate::canvas::draw::{Draw, PaintCtx};
+use crate::canvas::{Point, Rect};
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 
@@ -158,6 +158,34 @@ impl Component for Strain {
     const DESCRIPTION: &'static str = "Strain gauge sensor.";
 
     fn props() -> &'static [PropDef<Self>] {
+        const TEMP: PropDef<Strain> = {
+            let mut p = PropDef::float(
+                "Temp",
+                "Temperature",
+                "°C",
+                MIN_TEMP,
+                MAX_TEMP,
+                Strain::get_temp,
+                Strain::set_temp,
+            )
+            .with_info("Current Temperature.");
+            p.show_by_default = false;
+            p
+        };
+        const REF_TEMP: PropDef<Strain> = {
+            let mut p = PropDef::float(
+                "RefTemp",
+                "Ref Temperature",
+                "°C",
+                MIN_TEMP,
+                MAX_TEMP,
+                Strain::get_ref_temp,
+                Strain::set_ref_temp,
+            )
+            .with_info("Reference Temperature.");
+            p.show_by_default = false;
+            p
+        };
         static PROPS: &[PropDef<Strain>] = &[
             PropDef::float(
                 "Strain",
@@ -188,27 +216,9 @@ impl Component for Strain {
                 Strain::get_r0,
                 Strain::set_r0,
             )
-            .with_info("Resistance at 0 ºC"),
-            PropDef::float(
-                "Temp",
-                "Temperature",
-                "°C",
-                MIN_TEMP,
-                MAX_TEMP,
-                Strain::get_temp,
-                Strain::set_temp,
-            )
-            .with_info("Current Temperature."),
-            PropDef::float(
-                "RefTemp",
-                "Ref Temperature",
-                "°C",
-                MIN_TEMP,
-                MAX_TEMP,
-                Strain::get_ref_temp,
-                Strain::set_ref_temp,
-            )
-            .with_info("Reference Temperature."),
+            .with_info("Nominal resistance at zero strain."),
+            TEMP,
+            REF_TEMP,
             PropDef::float(
                 "DialStep",
                 "Dial Step",
@@ -229,6 +239,39 @@ impl Component for Strain {
 
     fn body(&self) -> Rect {
         Rect::new(-11.0, -4.5, 22.0, 9.0)
+    }
+
+    fn interact_toggle(&mut self, local: Point) -> bool {
+        if local.x.abs() <= 12.0 && local.y.abs() <= 8.0 {
+            let step = if self.dial_step > 0.0 {
+                self.dial_step
+            } else {
+                0.001
+            };
+            self.strain = (self.strain + step).clamp(MIN_STRAIN, MAX_STRAIN);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn interact_wheel(&mut self, local: Point, delta: f64) -> bool {
+        if local.x.abs() <= 12.0 && local.y.abs() <= 8.0 {
+            let step = if self.dial_step > 0.0 {
+                self.dial_step
+            } else {
+                0.001
+            };
+            let num_steps = if delta.abs() >= 120.0 {
+                (delta / 120.0).round()
+            } else {
+                delta.signum()
+            };
+            self.strain = (self.strain + num_steps * step).clamp(MIN_STRAIN, MAX_STRAIN);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -274,5 +317,31 @@ mod tests {
         assert_eq!(s.body(), Rect::new(-11.0, -4.5, 22.0, 9.0));
         assert!((s.resistance() - 350.0).abs() < 1e-9);
         assert!((Strain::resistance_of(350.0, 2.0, 0.001) - 350.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dial_step_controls_wheel_and_click() {
+        let mut s = Strain::default();
+        s.dial_step = 0.005;
+        assert!(s.interact_wheel(Point::new(0.0, 0.0), 120.0));
+        assert!((s.strain - 0.005).abs() < 1e-9);
+        assert!(s.interact_toggle(Point::new(0.0, 0.0)));
+        assert!((s.strain - 0.010).abs() < 1e-9);
+    }
+
+    #[test]
+    fn temp_props_are_hidden_but_persisted_and_r0_tooltip_updated() {
+        let mut s = Strain::default();
+        let rows = s.prop_rows();
+        assert!(!rows.iter().any(|r| r.name == "Temp"));
+        assert!(!rows.iter().any(|r| r.name == "RefTemp"));
+        let r0_row = rows.iter().find(|r| r.name == "R0").unwrap();
+        assert!(!r0_row.info.contains("0 ºC"));
+
+        // Hidden properties still round-trip via get/set for .sim1 compatibility.
+        s.set_prop_text("Temp", "35 °C").unwrap();
+        s.set_prop_text("RefTemp", "25 °C").unwrap();
+        assert!((s.temp_c - 35.0).abs() < 1e-9);
+        assert!((s.ref_temp - 25.0).abs() < 1e-9);
     }
 }

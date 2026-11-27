@@ -141,6 +141,8 @@ fn test_oscope_reticle_zoom_invariant_width() {
             as fn(
                 &mut dyn crate::canvas::draw::Draw,
                 &crate::canvas::draw::Palette,
+                i32,
+                i32,
                 &[&str],
                 &[&str],
                 Option<&crate::plot::PlotBuffer>,

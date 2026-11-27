@@ -125,18 +125,39 @@ impl Comp {
                 stamp_cached_pin_to_gnd(cache.out, nodes, v, SOURCE_ADMIT);
             }
             Kind::Junction => {}
-            Kind::Capacitor { capacitance, volt }
-            | Kind::ElCapacitor { capacitance, volt }
-            | Kind::VarCapacitor { capacitance, volt } => {
-                if dt > 0.0 {
-                    let g = capacitance / dt;
+            Kind::Capacitor {
+                capacitance,
+                resistance,
+                volt,
+            }
+            | Kind::ElCapacitor {
+                capacitance,
+                resistance,
+                volt,
+            }
+            | Kind::VarCapacitor {
+                capacitance,
+                resistance,
+                volt,
+            } => {
+                let g = capacitor_companion_g(*capacitance, *resistance, dt);
+                if g > 0.0 {
                     stamp_cached_two_terminal(cache.left, cache.right, nodes, g, volt * g);
                 }
             }
-            Kind::Inductor { inductance, ieq } | Kind::VarInductor { inductance, ieq } => {
+            Kind::Inductor {
+                inductance,
+                resistance,
+                ieq,
+            }
+            | Kind::VarInductor {
+                inductance,
+                resistance,
+                ieq,
+            } => {
                 if dt > 0.0 {
-                    let g = dt / inductance;
-                    stamp_cached_two_terminal(cache.left, cache.right, nodes, g, *ieq);
+                    let (g, i_src) = inductor_companion(*inductance, *resistance, *ieq, dt);
+                    stamp_cached_two_terminal(cache.left, cache.right, nodes, g, i_src);
                 }
             }
             Kind::Transformer { state } => {
@@ -415,16 +436,29 @@ impl Comp {
                 stamp_to_gnd(self, pin_net, nodes, *voltage, SOURCE_ADMIT)
             }
             Kind::Junction => {}
-            Kind::Capacitor { capacitance, volt } | Kind::ElCapacitor { capacitance, volt } => {
-                if dt > 0.0 {
-                    let g = capacitance / dt;
+            Kind::Capacitor {
+                capacitance,
+                resistance,
+                volt,
+            }
+            | Kind::ElCapacitor {
+                capacitance,
+                resistance,
+                volt,
+            } => {
+                let g = capacitor_companion_g(*capacitance, *resistance, dt);
+                if g > 0.0 {
                     stamp_two_terminal(self, pin_net, nodes, g, volt * g);
                 }
             }
-            Kind::Inductor { inductance, ieq } => {
+            Kind::Inductor {
+                inductance,
+                resistance,
+                ieq,
+            } => {
                 if dt > 0.0 {
-                    let g = dt / inductance;
-                    stamp_two_terminal(self, pin_net, nodes, g, *ieq);
+                    let (g, i_src) = inductor_companion(*inductance, *resistance, *ieq, dt);
+                    stamp_two_terminal(self, pin_net, nodes, g, i_src);
                 }
             }
             Kind::Switch {
@@ -1076,14 +1110,40 @@ impl Comp {
             Kind::KeyPad {
                 rows,
                 cols,
+                diodes,
+                dir,
                 pressed,
+                diode,
                 ..
             } => {
                 if let Some((r, c)) = pressed {
                     if *r < *rows && *c < *cols {
                         let row_pin = format!("{}-Pin{r}", self.id);
                         let col_pin = format!("{}-Pin{}", self.id, rows + c);
-                        stamp_between(pin_net, nodes, &row_pin, &col_pin, SWITCH_CLOSED_ADMIT, 0.0);
+                        if *diodes {
+                            let (anode, cathode) = if *dir {
+                                (&col_pin, &row_pin)
+                            } else {
+                                (&row_pin, &col_pin)
+                            };
+                            stamp_between(
+                                pin_net,
+                                nodes,
+                                anode,
+                                cathode,
+                                diode.admit,
+                                diode.i_src(),
+                            );
+                        } else {
+                            stamp_between(
+                                pin_net,
+                                nodes,
+                                &row_pin,
+                                &col_pin,
+                                SWITCH_CLOSED_ADMIT,
+                                0.0,
+                            );
+                        }
                     }
                 }
             }
@@ -1635,16 +1695,24 @@ impl Comp {
                     }
                 }
             }
-            Kind::VarCapacitor { capacitance, volt } => {
-                if dt > 0.0 {
-                    let g = capacitance / dt;
+            Kind::VarCapacitor {
+                capacitance,
+                resistance,
+                volt,
+            } => {
+                let g = capacitor_companion_g(*capacitance, *resistance, dt);
+                if g > 0.0 {
                     stamp_two_terminal(self, pin_net, nodes, g, volt * g);
                 }
             }
-            Kind::VarInductor { inductance, ieq } => {
+            Kind::VarInductor {
+                inductance,
+                resistance,
+                ieq,
+            } => {
                 if dt > 0.0 {
-                    let g = dt / inductance;
-                    stamp_two_terminal(self, pin_net, nodes, g, *ieq);
+                    let (g, i_src) = inductor_companion(*inductance, *resistance, *ieq, dt);
+                    stamp_two_terminal(self, pin_net, nodes, g, i_src);
                 }
             }
             Kind::Transformer { state } => {
@@ -1677,12 +1745,13 @@ impl Comp {
             Kind::Diac { state } => {
                 let l = self.left_pin();
                 let r = self.right_pin();
-                let g = if state.conducting {
-                    1.0 / state.res_on.max(1e-6)
+                if state.conducting {
+                    let g_on = 1.0 / state.res_on.max(1e-6);
+                    let i_src = state.conduction_dir * state.v_on() * g_on;
+                    stamp_between(pin_net, nodes, &l, &r, g_on, i_src);
                 } else {
-                    1.0 / state.res_off.max(1.0)
-                };
-                stamp_between(pin_net, nodes, &l, &r, g, 0.0);
+                    stamp_between(pin_net, nodes, &l, &r, 1.0 / state.res_off.max(1.0), 0.0);
+                }
             }
             Kind::AnalogMux {
                 selected,

@@ -215,27 +215,38 @@ use crate::theme::{COMPONENT_BORDER_WIDTH, COMPONENT_FILL_ALPHA};
 impl Drawable for OrGate {
     fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
         let inps = self.num_inputs.max(1);
-        let end_y = inps as f64 * 4.0;
+        let (end_y, left_x, ctrl_x, tip_x, back_ctrl_x, bubble_x) = if self.small {
+            (
+                (inps as f64 * 4.0 - 2.5).max(3.5),
+                -9.0,
+                0.5,
+                2.0,
+                -6.0,
+                4.0,
+            )
+        } else {
+            (inps as f64 * 4.0, -10.0, 6.0, 8.0, -6.0, 10.0)
+        };
         let mut pts = Vec::with_capacity(40);
-        pts.push([-10.0, -end_y]);
+        pts.push([left_x, -end_y]);
         for i in 1..=12 {
             let t = i as f64 / 12.0;
             let omt = 1.0 - t;
-            let x = omt * omt * (-10.0) + 2.0 * omt * t * 6.0 + t * t * 8.0;
+            let x = omt * omt * left_x + 2.0 * omt * t * ctrl_x + t * t * tip_x;
             let y = omt * omt * (-end_y) + 2.0 * omt * t * (-end_y) + t * t * 0.0;
             pts.push([x, y]);
         }
         for i in 1..=12 {
             let t = i as f64 / 12.0;
             let omt = 1.0 - t;
-            let x = omt * omt * 8.0 + 2.0 * omt * t * 6.0 + t * t * (-10.0);
+            let x = omt * omt * tip_x + 2.0 * omt * t * ctrl_x + t * t * left_x;
             let y = omt * omt * 0.0 + 2.0 * omt * t * end_y + t * t * end_y;
             pts.push([x, y]);
         }
         for i in 1..=12 {
             let t = i as f64 / 12.0;
             let omt = 1.0 - t;
-            let x = omt * omt * (-10.0) + 2.0 * omt * t * (-6.0) + t * t * (-10.0);
+            let x = omt * omt * left_x + 2.0 * omt * t * back_ctrl_x + t * t * left_x;
             let y = omt * omt * end_y + 2.0 * omt * t * 0.0 + t * t * (-end_y);
             pts.push([x, y]);
         }
@@ -254,8 +265,8 @@ impl Drawable for OrGate {
         }
 
         if self.invert_output {
-            d.fill_circle(10.0, 0.0, 2.0, ctx.pal.body);
-            d.stroke_circle(10.0, 0.0, 2.0, ctx.pal.border, COMPONENT_BORDER_WIDTH);
+            d.fill_circle(bubble_x, 0.0, 2.0, ctx.pal.body);
+            d.stroke_circle(bubble_x, 0.0, 2.0, ctx.pal.border, COMPONENT_BORDER_WIDTH);
         }
         true
     }
@@ -285,5 +296,34 @@ mod tests {
         assert!(!g.tristate);
         assert!(!g.small);
         assert_eq!(g.pin_geoms().len(), 3);
+    }
+
+    #[test]
+    fn small_or_gate_shrinks_painted_polygon() {
+        use crate::components::tests::recorder::{DrawOp, record_drawable_paint};
+
+        let normal = OrGate::default();
+        let mut small = OrGate::default();
+        small.small = true;
+
+        let max_extents = |g: &OrGate| {
+            let rec = record_drawable_paint(g);
+            rec.ops
+                .iter()
+                .find_map(|op| match op {
+                    DrawOp::FillPoly { pts, .. } => {
+                        let max_x = pts.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max);
+                        let max_y = pts.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max);
+                        Some((max_x, max_y))
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+
+        let (nx, ny) = max_extents(&normal);
+        let (sx, sy) = max_extents(&small);
+        assert!(sx < nx);
+        assert!(sy < ny);
     }
 }

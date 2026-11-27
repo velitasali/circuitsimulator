@@ -56,8 +56,12 @@ pub const BATTERY_DEFAULT_OHMS: f64 = 1e-3;
 pub const FIXED_VOLT_DEFAULT: f64 = 5.0;
 /// C++ CapacitorBase default `10 µF`.
 pub const CAPACITOR_DEFAULT_FARADS: f64 = 10e-6;
+/// C++ CapacitorBase default ESR `1 µΩ`.
+pub const CAPACITOR_DEFAULT_OHMS: f64 = 1e-6;
 /// C++ Inductor default `1 H`.
 pub const INDUCTOR_DEFAULT_HENRIES: f64 = 1.0;
+/// C++ Inductor default winding resistance `1 µΩ`.
+pub const INDUCTOR_DEFAULT_OHMS: f64 = 1e-6;
 /// C++ `MechContact::setSwitch` closed admitance.
 pub const SWITCH_CLOSED_ADMIT: f64 = 1e3;
 /// C++ AnalogClock default period `1e6` picoseconds.
@@ -67,6 +71,39 @@ pub(crate) const RESISTOR_MIN_OHMS: f64 = 1e-12;
 const BATTERY_MIN_OHMS: f64 = 1e-14;
 const CAP_MIN: f64 = 1e-15;
 const IND_MIN: f64 = 1e-12;
+
+/// Backward-Euler companion conductance for a capacitor with series ESR `resistance`.
+///
+/// Returns `G_eff = 1 / (R + dt / C)`, or `0.0` when `capacitance <= 0.0` or `dt <= 0.0`.
+#[inline]
+pub fn capacitor_companion_g(capacitance: f64, resistance: f64, dt: f64) -> f64 {
+    if capacitance <= 0.0 || dt <= 0.0 {
+        return 0.0;
+    }
+    if resistance <= 0.0 {
+        return capacitance / dt;
+    }
+    1.0 / (resistance + dt / capacitance)
+}
+
+/// Backward-Euler companion `(g, i_src)` for an inductor with series winding `resistance`.
+///
+/// `ieq` stores the negative of the previous left-to-right inductor current (`-i_prev`),
+/// matching `stamp_two_terminal` and `Inductor::init_curr`.
+/// Returns `(G, G * (L / dt) * ieq)` with `G = 1 / (R + L / dt)`.
+#[inline]
+pub fn inductor_companion(inductance: f64, resistance: f64, ieq: f64, dt: f64) -> (f64, f64) {
+    if dt <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let l = inductance.max(IND_MIN);
+    if resistance <= 0.0 {
+        return (dt / l, ieq);
+    }
+    let l_over_dt = l / dt;
+    let g = 1.0 / (resistance + l_over_dt);
+    (g, g * l_over_dt * ieq)
+}
 
 mod constructors;
 pub mod pins;
@@ -89,18 +126,22 @@ pub enum Kind {
         voltage: f64,
     },
     Junction,
-    /// Backward-Euler companion: `G = C/dt`, `Ieq = V_prev · G`.
+    /// Backward-Euler companion with series ESR: `G = 1 / (R + dt/C)`, `Ieq = V_c · G`.
     Capacitor {
         capacitance: f64,
+        resistance: f64,
         volt: f64,
     },
     ElCapacitor {
         capacitance: f64,
+        resistance: f64,
         volt: f64,
     },
-    /// Backward-Euler companion: `G = dt/L`, `Ieq := Ieq - V · G`.
+    /// Backward-Euler companion with series winding resistance:
+    /// `G = 1 / (R + L/dt)`, `Isrc = G · (L/dt) · ieq`, where `ieq = -i_prev`.
     Inductor {
         inductance: f64,
+        resistance: f64,
         ieq: f64,
     },
     Switch {
@@ -151,11 +192,13 @@ pub enum Kind {
     Oscope {
         connect_gnd: bool,
         input_imped: f64,
+        buffer_size: usize,
         tunnels: [String; 4],
     },
     LAnalizer {
         connect_gnd: bool,
         input_imped: f64,
+        buffer_size: usize,
         tunnels: [String; 8],
     },
     Gate(GateState),
@@ -266,6 +309,7 @@ pub enum Kind {
         diodes: bool,
         dir: bool,
         pressed: Option<(usize, usize)>,
+        diode: DiodeState,
     },
     Relay {
         norm_close: bool,
@@ -428,10 +472,12 @@ pub enum Kind {
     },
     VarCapacitor {
         capacitance: f64,
+        resistance: f64,
         volt: f64,
     },
     VarInductor {
         inductance: f64,
+        resistance: f64,
         ieq: f64,
     },
     Transformer {
@@ -544,10 +590,14 @@ pub enum Kind {
     SerialPort {
         port_name: String,
         baud_rate: u32,
+        data_bits: usize,
+        stop_bits: usize,
         uart: crate::digital::SerialUart,
     },
     SerialTerm {
         baud_rate: u32,
+        data_bits: usize,
+        stop_bits: usize,
         uart: crate::digital::SerialUart,
     },
     SubPackage,
@@ -585,6 +635,8 @@ pub struct PinCache {
     pub switch_poles: Vec<(Option<usize>, Option<usize>, Option<usize>)>,
     /// Anode and cathode nodes for each LED die, in `led_pin_pairs` order.
     pub led_dies: Vec<(Option<usize>, Option<usize>)>,
+    /// Row pins (`0..rows`) followed by column pins (`rows..rows+cols`) for `KeyPad`.
+    pub keypad_pins: Vec<Option<usize>>,
 }
 
 #[derive(Clone, Debug)]
@@ -764,6 +816,47 @@ impl Kind {
                     false
                 } else {
                     true
+                }
+            }
+            Kind::KeyPad {
+                rows,
+                cols,
+                diodes,
+                dir,
+                pressed,
+                diode,
+                ..
+            } => {
+                if !*diodes {
+                    return true;
+                }
+                let Some((r, c)) = *pressed else {
+                    let was_zero = diode.current == 0.0 && diode.volt_pn == 0.0;
+                    diode.reset_stamp();
+                    return was_zero;
+                };
+                if r >= *rows || c >= *cols {
+                    let was_zero = diode.current == 0.0 && diode.volt_pn == 0.0;
+                    diode.reset_stamp();
+                    return was_zero;
+                }
+                let row_node = cache.keypad_pins.get(r).copied().flatten();
+                let col_node = cache.keypad_pins.get(*rows + c).copied().flatten();
+                let (anode, cathode) = if *dir {
+                    (col_node, row_node)
+                } else {
+                    (row_node, col_node)
+                };
+                match (
+                    anode.and_then(|i| nodes.get(i)).map(|n| n.volt),
+                    cathode.and_then(|i| nodes.get(i)).map(|n| n.volt),
+                ) {
+                    (Some(va), Some(vk)) => diode.volt_changed(va, vk),
+                    _ => {
+                        let was_zero = diode.current == 0.0 && diode.volt_pn == 0.0;
+                        diode.reset_stamp();
+                        was_zero
+                    }
                 }
             }
             Kind::RgbLed { leds, .. } => diode::update_led_dies(leds, &cache.led_dies, nodes),
@@ -947,25 +1040,46 @@ impl Kind {
             }
             (Kind::Junction, _) => None,
             (
-                Kind::Capacitor { capacitance, volt }
-                | Kind::ElCapacitor { capacitance, volt }
-                | Kind::VarCapacitor { capacitance, volt },
+                Kind::Capacitor {
+                    capacitance,
+                    resistance,
+                    volt,
+                }
+                | Kind::ElCapacitor {
+                    capacitance,
+                    resistance,
+                    volt,
+                }
+                | Kind::VarCapacitor {
+                    capacitance,
+                    resistance,
+                    volt,
+                },
                 PinSuffix::Left | PinSuffix::Right,
             ) => {
                 let v0 = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt)?;
                 let v1 = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt)?;
-                let g = *capacitance / dt.max(1e-18);
-                let i = (v0 - v1) * g - *volt * g;
+                let g = capacitor_companion_g(*capacitance, *resistance, dt.max(1e-18));
+                let i = (v0 - v1 - *volt) * g;
                 Some(if suffix == PinSuffix::Left { -i } else { i })
             }
             (
-                Kind::Inductor { inductance, ieq } | Kind::VarInductor { inductance, ieq },
+                Kind::Inductor {
+                    inductance,
+                    resistance,
+                    ieq,
+                }
+                | Kind::VarInductor {
+                    inductance,
+                    resistance,
+                    ieq,
+                },
                 PinSuffix::Left | PinSuffix::Right,
             ) => {
                 let v0 = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt)?;
                 let v1 = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt)?;
-                let g = dt / inductance.max(1e-18);
-                let i = (v0 - v1) * g - *ieq;
+                let (g, i_src) = inductor_companion(*inductance, *resistance, *ieq, dt.max(1e-18));
+                let i = (v0 - v1) * g - i_src;
                 Some(if suffix == PinSuffix::Left { -i } else { i })
             }
             (
@@ -1515,6 +1629,65 @@ impl Kind {
                 let p = cpu.pins.iter().find(|p| p.id == pin)?;
                 let v = pin_volt(pin).unwrap_or(0.0);
                 Some(p.current_out(v))
+            }
+            (
+                Kind::KeyPad {
+                    rows,
+                    cols,
+                    diodes,
+                    dir,
+                    pressed,
+                    diode,
+                    ..
+                },
+                PinSuffix::IndexedPin(pin_idx),
+            ) => {
+                let Some((r, c)) = *pressed else {
+                    return Some(0.0);
+                };
+                if r >= *rows || c >= *cols {
+                    return Some(0.0);
+                }
+                let row_idx = r;
+                let col_idx = *rows + c;
+                if pin_idx != row_idx && pin_idx != col_idx {
+                    return Some(0.0);
+                }
+                if *diodes {
+                    let (anode_idx, cathode_idx) = if *dir {
+                        (col_idx, row_idx)
+                    } else {
+                        (row_idx, col_idx)
+                    };
+                    if pin_idx == anode_idx {
+                        Some(-diode.current)
+                    } else if pin_idx == cathode_idx {
+                        Some(diode.current)
+                    } else {
+                        Some(0.0)
+                    }
+                } else {
+                    let v_row = cache
+                        .keypad_pins
+                        .get(row_idx)
+                        .copied()
+                        .flatten()
+                        .and_then(|i| nodes.get(i))
+                        .map(|n| n.volt)?;
+                    let v_col = cache
+                        .keypad_pins
+                        .get(col_idx)
+                        .copied()
+                        .flatten()
+                        .and_then(|i| nodes.get(i))
+                        .map(|n| n.volt)?;
+                    let i_row_to_col = (v_row - v_col) * crate::SWITCH_CLOSED_ADMIT;
+                    Some(if pin_idx == row_idx {
+                        -i_row_to_col
+                    } else {
+                        i_row_to_col
+                    })
+                }
             }
             (Kind::Servo { state, .. }, _) => {
                 if pin.ends_with("-PinV+") {

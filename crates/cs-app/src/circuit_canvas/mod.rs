@@ -3312,6 +3312,33 @@ impl CircuitCanvas {
         }
     }
 
+    /// Exports the active logic analyzer capture to a VCD file at `url`.
+    #[qslot]
+    fn export_la_vcd(&self, url: String) -> Value {
+        let path = strip_file_url(&url);
+        if path.is_empty() {
+            return json!({ "ok": false, "error": "Invalid file path." });
+        }
+        match self.inner.export_la_vcd() {
+            Ok(vcd) => match fs::write(&path, vcd) {
+                Ok(()) => {
+                    let prefix = i18n::tr("Exported VCD:");
+                    logging::log_sim(format!("{prefix} {path}"));
+                    json!({ "ok": true, "path": path })
+                }
+                Err(e) => {
+                    let prefix = i18n::tr("Failed to export VCD:");
+                    logging::log_sim(format!("{prefix} {e}"));
+                    json!({ "ok": false, "error": e.to_string() })
+                }
+            },
+            Err(e) => {
+                logging::log_sim(format!("VCD export: {e}"));
+                json!({ "ok": false, "error": e })
+            }
+        }
+    }
+
     /// Logic-analyzer levels at logical time `x`.
     #[qslot]
     fn la_signal_at(&self, x: f64, w: f64, h: f64, dpr: f64) -> Value {
@@ -4575,9 +4602,9 @@ impl CircuitCanvas {
     #[qslot]
     fn load_package_file(&mut self, uid: String, url: String) {
         let path = strip_file_url(&url);
-        match std::fs::read_to_string(&path) {
+        match fs::read_to_string(&path) {
             Ok(xml) => {
-                let c = self.inner.load_package_xml(&uid, &xml);
+                let c = self.inner.load_package_file_xml(&uid, &xml, &path);
                 self.apply(c);
             }
             Err(e) => eprintln!("load package file: {e}"),
@@ -4588,10 +4615,19 @@ impl CircuitCanvas {
     fn save_package_file(&mut self, uid: String, url: String) {
         let path = strip_file_url(&url);
         if let Some(xml) = self.inner.export_package_xml(&uid) {
-            if let Err(e) = std::fs::write(&path, xml) {
-                eprintln!("save package file: {e}");
+            match fs::write(&path, xml) {
+                Ok(()) => {
+                    let c = self.inner.set_package_file(&uid, &path);
+                    self.apply(c);
+                }
+                Err(e) => eprintln!("save package file: {e}"),
             }
         }
+    }
+
+    #[qslot]
+    fn suggest_package_url(&self, uid: String) -> String {
+        files::suggest_image_url(&self.inner.suggest_package_path(&uid))
     }
 
     #[qslot]

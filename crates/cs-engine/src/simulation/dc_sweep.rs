@@ -204,7 +204,7 @@ impl Circuit {
 
     /// Prepares circuit for DC operating point analysis:
     /// - Capacitors become open circuits (zero capacitance).
-    /// - Inductors become short circuits (low-value 1 µΩ resistor).
+    /// - Inductors become their winding resistance (default 1 µΩ).
     fn prepare_dc_circuit(&mut self) -> Result<()> {
         for c in &mut self.components {
             match &mut c.kind {
@@ -213,8 +213,10 @@ impl Circuit {
                 | Kind::VarCapacitor { capacitance, .. } => {
                     *capacitance = 0.0;
                 }
-                Kind::Inductor { .. } | Kind::VarInductor { .. } => {
-                    c.kind = Kind::Resistor { resistance: 1e-6 };
+                Kind::Inductor { resistance, .. } | Kind::VarInductor { resistance, .. } => {
+                    c.kind = Kind::Resistor {
+                        resistance: resistance.max(RESISTOR_MIN_OHMS),
+                    };
                 }
                 _ => {}
             }
@@ -734,6 +736,45 @@ mod tests {
             pt_on.i_probe > 0.05,
             "MOSFET should conduct above Vth: got {}",
             pt_on.i_probe
+        );
+    }
+
+    #[test]
+    fn inductor_winding_resistance_in_dc_sweep() {
+        // V1 (0..10 V) -> R1 (100 Ω) -> L1 (10 mH, R_winding = 100 Ω) -> GND.
+        // At V1 = 10 V, DC voltage across L1 is 5.0 V and current is 50 mA.
+        let mut c = Circuit::new();
+        c.add_volt_source("V1", 0.0)
+            .add_resistor("R1", 100.0)
+            .add_comp(Comp::inductor_with_resistance("L1", 10e-3, 100.0))
+            .add_ground("GND")
+            .connect("V1-outPin", "R1-lPin")
+            .connect("R1-rPin", "L1-lPin")
+            .connect("L1-rPin", "GND-Gnd");
+
+        let res = c
+            .dc_sweep(&DcSweepParams {
+                primary_source: "V1".into(),
+                primary_start: 0.0,
+                primary_stop: 10.0,
+                primary_step: 5.0,
+                secondary_source: None,
+                secondary_start: 0.0,
+                secondary_stop: 0.0,
+                secondary_step: 1.0,
+                probe_pin: "L1-lPin".into(),
+            })
+            .unwrap();
+        let pt10 = res.curves[0].points.last().unwrap();
+        assert!(
+            (pt10.v_probe - 5.0).abs() < 1e-3,
+            "expected 5.0 V across inductor winding resistance, got {}",
+            pt10.v_probe
+        );
+        assert!(
+            (pt10.i_probe - 0.05).abs() < 1e-4,
+            "expected 50 mA through inductor winding resistance, got {}",
+            pt10.i_probe
         );
     }
 }

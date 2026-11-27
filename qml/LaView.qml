@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Dialogs
 import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Window
@@ -415,7 +416,7 @@ Rectangle {
 
             AppButton {
                 text: I18n.tr( "Export" )
-                onClicked: LogicAnalyzer.exportData()
+                onClicked: exportVcdDialog.open()
             }
 
             AppComboBox {
@@ -563,6 +564,23 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
+        }
+    }
+
+    FileDialog {
+        id: exportVcdDialog
+        title: I18n.tr( "Export VCD" )
+        fileMode: FileDialog.SaveFile
+        currentFolder: App.suggestFolderUrl( CircuitCanvas.filePath )
+        nameFilters: [ I18n.tr( "VCD files (*.vcd)" ), I18n.tr( "All files (*)" ) ]
+        onAccepted: {
+            if ( exportVcdDialog.selectedFile ) {
+                var res = CircuitCanvas.exportLaVcd( "" + exportVcdDialog.selectedFile )
+                if ( res && res.ok )
+                    decodeText.text = I18n.tr( "Exported VCD:" ) + " " + res.path
+                else
+                    decodeText.text = ( res && res.error ) ? res.error : I18n.tr( "Failed to export VCD." )
+            }
         }
     }
 }

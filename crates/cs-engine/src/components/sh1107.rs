@@ -154,21 +154,8 @@ impl Component for Sh1107 {
             p.structural = true;
             p
         };
-        static PROPS: &[PropDef<Sh1107>] = &[
-            WIDTH,
-            HEIGHT,
-            PropDef::bool("Xoffset", "X Offset", Sh1107::get_x_offset, Sh1107::set_x_offset)
-                .with_info("Shift the display RAM columns by 96."),
-            PropDef::int(
-                "Control_Code",
-                "I2C Address",
-                MIN_ADDR,
-                MAX_ADDR,
-                Sh1107::get_control_code,
-                Sh1107::set_control_code,
-            )
-            .with_info("Device address."),
-            PropDef::float(
+        const FREQUENCY: PropDef<Sh1107> = {
+            let mut p = PropDef::float(
                 "Frequency",
                 "I2C Frequency",
                 "_kHz",
@@ -179,7 +166,30 @@ impl Component for Sh1107 {
             )
             .with_info(
                 "It is better to be similar to I2C Master frequency, but not critical in most cases.",
-            ),
+            );
+            p.show_by_default = false;
+            p
+        };
+        static PROPS: &[PropDef<Sh1107>] = &[
+            WIDTH,
+            HEIGHT,
+            PropDef::bool(
+                "Xoffset",
+                "X Offset",
+                Sh1107::get_x_offset,
+                Sh1107::set_x_offset,
+            )
+            .with_info("Shift the display RAM columns by 96."),
+            PropDef::int(
+                "Control_Code",
+                "I2C Address",
+                MIN_ADDR,
+                MAX_ADDR,
+                Sh1107::get_control_code,
+                Sh1107::set_control_code,
+            )
+            .with_info("Device address."),
+            FREQUENCY,
         ];
         PROPS
     }

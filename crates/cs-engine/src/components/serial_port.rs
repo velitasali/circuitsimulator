@@ -68,6 +68,8 @@ impl SerialPort {
         Kind::SerialPort {
             port_name: self.port_name.clone(),
             baud_rate: self.baud_rate,
+            data_bits: self.data_bits,
+            stop_bits: self.stop_bits,
             uart: SerialUart::default(),
         }
     }
@@ -121,6 +123,17 @@ impl Component for SerialPort {
     const DESCRIPTION: &'static str = "SerialPort interface.";
 
     fn props() -> &'static [PropDef<Self>] {
+        const AUTO: PropDef<SerialPort> = {
+            let mut p = PropDef::bool(
+                "Auto",
+                "Auto Open",
+                SerialPort::get_auto,
+                SerialPort::set_auto,
+            )
+            .with_info("Open port automatically at Simulation start.");
+            p.show_by_default = false;
+            p
+        };
         static PROPS: &[PropDef<SerialPort>] = &[
             PropDef::string(
                 "Port",
@@ -156,13 +169,7 @@ impl Component for SerialPort {
                 SerialPort::set_stop_bits,
             )
             .with_info("Number of stop bits."),
-            PropDef::bool(
-                "Auto",
-                "Auto Open",
-                SerialPort::get_auto,
-                SerialPort::set_auto,
-            )
-            .with_info("Open port automatically at Simulation start."),
+            AUTO,
         ];
         PROPS
     }
@@ -263,18 +270,24 @@ mod tests {
         let sp = SerialPort {
             port_name: "COM3".into(),
             baud_rate: 115200,
-            data_bits: 8,
-            stop_bits: 1,
+            data_bits: 7,
+            stop_bits: 2,
             auto_open: true,
         };
+        assert!(sp.prop_rows().iter().all(|r| r.name != "Auto"));
+        assert!(sp.persisted_props().iter().any(|(k, _)| *k == "Auto"));
         match sp.to_element_kind() {
             Kind::SerialPort {
                 port_name,
                 baud_rate,
+                data_bits,
+                stop_bits,
                 ..
             } => {
                 assert_eq!(port_name, "COM3");
                 assert_eq!(baud_rate, 115200);
+                assert_eq!(data_bits, 7);
+                assert_eq!(stop_bits, 2);
             }
             other => panic!("expected Kind::SerialPort, got {other:?}"),
         }

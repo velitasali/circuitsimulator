@@ -67,6 +67,29 @@ impl Device {
                 if old == high {
                     return;
                 }
+                if self.host.rst_enabled && self.host.shared_reset_pin == Some((pi, pin_idx)) {
+                    if !high {
+                        if !self.host.shared_reset_held {
+                            self.reset();
+                            self.host.shared_reset_held = true;
+                        }
+                        self.host.ports[pi].pins[pin_idx].inp_state = false;
+                        self.host.ports[pi].pins[pin_idx].inp_volt = volt;
+                    } else {
+                        self.host.ports[pi].pins[pin_idx].inp_state = true;
+                        self.host.ports[pi].pins[pin_idx].inp_volt = volt;
+                        self.host.shared_reset_held = false;
+                    }
+                    return;
+                }
+                if self.host.ext_osc_enabled && self.host.ext_clk_pin == Some((pi, pin_idx)) {
+                    self.host.ports[pi].pins[pin_idx].inp_state = high;
+                    if !old && high {
+                        self.host.ext_clk_pending_edges =
+                            self.host.ext_clk_pending_edges.saturating_add(1);
+                    }
+                    return;
+                }
                 self.is_spinning = false;
                 self.host.ports[pi].pins[pin_idx].inp_state = high;
                 let mask = self.host.ports[pi].pins[pin_idx].pin_mask;
@@ -152,6 +175,30 @@ impl Device {
                 continue;
             };
             let old = self.host.ports[pi].pins[idx].inp_state;
+            if old == high {
+                return;
+            }
+            if self.host.rst_enabled && self.host.shared_reset_pin == Some((pi, idx)) {
+                if !high {
+                    if !self.host.shared_reset_held {
+                        self.reset();
+                        self.host.shared_reset_held = true;
+                    }
+                    self.host.ports[pi].pins[idx].inp_state = false;
+                } else {
+                    self.host.ports[pi].pins[idx].inp_state = true;
+                    self.host.shared_reset_held = false;
+                }
+                return;
+            }
+            if self.host.ext_osc_enabled && self.host.ext_clk_pin == Some((pi, idx)) {
+                self.host.ports[pi].pins[idx].inp_state = high;
+                if !old && high {
+                    self.host.ext_clk_pending_edges =
+                        self.host.ext_clk_pending_edges.saturating_add(1);
+                }
+                return;
+            }
             self.host.ports[pi].pins[idx].inp_state = high;
             let mask = self.host.ports[pi].pins[idx].pin_mask;
             let ext_int = self.host.ports[pi].pins[idx].ext_int;

@@ -202,6 +202,22 @@ impl Component for Ssd1306 {
             p.structural = true;
             p
         };
+        const FREQUENCY: PropDef<Ssd1306> = {
+            let mut p = PropDef::float(
+                "Frequency",
+                "I2C Frequency",
+                "Hz",
+                MIN_FREQ_HZ,
+                MAX_FREQ_HZ,
+                Ssd1306::get_freq,
+                Ssd1306::set_freq,
+            )
+            .with_info(
+                "It is better to be similar to I2C Master frequency, but not critical in most cases.",
+            );
+            p.show_by_default = false;
+            p
+        };
         static PROPS: &[PropDef<Ssd1306>] = &[
             PropDef::enumeration(
                 "Color",
@@ -229,15 +245,7 @@ impl Component for Ssd1306 {
                 Ssd1306::get_control_code,
                 Ssd1306::set_control_code,
             ).with_info("Device address."),
-            PropDef::float(
-                "Frequency",
-                "I2C Frequency",
-                "Hz",
-                MIN_FREQ_HZ,
-                MAX_FREQ_HZ,
-                Ssd1306::get_freq,
-                Ssd1306::set_freq,
-            ).with_info("It is better to be similar to I2C Master frequency, but not critical in most cases."),
+            FREQUENCY,
         ];
         PROPS
     }
@@ -359,7 +367,7 @@ mod tests {
         assert_eq!(groups[1].name, "I2C");
         assert_eq!(
             groups[1].rows.iter().map(|r| r.name).collect::<Vec<_>>(),
-            vec!["Control_Code", "Frequency"]
+            vec!["Control_Code"]
         );
     }
 }

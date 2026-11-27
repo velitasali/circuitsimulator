@@ -183,10 +183,12 @@ impl Drawable for Probe {
             d.stroke_circle(0.0, 0.0, 8.0, ctx.pal.border, COMPONENT_BORDER_WIDTH);
         }
 
-        if let Some(r) = reading.filter(|r| !r.text.is_empty()) {
-            let tx = if self.small { -4.0 } else { 10.0 };
-            let font_size = if self.small { 8.0 } else { 10.0 };
-            d.text(tx, -6.0, &r.text, font_size, ctx.pal.border, Align::TopLeft);
+        if self.show_volt {
+            if let Some(r) = reading.filter(|r| !r.text.is_empty()) {
+                let tx = if self.small { -4.0 } else { 10.0 };
+                let font_size = if self.small { 8.0 } else { 10.0 };
+                d.text(tx, -6.0, &r.text, font_size, ctx.pal.border, Align::TopLeft);
+            }
         }
         true
     }
@@ -226,5 +228,63 @@ mod tests {
         assert_eq!(p.pin_geoms()[0].length, 8.0);
         assert_eq!(p.body().w, 8.0);
         assert_eq!(p.body().h, 8.0);
+    }
+
+    #[test]
+    fn show_volt_controls_voltage_text_in_paint() {
+        use crate::canvas::draw::{PaintCtx, Palette};
+        use crate::canvas::{Canvas, Point, Wire};
+        use crate::components::tests::recorder::DrawRecorder;
+
+        let mut canvas = Canvas::new();
+        let src_id = canvas.scene_mut().add_fixed_volt(0.0, 0.0, 5.0);
+        let probe_id = canvas.scene_mut().add_probe(48.0, 0.0);
+        if let Some(it) = canvas.scene_mut().item_by_id_mut(&probe_id) {
+            it.rotation = 0.0;
+        }
+        canvas.scene_mut().add_saved_wire(Wire::from_saved(
+            "w1",
+            format!("{src_id}-outnod"),
+            format!("{probe_id}-inpin"),
+            vec![Point::new(0.0, 0.0), Point::new(24.0, 0.0)],
+        ));
+        canvas.power_on();
+
+        let paint_probe = |c: &Canvas| {
+            let item = c.scene().item_by_id(&probe_id).unwrap();
+            let pal = Palette::light();
+            let ctx = PaintCtx {
+                canvas: c,
+                pal: &pal,
+                scale: 1.0,
+                item_id: &probe_id,
+                on_board: false,
+                active_item_id: None,
+            };
+            let mut rec = DrawRecorder::new();
+            item.kind.paint(&mut rec, &ctx);
+            rec
+        };
+
+        let rec_on = paint_probe(&canvas);
+        assert!(
+            rec_on.contains_text("5"),
+            "expected voltage text when ShowVolt=true, got {:?}",
+            rec_on.all_text()
+        );
+
+        canvas
+            .scene_mut()
+            .item_by_id_mut(&probe_id)
+            .unwrap()
+            .kind
+            .set_prop_text("ShowVolt", "false")
+            .unwrap();
+        let rec_off = paint_probe(&canvas);
+        assert!(
+            rec_off.all_text().is_empty(),
+            "expected no text when ShowVolt=false, got {:?}",
+            rec_off.all_text()
+        );
     }
 }

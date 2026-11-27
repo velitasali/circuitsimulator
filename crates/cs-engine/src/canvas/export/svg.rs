@@ -5,7 +5,7 @@ use image::codecs::png::PngEncoder;
 
 use super::arc;
 use super::text;
-use crate::canvas::draw::{self, Align, Color, Draw};
+use crate::canvas::draw::{self, Align, Color, Draw, TextStyle};
 use crate::canvas::geom::Rect;
 use crate::canvas::image_buf::ImageBuf;
 
@@ -59,7 +59,7 @@ impl Svg {
         size: f64,
         c: Color,
         align: Align,
-        bold: bool,
+        style: TextStyle<'_>,
     ) {
         if s.is_empty() {
             return;
@@ -70,14 +70,33 @@ impl Svg {
             Align::Center => ("middle", "middle"),
             Align::Right => ("end", "hanging"),
         };
+        let mono = style.is_monospace();
+        let family_trim = style.family.trim();
+        let font_family = if family_trim.is_empty()
+            || family_trim.eq_ignore_ascii_case("sansserif")
+            || family_trim.eq_ignore_ascii_case("sans-serif")
+        {
+            if mono {
+                "Ubuntu Mono, monospace".to_string()
+            } else {
+                "Ubuntu, sans-serif".to_string()
+            }
+        } else {
+            let fallback = if mono { "monospace" } else { "sans-serif" };
+            format!("{}, {fallback}", xml_escape(family_trim))
+        };
         let m = self.linear();
         let (sx, sy) = draw::upright_text_signs(m[0], m[1], m[2], m[3]);
-        let weight_attr = if bold { " font-weight=\"bold\"" } else { "" };
+        let weight_attr = if style.bold {
+            " font-weight=\"bold\""
+        } else {
+            ""
+        };
         let transform_attr = if sx != 1.0 || sy != 1.0 {
             let clean = text::strip_tags(s);
             let max_width = clean
                 .split('\n')
-                .map(|line| text::text_width(line, size, bold))
+                .map(|line| text::text_width_styled(line, size, style.bold, mono))
                 .fold(0.0_f64, f64::max);
             let num_lines = clean.split('\n').count().max(1);
             let cx = match align {
@@ -105,7 +124,7 @@ impl Svg {
         };
         let _ = write!(
             self.out,
-            "<text x=\"{}\" y=\"{}\" font-size=\"{}\"{weight_attr} font-family=\"Ubuntu, sans-serif\" fill=\"{}\" text-anchor=\"{anchor}\" dominant-baseline=\"{baseline}\"{transform_attr}>{}</text>\n",
+            "<text x=\"{}\" y=\"{}\" font-size=\"{}\"{weight_attr} font-family=\"{font_family}\" fill=\"{}\" text-anchor=\"{anchor}\" dominant-baseline=\"{baseline}\"{transform_attr}>{}</text>\n",
             f(x),
             f(y),
             f(size),
@@ -296,11 +315,35 @@ impl Draw for Svg {
     }
 
     fn text(&mut self, x: f64, y: f64, s: &str, size: f64, c: Color, align: Align) {
-        self.emit_text(x, y, s, size, c, align, false);
+        self.emit_text(x, y, s, size, c, align, TextStyle::default());
     }
 
     fn text_bold(&mut self, x: f64, y: f64, s: &str, size: f64, c: Color, align: Align) {
-        self.emit_text(x, y, s, size, c, align, true);
+        self.emit_text(
+            x,
+            y,
+            s,
+            size,
+            c,
+            align,
+            TextStyle {
+                bold: true,
+                ..TextStyle::default()
+            },
+        );
+    }
+
+    fn text_styled(
+        &mut self,
+        x: f64,
+        y: f64,
+        s: &str,
+        size: f64,
+        c: Color,
+        align: Align,
+        style: TextStyle<'_>,
+    ) {
+        self.emit_text(x, y, s, size, c, align, style);
     }
 
     fn grid_dots(&mut self, scene: Rect, step: i32, c: Color) {

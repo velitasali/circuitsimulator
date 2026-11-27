@@ -1,7 +1,8 @@
 //! SerialPort and SerialTerm UART bit-bang engine.
 //!
 //! Bridges schematic RX/TX pins to host serial ports and virtual terminal sessions.
-//! Follows standard UART framing: 1 start bit (low), 8 data bits (LSB first), 1 stop bit (high).
+//! Follows configurable UART framing: 1 start bit (low), 5–9 data bits (LSB first),
+//! and 1–2 stop bits (high).
 
 use std::collections::VecDeque;
 
@@ -14,9 +15,10 @@ pub struct SerialUart {
     pub last_rx_high: bool,
     pub rx_on: bool,
     pub rx_bit: u8,
-    pub rx_byte: u8,
+    pub rx_byte: u16,
+    pub rx_stop_ok: bool,
     pub rx_due: Option<u64>,
-    pub tx_shift: u32,
+    pub tx_shift: u16,
     pub tx_left: u8,
     pub tx_due: Option<u64>,
     pub tx_queue: VecDeque<u8>,
@@ -30,6 +32,7 @@ impl Default for SerialUart {
             rx_on: false,
             rx_bit: 0,
             rx_byte: 0,
+            rx_stop_ok: true,
             rx_due: None,
             tx_shift: 0,
             tx_left: 0,
@@ -40,7 +43,26 @@ impl Default for SerialUart {
 }
 
 impl SerialUart {
-    pub fn on_pins(&mut self, comp_id: &str, baud: u32, rx_high: bool, t: u64) -> Drive {
+    fn load_tx_frame(&mut self, byte: u8, data_bits: usize, stop_bits: usize) {
+        let d = data_bits.clamp(5, 9) as u8;
+        let s = stop_bits.clamp(1, 2) as u8;
+        let data_mask = (1u16 << d) - 1;
+        let payload = u16::from(byte) & data_mask;
+        // Stop bits (s high bits) plus 1 idle-high sentinel bit above start + data bits.
+        let stop_and_idle = ((1u16 << (s + 1)) - 1) << (1 + d);
+        self.tx_shift = (payload << 1) | stop_and_idle;
+        self.tx_left = 1 + d + s + 1;
+    }
+
+    pub fn on_pins(
+        &mut self,
+        comp_id: &str,
+        baud: u32,
+        data_bits: usize,
+        stop_bits: usize,
+        rx_high: bool,
+        t: u64,
+    ) -> Drive {
         let bit = uart_bit_ps(baud);
         let mut changed = false;
 
@@ -50,8 +72,7 @@ impl SerialUart {
         // Start TX if idle and bytes are queued
         if self.tx_left == 0 && self.tx_due.is_none() {
             if let Some(byte) = self.tx_queue.pop_front() {
-                self.tx_shift = (u32::from(byte) << 1) | (1 << 9) | (1 << 10);
-                self.tx_left = 11;
+                self.load_tx_frame(byte, data_bits, stop_bits);
                 changed |= self.apply_tx_bit();
                 self.tx_due = Some(t.saturating_add(bit));
             }
@@ -62,6 +83,7 @@ impl SerialUart {
             self.rx_on = true;
             self.rx_bit = 0;
             self.rx_byte = 0;
+            self.rx_stop_ok = true;
             self.rx_due = Some(t.saturating_add(bit + bit / 2));
         }
         self.last_rx_high = rx_high;
@@ -69,32 +91,50 @@ impl SerialUart {
         self.make_drive(changed)
     }
 
-    pub fn on_event(&mut self, comp_id: &str, baud: u32, rx_high: bool, t: u64) -> Drive {
+    pub fn on_event(
+        &mut self,
+        comp_id: &str,
+        baud: u32,
+        data_bits: usize,
+        stop_bits: usize,
+        rx_high: bool,
+        t: u64,
+    ) -> Drive {
         let bit = uart_bit_ps(baud);
+        let d = data_bits.clamp(5, 9) as u8;
+        let s = stop_bits.clamp(1, 2) as u8;
         let mut changed = false;
 
         // Advance RX sampling
         if let Some(due) = self.rx_due {
             if t >= due {
                 if self.rx_on {
-                    if self.rx_bit < 8 {
+                    if self.rx_bit < d {
                         if rx_high {
-                            self.rx_byte |= 1 << self.rx_bit;
+                            self.rx_byte |= 1u16 << self.rx_bit;
                         }
                         self.rx_bit += 1;
                         self.rx_due = Some(t.saturating_add(bit));
                     } else {
-                        // Stop bit reached
-                        self.rx_on = false;
-                        self.rx_due = None;
-                        if rx_high {
-                            // Frame valid: publish received byte to serial session
-                            let mon_id = format!("{comp_id}:Serial");
-                            let term_id = format!("{comp_id}:Terminal");
-                            serial::publish_out(&mon_id, self.rx_byte);
-                            serial::publish_out(&term_id, self.rx_byte);
-                            serial::publish_out(comp_id, self.rx_byte);
-                            serial::publish_out("default", self.rx_byte);
+                        // Stop bit interval
+                        if !rx_high {
+                            self.rx_stop_ok = false;
+                        }
+                        self.rx_bit += 1;
+                        if self.rx_bit < d + s {
+                            self.rx_due = Some(t.saturating_add(bit));
+                        } else {
+                            self.rx_on = false;
+                            self.rx_due = None;
+                            if self.rx_stop_ok {
+                                let out_byte = (self.rx_byte & 0xFF) as u8;
+                                let mon_id = format!("{comp_id}:Serial");
+                                let term_id = format!("{comp_id}:Terminal");
+                                serial::publish_out(&mon_id, out_byte);
+                                serial::publish_out(&term_id, out_byte);
+                                serial::publish_out(comp_id, out_byte);
+                                serial::publish_out("default", out_byte);
+                            }
                         }
                     }
                 } else {
@@ -110,12 +150,11 @@ impl SerialUart {
                     changed |= self.apply_tx_bit();
                     self.tx_due = Some(t.saturating_add(bit));
                 } else if self.tx_left == 1 {
-                    // Stop bit interval completed
-                    self.apply_tx_bit();
+                    // Final stop bit interval completed
+                    changed |= self.apply_tx_bit();
                     self.drain_host_send(comp_id);
                     if let Some(byte) = self.tx_queue.pop_front() {
-                        self.tx_shift = (u32::from(byte) << 1) | (1 << 9) | (1 << 10);
-                        self.tx_left = 11;
+                        self.load_tx_frame(byte, data_bits, stop_bits);
                         changed |= self.apply_tx_bit();
                         self.tx_due = Some(t.saturating_add(bit));
                     } else {
@@ -130,13 +169,19 @@ impl SerialUart {
         self.make_drive(changed)
     }
 
-    pub fn poll_send(&mut self, comp_id: &str, baud: u32, t: u64) -> Drive {
+    pub fn poll_send(
+        &mut self,
+        comp_id: &str,
+        baud: u32,
+        data_bits: usize,
+        stop_bits: usize,
+        t: u64,
+    ) -> Drive {
         self.drain_host_send(comp_id);
         if self.tx_left == 0 && self.tx_due.is_none() {
             if let Some(byte) = self.tx_queue.pop_front() {
                 let bit = uart_bit_ps(baud);
-                self.tx_shift = (u32::from(byte) << 1) | (1 << 9) | (1 << 10);
-                self.tx_left = 11;
+                self.load_tx_frame(byte, data_bits, stop_bits);
                 let changed = self.apply_tx_bit();
                 self.tx_due = Some(t.saturating_add(bit));
                 return self.make_drive(changed);

@@ -99,6 +99,7 @@ impl Component for Ks0108 {
             )
             .with_info("Width in pixels or grid units.");
             p.structural = true;
+            p.show_by_default = false;
             p
         };
         const HEIGHT: PropDef<Ks0108> = {
@@ -112,6 +113,7 @@ impl Component for Ks0108 {
             )
             .with_info("Height in pixels or grid units.");
             p.structural = true;
+            p.show_by_default = false;
             p
         };
         static PROPS: &[PropDef<Ks0108>] = &[

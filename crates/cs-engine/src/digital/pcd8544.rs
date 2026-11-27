@@ -175,6 +175,15 @@ impl Pcd8544State {
                     self.addr_x = x;
                 }
             }
+        } else {
+            // Extended instruction set (H = 1)
+            if (cmd & 0xF8) == 0x10 {
+                // Bias system (0x10..=0x17 -> BS2..BS0)
+                self.bias = cmd & 0x07;
+            } else if (cmd & 0x80) == 0x80 {
+                // Set Vop / contrast (0x80..=0xFF -> Vop6..Vop0)
+                self.contrast = cmd & 0x7F;
+            }
         }
     }
 

@@ -7,13 +7,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use cs_mcu::{CoreKind, Device, McuDesc, McuState};
 
+use crate::debug::DebugSession;
 use crate::digital::{IoPin, PinAction, PinMode};
 use crate::package::{Package, PkgPin, convert_package, select_package};
 use crate::script::ScriptCpu;
 use crate::subcircuit::SubcSearch;
 
 /// `.circ1` MCU properties before `{device}.mcu` is resolved.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct McuItemSpec {
     pub device: String,
     pub frequency: Option<f64>,
@@ -24,6 +25,30 @@ pub struct McuItemSpec {
     pub pgm: Option<String>,
     pub logic_symbol: bool,
     pub package_name: Option<String>,
+    pub rst_enabled: bool,
+    pub ext_osc: bool,
+    pub wdt_enabled: bool,
+    pub clk_out: bool,
+}
+
+impl Default for McuItemSpec {
+    fn default() -> Self {
+        Self {
+            device: String::new(),
+            frequency: None,
+            force_freq: false,
+            program: None,
+            auto_load: false,
+            save_pgm: false,
+            pgm: None,
+            logic_symbol: false,
+            package_name: None,
+            rst_enabled: true,
+            ext_osc: false,
+            wdt_enabled: false,
+            clk_out: false,
+        }
+    }
 }
 
 /// MCU instance on the netlist (C++ `Mcu` + `eMcu`).
@@ -38,6 +63,10 @@ pub struct McuComp {
     pub reset_node_idx: Option<usize>,
     pub reset_active_high: bool,
     pub reset_held: bool,
+    /// C++ `m_rstEnabled`: gate dedicated and shared external reset pins.
+    pub rst_enabled: bool,
+    /// C++ `m_extOsc`: detach XTAL pins from GPIO and step on XTAL1 rising edges.
+    pub ext_osc: bool,
     /// C++ `m_autoLoad`: reload `firmware` at simulation start.
     pub auto_load: bool,
     /// C++ `ForceFreq` (default true).
@@ -216,6 +245,8 @@ impl McuComp {
             .into_iter()
             .map(|t| format!("{mcu_id}:{t}"))
             .collect();
+        let rst_enabled = device.rst_enabled();
+        let ext_osc = device.ext_osc();
         Self {
             cached_mcu_id: device.id.clone(),
             device,
@@ -225,6 +256,8 @@ impl McuComp {
             reset_node_idx: None,
             reset_active_high: false,
             reset_held: false,
+            rst_enabled,
+            ext_osc,
             auto_load: false,
             force_freq: true,
             save_pgm: false,
@@ -302,12 +335,40 @@ impl McuComp {
         ids
     }
 
+    pub fn set_rst_enabled(&mut self, enabled: bool) {
+        self.rst_enabled = enabled;
+        self.device.set_rst_enabled(enabled);
+        if !enabled {
+            self.reset_held = false;
+        }
+    }
+
+    pub fn set_ext_osc(&mut self, enabled: bool) {
+        self.ext_osc = enabled;
+        self.device.set_ext_osc(enabled);
+    }
+
+    /// True when `ext_osc` is enabled and the primary XTAL input pin is wired to a circuit net,
+    /// so CPU stepping is driven strictly by external rising edges rather than internal frequency.
+    /// Board subcircuits (e.g. Arduino Uno/Nano) set `Ext_Osc="true"` to reserve XTAL pins from
+    /// GPIO without wiring a crystal net, so they continue stepping at `device.freq`.
+    pub fn is_ext_clock_driven(&self) -> bool {
+        self.ext_osc
+            && self
+                .device
+                .ext_clk_flat_index()
+                .and_then(|idx| self.node_indices.get(idx).copied().flatten())
+                .is_some()
+    }
+
     pub fn stamp_init(&mut self, slope_steps: i32) {
         crate::logging::log_sim(format!("Initializing MCU '{}'", self.device.id));
         self.device.reset();
         self.reset_held = false;
-        if let Some(path) = self.firmware_path() {
-            let _ = self.load_firmware_file(&path);
+        if self.auto_load {
+            if let Some(path) = self.firmware_path() {
+                let _ = self.load_firmware_file(&path);
+            }
         }
         for p in &mut self.pins {
             p.initialize(slope_steps);
@@ -330,7 +391,7 @@ impl McuComp {
         ));
         // Automatically check for and load debug symbols (deduplicating paths and
         // skipping redundant parses when DebugSession already holds this exact ELF).
-        let session = crate::debug::DebugSession::global();
+        let session = DebugSession::global();
         let stem = path
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
@@ -510,20 +571,20 @@ impl McuComp {
                 }
             }
         }
-        if let (Some(rst), Some(node_idx)) = (&mut self.reset_pin, self.reset_node_idx) {
-            if let Some(n) = nodes.get(node_idx) {
-                let high = rst.get_inp_state(n.volt);
-                let asserted = if self.reset_active_high { high } else { !high };
-                if asserted {
-                    if !self.reset_held {
+        let mut dedicated_asserted = false;
+        if self.rst_enabled {
+            if let (Some(rst), Some(node_idx)) = (&mut self.reset_pin, self.reset_node_idx) {
+                if let Some(n) = nodes.get(node_idx) {
+                    let high = rst.get_inp_state(n.volt);
+                    dedicated_asserted = if self.reset_active_high { high } else { !high };
+                    if dedicated_asserted && !self.reset_held {
                         self.device.reset();
-                        self.reset_held = true;
                     }
-                } else {
-                    self.reset_held = false;
                 }
             }
         }
+        self.reset_held =
+            self.rst_enabled && (dedicated_asserted || self.device.shared_reset_held());
     }
 
     /// `None` means the pin is not on a net; keep the stamp default (6502 RDY
@@ -535,20 +596,20 @@ impl McuComp {
                 self.device.set_gpio_input_volt(i, high, v);
             }
         }
-        if let Some(rst) = &mut self.reset_pin {
-            if let Some(v) = v_of(&rst.id) {
-                let high = rst.get_inp_state(v);
-                let asserted = if self.reset_active_high { high } else { !high };
-                if asserted {
-                    if !self.reset_held {
+        let mut dedicated_asserted = false;
+        if self.rst_enabled {
+            if let Some(rst) = &mut self.reset_pin {
+                if let Some(v) = v_of(&rst.id) {
+                    let high = rst.get_inp_state(v);
+                    dedicated_asserted = if self.reset_active_high { high } else { !high };
+                    if dedicated_asserted && !self.reset_held {
                         self.device.reset();
-                        self.reset_held = true;
                     }
-                } else {
-                    self.reset_held = false;
                 }
             }
         }
+        self.reset_held =
+            self.rst_enabled && (dedicated_asserted || self.device.shared_reset_held());
     }
 
     pub fn drain_host_serial(&mut self) {
@@ -619,9 +680,19 @@ impl McuComp {
     /// One CPU instruction. Returns per-pin `PinAction`s from GPIO changes.
     pub fn run_event(&mut self, v_of: &impl Fn(&str) -> Option<f64>) -> Vec<(usize, PinAction)> {
         self.drain_host_serial();
+        let was_held = self.reset_held;
         self.sample_inputs(v_of);
+        if self.reset_held {
+            self.device.clear_pending_ext_clk();
+            return self.sync_gpio_to_pins();
+        }
+        if was_held {
+            self.device.start();
+        }
         let prev_pc = self.device.pc();
-        if self.device.state == McuState::Running {
+        if self.ext_osc {
+            self.device.step_ext_clock();
+        } else if self.device.state == McuState::Running {
             self.device.advance();
         }
         self.flush_periph_logs();
@@ -1004,6 +1075,11 @@ fn apply_item_props(mcu: &mut McuComp, spec: &McuItemSpec, search: &SubcSearch) 
     mcu.auto_load = spec.auto_load;
     mcu.force_freq = spec.force_freq;
     mcu.save_pgm = spec.save_pgm;
+    mcu.set_rst_enabled(spec.rst_enabled);
+    mcu.set_ext_osc(spec.ext_osc);
+    mcu.device.set_wdt_enabled(spec.wdt_enabled);
+    mcu.device.set_clk_out(spec.clk_out);
+    mcu.sync_gpio_to_pins();
     mcu.firmware_dir = search.circuit_dir.clone();
     if spec.save_pgm {
         if let Some(pgm) = &spec.pgm {

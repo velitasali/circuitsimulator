@@ -369,7 +369,7 @@ impl Component for WaveGen {
                 MAX_STEPS,
                 WaveGen::get_steps,
                 WaveGen::set_steps,
-            ).with_info("Encoder steps per dial rotation."),
+            ).with_info("Number of sample steps per waveform cycle."),
             BIPOLAR,
             PropDef::bool(
                 "Floating",

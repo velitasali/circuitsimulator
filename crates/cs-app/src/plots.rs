@@ -522,9 +522,6 @@ impl LogicAnalyzer {
     }
 
     #[qslot]
-    fn export_data(&self) {}
-
-    #[qslot]
     fn plot_pressed(&mut self, _x: f64, _button: i32) {
         self.panning = true;
         self.panning_changed();

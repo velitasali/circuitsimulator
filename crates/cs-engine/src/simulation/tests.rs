@@ -2598,22 +2598,24 @@ fn max72xx_latches_a_digit_and_ws2812_stores_a_pixel() {
         px.circ_time += if bit { 800_000 } else { 400_000 };
         set_volt(&mut px, "VD", 0.0);
         px.update().unwrap();
-        px.circ_time += 200_000;
+        px.circ_time += if bit { 400_000 } else { 850_000 };
     }
+    // Bit 25 rising edge validates bit 24's low period and latches pixel 0.
+    set_volt(&mut px, "VD", 5.0);
+    px.update().unwrap();
     match &px.comp("PX").unwrap().kind {
         Kind::Ws2812 { fb, .. } => assert_eq!(fb.pixels[0], [255, 0, 0]),
         _ => panic!("ws2812"),
     }
-    set_volt(&mut px, "VD", 5.0);
-    px.update().unwrap();
     px.circ_time += 800_000;
     set_volt(&mut px, "VD", 0.0);
     px.update().unwrap();
+    // Reset latches the final pending forwarded bit into DOUT and resets bit_index.
+    px.run_ps(60_000_000).unwrap();
     assert!(
         px.pin_voltage("PX-dout").unwrap() > 4.0,
         "forwarded 1 should drive DOUT"
     );
-    px.run_ps(60_000_000).unwrap();
     match &px.comp("PX").unwrap().kind {
         Kind::Ws2812 { fb, .. } => {
             assert_eq!(fb.bit_index, 0);
@@ -3036,6 +3038,7 @@ fn named_net_regroup_keeps_voltage_stamps_and_other_channels() {
     let joined = Kind::Oscope {
         connect_gnd: true,
         input_imped: 10.0,
+        buffer_size: crate::instruments::SCOPE_DEFAULT_BUFFER_SIZE,
         tunnels: [
             "SIG".to_string(),
             String::new(),
@@ -3081,6 +3084,7 @@ fn named_net_regroup_keeps_voltage_stamps_and_other_channels() {
     let missing = Kind::Oscope {
         connect_gnd: true,
         input_imped: 10.0,
+        buffer_size: crate::instruments::SCOPE_DEFAULT_BUFFER_SIZE,
         tunnels: [
             "NOWHERE".to_string(),
             String::new(),
@@ -3392,5 +3396,307 @@ fn test_pcf8833_in_circuit_spi() {
             );
         }
         _ => panic!("Expected Kind::Pcf8833Display"),
+    }
+}
+
+#[test]
+fn diac_breakback_voltage_hold_and_turn_off() {
+    // Vbo = 30 V, Breakback = 10 V => V_on = 20 V, Ron = 500 Ω, I_hold = 10 mA.
+    let mut c = Circuit::new();
+    let mut d = Comp::diac("D1");
+    if let Kind::Diac { ref mut state } = d.kind {
+        state.v_breakover = 30.0;
+        state.breakback_v = 10.0;
+        state.res_on = 500.0;
+        state.hold_curr = 0.01;
+    }
+    c.add_fixed_volt("VIN", 40.0)
+        .add_comp(d)
+        .add_resistor("RL", 500.0)
+        .add_ground("GND")
+        .connect("VIN-outnod", "D1-lPin")
+        .connect("D1-rPin", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+
+    c.solve().unwrap();
+    c.step().unwrap();
+    // Conducting: I = (40 - 20) / (500 + 500) = 20 mA, Vout = 10.0 V, V_diac = 30.0 V
+    let v_out = c.pin_voltage("RL-lPin").unwrap();
+    assert!(
+        (v_out - 10.0).abs() < 0.1,
+        "expected Vout=10V with V_on=20V, got {v_out}"
+    );
+
+    // Lower supply below breakover (28 V): I = (28 - 20) / 1000 = 8 mA < 10 mA -> extinguishes!
+    set_volt(&mut c, "VIN", 28.0);
+    c.step().unwrap();
+    let v_off = c.pin_voltage("RL-lPin").unwrap();
+    assert!(
+        v_off.abs() < 0.05,
+        "DIAC should turn off when current drops below I_hold, got {v_off}"
+    );
+
+    // Trigger again at +40 V, then reverse polarity to -10 V -> must turn off on reversal.
+    set_volt(&mut c, "VIN", 40.0);
+    c.step().unwrap();
+    assert!((c.pin_voltage("RL-lPin").unwrap() - 10.0).abs() < 0.1);
+    set_volt(&mut c, "VIN", -10.0);
+    c.step().unwrap();
+    assert!(
+        c.pin_voltage("RL-lPin").unwrap().abs() < 0.05,
+        "DIAC should extinguish on current reversal"
+    );
+}
+
+#[test]
+fn ws2812_t0l_t1l_timing_and_final_bit_reset_latch() {
+    let mut px = Circuit::new();
+    px.add_fixed_volt("VD", 0.0)
+        .add_comp(Comp::ws2812("PX", 1, 1, 1, 50_000, 400, 850, 850, 400))
+        .add_ground("GND")
+        .connect("VD-outnod", "PX-din")
+        .connect("PX-gnd", "GND-Gnd");
+    px.run_ps(1).unwrap();
+
+    // 1. Too-short low pulse (150 ns < T0L/2 = 425 ns, < T1L/2 = 200 ns): frame rejected.
+    let green_bits = [true; 8].into_iter().chain([false; 16]);
+    for bit in green_bits {
+        set_volt(&mut px, "VD", 5.0);
+        px.update().unwrap();
+        px.circ_time += if bit { 800_000 } else { 400_000 };
+        set_volt(&mut px, "VD", 0.0);
+        px.update().unwrap();
+        px.circ_time += 150_000;
+    }
+    px.run_ps(60_000_000).unwrap();
+    match &px.comp("PX").unwrap().kind {
+        Kind::Ws2812 { fb, .. } => assert_eq!(fb.pixels[0], [0, 0, 0]),
+        _ => panic!("ws2812"),
+    }
+
+    // 2. Valid T0L/T1L low pulses with NO 25th pulse: final bit (blue LSB = 1) latches on reset.
+    let mut blue_lsb = [false; 24];
+    blue_lsb[23] = true;
+    for bit in blue_lsb {
+        set_volt(&mut px, "VD", 5.0);
+        px.update().unwrap();
+        px.circ_time += if bit { 800_000 } else { 400_000 };
+        set_volt(&mut px, "VD", 0.0);
+        px.update().unwrap();
+        px.circ_time += if bit { 400_000 } else { 850_000 };
+    }
+    px.run_ps(60_000_000).unwrap();
+    match &px.comp("PX").unwrap().kind {
+        Kind::Ws2812 { fb, .. } => {
+            assert_eq!(fb.pixels[0], [0, 0, 1]);
+            assert_eq!(fb.bit_index, 0);
+        }
+        _ => panic!("ws2812"),
+    }
+}
+
+#[test]
+fn keypad_diodes_unidirectional_conduction_and_dir() {
+    let run_case = |diodes: bool, dir: bool, drive_row: bool| -> f64 {
+        let mut c = Circuit::new();
+        let mut kp = Comp::keypad("KP", 2, 2, "1234", diodes, dir);
+        if let Kind::KeyPad {
+            ref mut pressed, ..
+        } = kp.kind
+        {
+            *pressed = Some((0, 0)); // Row 0 = Pin0, Col 0 = Pin2
+        }
+        c.add_fixed_volt("V", 5.0)
+            .add_resistor("RL", 1000.0)
+            .add_ground("GND")
+            .add_comp(kp);
+        if drive_row {
+            c.connect("V-outnod", "KP-Pin0")
+                .connect("KP-Pin2", "RL-lPin")
+                .connect("RL-rPin", "GND-Gnd");
+        } else {
+            c.connect("V-outnod", "KP-Pin2")
+                .connect("KP-Pin0", "RL-lPin")
+                .connect("RL-rPin", "GND-Gnd");
+        }
+        c.solve().unwrap();
+        c.pin_voltage("RL-lPin").unwrap()
+    };
+
+    // Without diodes: conducts both ways (~5 V).
+    assert!(run_case(false, false, true) > 4.9);
+    assert!(run_case(false, false, false) > 4.9);
+
+    // Diodes enabled, dir=false (row -> col): conducts row->col (~4.3 V), blocks col->row (~0 V).
+    let fwd_rc = run_case(true, false, true);
+    let rev_rc = run_case(true, false, false);
+    assert!(
+        fwd_rc > 3.8 && fwd_rc < 4.7,
+        "row->col forward diode should drop ~0.6-0.8V, got {fwd_rc}"
+    );
+    assert!(
+        rev_rc < 0.05,
+        "row->col diode should block col->row, got {rev_rc}"
+    );
+
+    // Diodes enabled, dir=true (col -> row): blocks row->col (~0 V), conducts col->row (~4.3 V).
+    let rev_cr = run_case(true, true, true);
+    let fwd_cr = run_case(true, true, false);
+    assert!(
+        rev_cr < 0.05,
+        "col->row diode should block row->col, got {rev_cr}"
+    );
+    assert!(
+        fwd_cr > 3.8 && fwd_cr < 4.7,
+        "col->row forward diode should drop ~0.6-0.8V, got {fwd_cr}"
+    );
+}
+
+#[test]
+fn serial_port_and_term_variable_data_bits_and_stop_bits_loopback() {
+    use crate::serial;
+
+    let _guard = serial::test_lock();
+
+    // Helper: connect SP-tx -> ST-rx and send bytes through SP, read decoded bytes from ST.
+    let loopback = |tag: &str,
+                    tx_data_bits: usize,
+                    tx_stop_bits: usize,
+                    rx_data_bits: usize,
+                    rx_stop_bits: usize,
+                    payload: &[u8]|
+     -> Vec<u8> {
+        let tx_id = format!("SP_{tag}");
+        let rx_id = format!("ST_{tag}");
+        serial::ensure_session(&tx_id);
+        serial::ensure_session(&rx_id);
+        serial::clear(&tx_id);
+        serial::clear(&rx_id);
+        let _ = serial::take_send(&tx_id);
+
+        let mut c = Circuit::new();
+        c.add_comp(Comp::serial_port_with(
+            &tx_id,
+            "",
+            115_200,
+            tx_data_bits,
+            tx_stop_bits,
+        ))
+        .add_comp(Comp::serial_term_with(
+            &rx_id,
+            115_200,
+            rx_data_bits,
+            rx_stop_bits,
+        ))
+        .connect(format!("{tx_id}-tx"), format!("{rx_id}-rx"));
+
+        c.run_ps(1).unwrap();
+        for &b in payload {
+            serial::send_value(&tx_id, &b.to_string());
+        }
+        // 115200 baud => ~8.68 us/bit; 13 bits/frame * 4 bytes < 1 ms. Run 2 ms.
+        c.run_ps(2_000_000_000).unwrap();
+        serial::out_text(&rx_id)
+            .chars()
+            .map(|ch| ch as u8)
+            .collect()
+    };
+
+    // 5-bit, 1 stop bit: high bits above bit 4 are masked off (0xFF -> 0x1F, 0x15 -> 0x15).
+    assert_eq!(loopback("5n1", 5, 1, 5, 1, &[0x15, 0xFF]), vec![0x15, 0x1F]);
+
+    // 7-bit, 2 stop bits: back-to-back ASCII bytes (0xC1 masked to 7 bits = 0x41 'A').
+    assert_eq!(
+        loopback("7n2", 7, 2, 7, 2, &[b'H', 0xC1, b'!']),
+        vec![b'H', b'A', b'!']
+    );
+
+    // 9-bit, 1 stop bit: full 8-bit payload survives 9-bit frame loopback.
+    assert_eq!(loopback("9n1", 9, 1, 9, 1, &[0xA5, 0x5A]), vec![0xA5, 0x5A]);
+
+    // Framing mismatch: TX sends 1 stop bit back-to-back, RX expects 2 stop bits ->
+    // first byte's 2nd stop bit collides with second byte's low start bit and is rejected.
+    let mismatched = loopback("mismatch", 8, 1, 8, 2, &[0x55, 0xAA]);
+    assert_ne!(
+        mismatched,
+        vec![0x55, 0xAA],
+        "1-stop TX into 2-stop RX should not decode back-to-back bytes cleanly"
+    );
+}
+
+#[test]
+fn pcd8544_spi_contrast_bias_and_paint_change() {
+    let mut canvas = crate::canvas::Canvas::new();
+    let id = canvas.scene_mut().add_pcd8544(0.0, 0.0);
+    let vr = canvas.scene_mut().add_fixed_volt(-80.0, -40.0, 5.0);
+    let vc = canvas.scene_mut().add_fixed_volt(-80.0, -20.0, 0.0);
+    let vd = canvas.scene_mut().add_fixed_volt(-80.0, 0.0, 0.0);
+    let vs = canvas.scene_mut().add_fixed_volt(-80.0, 20.0, 0.0);
+    let vk = canvas.scene_mut().add_fixed_volt(-80.0, 40.0, 0.0);
+    for (a, b) in [
+        (format!("{vr}-outnod"), format!("{id}-PinRst")),
+        (format!("{vc}-outnod"), format!("{id}-PinCs")),
+        (format!("{vd}-outnod"), format!("{id}-PinDc")),
+        (format!("{vs}-outnod"), format!("{id}-PinSi")),
+        (format!("{vk}-outnod"), format!("{id}-PinScl")),
+    ] {
+        let ap = canvas.scene().pin_scene(&a).unwrap();
+        let bp = canvas.scene().pin_scene(&b).unwrap();
+        canvas.scene_mut().connect_pins(&a, ap, &b, bp);
+    }
+
+    canvas.power_on();
+
+    let send_spi = |canvas: &mut crate::canvas::Canvas, dc: bool, byte: u8| {
+        if let Some(c) = canvas.running_circuit_mut() {
+            set_volt(c, &vd, if dc { 5.0 } else { 0.0 });
+            c.re_solve().unwrap();
+            for i in (0..8).rev() {
+                set_volt(c, &vs, if byte & (1 << i) == 0 { 0.0 } else { 5.0 });
+                c.re_solve().unwrap();
+                set_volt(c, &vk, 5.0);
+                c.re_solve().unwrap();
+                set_volt(c, &vk, 0.0);
+                c.re_solve().unwrap();
+            }
+        }
+        canvas.tick();
+    };
+
+    // Extended instruction set (H=1): set Bias = 6 (0x16) and Contrast = 18 (0x80 | 18 = 0x92).
+    send_spi(&mut canvas, false, 0x21);
+    send_spi(&mut canvas, false, 0x16);
+    send_spi(&mut canvas, false, 0x92);
+    // Basic instruction set (H=0), normal display mode (0x0C), write solid pixel column 0xFF.
+    send_spi(&mut canvas, false, 0x20);
+    send_spi(&mut canvas, false, 0x0C);
+    send_spi(&mut canvas, true, 0xFF);
+
+    let reading_low = canvas.readings().get(&id).cloned().expect("reading");
+    assert_eq!(reading_low.extra, "18,6");
+    let (fg_low, bg_low) = crate::components::pcd8544_colors(18, 6);
+
+    // Raise contrast via SPI to 110 (0x80 | 110 = 0xEE) and Bias = 4 (0x14).
+    send_spi(&mut canvas, false, 0x21);
+    send_spi(&mut canvas, false, 0x14);
+    send_spi(&mut canvas, false, 0xEE);
+    send_spi(&mut canvas, false, 0x20);
+
+    let reading_high = canvas.readings().get(&id).cloned().expect("reading");
+    assert_eq!(reading_high.extra, "110,4");
+    let (fg_high, bg_high) = crate::components::pcd8544_colors(110, 4);
+
+    // Higher contrast produces noticeably darker foreground and overdrive-darkened glass.
+    assert!(fg_high.r < fg_low.r && fg_high.g < fg_low.g);
+    assert!(bg_high.r < bg_low.r && bg_high.g < bg_low.g);
+
+    // Stopping simulation does not overwrite the scene component's configured properties.
+    canvas.power_off();
+    match &canvas.scene().item_by_id(&id).unwrap().kind {
+        crate::components::Part::Pcd8544(p) => {
+            assert_eq!(p.contrast, 50);
+            assert_eq!(p.bias, 4);
+        }
+        _ => panic!("expected Pcd8544"),
     }
 }

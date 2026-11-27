@@ -1480,3 +1480,126 @@ fn pic_intosc_osccon_updates_freq_and_avr_clkout_toggles() {
     assert_ne!(s0, s1, "CLKOUT pin should toggle each instruction");
     assert_eq!(s0, s2, "CLKOUT pin should toggle back on next instruction");
 }
+
+#[test]
+fn shared_reset_pin_gated_by_rst_enabled() {
+    let xml = r#"
+<mcu name="m328rst" core="AVR" data="512" prog="64" progword="2" inst_cycle="1" freq="16000000">
+  <regblock start="0x0000" end="0x00FF" streg="SREG">
+    <register name="PINC" addr="0x0026" reset=""/>
+    <register name="DDRC" addr="0x0027" reset=""/>
+    <register name="PORTC" addr="0x0028" reset=""/>
+    <register name="SPL" addr="0x005D" reset=""/>
+    <register name="SPH" addr="0x005E" reset=""/>
+    <register name="SREG" addr="0x005F" reset="" bits="C,Z,N,V,S,H,T,I"/>
+  </regblock>
+  <port name="PORTC" pins="7" outreg="PORTC" inreg="PINC" dirreg="DDRC" resetpin="PORTC6"/>
+</mcu>
+"#;
+    // LDI R16, 0x40 (0xE400); OUT DDRC(0x07), R16 (0xB907); OUT PORTC(0x08), R16 (0xB908); NOP (0x0000)
+    let prog = [0xE400u16, 0xB907, 0xB908, 0x0000];
+    let mut d = Device::from_xml("m", xml).unwrap();
+    d.load_words(&prog);
+    d.start();
+
+    // Default rst_enabled = true: PORTC6 is claimed as reset (input + pullup), cannot be driven as GPIO.
+    let pc6 = |dev: &Device| {
+        dev.gpio_pins()
+            .find(|p| p.name == "m-PORTC6")
+            .unwrap()
+            .clone()
+    };
+    assert!(d.rst_enabled());
+    assert!(pc6(&d).dir_ctrl && pc6(&d).out_ctrl && pc6(&d).pullup && !pc6(&d).is_out);
+    d.step_cpu();
+    d.step_cpu();
+    d.step_cpu();
+    assert_eq!(d.pc(), 3);
+    assert!(
+        !pc6(&d).is_out,
+        "PORTC6 must remain detached from GPIO while RstEnabled is true"
+    );
+
+    // Pulling PORTC6 low resets PC to 0 and holds reset until released.
+    d.set_pin_input("m-PORTC6", false);
+    assert!(d.shared_reset_held());
+    assert_eq!(d.pc(), 0);
+    d.set_pin_input("m-PORTC6", true);
+    assert!(!d.shared_reset_held());
+
+    // Disabling RstEnabled releases PORTC6 to normal GPIO and ignores low input on it.
+    d.set_rst_enabled(false);
+    d.reset();
+    d.start();
+    assert!(!pc6(&d).dir_ctrl && !pc6(&d).out_ctrl);
+    d.step_cpu();
+    d.step_cpu();
+    d.step_cpu();
+    assert_eq!(d.pc(), 3);
+    assert!(
+        pc6(&d).is_out && pc6(&d).out_state,
+        "PORTC6 should drive high as normal GPIO when RstEnabled is false"
+    );
+    d.set_pin_input("m-PORTC6", false);
+    assert!(!d.shared_reset_held());
+    assert_eq!(d.pc(), 3);
+}
+
+#[test]
+fn ext_osc_detaches_clock_pins_and_steps_on_rising_edges() {
+    let xml = r#"
+<mcu name="m328ext" core="AVR" data="512" prog="64" progword="2" inst_cycle="1" freq="16000000">
+  <regblock start="0x0000" end="0x00FF" streg="SREG">
+    <register name="PINB" addr="0x0023" reset=""/>
+    <register name="DDRB" addr="0x0024" reset=""/>
+    <register name="PORTB" addr="0x0025" reset=""/>
+    <register name="SPL" addr="0x005D" reset=""/>
+    <register name="SPH" addr="0x005E" reset=""/>
+    <register name="SREG" addr="0x005F" reset="" bits="C,Z,N,V,S,H,T,I"/>
+  </regblock>
+  <port name="PORTB" pins="8" outreg="PORTB" inreg="PINB" dirreg="DDRB"/>
+  <intosc name="intosc" clockpins="PORTB6,PORTB7"/>
+</mcu>
+"#;
+    // LDI R16, 0xFF (0xEF0F); OUT DDRB(0x04), R16 (0xB904); OUT PORTB(0x05), R16 (0xB905); NOP
+    let prog = [0xEF0Fu16, 0xB904, 0xB905, 0x0000];
+    let mut d = Device::from_xml("x", xml).unwrap();
+    d.load_words(&prog);
+    d.set_ext_osc(true);
+    d.reset();
+    d.start();
+
+    let pin = |dev: &Device, suffix: &str| {
+        dev.gpio_pins()
+            .find(|p| p.name == format!("x-{suffix}"))
+            .unwrap()
+            .clone()
+    };
+    assert!(pin(&d, "PORTB6").dir_ctrl && pin(&d, "PORTB7").dir_ctrl);
+    assert_eq!(d.pc(), 0);
+
+    // Rising edge 1 -> LDI
+    d.set_pin_input("x-PORTB6", true);
+    assert!(d.step_ext_clock());
+    assert_eq!(d.pc(), 1);
+    // Falling edge does not step
+    d.set_pin_input("x-PORTB6", false);
+    assert!(!d.step_ext_clock());
+    assert_eq!(d.pc(), 1);
+    // Rising edges 2 & 3 -> OUT DDRB, OUT PORTB
+    d.set_pin_input("x-PORTB6", true);
+    assert!(d.step_ext_clock());
+    d.set_pin_input("x-PORTB6", false);
+    d.set_pin_input("x-PORTB6", true);
+    assert!(d.step_ext_clock());
+    assert_eq!(d.pc(), 3);
+
+    // PORTB0 drives high, while PORTB6/PORTB7 stay detached as oscillator inputs.
+    assert!(pin(&d, "PORTB0").is_out && pin(&d, "PORTB0").out_state);
+    assert!(!pin(&d, "PORTB6").is_out);
+    assert!(!pin(&d, "PORTB7").is_out);
+
+    // Disabling ext_osc releases PORTB6/PORTB7 back to GPIO.
+    d.set_ext_osc(false);
+    assert!(!pin(&d, "PORTB6").dir_ctrl && !pin(&d, "PORTB7").dir_ctrl);
+}

@@ -9,7 +9,6 @@ VoltSource: driver 5.000 V implicit-return
 CurrSource: driver 10.000 V implicit-return
 Push: current-gap
 SwitchDip: current-gap
-KeyPad: current-gap
 Diode: current-gap
 Zener: current-gap
 OpAmp: implicit-return

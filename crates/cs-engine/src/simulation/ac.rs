@@ -382,8 +382,10 @@ impl Circuit {
                 | Kind::VarCapacitor { capacitance, .. } => {
                     *capacitance = 0.0;
                 }
-                Kind::Inductor { .. } | Kind::VarInductor { .. } => {
-                    c.kind = Kind::Resistor { resistance: 1e-6 };
+                Kind::Inductor { resistance, .. } | Kind::VarInductor { resistance, .. } => {
+                    c.kind = Kind::Resistor {
+                        resistance: resistance.max(OHM_FLOOR),
+                    };
                 }
                 Kind::VoltSource { running, .. } if c.id == source_id => {
                     *running = true;
@@ -808,20 +810,65 @@ fn stamp_comp(
             let b = net(pin_net, &comp.right_pin());
             stamp_g(sys, a, b, g);
         }
-        Kind::Capacitor { capacitance, .. }
-        | Kind::ElCapacitor { capacitance, .. }
-        | Kind::VarCapacitor { capacitance, .. } => {
-            let yi = omega * *capacitance;
-            let a = net(pin_net, &comp.left_pin());
-            let b = net(pin_net, &comp.right_pin());
-            sys.stamp_y(a, b, 0.0, yi);
+        Kind::Capacitor {
+            capacitance,
+            resistance,
+            ..
         }
-        Kind::Inductor { inductance, .. } | Kind::VarInductor { inductance, .. } => {
+        | Kind::ElCapacitor {
+            capacitance,
+            resistance,
+            ..
+        }
+        | Kind::VarCapacitor {
+            capacitance,
+            resistance,
+            ..
+        } => {
+            let b = omega * capacitance.max(0.0);
+            let r = resistance.max(0.0);
+            let (yr, yi) = if r <= 0.0 || b <= 0.0 {
+                (0.0, b)
+            } else {
+                let rb = r * b;
+                if rb <= 1.0 {
+                    let d = 1.0 + rb * rb;
+                    (r * b * b / d, b / d)
+                } else {
+                    let inv = 1.0 / rb;
+                    let d = r * (1.0 + inv * inv);
+                    (1.0 / d, inv / d)
+                }
+            };
+            let a = net(pin_net, &comp.left_pin());
+            let b_node = net(pin_net, &comp.right_pin());
+            sys.stamp_y(a, b_node, yr, yi);
+        }
+        Kind::Inductor {
+            inductance,
+            resistance,
+            ..
+        }
+        | Kind::VarInductor {
+            inductance,
+            resistance,
+            ..
+        } => {
             let l = inductance.max(HENRY_FLOOR);
-            let yi = -1.0 / (omega * l);
+            let x = omega * l;
+            let r = resistance.max(0.0);
+            let (yr, yi) = if r <= 0.0 {
+                (0.0, -1.0 / x)
+            } else {
+                let m = r.max(x);
+                let rn = r / m;
+                let xn = x / m;
+                let d = m * (rn * rn + xn * xn);
+                (rn / d, -xn / d)
+            };
             let a = net(pin_net, &comp.left_pin());
             let b = net(pin_net, &comp.right_pin());
-            sys.stamp_y(a, b, 0.0, yi);
+            sys.stamp_y(a, b, yr, yi);
         }
         Kind::Potentiometer { resistance, wiper } => {
             let r1 = (wiper * resistance).max(OHM_FLOOR);
@@ -1295,5 +1342,41 @@ mod tests {
         circuit.add_resistor("R1", 100.0);
         let err = circuit.ac_at("V1", "R1-lPin", 10.0).unwrap_err();
         assert!(matches!(err, Error::Parse(_)));
+    }
+
+    #[test]
+    fn capacitor_esr_sets_high_frequency_floor() {
+        // R1 = 100 Ω, C1 = 10 µF with ESR = 100 Ω.
+        // At high frequency (1 MHz), X_C ≈ 0.016 Ω << ESR, so gain approaches ESR / (R1 + ESR) = 0.5.
+        let mut circuit = Circuit::new();
+        circuit
+            .add_fixed_volt("V1", 5.0)
+            .add_resistor("R1", 100.0)
+            .add_comp(Comp::capacitor_with_esr("C1", 10e-6, 100.0))
+            .add_ground("GND")
+            .connect("V1-outnod", "R1-lPin")
+            .connect("R1-rPin", "C1-lPin")
+            .connect("C1-rPin", "GND-Gnd");
+        let high = circuit.ac_at("V1", "C1-lPin", 1_000_000.0).unwrap();
+        near(high.gain, 0.5, 0.01);
+        near(high.phase_deg, 0.0, 1.0);
+    }
+
+    #[test]
+    fn inductor_winding_resistance_sets_low_frequency_floor() {
+        // R1 = 100 Ω, L1 = 1 mH with R_L = 100 Ω.
+        // At low frequency (1 Hz), X_L ≈ 6.3 mΩ << R_L, so gain approaches R_L / (R1 + R_L) = 0.5.
+        let mut circuit = Circuit::new();
+        circuit
+            .add_fixed_volt("V1", 5.0)
+            .add_resistor("R1", 100.0)
+            .add_comp(Comp::inductor_with_resistance("L1", 1e-3, 100.0))
+            .add_ground("GND")
+            .connect("V1-outnod", "R1-lPin")
+            .connect("R1-rPin", "L1-lPin")
+            .connect("L1-rPin", "GND-Gnd");
+        let low = circuit.ac_at("V1", "L1-lPin", 1.0).unwrap();
+        near(low.gain, 0.5, 0.01);
+        near(low.phase_deg, 0.0, 1.0);
     }
 }

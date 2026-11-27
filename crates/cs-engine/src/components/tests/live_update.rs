@@ -158,13 +158,44 @@ fn capacitor_voltage_survives_a_capacitance_edit() {
         other => panic!("expected capacitor, got {other:?}"),
     }
     part.set_prop_text("Capacitance", "1 µF").unwrap();
+    part.set_prop_text("Resistance", "25 Ω").unwrap();
     refresh(&mut circuit, &part);
     match &circuit.comp(ID).unwrap().kind {
-        Kind::Capacitor { capacitance, volt } => {
+        Kind::Capacitor {
+            capacitance,
+            resistance,
+            volt,
+        } => {
             assert!((*capacitance - 1e-6).abs() < 1e-12);
+            assert!((*resistance - 25.0).abs() < 1e-12);
             assert!((*volt - 2.5).abs() < 1e-12);
         }
         other => panic!("expected capacitor, got {other:?}"),
+    }
+}
+
+#[test]
+fn inductor_current_survives_inductance_and_resistance_edits() {
+    let mut part = case("Inductor");
+    let mut circuit = inserted(&part);
+    match &mut circuit.comp_mut(ID).unwrap().kind {
+        Kind::Inductor { ieq, .. } => *ieq = -0.25,
+        other => panic!("expected inductor, got {other:?}"),
+    }
+    part.set_prop_text("Inductance", "50 mH").unwrap();
+    part.set_prop_text("Resistance", "12 Ω").unwrap();
+    refresh(&mut circuit, &part);
+    match &circuit.comp(ID).unwrap().kind {
+        Kind::Inductor {
+            inductance,
+            resistance,
+            ieq,
+        } => {
+            assert!((*inductance - 50e-3).abs() < 1e-12);
+            assert!((*resistance - 12.0).abs() < 1e-12);
+            assert!((*ieq - (-0.25)).abs() < 1e-12);
+        }
+        other => panic!("expected inductor, got {other:?}"),
     }
 }
 

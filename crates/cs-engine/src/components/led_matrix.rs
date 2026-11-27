@@ -24,7 +24,7 @@ const MAX_A: f64 = 1.0;
 const MIN_OHMS: f64 = 1e-3;
 const MAX_OHMS: f64 = 1e6;
 
-use super::led::{LED_COLOR_OPTIONS, LedColor};
+use super::led::{LED_COLOR_OPTIONS, LedColor, led_die_appearance, led_die_ratio};
 
 impl crate::canvas::Item {
     pub fn led_matrix(id: impl Into<String>, x: f64, y: f64, rows: usize, cols: usize) -> Self {
@@ -282,6 +282,11 @@ impl Drawable for LedMatrix {
         let lit_color = Color::rgb(lit_rgba.0, lit_rgba.1, lit_rgba.2);
         let unlit_color = Color::rgb(unlit_rgba.0, unlit_rgba.1, unlit_rgba.2);
         let sim_running = ctx.canvas.sim_running();
+        let is_crashed = sim_running
+            && ctx
+                .canvas
+                .item_overload_state(ctx.item_id)
+                .is_some_and(|st| st.crashed);
 
         for row in 0..r {
             let vr = if sim_running {
@@ -299,16 +304,27 @@ impl Drawable for LedMatrix {
                     0.0
                 };
 
-                let is_on = sim_running && (vr - vc) > self.threshold * 0.8;
                 let cx = (col as f64) * 8.0;
                 let cy = (row as f64) * 8.0;
 
-                if is_on {
-                    d.fill_circle(cx, cy, 4.0, lit_color.fade(0.35));
-                    d.fill_circle(cx, cy, 2.5, lit_color);
+                let (fill, glow) = if sim_running {
+                    let die_cur = ctx.canvas.led_die_current(ctx.item_id, row * c + col);
+                    let ratio = led_die_ratio(
+                        die_cur,
+                        (vr - vc).max(0.0),
+                        self.threshold,
+                        self.resistance,
+                        self.max_current,
+                    );
+                    led_die_appearance(lit_color, unlit_color, ratio, is_crashed)
                 } else {
-                    d.fill_circle(cx, cy, 2.5, unlit_color);
+                    (unlit_color, 0.0)
+                };
+
+                if glow > 0.0 {
+                    d.fill_circle(cx, cy, 4.0, fill.fade(glow));
                 }
+                d.fill_circle(cx, cy, 2.5, fill);
             }
         }
         true

@@ -81,6 +81,19 @@ impl Component for SevenSegmentBCD {
     const DESCRIPTION: &'static str = "7-Segment Display with BCD Decoder.";
 
     fn props() -> &'static [PropDef<Self>] {
+        const COMMON_ANODE: PropDef<SevenSegmentBCD> = {
+            let mut p = PropDef::bool(
+                "CommonAnode",
+                "Common Anode",
+                SevenSegmentBCD::get_common_anode,
+                SevenSegmentBCD::set_common_anode,
+            )
+            .with_info(
+                "Determines common anode (true) or common cathode (false) pin configuration.",
+            );
+            p.show_by_default = false;
+            p
+        };
         static PROPS: &[PropDef<SevenSegmentBCD>] = &[
             PropDef::enumeration(
                 "Color",
@@ -90,15 +103,7 @@ impl Component for SevenSegmentBCD {
                 SevenSegmentBCD::set_color,
             )
             .with_info("Led color."),
-            PropDef::bool(
-                "CommonAnode",
-                "Common Anode",
-                SevenSegmentBCD::get_common_anode,
-                SevenSegmentBCD::set_common_anode,
-            )
-            .with_info(
-                "Determines common anode (true) or common cathode (false) pin configuration.",
-            ),
+            COMMON_ANODE,
         ];
         PROPS
     }
@@ -220,12 +225,15 @@ mod tests {
 
     #[test]
     fn default_seven_segment_bcd() {
-        let s = SevenSegmentBCD::default();
+        let mut s = SevenSegmentBCD::default();
         assert_eq!(s.type_id(), "SevenSegmentBCD");
         assert_eq!(s.color, LedColor::Red);
         assert!(!s.common_anode);
         assert_eq!(s.pin_geoms().len(), 4);
         assert_eq!(s.body(), Rect::new(-16.0, -24.0, 32.0, 48.0));
+        assert!(!s.prop_rows().iter().any(|r| r.name == "CommonAnode"));
+        s.set_prop_text("CommonAnode", "true").unwrap();
+        assert!(s.common_anode);
     }
 }
 

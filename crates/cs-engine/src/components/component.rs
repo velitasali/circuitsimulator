@@ -162,7 +162,7 @@ pub fn group_rows_by(
     let mut used = std::collections::HashSet::new();
     let mut result: Vec<PropGroup> = groups
         .iter()
-        .map(|&(group_name, prop_ids)| {
+        .filter_map(|&(group_name, prop_ids)| {
             let mut group_rows = Vec::new();
             for &id in prop_ids {
                 if let Some(r) = rows.iter().find(|r| r.name == id) {
@@ -170,7 +170,7 @@ pub fn group_rows_by(
                     used.insert(id);
                 }
             }
-            PropGroup::new(group_name, group_rows)
+            (!group_rows.is_empty()).then(|| PropGroup::new(group_name, group_rows))
         })
         .collect();
 

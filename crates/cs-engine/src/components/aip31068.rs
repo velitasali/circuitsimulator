@@ -136,6 +136,22 @@ impl Component for Aip31068 {
             p.structural = true;
             p
         };
+        const FREQUENCY: PropDef<Aip31068> = {
+            let mut p = PropDef::float(
+                "Frequency",
+                "I2C Frequency",
+                "_kHz",
+                MIN_FREQ_KHZ,
+                MAX_FREQ_KHZ,
+                Aip31068::get_freq,
+                Aip31068::set_freq,
+            )
+            .with_info(
+                "It is better to be similar to I2C Master frequency, but not critical in most cases.",
+            );
+            p.show_by_default = false;
+            p
+        };
         static PROPS: &[PropDef<Aip31068>] = &[
             ROWS,
             COLS,
@@ -148,18 +164,7 @@ impl Component for Aip31068 {
                 Aip31068::set_control_code,
             )
             .with_info("Device address."),
-            PropDef::float(
-                "Frequency",
-                "I2C Frequency",
-                "_kHz",
-                MIN_FREQ_KHZ,
-                MAX_FREQ_KHZ,
-                Aip31068::get_freq,
-                Aip31068::set_freq,
-            )
-            .with_info(
-                "It is better to be similar to I2C Master frequency, but not critical in most cases.",
-            ),
+            FREQUENCY,
         ];
         PROPS
     }

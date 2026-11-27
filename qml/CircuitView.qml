@@ -635,7 +635,11 @@ Item {
             text: I18n.tr("Save Package")
             iconLigature: "save"
             visible: itemMenu.isSubPackage
-            onTriggered: savePackageDialog.open()
+            onTriggered: {
+                var targetUid = itemMenu.itemUid || CircuitCanvas.selectedUid
+                savePackageDialog.currentFile = CircuitCanvas.suggestPackageUrl(targetUid) || ""
+                savePackageDialog.open()
+            }
         }
         ContextMenuItem {
             text: I18n.tr("Generate Pins...")

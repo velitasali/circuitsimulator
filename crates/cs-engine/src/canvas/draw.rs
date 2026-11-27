@@ -232,6 +232,32 @@ pub enum Align {
     Right,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct TextStyle<'a> {
+    pub family: &'a str,
+    pub bold: bool,
+    pub fixed_width: bool,
+}
+
+impl<'a> TextStyle<'a> {
+    /// Returns `true` when `fixed_width` is set or `family` requests a monospace face.
+    pub fn is_monospace(self) -> bool {
+        self.fixed_width || is_monospace_family(self.family)
+    }
+}
+
+pub fn is_monospace_family(family: &str) -> bool {
+    let lower = family.trim().to_ascii_lowercase();
+    lower.contains("mono")
+        || lower.contains("courier")
+        || lower.contains("consolas")
+        || lower.contains("menlo")
+        || lower.contains("fixed")
+        || lower.contains("inconsolata")
+        || lower.contains("fira code")
+        || lower.contains("jetbrains")
+}
+
 #[allow(clippy::too_many_arguments)]
 pub trait Draw {
     fn fill_rect(&mut self, x: f64, y: f64, w: f64, h: f64, c: Color);
@@ -255,6 +281,22 @@ pub trait Draw {
     fn text(&mut self, x: f64, y: f64, s: &str, size: f64, c: Color, align: Align);
     fn text_bold(&mut self, x: f64, y: f64, s: &str, size: f64, c: Color, align: Align) {
         self.text(x, y, s, size, c, align);
+    }
+    fn text_styled(
+        &mut self,
+        x: f64,
+        y: f64,
+        s: &str,
+        size: f64,
+        c: Color,
+        align: Align,
+        style: TextStyle<'_>,
+    ) {
+        if style.bold {
+            self.text_bold(x, y, s, size, c, align);
+        } else {
+            self.text(x, y, s, size, c, align);
+        }
     }
     fn grid_dots(&mut self, scene: Rect, step: i32, c: Color);
     fn push(&mut self, x: f64, y: f64, rot: f64, sx: f64, sy: f64);

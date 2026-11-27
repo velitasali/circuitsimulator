@@ -16,12 +16,23 @@ pub(super) fn on_pins(kind: &mut Kind, id: &str, v: impl Fn(&str) -> f64, t: u64
             count,
             rst_time_ns,
             t0h_ns,
+            t0l_ns,
             t1h_ns,
+            t1l_ns,
             fb,
             ..
         } => {
             let high = pin("din") - pin("gnd") > 2.0;
-            let (changed, arm) = fb.on_level(high, t, *count, *t0h_ns, *t1h_ns, *rst_time_ns);
+            let (changed, arm) = fb.on_level(
+                high,
+                t,
+                *count,
+                *t0h_ns,
+                *t0l_ns,
+                *t1h_ns,
+                *t1l_ns,
+                *rst_time_ns,
+            );
             match arm {
                 Some(at) => Drive::arm(at, changed, true),
                 None => Drive::stamp(changed),
@@ -106,22 +117,32 @@ pub(super) fn on_pins(kind: &mut Kind, id: &str, v: impl Fn(&str) -> f64, t: u64
             t,
         ),
         Kind::Esp01 {
-            baud_rate, uart, ..
+            baud_rate,
+            debug,
+            uart,
         } => {
+            uart.debug = *debug;
             let rx_high = pin("pin1") > 2.0;
             uart.on_pins(*baud_rate, rx_high, t)
         }
         Kind::SerialPort {
-            baud_rate, uart, ..
+            baud_rate,
+            data_bits,
+            stop_bits,
+            uart,
+            ..
         } => {
             let rx_high = pin("rx") > 2.0;
-            uart.on_pins(id, *baud_rate, rx_high, t)
+            uart.on_pins(id, *baud_rate, *data_bits, *stop_bits, rx_high, t)
         }
         Kind::SerialTerm {
-            baud_rate, uart, ..
+            baud_rate,
+            data_bits,
+            stop_bits,
+            uart,
         } => {
             let rx_high = pin("rx") > 2.0;
-            uart.on_pins(id, *baud_rate, rx_high, t)
+            uart.on_pins(id, *baud_rate, *data_bits, *stop_bits, rx_high, t)
         }
         Kind::SdCard { spi, .. } => {
             let cs_high = pin("PinCS") > 2.0;
@@ -159,10 +180,13 @@ pub(super) fn on_event(
 ) -> Option<Drive> {
     match kind {
         Kind::Ws2812 {
-            rst_time_ns, fb, ..
+            count,
+            rst_time_ns,
+            fb,
+            ..
         } => {
-            fb.on_reset(t, *rst_time_ns);
-            Some(Drive::QUIET)
+            let changed = fb.on_reset(t, *count, *rst_time_ns);
+            Some(Drive::stamp(changed))
         }
         Kind::Sr04 {
             echo_high, echo, ..
@@ -182,22 +206,32 @@ pub(super) fn on_event(
             ..
         } => Some(bus.on_sqw(*sqw_freq, *sqw_enabled, sqw_state, t)),
         Kind::Esp01 {
-            baud_rate, uart, ..
+            baud_rate,
+            debug,
+            uart,
         } => {
+            uart.debug = *debug;
             let rx_high = v(&format!("{id}-pin1")) > 2.0;
-            Some(uart.on_event(*baud_rate, rx_high, t))
+            Some(uart.on_event_with(id, *baud_rate, rx_high, t))
         }
         Kind::SerialPort {
-            baud_rate, uart, ..
+            baud_rate,
+            data_bits,
+            stop_bits,
+            uart,
+            ..
         } => {
             let rx_high = v(&format!("{id}-rx")) > 2.0;
-            Some(uart.on_event(id, *baud_rate, rx_high, t))
+            Some(uart.on_event(id, *baud_rate, *data_bits, *stop_bits, rx_high, t))
         }
         Kind::SerialTerm {
-            baud_rate, uart, ..
+            baud_rate,
+            data_bits,
+            stop_bits,
+            uart,
         } => {
             let rx_high = v(&format!("{id}-rx")) > 2.0;
-            Some(uart.on_event(id, *baud_rate, rx_high, t))
+            Some(uart.on_event(id, *baud_rate, *data_bits, *stop_bits, rx_high, t))
         }
         _ => None,
     }

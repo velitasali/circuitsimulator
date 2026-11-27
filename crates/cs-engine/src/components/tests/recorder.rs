@@ -3,7 +3,7 @@
 use crate::canvas::Canvas;
 use crate::canvas::ImageBuf;
 use crate::canvas::Rect;
-use crate::canvas::draw::{Align, Color, Draw, PaintCtx, Palette};
+use crate::canvas::draw::{Align, Color, Draw, PaintCtx, Palette, TextStyle};
 use crate::canvas::scene::Item;
 use crate::components::{Drawable, Part};
 
@@ -117,6 +117,17 @@ pub enum DrawOp {
         size: f64,
         color: Color,
         align: Align,
+    },
+    TextStyled {
+        x: f64,
+        y: f64,
+        text: String,
+        size: f64,
+        color: Color,
+        align: Align,
+        family: String,
+        bold: bool,
+        fixed_width: bool,
     },
     GridDots {
         scene: Rect,
@@ -304,6 +315,29 @@ impl Draw for DrawRecorder {
         });
     }
 
+    fn text_styled(
+        &mut self,
+        x: f64,
+        y: f64,
+        s: &str,
+        size: f64,
+        color: Color,
+        align: Align,
+        style: TextStyle<'_>,
+    ) {
+        self.ops.push(DrawOp::TextStyled {
+            x,
+            y,
+            text: s.to_string(),
+            size,
+            color,
+            align,
+            family: style.family.to_string(),
+            bold: style.bold,
+            fixed_width: style.fixed_width,
+        });
+    }
+
     fn grid_dots(&mut self, scene: Rect, step: i32, color: Color) {
         self.ops.push(DrawOp::GridDots { scene, step, color });
     }
@@ -365,7 +399,9 @@ impl DrawRecorder {
 
     pub fn contains_text(&self, needle: &str) -> bool {
         self.ops.iter().any(|op| match op {
-            DrawOp::Text { text, .. } | DrawOp::TextBold { text, .. } => text.contains(needle),
+            DrawOp::Text { text, .. }
+            | DrawOp::TextBold { text, .. }
+            | DrawOp::TextStyled { text, .. } => text.contains(needle),
             _ => false,
         })
     }
@@ -374,7 +410,9 @@ impl DrawRecorder {
         self.ops
             .iter()
             .filter_map(|op| match op {
-                DrawOp::Text { text, .. } | DrawOp::TextBold { text, .. } => Some(text.clone()),
+                DrawOp::Text { text, .. }
+                | DrawOp::TextBold { text, .. }
+                | DrawOp::TextStyled { text, .. } => Some(text.clone()),
                 _ => None,
             })
             .collect()
@@ -397,6 +435,7 @@ impl DrawRecorder {
             | DrawOp::Arc { color: c, .. }
             | DrawOp::Text { color: c, .. }
             | DrawOp::TextBold { color: c, .. }
+            | DrawOp::TextStyled { color: c, .. }
             | DrawOp::GridDots { color: c, .. } => *c == color,
             DrawOp::Push { .. }
             | DrawOp::Pop
@@ -457,7 +496,9 @@ impl DrawRecorder {
                     && a1.is_finite()
                     && width.is_finite()
             }
-            DrawOp::Text { x, y, size, .. } | DrawOp::TextBold { x, y, size, .. } => {
+            DrawOp::Text { x, y, size, .. }
+            | DrawOp::TextBold { x, y, size, .. }
+            | DrawOp::TextStyled { x, y, size, .. } => {
                 x.is_finite() && y.is_finite() && size.is_finite()
             }
             DrawOp::GridDots { scene, .. } => {

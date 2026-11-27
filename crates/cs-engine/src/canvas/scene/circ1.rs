@@ -276,6 +276,10 @@ impl Scene {
                         } else {
                             Some(mcu.package.name.clone())
                         },
+                        rst_enabled: mcu.rst_enabled,
+                        ext_osc: mcu.ext_osc,
+                        wdt_enabled: mcu.wdt_enabled,
+                        clk_out: mcu.clk_out,
                     };
                     if let Ok(view) = crate::mcu::instantiate_view(&item.id, &spec, search) {
                         mcu.device = dev;
@@ -349,7 +353,11 @@ impl Scene {
                             &subc.exposed_overrides,
                         );
                     }
+                    subc.resolve_background(search.circuit_dir.as_deref());
                     subc.refresh_board_children();
+                }
+                Part::SubPackage(sp) => {
+                    sp.resolve_background(search.circuit_dir.as_deref());
                 }
                 Part::WaveGen(wg) => {
                     if wg.wav_data.is_none() && !wg.file.is_empty() {

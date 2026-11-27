@@ -510,6 +510,11 @@ impl DiacState {
         self.v_prev = v1 - v2;
     }
 
+    #[inline]
+    pub fn v_on(&self) -> f64 {
+        (self.v_breakover - self.breakback_v).max(0.0)
+    }
+
     pub fn update_nonlinear(
         &mut self,
         cache: &PinCache,
@@ -533,10 +538,11 @@ impl DiacState {
         let mut state = self.conducting;
 
         if state {
-            let i_main = v_diff / self.res_on.max(MIN_R);
+            let v_on = self.v_on();
+            let i_main = (v_diff - self.conduction_dir * v_on) / self.res_on.max(MIN_R);
             self.i_main = i_main;
 
-            if i_main.abs() < self.hold_curr.max(MIN_HOLD) {
+            if i_main * self.conduction_dir < self.hold_curr.max(MIN_HOLD) {
                 state = false;
                 self.conduction_dir = 0.0;
             }

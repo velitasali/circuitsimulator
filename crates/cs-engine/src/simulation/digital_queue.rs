@@ -63,38 +63,70 @@ impl Circuit {
                         old.copy_runtime_from(&prev);
                     }
                     (
-                        Kind::Capacitor { capacitance, .. },
                         Kind::Capacitor {
-                            capacitance: cap, ..
+                            capacitance,
+                            resistance,
+                            ..
+                        },
+                        Kind::Capacitor {
+                            capacitance: cap,
+                            resistance: res,
+                            ..
                         },
                     )
                     | (
-                        Kind::ElCapacitor { capacitance, .. },
                         Kind::ElCapacitor {
-                            capacitance: cap, ..
+                            capacitance,
+                            resistance,
+                            ..
+                        },
+                        Kind::ElCapacitor {
+                            capacitance: cap,
+                            resistance: res,
+                            ..
                         },
                     )
                     | (
-                        Kind::VarCapacitor { capacitance, .. },
                         Kind::VarCapacitor {
-                            capacitance: cap, ..
+                            capacitance,
+                            resistance,
+                            ..
+                        },
+                        Kind::VarCapacitor {
+                            capacitance: cap,
+                            resistance: res,
+                            ..
                         },
                     ) => {
                         *capacitance = *cap;
+                        *resistance = *res;
                     }
                     (
-                        Kind::Inductor { inductance, .. },
                         Kind::Inductor {
-                            inductance: ind, ..
+                            inductance,
+                            resistance,
+                            ..
+                        },
+                        Kind::Inductor {
+                            inductance: ind,
+                            resistance: res,
+                            ..
                         },
                     )
                     | (
-                        Kind::VarInductor { inductance, .. },
                         Kind::VarInductor {
-                            inductance: ind, ..
+                            inductance,
+                            resistance,
+                            ..
+                        },
+                        Kind::VarInductor {
+                            inductance: ind,
+                            resistance: res,
+                            ..
                         },
                     ) => {
                         *inductance = *ind;
+                        *resistance = *res;
                     }
                     _ => {
                         // A live edit rebuilds the kind with an empty component id.
@@ -127,6 +159,28 @@ impl Circuit {
         if matches!(self.components[index].kind, Kind::Clock { .. }) {
             self.reschedule_clock(index);
         }
+        match &self.components[index].kind {
+            Kind::Oscope { buffer_size, .. } => {
+                let cap = (*buffer_size).clamp(
+                    crate::instruments::MIN_BUFFER_SIZE,
+                    crate::instruments::MAX_BUFFER_SIZE,
+                );
+                if let Some(sampler) = self.instruments.scopes.get_mut(&self.components[index].id) {
+                    sampler.set_capacity(cap);
+                }
+            }
+            Kind::LAnalizer { buffer_size, .. } => {
+                let cap = (*buffer_size).clamp(
+                    crate::instruments::MIN_BUFFER_SIZE,
+                    crate::instruments::MAX_BUFFER_SIZE,
+                );
+                if let Some(sampler) = self.instruments.las.get_mut(&self.components[index].id) {
+                    sampler.set_capacity(cap);
+                }
+            }
+            _ => {}
+        }
+        self.has_nonlinear_cached = self.scan_has_nonlinear();
         if self.nets_are_bound() && links_before != self.named_net_links() {
             self.rebind_named_nets();
             self.regroup_pending = true;
@@ -623,7 +677,46 @@ impl Circuit {
                     (state.schedule_from_compare(vp, vn, t), 0)
                 }
                 Kind::Mcu(m) => {
+                    let was_held = m.reset_held;
                     m.sample_inputs_nodes(nodes);
+                    if m.reset_held {
+                        m.device.clear_pending_ext_clk();
+                        if !was_held {
+                            let actions = m.sync_gpio_to_pins();
+                            if actions.iter().any(|(_, a)| !matches!(a, PinAction::None)) {
+                                stamp_changed = true;
+                            }
+                        }
+                    } else {
+                        if was_held && self.sim_started {
+                            m.device.start();
+                            if !m.is_ext_clock_driven() && m.device.freq > 0.0 {
+                                periph_arms.push((
+                                    i,
+                                    Drive {
+                                        changed: false,
+                                        arm_at: Some(t.saturating_add(m.device.ps_tick.max(1))),
+                                        replace: true,
+                                    },
+                                ));
+                            }
+                        }
+                        if m.is_ext_clock_driven()
+                            && self.sim_started
+                            && m.device.has_pending_ext_clk()
+                        {
+                            m.drain_host_serial();
+                            if m.device.step_ext_clock() {
+                                m.flush_periph_logs();
+                                let actions = m.sync_gpio_to_pins();
+                                if actions.iter().any(|(_, a)| !matches!(a, PinAction::None)) {
+                                    stamp_changed = true;
+                                }
+                            }
+                        } else if !self.sim_started {
+                            m.device.clear_pending_ext_clk();
+                        }
+                    }
                     continue;
                 }
                 Kind::QemuDevice(q) => {
@@ -1301,31 +1394,40 @@ impl Circuit {
                         if self.nodes_dirty {
                             m.sample_inputs_nodes(&self.nodes);
                         }
-                        let stop = m.device.advance_batch(max_ps, 4096, debug_mode);
-                        self.circ_time = self.circ_time.saturating_add(stop.advanced_ps);
-                        if is_debug {
-                            let session = crate::debug::DebugSession::global();
-                            if let Some((prev_pc, pc, sp, ret_addr)) = stop.debug_hit {
-                                let _ = session.on_mcu_step_with_depth(
-                                    pc,
-                                    prev_pc,
-                                    sp,
-                                    ret_addr,
-                                    stop.debug_call_depth,
-                                );
-                            } else {
-                                session.set_last_pc_depth(m.device.pc(), stop.debug_call_depth);
+                        if m.reset_held || m.is_ext_clock_driven() {
+                            if m.reset_held {
+                                m.device.clear_pending_ext_clk();
                             }
-                        }
-                        m.flush_periph_logs();
-                        self.mcu_actions_buf.clear();
-                        m.sync_gpio_to_pins_buf(&mut self.mcu_actions_buf);
-                        let next = if m.device.state == cs_mcu::McuState::Running {
-                            Some(m.device.next_event_ps())
+                            self.mcu_actions_buf.clear();
+                            m.sync_gpio_to_pins_buf(&mut self.mcu_actions_buf);
+                            Some(None)
                         } else {
-                            None
-                        };
-                        Some(next)
+                            let stop = m.device.advance_batch(max_ps, 4096, debug_mode);
+                            self.circ_time = self.circ_time.saturating_add(stop.advanced_ps);
+                            if is_debug {
+                                let session = crate::debug::DebugSession::global();
+                                if let Some((prev_pc, pc, sp, ret_addr)) = stop.debug_hit {
+                                    let _ = session.on_mcu_step_with_depth(
+                                        pc,
+                                        prev_pc,
+                                        sp,
+                                        ret_addr,
+                                        stop.debug_call_depth,
+                                    );
+                                } else {
+                                    session.set_last_pc_depth(m.device.pc(), stop.debug_call_depth);
+                                }
+                            }
+                            m.flush_periph_logs();
+                            self.mcu_actions_buf.clear();
+                            m.sync_gpio_to_pins_buf(&mut self.mcu_actions_buf);
+                            let next = if m.device.state == cs_mcu::McuState::Running {
+                                Some(m.device.next_event_ps())
+                            } else {
+                                None
+                            };
+                            Some(next)
+                        }
                     } else {
                         None
                     }

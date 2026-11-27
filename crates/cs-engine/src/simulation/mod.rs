@@ -290,7 +290,7 @@ impl Circuit {
             }
             iter = iter.wrapping_add(1);
             if self.check_pending_serial() {
-                needs_solve = true;
+                self.solve_circuit()?;
                 self.ensure_analog_clock();
             }
             let Some((t, target)) = self.events.pop_due(end) else {
@@ -426,10 +426,19 @@ impl Circuit {
         for (i, c) in self.components.iter_mut().enumerate() {
             match &mut c.kind {
                 Kind::SerialPort {
-                    baud_rate, uart, ..
+                    baud_rate,
+                    data_bits,
+                    stop_bits,
+                    uart,
+                    ..
                 }
-                | Kind::SerialTerm { baud_rate, uart } => {
-                    let drive = uart.poll_send(&c.id, *baud_rate, t);
+                | Kind::SerialTerm {
+                    baud_rate,
+                    data_bits,
+                    stop_bits,
+                    uart,
+                } => {
+                    let drive = uart.poll_send(&c.id, *baud_rate, *data_bits, *stop_bits, t);
                     if drive.changed || drive.arm_at.is_some() {
                         if let Some(at) = drive.arm_at {
                             let target = EventTarget::Device(i);

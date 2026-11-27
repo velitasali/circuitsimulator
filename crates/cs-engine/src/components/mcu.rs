@@ -146,8 +146,11 @@ impl Mcu {
     pub const TYPE_ID: &'static str = "Mcu";
     pub fn to_element_kind(&self) -> Kind {
         let mut comp = self.mcu.clone();
+        comp.set_rst_enabled(self.rst_enabled);
+        comp.set_ext_osc(self.ext_osc);
         comp.device.set_wdt_enabled(self.wdt_enabled);
         comp.device.set_clk_out(self.clk_out);
+        comp.sync_gpio_to_pins();
         Kind::Mcu(comp)
     }
 
@@ -187,6 +190,11 @@ impl Mcu {
             return Ok(());
         }
         self.mcu.firmware = Some(s.trim().to_string());
+        if let Some(path) = self.mcu.firmware_path()
+            && path.is_file()
+        {
+            let _ = self.mcu.load_firmware_file(&path);
+        }
         Ok(())
     }
 
@@ -322,7 +330,9 @@ impl Mcu {
         PropValue::Bool(self.rst_enabled)
     }
     fn set_rst_enabled(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.rst_enabled = expect_bool("RstEnabled", v)?;
+        let enabled = expect_bool("RstEnabled", v)?;
+        self.rst_enabled = enabled;
+        self.mcu.set_rst_enabled(enabled);
         Ok(())
     }
 
@@ -330,7 +340,9 @@ impl Mcu {
         PropValue::Bool(self.ext_osc)
     }
     fn set_ext_osc(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.ext_osc = expect_bool("ExtOsc", v)?;
+        let enabled = expect_bool("ExtOsc", v)?;
+        self.ext_osc = enabled;
+        self.mcu.set_ext_osc(enabled);
         Ok(())
     }
 
@@ -338,7 +350,9 @@ impl Mcu {
         PropValue::Bool(self.wdt_enabled)
     }
     fn set_wdt_enabled(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.wdt_enabled = expect_bool("WdtEnabled", v)?;
+        let enabled = expect_bool("WdtEnabled", v)?;
+        self.wdt_enabled = enabled;
+        self.mcu.device.set_wdt_enabled(enabled);
         Ok(())
     }
 
@@ -346,7 +360,9 @@ impl Mcu {
         PropValue::Bool(self.clk_out)
     }
     fn set_clk_out(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.clk_out = expect_bool("ClkOut", v)?;
+        let enabled = expect_bool("ClkOut", v)?;
+        self.clk_out = enabled;
+        self.mcu.device.set_clk_out(enabled);
         Ok(())
     }
 }
@@ -462,7 +478,7 @@ impl Component for Mcu {
                 Mcu::get_auto_load,
                 Mcu::set_auto_load,
             )
-            .with_info("Automatically reload firmware when the file changes on disk."),
+            .with_info("Reload firmware from disk when simulation starts."),
             PropDef::bool(
                 "SavePgm",
                 "Save Program",

@@ -612,7 +612,7 @@ impl Circuit {
                 Kind::DcMotor { .. } | Kind::Servo { .. } | Kind::Stepper { .. } => {
                     has_motors = true;
                 }
-                Kind::Oscope { .. } => {
+                Kind::Oscope { buffer_size, .. } => {
                     let gnd_pin = c.plot_gnd_pin();
                     let gnd_node = self.pin_net.get(&gnd_pin).copied();
                     let mut pins = [None; 4];
@@ -620,30 +620,42 @@ impl Circuit {
                         let p = c.plot_pin(i);
                         pins[i] = self.pin_net.get(&p).copied();
                     }
+                    let cap = (*buffer_size).clamp(
+                        crate::instruments::MIN_BUFFER_SIZE,
+                        crate::instruments::MAX_BUFFER_SIZE,
+                    );
                     instrument_caches.push(CachedInstrument::Oscope {
                         comp_id: c.id.clone(),
                         gnd_node,
                         pins,
+                        buffer_size: cap,
                     });
                     self.instruments
                         .scopes
                         .entry(c.id.clone())
-                        .or_insert_with(ScopeSampler::scope);
+                        .and_modify(|s| s.set_capacity(cap))
+                        .or_insert_with(|| ScopeSampler::scope_with_capacity(cap));
                 }
-                Kind::LAnalizer { .. } => {
+                Kind::LAnalizer { buffer_size, .. } => {
                     let mut pins = [None; 8];
                     for i in 0..8 {
                         let p = c.plot_pin(i);
                         pins[i] = self.pin_net.get(&p).copied();
                     }
+                    let cap = (*buffer_size).clamp(
+                        crate::instruments::MIN_BUFFER_SIZE,
+                        crate::instruments::MAX_BUFFER_SIZE,
+                    );
                     instrument_caches.push(CachedInstrument::LAnalizer {
                         comp_id: c.id.clone(),
                         pins,
+                        buffer_size: cap,
                     });
                     self.instruments
                         .las
                         .entry(c.id.clone())
-                        .or_insert_with(ScopeSampler::analyzer);
+                        .and_modify(|s| s.set_capacity(cap))
+                        .or_insert_with(|| ScopeSampler::analyzer_with_capacity(cap));
                 }
                 Kind::Voltmeter { .. } => {
                     let left_node = self.pin_net.get(&c.left_pin()).copied();

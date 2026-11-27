@@ -840,9 +840,10 @@ fn test_diac_breakover_switching() {
     let vo_off = c_off.pin_voltage("RLOAD-lPin").unwrap();
     approx(vo_off, 0.0, 0.05, "DIAC below breakover voltage: Vout = 0V");
 
-    // 2. Voltage above breakover (35V): DIAC breaks over and conducts -> output voltage rises
+    // 2. Voltage above breakover (50V): DIAC breaks over and conducts -> output voltage rises
+    // (V_on = V_BO - Breakback = 25 V, I = (50 - 25) / (500 + 1000) = 16.7 mA > 10 mA I_hold)
     let mut c_on = Circuit::new();
-    c_on.add_fixed_volt("VSUP", 35.0)
+    c_on.add_fixed_volt("VSUP", 50.0)
         .add_diac("D1")
         .add_resistor("RLOAD", 1000.0)
         .add_ground("GND");

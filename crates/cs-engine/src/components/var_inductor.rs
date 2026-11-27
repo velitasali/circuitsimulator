@@ -5,7 +5,7 @@ use super::prop_links;
 use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable, TwoTerminal};
 use crate::canvas::Rect;
-use crate::elements::Kind;
+use crate::elements::{self, INDUCTOR_DEFAULT_OHMS, Kind};
 use crate::matrix::CircMatrix;
 
 const MIN_L: f64 = 1e-12;
@@ -13,7 +13,7 @@ const MAX_L: f64 = 1e6;
 const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
 const DEFAULT_MAX_L: f64 = 10e-3;
-const DEFAULT_R: f64 = 1e-6;
+const DEFAULT_R: f64 = INDUCTOR_DEFAULT_OHMS;
 
 impl crate::canvas::Item {
     pub fn var_inductor(id: impl Into<String>, x: f64, y: f64, inductance: f64) -> Self {
@@ -102,6 +102,7 @@ impl VarInductor {
     pub fn to_element_kind(&self) -> Kind {
         Kind::VarInductor {
             inductance: self.inductance.max(MIN_L),
+            resistance: self.resistance.max(MIN_OHMS),
             ieq: self.init_curr,
         }
     }
@@ -229,7 +230,7 @@ impl Component for VarInductor {
                 VarInductor::get_init_curr,
                 VarInductor::set_init_curr,
             )
-            .with_info("Voltage at simulation start (initial charge)."),
+            .with_info("Current at simulation start (initial charge)."),
             PropDef::float(
                 "DialStep",
                 "Dial Step",
@@ -302,8 +303,13 @@ impl Stampable for VarInductor {
         if dt <= 0.0 {
             return;
         }
-        let g = dt / self.inductance.max(MIN_L);
-        stamp_two_terminal(matrix, pin_nodes, g, self.init_curr);
+        let (g, i_src) = elements::inductor_companion(
+            self.inductance.max(MIN_L),
+            self.resistance,
+            self.init_curr,
+            dt,
+        );
+        stamp_two_terminal(matrix, pin_nodes, g, i_src);
     }
 }
 
@@ -382,5 +388,16 @@ mod tests {
         assert_eq!(v.inductance, 0.0);
         v.set_value(500e-6);
         assert_eq!(v.get_prop_text("Inductance").unwrap(), "500 µH");
+        let init_row = v
+            .prop_rows()
+            .into_iter()
+            .find(|r| r.name == "InitVolt")
+            .unwrap();
+        assert!(init_row.info.contains("Current"), "{}", init_row.info);
+        v.resistance = 42.0;
+        match v.to_element_kind() {
+            Kind::VarInductor { resistance, .. } => assert!((resistance - 42.0).abs() < 1e-9),
+            other => panic!("expected VarInductor, got {other:?}"),
+        }
     }
 }

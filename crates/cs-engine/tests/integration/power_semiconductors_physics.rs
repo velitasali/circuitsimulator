@@ -376,16 +376,17 @@ fn test_scr_commutation_turn_off_time() {
 
 #[test]
 fn test_diac_dv_dt_triggering() {
-    // DIAC breakover voltage is 30V, critical dv/dt is 20 V/µs = 20e6 V/s.
-    // If voltage across DIAC is only 18V (< 30V), but rises at 180 MV/s > 20 MV/s,
-    // the DIAC triggers via dv/dt!
+    // DIAC breakover voltage is 30V, Breakback is 5V (V_on = 25V), critical dv/dt is 20 V/µs = 20e6 V/s.
+    // If voltage across DIAC is 28V (< 30V V_BO, > 25V V_on), rising at 280 MV/s > 20 MV/s,
+    // the DIAC triggers via dv/dt and sustains conduction above I_hold = 10 mA!
 
     let mut c = Circuit::new();
     c.dt = 1e-7; // 100 ns
     c.add_fixed_volt("VIN", 0.0)
         .add_diac("D1")
-        .add_resistor("RLOAD", 1000.0)
+        .add_resistor("RLOAD", 150.0)
         .add_ground("GND");
+    c.configure_diac("D1", 30.0, 50.0, 1e8, 0.01, 20.0e6);
 
     c.connect("VIN-outnod", "D1-lPin")
         .connect("D1-rPin", "RLOAD-lPin")
@@ -394,11 +395,11 @@ fn test_diac_dv_dt_triggering() {
     c.solve().unwrap();
     c.step().unwrap();
 
-    // Fast step from 0V to 18V in 100 ns (180 MV/s > 20 MV/s)
+    // Fast step from 0V to 28V in 100 ns (280 MV/s > 20 MV/s)
     for comp in c.components_mut() {
         if comp.id == "VIN" {
             if let cs_engine::elements::Kind::FixedVolt { ref mut voltage } = comp.kind {
-                *voltage = 18.0;
+                *voltage = 28.0;
             }
         }
     }
@@ -406,17 +407,17 @@ fn test_diac_dv_dt_triggering() {
 
     let vo = c.pin_voltage("RLOAD-lPin").unwrap();
     assert!(
-        vo > 10.0,
-        "DIAC triggers on fast dV/dt edge: Vo={vo:.2} > 10V"
+        vo > 1.5,
+        "DIAC triggers on fast dV/dt edge: Vo={vo:.2} > 1.5V (expected ~2.25V)"
     );
 }
 
 #[test]
 fn test_diac_symmetric_breakover_both_polarities() {
-    // Forward polarity (positive): +35V > +30V -> breaks over and conducts
+    // Forward polarity (positive): +45V > +30V -> breaks over and conducts with V_on = 25V
     let mut c_pos = Circuit::new();
     c_pos
-        .add_fixed_volt("VIN", 35.0)
+        .add_fixed_volt("VIN", 45.0)
         .add_diac("D1")
         .add_resistor("RLOAD", 500.0)
         .add_ground("GND");
@@ -430,15 +431,15 @@ fn test_diac_symmetric_breakover_both_polarities() {
     let vo_pos = c_pos.pin_voltage("RLOAD-lPin").unwrap();
     approx(
         vo_pos,
-        17.5,
+        10.0,
         0.5,
-        "DIAC conducts positive half cycle (Vout = 35 * 500/1000)",
+        "DIAC conducts positive half cycle (Vout = (45 - 25) * 500/1000)",
     );
 
-    // Reverse polarity (negative): -35V < -30V -> breaks over and conducts negatively
+    // Reverse polarity (negative): -45V < -30V -> breaks over and conducts negatively with V_on = -25V
     let mut c_neg = Circuit::new();
     c_neg
-        .add_fixed_volt("VIN", -35.0)
+        .add_fixed_volt("VIN", -45.0)
         .add_diac("D1")
         .add_resistor("RLOAD", 500.0)
         .add_ground("GND");
@@ -452,9 +453,9 @@ fn test_diac_symmetric_breakover_both_polarities() {
     let vo_neg = c_neg.pin_voltage("RLOAD-lPin").unwrap();
     approx(
         vo_neg,
-        -17.5,
+        -10.0,
         0.5,
-        "DIAC conducts negative half cycle (Vout = -35 * 500/1000)",
+        "DIAC conducts negative half cycle (Vout = -(45 - 25) * 500/1000)",
     );
 }
 

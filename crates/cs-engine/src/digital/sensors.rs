@@ -7,6 +7,7 @@
 
 use super::pin::IoPin;
 use super::twi::{TwiModule, TwiTick};
+use crate::logging;
 
 const US: u64 = 1_000_000;
 
@@ -1125,6 +1126,7 @@ pub struct EspUart {
     pub connected_ssid: Option<String>,
     pub cipmux: bool,
     pub conns: [EspConn; 4],
+    pub debug: bool,
 }
 
 impl Default for EspUart {
@@ -1152,7 +1154,23 @@ impl Default for EspUart {
                 EspConn::default(),
                 EspConn::default(),
             ],
+            debug: false,
         }
+    }
+}
+
+fn compact_esp_log(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    const MAX_LEN: usize = 80;
+    if compact.len() > MAX_LEN {
+        let mut end = MAX_LEN - 3;
+        while !compact.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &compact[..end])
+    } else {
+        compact
     }
 }
 
@@ -1171,6 +1189,10 @@ impl EspUart {
     }
 
     pub fn on_event(&mut self, baud: u32, rx_high: bool, t: u64) -> Drive {
+        self.on_event_with("Esp01", baud, rx_high, t)
+    }
+
+    pub fn on_event_with(&mut self, id: &str, baud: u32, rx_high: bool, t: u64) -> Drive {
         let bit = uart_bit_ps(baud);
 
         if self.rx_on {
@@ -1182,7 +1204,7 @@ impl EspUart {
                 return Drive::arm(t.saturating_add(bit), false, false);
             }
             self.rx_on = false;
-            if rx_high && self.push_rx(self.rx_byte) {
+            if rx_high && self.push_rx_with(id, self.rx_byte) {
                 let changed = self.apply_tx_bit();
                 let arm = if self.tx_bits_left > 0 || !self.tx_queue.is_empty() {
                     Some(t.saturating_add(bit))
@@ -1245,6 +1267,10 @@ impl EspUart {
     }
 
     pub fn push_rx(&mut self, byte: u8) -> bool {
+        self.push_rx_with("Esp01", byte)
+    }
+
+    pub fn push_rx_with(&mut self, id: &str, byte: u8) -> bool {
         if self.rx_raw_mode {
             self.rx_raw_buf.push(byte);
             if self.rx_raw_buf.len() >= self.rx_raw_expected {
@@ -1275,6 +1301,9 @@ impl EspUart {
                         resp.push_str(&format!("+IPD,{}:{}", echo.len(), echo));
                     }
                 }
+                if self.debug {
+                    logging::log_sim(format!("[{id}] SEND ({payload_len}B) -> SEND OK"));
+                }
                 self.load_tx(resp.as_bytes());
                 return true;
             }
@@ -1286,44 +1315,60 @@ impl EspUart {
             let line = String::from_utf8_lossy(&self.rx_line).trim().to_string();
             self.rx_line.clear();
             if !line.is_empty() {
-                self.handle_command(&line);
+                self.handle_command_with(id, &line);
                 return true;
             }
         }
         false
     }
 
-    fn handle_command(&mut self, cmd: &str) {
+    fn reply(&mut self, id: &str, cmd: &str, resp: &[u8]) {
+        if self.debug {
+            let summary = compact_esp_log(resp);
+            logging::log_sim(format!("[{id}] {cmd} -> {summary}"));
+        }
+        self.load_tx(resp);
+    }
+
+    fn handle_command_with(&mut self, id: &str, cmd: &str) {
         let upper = cmd.trim().to_uppercase();
         if upper == "AT" {
-            self.load_tx(b"OK\r\n");
+            self.reply(id, cmd, b"OK\r\n");
         } else if upper == "AT+RST" {
             self.connected_ssid = None;
             for c in &mut self.conns {
                 c.connected = false;
             }
-            self.load_tx(b"\r\nOK\r\nready\r\n");
+            self.reply(id, cmd, b"\r\nOK\r\nready\r\n");
         } else if upper == "AT+GMR" {
-            self.load_tx(b"AT version:1.3.0.0(Jul 14 2016 18:54:01)\r\nSDK version:2.0.0(5a87e44)\r\nv1.0.0.3\r\nOK\r\n");
+            self.reply(
+                id,
+                cmd,
+                b"AT version:1.3.0.0(Jul 14 2016 18:54:01)\r\nSDK version:2.0.0(5a87e44)\r\nv1.0.0.3\r\nOK\r\n",
+            );
         } else if upper == "AT+CWMODE?" {
             let resp = format!("+CWMODE:{}\r\nOK\r\n", self.cwmode);
-            self.load_tx(resp.as_bytes());
+            self.reply(id, cmd, resp.as_bytes());
         } else if upper.starts_with("AT+CWMODE=") {
             let arg = upper.trim_start_matches("AT+CWMODE=").trim();
             if let Ok(m) = arg.parse::<u8>() {
                 self.cwmode = m;
-                self.load_tx(b"OK\r\n");
+                self.reply(id, cmd, b"OK\r\n");
             } else {
-                self.load_tx(b"ERROR\r\n");
+                self.reply(id, cmd, b"ERROR\r\n");
             }
         } else if upper == "AT+CWLAP" {
-            self.load_tx(b"+CWLAP:(3,\"SimNet\",-45,\"1a:2b:3c:4d:5e:6f\",1)\r\n+CWLAP:(4,\"GuestWiFi\",-72,\"1a:2b:3c:4d:5e:70\",6)\r\nOK\r\n");
+            self.reply(
+                id,
+                cmd,
+                b"+CWLAP:(3,\"SimNet\",-45,\"1a:2b:3c:4d:5e:6f\",1)\r\n+CWLAP:(4,\"GuestWiFi\",-72,\"1a:2b:3c:4d:5e:70\",6)\r\nOK\r\n",
+            );
         } else if upper == "AT+CWJAP?" {
             if let Some(ref ssid) = self.connected_ssid {
                 let resp = format!("+CWJAP:\"{}\",\"1a:2b:3c:4d:5e:6f\",1,-45\r\nOK\r\n", ssid);
-                self.load_tx(resp.as_bytes());
+                self.reply(id, cmd, resp.as_bytes());
             } else {
-                self.load_tx(b"No AP\r\nOK\r\n");
+                self.reply(id, cmd, b"No AP\r\nOK\r\n");
             }
         } else if upper.starts_with("AT+CWJAP=")
             || upper.starts_with("AT+CWJAP_CUR=")
@@ -1338,12 +1383,14 @@ impl EspUart {
             let raw_ssid = parts.first().copied().unwrap_or("\"SimNet\"");
             let ssid = raw_ssid.trim().trim_matches('"');
             self.connected_ssid = Some(ssid.to_string());
-            self.load_tx(b"WIFI CONNECTED\r\nWIFI GOT IP\r\nOK\r\n");
+            self.reply(id, cmd, b"WIFI CONNECTED\r\nWIFI GOT IP\r\nOK\r\n");
         } else if upper == "AT+CWQAP" {
             self.connected_ssid = None;
-            self.load_tx(b"OK\r\nWIFI DISCONNECT\r\n");
+            self.reply(id, cmd, b"OK\r\nWIFI DISCONNECT\r\n");
         } else if upper == "AT+CIFSR" {
-            self.load_tx(
+            self.reply(
+                id,
+                cmd,
                 b"+CIFSR:STAIP,\"192.168.4.2\"\r\n+CIFSR:STAMAC,\"18:fe:34:a1:b2:c3\"\r\nOK\r\n",
             );
         } else if upper == "AT+CIPSTATUS" {
@@ -1355,17 +1402,17 @@ impl EspUart {
                 5
             };
             let resp = format!("STATUS:{}\r\nOK\r\n", status);
-            self.load_tx(resp.as_bytes());
+            self.reply(id, cmd, resp.as_bytes());
         } else if upper == "AT+CIPMUX?" {
             let resp = format!("+CIPMUX:{}\r\nOK\r\n", if self.cipmux { 1 } else { 0 });
-            self.load_tx(resp.as_bytes());
+            self.reply(id, cmd, resp.as_bytes());
         } else if upper.starts_with("AT+CIPMUX=") {
             let arg = upper.trim_start_matches("AT+CIPMUX=").trim();
             if let Ok(m) = arg.parse::<u8>() {
                 self.cipmux = m != 0;
-                self.load_tx(b"OK\r\n");
+                self.reply(id, cmd, b"OK\r\n");
             } else {
-                self.load_tx(b"ERROR\r\n");
+                self.reply(id, cmd, b"ERROR\r\n");
             }
         } else if upper.starts_with("AT+CIPSTART=") {
             let rest = &cmd[12..];
@@ -1399,7 +1446,7 @@ impl EspUart {
                 remote_ip: host.to_string(),
                 remote_port: port,
             };
-            self.load_tx(b"CONNECT\r\n\r\nOK\r\n");
+            self.reply(id, cmd, b"CONNECT\r\n\r\nOK\r\n");
         } else if upper.starts_with("AT+CIPSEND=") {
             let rest = &upper[11..];
             let parts: Vec<&str> = rest.split(',').collect();
@@ -1415,17 +1462,17 @@ impl EspUart {
             self.rx_raw_conn_id = conn_id;
             self.rx_raw_expected = len;
             self.rx_raw_buf.clear();
-            self.load_tx(b">\r\n");
+            self.reply(id, cmd, b">\r\n");
         } else if upper == "AT+CIPCLOSE" || upper.starts_with("AT+CIPCLOSE=") {
             if upper.starts_with("AT+CIPCLOSE=") {
-                let id = upper[12..].trim().parse::<usize>().unwrap_or(0).min(3);
-                self.conns[id].connected = false;
+                let id_idx = upper[12..].trim().parse::<usize>().unwrap_or(0).min(3);
+                self.conns[id_idx].connected = false;
             } else {
                 self.conns[0].connected = false;
             }
-            self.load_tx(b"CLOSED\r\n\r\nOK\r\n");
+            self.reply(id, cmd, b"CLOSED\r\n\r\nOK\r\n");
         } else {
-            self.load_tx(b"ERROR\r\n");
+            self.reply(id, cmd, b"ERROR\r\n");
         }
     }
 }

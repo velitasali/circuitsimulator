@@ -28,8 +28,9 @@ mod wire;
 pub(crate) mod wire_tool;
 
 pub use crate::CircSettings;
+use crate::elements::Kind;
 pub use dirty::DirtySet;
-pub use draw::{Align, Color, Draw, PaintCtx, Palette};
+pub use draw::{Align, Color, Draw, PaintCtx, Palette, TextStyle};
 pub use events::{
     BUTTON_LEFT, BUTTON_MIDDLE, BUTTON_RIGHT, Change, CursorKind, KEY_0, KEY_A, KEY_BACKSPACE,
     KEY_C, KEY_DELETE, KEY_DOWN, KEY_EQUAL, KEY_ESCAPE, KEY_L, KEY_LEFT, KEY_MINUS, KEY_PLUS,
@@ -739,6 +740,32 @@ impl Canvas {
     #[inline]
     pub fn item_pin_current(&self, item_id: &str, suffix: &str) -> Option<f64> {
         with_pin_id(item_id, suffix, |pin_id| self.pin_current(pin_id))
+    }
+
+    /// Forward current (A) through LED die `die_idx` of a multi-LED component.
+    pub fn led_die_current(&self, item_id: &str, die_idx: usize) -> Option<f64> {
+        let comp = self.running.as_ref()?.comp(item_id)?;
+        let leds = match &comp.kind {
+            Kind::LedBar { leds, .. }
+            | Kind::SevenSegment { leds, .. }
+            | Kind::LedMatrix { leds, .. } => leds.as_slice(),
+            Kind::RgbLed { leds, .. } => leds.as_slice(),
+            _ => return None,
+        };
+        leds.get(die_idx).map(|led| led.current.max(0.0))
+    }
+
+    /// Peak forward current (A) across all LED dice of a multi-LED component.
+    pub fn led_max_die_current(&self, item_id: &str) -> Option<f64> {
+        let comp = self.running.as_ref()?.comp(item_id)?;
+        let leds = match &comp.kind {
+            Kind::LedBar { leds, .. }
+            | Kind::SevenSegment { leds, .. }
+            | Kind::LedMatrix { leds, .. } => leds.as_slice(),
+            Kind::RgbLed { leds, .. } => leds.as_slice(),
+            _ => return None,
+        };
+        leds.iter().map(|led| led.current.max(0.0)).reduce(f64::max)
     }
 
     pub fn anim_tick(&self) -> u32 {

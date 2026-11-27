@@ -267,6 +267,53 @@ pub fn led_fore_color(color_name: &str) -> Color {
     }
 }
 
+/// Forward current ratio `I / max_current` for a single LED die, with a
+/// voltage-drop fallback when the solver has not reported a die current.
+pub fn led_die_ratio(
+    die_current: Option<f64>,
+    v_diff: f64,
+    threshold: f64,
+    resistance: f64,
+    max_current: f64,
+) -> f64 {
+    let max_i = max_current.max(1e-6);
+    let current = die_current.unwrap_or(0.0).max(0.0);
+    let ratio = current / max_i;
+    if ratio > 0.001 {
+        ratio
+    } else if v_diff > threshold * 0.8 {
+        ((v_diff - threshold).max(0.0) / (resistance.max(0.1) * max_i)).clamp(0.05, 1.5)
+    } else {
+        0.0
+    }
+}
+
+/// Map an LED die's `ratio = I / max_current` to `(fill_color, glow_alpha)`.
+/// Crashed dice render dark; overdriven dice (> 1.5× `max_current`) turn warning orange.
+pub fn led_die_appearance(lit: Color, unlit: Color, ratio: f64, is_crashed: bool) -> (Color, f64) {
+    if is_crashed {
+        return (Color::rgb(25, 25, 25), 0.0);
+    }
+    if ratio <= 0.001 {
+        return (unlit, 0.0);
+    }
+    if ratio > 1.5 {
+        return (Color::rgb(255, 140, 0), 0.55);
+    }
+    let intensity = ratio.sqrt().clamp(0.15, 1.0);
+    let lerp = |a: u8, b: u8| -> u8 {
+        (f64::from(a) + (f64::from(b) - f64::from(a)) * intensity)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    let fill = Color::rgb(
+        lerp(unlit.r, lit.r),
+        lerp(unlit.g, lit.g),
+        lerp(unlit.b, lit.b),
+    );
+    (fill, 0.35 * intensity)
+}
+
 impl Drawable for Led {
     fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
         let state = if ctx.canvas.sim_running() {

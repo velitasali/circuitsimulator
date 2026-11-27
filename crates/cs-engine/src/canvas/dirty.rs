@@ -15,7 +15,8 @@ use super::pin::Pin;
 use super::scene::wires::pin_belongs;
 use super::scene::{Item, LabelAxisX, LabelAxisY, Part};
 use super::wire::{Wire, WireHit};
-use crate::elements::pins;
+use crate::components;
+use crate::elements::{Kind, pins};
 
 /// Pin stem / wire logic colour threshold. Matches `paint_pin` / `paint_wire`.
 pub const PIN_LOGIC_HIGH_V: f64 = 2.5;
@@ -735,32 +736,81 @@ pub fn analog_visual_bucket_for_part(
             Some(glow_bucket(ratio))
         }
         Part::LedBar(p) => {
-            let n = p.segments.clamp(1, 30);
-            let mut mask = 0i32;
+            let n = p.segments.max(1);
+            let leds = circuit.comp(item_id).and_then(|c| match &c.kind {
+                Kind::LedBar { leds, .. } => Some(leds.as_slice()),
+                _ => None,
+            });
+            let mut hash: u32 = 2166136261;
             for i in 0..n {
-                let va =
-                    super::with_pin_id_idx(item_id, crate::elements::pins::PIN_LEFT, i, |pid| {
-                        circuit.pin_voltage(pid)
-                    })
-                    .unwrap_or(0.0);
+                let va = super::with_pin_id_idx(item_id, pins::PIN_LEFT, i, |pid| {
+                    circuit.pin_voltage(pid)
+                })
+                .unwrap_or(0.0);
                 let vc = if p.grounded {
                     0.0
                 } else {
-                    super::with_pin_id_idx(item_id, crate::elements::pins::PIN_RIGHT, i, |pid| {
+                    super::with_pin_id_idx(item_id, pins::PIN_RIGHT, i, |pid| {
                         circuit.pin_voltage(pid)
                     })
                     .unwrap_or(0.0)
                 };
-                let cur =
-                    super::with_pin_id_idx(item_id, crate::elements::pins::PIN_LEFT, i, |pid| {
-                        circuit.current_out_of_pin(pid)
-                    })
-                    .unwrap_or(0.0);
-                if (va - vc) > 1.5 || cur > 0.0005 {
-                    mask |= 1 << i;
+                let die_cur = leds
+                    .and_then(|ls| ls.get(i).map(|l| l.current))
+                    .or_else(|| {
+                        super::with_pin_id_idx(item_id, pins::PIN_LEFT, i, |pid| {
+                            circuit.current_out_of_pin(pid)
+                        })
+                    });
+                let ratio = components::led_die_ratio(
+                    die_cur,
+                    (va - vc).max(0.0),
+                    p.threshold,
+                    p.resistance,
+                    p.max_current,
+                );
+                hash ^= glow_bucket(ratio) as u32;
+                hash = hash.wrapping_mul(16777619);
+            }
+            Some(hash as i32)
+        }
+        Part::SevenSegment(p) => {
+            let n = p.num_displays.clamp(1, 8);
+            let threshold = if p.threshold > 0.1 { p.threshold } else { 1.4 };
+            let seg_pins = [
+                "pin_a", "pin_b", "pin_c", "pin_d", "pin_e", "pin_f", "pin_g", "pin_dot",
+            ];
+            let leds = circuit.comp(item_id).and_then(|c| match &c.kind {
+                Kind::SevenSegment { leds, .. } => Some(leds.as_slice()),
+                _ => None,
+            });
+            let mut hash: u32 = 2166136261;
+            for idx in 0..n {
+                let com_ch = (b'a' + idx as u8) as char;
+                let v_com = super::with_pin_id_idx(item_id, "pin_common", com_ch, |pid| {
+                    circuit.pin_voltage(pid)
+                })
+                .unwrap_or(0.0);
+                for (seg_idx, suffix) in seg_pins.iter().enumerate() {
+                    let v_seg = pin_v(circuit, item_id, suffix);
+                    let v_diff = if p.common_anode {
+                        (v_com - v_seg).max(0.0)
+                    } else {
+                        (v_seg - v_com).max(0.0)
+                    };
+                    let die_cur = leds.and_then(|ls| ls.get(idx * 8 + seg_idx).map(|l| l.current));
+                    let ratio = components::led_die_ratio(
+                        die_cur,
+                        v_diff,
+                        threshold,
+                        p.resistance,
+                        p.max_current,
+                    );
+                    hash ^= glow_bucket(ratio) as u32;
+                    hash = hash.wrapping_mul(16777619);
                 }
             }
-            Some(mask)
+            Some(hash as i32)
         }
         Part::RgbLed(_) => {
             let ir = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_R).abs() / 0.03;
@@ -780,7 +830,10 @@ pub fn analog_visual_bucket_for_part(
         Part::LedMatrix(p) => {
             let rows = p.rows.max(1);
             let cols = p.cols.max(1);
-            let thresh = p.threshold * 0.8;
+            let leds = circuit.comp(item_id).and_then(|c| match &c.kind {
+                Kind::LedMatrix { leds, .. } => Some(leds.as_slice()),
+                _ => None,
+            });
             let row_v: Vec<f64> = (0..rows)
                 .map(|r| {
                     super::with_pin_id_idx(item_id, pins::PIN_RIGHT, r, |pid| {
@@ -798,10 +851,17 @@ pub fn analog_visual_bucket_for_part(
                 })
                 .collect();
             let mut hash: u32 = 2166136261;
-            for &vr in &row_v {
-                for &vc in &col_v {
-                    let on = u32::from((vr - vc) > thresh);
-                    hash ^= on;
+            for (row, &vr) in row_v.iter().enumerate() {
+                for (col, &vc) in col_v.iter().enumerate() {
+                    let die_cur = leds.and_then(|ls| ls.get(row * cols + col).map(|l| l.current));
+                    let ratio = components::led_die_ratio(
+                        die_cur,
+                        (vr - vc).max(0.0),
+                        p.threshold,
+                        p.resistance,
+                        p.max_current,
+                    );
+                    hash ^= glow_bucket(ratio) as u32;
                     hash = hash.wrapping_mul(16777619);
                 }
             }

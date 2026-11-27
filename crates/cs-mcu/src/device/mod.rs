@@ -577,6 +577,7 @@ impl Device {
         }
 
         let mut intosc_ircf = RegBits::default();
+        let mut intosc_clock_pins = Vec::new();
         let mut intosc_clkout_pin = None;
         for spec in &desc.intoscs {
             if !spec.config.regs_a.is_empty() {
@@ -592,8 +593,34 @@ impl Device {
             if ircf.mask != 0 {
                 intosc_ircf = ircf;
             }
+            for pin in &spec.clock_pins {
+                if !intosc_clock_pins.iter().any(|existing| existing == pin) {
+                    intosc_clock_pins.push(pin.clone());
+                }
+            }
             if intosc_clkout_pin.is_none() {
                 intosc_clkout_pin = spec.clock_out_pin.clone();
+            }
+        }
+        if intosc_clock_pins.is_empty() {
+            if let Some(cp) = desc.clkpin.as_deref().filter(|s| !s.is_empty()) {
+                if port::find_gpio(&ports, cp).is_some() {
+                    intosc_clock_pins.push(cp.to_string());
+                }
+            }
+        }
+        let ext_clk_pin = intosc_clock_pins
+            .first()
+            .and_then(|pin| port::find_gpio(&ports, pin));
+        let mut shared_reset_pin = None;
+        let mut shared_reset_pin_name = None;
+        for p in &ports {
+            if let Some(ref rst_name) = p.reset_pin {
+                if let Some(loc) = port::find_gpio(&ports, rst_name) {
+                    shared_reset_pin = Some(loc);
+                    shared_reset_pin_name = Some(rst_name.clone());
+                    break;
+                }
             }
         }
 
@@ -680,8 +707,18 @@ impl Device {
                 comps,
                 sleep_se,
                 intosc_ircf,
+                intosc_clock_pins,
                 intosc_clkout_pin,
                 clk_out_enabled: false,
+                ext_osc_enabled: false,
+                ext_clk_pin,
+                ext_clk_pending_edges: 0,
+                ext_osc_div: 0,
+                ext_cpu_cycles_wait: 0,
+                rst_enabled: true,
+                shared_reset_pin,
+                shared_reset_pin_name,
+                shared_reset_held: false,
                 pending_freq_hz: None,
                 vdd: 5.0,
                 freq_hz: 0.0,
@@ -754,6 +791,118 @@ impl Device {
             port::control_gpio(&mut self.host.ports, &pin, enabled, enabled);
             if enabled {
                 port::set_gpio_dir(&mut self.host.ports, &pin, true);
+            }
+            self.host.ports_dirty = true;
+        }
+    }
+
+    pub fn set_rst_enabled(&mut self, enabled: bool) {
+        self.host.rst_enabled = enabled;
+        if !enabled {
+            self.host.shared_reset_held = false;
+        }
+        self.apply_shared_reset_pin_control();
+    }
+
+    pub fn rst_enabled(&self) -> bool {
+        self.host.rst_enabled
+    }
+
+    pub fn shared_reset_held(&self) -> bool {
+        self.host.shared_reset_held
+    }
+
+    pub fn shared_reset_pin_name(&self) -> Option<&str> {
+        self.host.shared_reset_pin_name.as_deref()
+    }
+
+    pub fn set_ext_osc(&mut self, enabled: bool) {
+        self.host.ext_osc_enabled = enabled;
+        self.host.ext_clk_pending_edges = 0;
+        self.host.ext_osc_div = 0;
+        self.host.ext_cpu_cycles_wait = 0;
+        self.apply_ext_osc_pin_control();
+    }
+
+    pub fn ext_osc(&self) -> bool {
+        self.host.ext_osc_enabled
+    }
+
+    pub fn ext_clock_pins(&self) -> &[String] {
+        &self.host.intosc_clock_pins
+    }
+
+    pub fn ext_clk_flat_index(&self) -> Option<usize> {
+        let (target_pi, target_idx) = self.host.ext_clk_pin?;
+        let mut offset = 0usize;
+        for (pi, p) in self.host.ports.iter().enumerate() {
+            if pi == target_pi {
+                return Some(offset + target_idx);
+            }
+            offset += p.pins.len();
+        }
+        None
+    }
+
+    pub fn has_pending_ext_clk(&self) -> bool {
+        self.host.ext_clk_pending_edges > 0
+    }
+
+    pub fn clear_pending_ext_clk(&mut self) {
+        self.host.ext_clk_pending_edges = 0;
+    }
+
+    fn apply_shared_reset_pin_control(&mut self) {
+        let Some((pi, idx)) = self.host.shared_reset_pin else {
+            return;
+        };
+        if let Some(p) = self.host.ports.get_mut(pi) {
+            p.dirty = true;
+            let pullup_from_out = p.pullup_from_out;
+            if let Some(pin) = p.pins.get_mut(idx) {
+                if self.host.rst_enabled {
+                    pin.control_pin(true, true);
+                    pin.is_out = false;
+                    pin.pullup = true;
+                    if !self.host.shared_reset_held {
+                        pin.inp_state = true;
+                    }
+                } else if pin.out_ctrl || pin.dir_ctrl {
+                    pin.control_pin(false, false);
+                    pin.pullup = if pullup_from_out {
+                        pin.port_state
+                    } else {
+                        false
+                    };
+                }
+            }
+        }
+        self.host.ports_dirty = true;
+    }
+
+    fn apply_ext_osc_pin_control(&mut self) {
+        if self.host.intosc_clock_pins.is_empty() {
+            return;
+        }
+        let pins = self.host.intosc_clock_pins.clone();
+        let enabled = self.host.ext_osc_enabled;
+        for pin in &pins {
+            port::control_gpio(&mut self.host.ports, pin, enabled, enabled);
+            if enabled {
+                port::set_gpio_dir(&mut self.host.ports, pin, false);
+            }
+        }
+        self.host.ports_dirty = true;
+    }
+
+    fn apply_pin_controls(&mut self) {
+        self.apply_shared_reset_pin_control();
+        self.apply_ext_osc_pin_control();
+        if self.host.clk_out_enabled {
+            if let Some(pin) = self.host.intosc_clkout_pin.clone() {
+                port::control_gpio(&mut self.host.ports, &pin, true, true);
+                port::set_gpio_dir(&mut self.host.ports, &pin, true);
+                self.host.ports_dirty = true;
             }
         }
     }
@@ -830,12 +979,17 @@ impl Device {
             w.reset();
         }
         self.host.wdt_reset_pending = false;
+        self.host.shared_reset_held = false;
+        self.host.ext_clk_pending_edges = 0;
+        self.host.ext_osc_div = 0;
+        self.host.ext_cpu_cycles_wait = 0;
         self.host.pending_freq_hz = None;
         for c in &mut self.host.comps {
             c.reset();
         }
         let fired = self.host.data.initialize();
         self.apply_init_watches(fired);
+        self.apply_pin_controls();
         for u in &mut self.host.usarts {
             u.reset_status(&mut self.host.data, &mut self.host.interrupts);
         }

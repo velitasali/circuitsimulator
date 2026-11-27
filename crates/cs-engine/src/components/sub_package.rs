@@ -1,8 +1,13 @@
 //! SubPackage: subcircuit IC package footprint designer component.
 
+use std::fs;
+use std::path::Path;
+use std::sync::Arc;
+
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int, expect_string};
-use super::{CompPin, Component, Stampable};
-use crate::canvas::Rect;
+use super::shape;
+use super::{CompPin, Component, Part, Stampable};
+use crate::canvas::{ImageBuf, Rect};
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 use crate::package::{Package, package_pins_to_prop, parse_package_pins};
@@ -10,10 +15,52 @@ use crate::package::{Package, package_pins_to_prop, parse_package_pins};
 const MIN_DIM: i64 = 1;
 const MAX_DIM: i64 = 128;
 
+/// Decode a package `Background` image from a direct path, any relative search directory,
+/// or legacy embedded hex-encoded image bytes.
+pub fn decode_package_background(bg: &str, dirs: &[&Path]) -> Option<Arc<ImageBuf>> {
+    let trimmed = bg.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let direct = Path::new(trimmed);
+    if direct.is_file()
+        && let Ok(bytes) = fs::read(direct)
+        && let Some(pm) = shape::decode_image_bytes(&bytes)
+    {
+        return Some(Arc::new(pm));
+    }
+    for dir in dirs {
+        let cand = dir.join(trimmed);
+        if cand.is_file()
+            && let Ok(bytes) = fs::read(&cand)
+            && let Some(pm) = shape::decode_image_bytes(&bytes)
+        {
+            return Some(Arc::new(pm));
+        }
+    }
+    if trimmed.len() >= 16
+        && trimmed.len() % 2 == 0
+        && trimmed.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        let bytes = shape::hex_to_bytes(trimmed);
+        if let Some(pm) = shape::decode_image_bytes(&bytes) {
+            return Some(Arc::new(pm));
+        }
+    }
+    None
+}
+
 /// Package footprint container item for the Package Designer.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct SubPackage {
     pub package: Package,
+    pub background_pixmap: Option<Arc<ImageBuf>>,
+}
+
+impl PartialEq for SubPackage {
+    fn eq(&self, other: &Self) -> bool {
+        self.package == other.package
+    }
 }
 
 impl crate::canvas::Item {
@@ -23,7 +70,7 @@ impl crate::canvas::Item {
         y: f64,
         package: crate::package::Package,
     ) -> Self {
-        Self::new(id, x, y, SubPackage { package })
+        Self::new(id, x, y, SubPackage::new(package))
     }
 }
 
@@ -31,14 +78,38 @@ impl Default for SubPackage {
     fn default() -> Self {
         let mut package = Package::default();
         package.logic_symbol = true;
-        Self { package }
+        Self {
+            package,
+            background_pixmap: None,
+        }
     }
 }
 
 impl SubPackage {
     pub const TYPE_ID: &'static str = "SubPackage";
     pub fn new(package: Package) -> Self {
-        Self { package }
+        let mut sp = Self {
+            package,
+            background_pixmap: None,
+        };
+        sp.resolve_background(None);
+        sp
+    }
+
+    pub fn resolve_background(&mut self, extra_dir: Option<&Path>) -> bool {
+        let mut dirs: Vec<&Path> = Vec::new();
+        let pkg_parent = (!self.package.package_file.trim().is_empty())
+            .then(|| Path::new(self.package.package_file.trim()).parent())
+            .flatten()
+            .filter(|p| !p.as_os_str().is_empty());
+        if let Some(d) = pkg_parent {
+            dirs.push(d);
+        }
+        if let Some(d) = extra_dir {
+            dirs.push(d);
+        }
+        self.background_pixmap = decode_package_background(&self.package.background, &dirs);
+        self.background_pixmap.is_some()
     }
 
     pub fn to_element_kind(&self) -> Kind {
@@ -115,6 +186,7 @@ impl SubPackage {
     }
     fn set_background(&mut self, v: PropValue) -> Result<(), PropError> {
         self.package.background = expect_string("Background", v)?;
+        self.resolve_background(None);
         Ok(())
     }
 
@@ -123,6 +195,9 @@ impl SubPackage {
     }
     fn set_package_file(&mut self, v: PropValue) -> Result<(), PropError> {
         self.package.package_file = expect_string("PackageFile", v)?;
+        if self.background_pixmap.is_none() && !self.package.background.is_empty() {
+            self.resolve_background(None);
+        }
         Ok(())
     }
 
@@ -289,7 +364,7 @@ impl super::drawable::Drawable for SubPackage {
         } else {
             ""
         };
-        super::drawable::paint_dip_package(
+        super::drawable::paint_dip_package_with_bg(
             d,
             ctx.pal,
             w,
@@ -299,6 +374,8 @@ impl super::drawable::Drawable for SubPackage {
             self.package.custom_color,
             &self.package.bckgndcolor,
             false,
+            self.background_pixmap.as_deref(),
+            self.package.border,
         );
         true
     }
@@ -432,6 +509,7 @@ impl crate::canvas::Scene {
             if let crate::components::Part::SubPackage(p) = &mut item.kind {
                 let pkg = crate::package::generate_dip_footprint(name, pin_count, custom_width);
                 p.package = pkg;
+                p.background_pixmap = None;
                 return true;
             }
         }
@@ -451,6 +529,7 @@ impl crate::canvas::Scene {
             if let crate::components::Part::SubPackage(p) = &mut item.kind {
                 let pkg = crate::package::generate_ls_footprint(name, inputs, outputs, top, bottom);
                 p.package = pkg;
+                p.background_pixmap = None;
                 return true;
             }
         }
@@ -459,9 +538,42 @@ impl crate::canvas::Scene {
 
     pub fn load_package_xml(&mut self, uid: &str, xml: &str) -> bool {
         if let Some(item) = self.item_by_id_mut(uid) {
-            if let crate::components::Part::SubPackage(p) = &mut item.kind {
+            if let Part::SubPackage(p) = &mut item.kind {
                 let (_, pkg) = crate::package::convert_package(xml);
                 p.package = pkg;
+                p.resolve_background(None);
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn load_package_xml_from_path(
+        &mut self,
+        uid: &str,
+        xml: &str,
+        package_file: &str,
+        extra_dir: Option<&Path>,
+    ) -> bool {
+        if let Some(item) = self.item_by_id_mut(uid) {
+            if let Part::SubPackage(p) = &mut item.kind {
+                let (_, mut pkg) = crate::package::convert_package(xml);
+                pkg.package_file = package_file.to_string();
+                p.package = pkg;
+                p.resolve_background(extra_dir);
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn set_package_file(&mut self, uid: &str, package_file: &str) -> bool {
+        if let Some(item) = self.item_by_id_mut(uid) {
+            if let Part::SubPackage(p) = &mut item.kind {
+                p.package.package_file = package_file.to_string();
+                if p.background_pixmap.is_none() && !p.package.background.is_empty() {
+                    p.resolve_background(None);
+                }
                 return true;
             }
         }
@@ -533,5 +645,96 @@ mod tests {
         assert_eq!(sp.body().w, 32.0);
         assert_eq!(sp.body().h, 64.0);
         assert!(matches!(sp.to_element_kind(), Kind::SubPackage));
+    }
+
+    #[test]
+    fn subpackage_paint_background_and_border_gating() {
+        use crate::canvas::Canvas;
+        use crate::canvas::draw::{PaintCtx, Palette};
+        use crate::components::Drawable;
+        use crate::components::tests::recorder::{DrawOp, DrawRecorder};
+
+        let img = ImageBuf::from_rgba(
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
+            ],
+        )
+        .unwrap();
+        let png = img.encode_png().expect("encode png");
+        let hex_png = shape::bytes_to_hex(&png);
+
+        let canvas = Canvas::empty();
+        let pal = Palette::light();
+        let ctx = PaintCtx {
+            canvas: &canvas,
+            pal: &pal,
+            scale: 1.0,
+            item_id: "SubPackage-1",
+            on_board: false,
+            active_item_id: None,
+        };
+
+        // 1. Solid-fill package without background always strokes its outline even when Border=false.
+        let mut sp = SubPackage::default();
+        assert!(!sp.package.border);
+        let mut rec = DrawRecorder::new();
+        sp.paint(&mut rec, &ctx);
+        assert!(
+            rec.ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::FillRoundRect { .. }))
+        );
+        assert!(
+            rec.ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::StrokeRoundRect { .. }))
+        );
+        assert!(
+            !rec.ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::DrawPixmapRect { .. }))
+        );
+
+        // 2. Package with Background image and Border=false renders pixmap without border stroke.
+        sp.set_prop_text("Background", &hex_png).unwrap();
+        assert!(sp.background_pixmap.is_some());
+        let mut rec_bg = DrawRecorder::new();
+        sp.paint(&mut rec_bg, &ctx);
+        assert!(
+            rec_bg
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::DrawPixmapRect { .. }))
+        );
+        assert!(
+            !rec_bg
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::StrokeRoundRect { .. }))
+        );
+
+        // 3. Enabling Border=true strokes a border around the background image.
+        sp.set_prop_text("Border", "true").unwrap();
+        let mut rec_bg_border = DrawRecorder::new();
+        sp.paint(&mut rec_bg_border, &ctx);
+        assert!(
+            rec_bg_border
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::DrawPixmapRect { .. }))
+        );
+        assert!(
+            rec_bg_border
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::StrokeRoundRect { .. }))
+        );
+
+        // 4. PartialEq ignores the decoded pixmap cache.
+        let mut sp2 = sp.clone();
+        sp2.background_pixmap = None;
+        assert_eq!(sp, sp2);
     }
 }

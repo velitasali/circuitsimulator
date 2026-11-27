@@ -513,3 +513,55 @@ fn test_event_driven_wavegen_speed_and_accuracy() {
         "Expected speed > 200%, got {real_speed}%"
     );
 }
+
+#[test]
+fn test_wavegen_steps_controls_sample_resolution_and_floors_extreme_rates() {
+    // 1. Direct next-event step period tracks `steps` for Sine/Triangle/Saw/Random
+    //    and native sample rate for Wav.
+    let sine_20 = Comp::wave_gen("wg", "Sine", 1000.0, 2.5, 2.5, 0.5, 0.0, 20, false, false);
+    assert_eq!(sine_20.wavegen_next_event_ps(0), Some(50_000_000)); // 1 ms / 20 = 50 us
+
+    let sine_200 = Comp::wave_gen("wg", "Sine", 1000.0, 2.5, 2.5, 0.5, 0.0, 200, false, false);
+    assert_eq!(sine_200.wavegen_next_event_ps(0), Some(5_000_000)); // 1 ms / 200 = 5 us
+
+    // Extreme steps * freq is safely floored at 1 ns (1_000 ps) instead of 1 ps.
+    let extreme = Comp::wave_gen(
+        "wg", "Sine", 100e6, 2.5, 2.5, 0.5, 0.0, 10_000, false, false,
+    );
+    assert_eq!(extreme.wavegen_next_event_ps(0), Some(1_000));
+
+    // WAV steps at native sample rate (1e12 / 8000 = 125_000_000 ps), ignoring `steps`.
+    let wav = Comp::wave_gen("wg", "Wav", 8000.0, 2.5, 2.5, 0.5, 0.0, 100, false, false);
+    assert_eq!(wav.wavegen_next_event_ps(0), Some(125_000_000));
+
+    // 2. End-to-end circuit: Sine captured on an Oscope records proportionally more
+    //    distinct sample points when `steps` is higher (10 vs 100 over 1 cycle).
+    let run_count = |steps: i32| -> usize {
+        let mut c = Circuit::new();
+        c.add_comp(Comp::wave_gen(
+            "WG", "Sine", 1000.0, 2.5, 2.5, 0.5, 0.0, steps, false, false,
+        ));
+        c.add_comp(Comp::resistor("R1", 1000.0));
+        c.add_comp(Comp::ground("GND"));
+        c.add_comp(Comp::oscope("OSC", true));
+        c.connect("WG-outnod", "R1-lPin");
+        c.connect("R1-rPin", "GND-Gnd");
+        c.connect("WG-outnod", "OSC-Pin0");
+        c.connect("GND-Gnd", "OSC-PinG");
+        c.solve().unwrap();
+        c.run_ps(1_000_000_000).unwrap(); // 1 ms = 1 full cycle
+        c.instruments.scopes.get("OSC").unwrap().len()
+    };
+
+    let n_coarse = run_count(10);
+    let n_fine = run_count(100);
+    assert!(
+        n_coarse >= 8 && n_coarse <= 20,
+        "expected ~10 samples for steps=10, got {n_coarse}"
+    );
+    assert!(
+        n_fine >= 80 && n_fine <= 130,
+        "expected ~100 samples for steps=100, got {n_fine}"
+    );
+    assert!(n_fine > n_coarse * 4);
+}

@@ -14835,6 +14835,26 @@ Program değişkenlerini listelemek için taslağı derleyin; ELF dosyası gerek
         <translation>SPICE Netlist Dışa Aktar</translation>
     </message>
     <message>
+        <source>Export VCD</source>
+        <translation>VCD Dışa Aktar</translation>
+    </message>
+    <message>
+        <source>Exported VCD:</source>
+        <translation>VCD dışa aktarıldı:</translation>
+    </message>
+    <message>
+        <source>Failed to export VCD.</source>
+        <translation>VCD dışa aktarılamadı.</translation>
+    </message>
+    <message>
+        <source>Failed to export VCD:</source>
+        <translation>VCD dışa aktarılamadı:</translation>
+    </message>
+    <message>
+        <source>VCD files (*.vcd)</source>
+        <translation>VCD dosyaları (*.vcd)</translation>
+    </message>
+    <message>
         <source>KiCad netlist (*.net)</source>
         <translation>KiCad netlist (*.net)</translation>
     </message>

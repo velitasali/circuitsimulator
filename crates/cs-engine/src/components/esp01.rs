@@ -3,8 +3,8 @@
 use super::component::stamp_to_ground;
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int};
 use super::{CompPin, Component, Stampable};
-use crate::canvas::PinGeom;
-use crate::canvas::Rect;
+use crate::canvas::{PinGeom, Rect};
+use crate::digital::EspUart;
 use crate::elements::{Kind, SOURCE_ADMIT};
 use crate::matrix::CircMatrix;
 
@@ -42,7 +42,10 @@ impl Esp01 {
         Kind::Esp01 {
             baud_rate: self.baud_rate,
             debug: self.debug,
-            uart: crate::digital::EspUart::default(),
+            uart: EspUart {
+                debug: self.debug,
+                ..EspUart::default()
+            },
         }
     }
 

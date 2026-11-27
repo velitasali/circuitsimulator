@@ -29,6 +29,7 @@ mod package_designer;
 mod palette_defaults;
 mod periph_serial_monitors;
 mod peripheral_remap;
+mod phase5_stubs;
 mod power_semiconductors_physics;
 mod rc_transient_verification;
 mod sensors_and_actuators_parity;

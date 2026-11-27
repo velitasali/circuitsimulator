@@ -5,8 +5,8 @@ use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_float};
 use super::resistor::paint_resistor_body;
 use super::{CompPin, Component, Stampable, TwoTerminal};
-use crate::canvas::Rect;
 use crate::canvas::draw::{Draw, PaintCtx};
+use crate::canvas::{Point, Rect};
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 
@@ -212,6 +212,39 @@ impl Component for Thermistor {
     fn body(&self) -> Rect {
         Rect::new(-11.0, -4.5, 22.0, 9.0)
     }
+
+    fn interact_toggle(&mut self, local: Point) -> bool {
+        if local.x.abs() <= 12.0 && local.y.abs() <= 8.0 {
+            let step = if self.dial_step > 0.0 {
+                self.dial_step
+            } else {
+                1.0
+            };
+            self.temp_c = (self.temp_c + step).clamp(MIN_TEMP, MAX_TEMP);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn interact_wheel(&mut self, local: Point, delta: f64) -> bool {
+        if local.x.abs() <= 12.0 && local.y.abs() <= 8.0 {
+            let step = if self.dial_step > 0.0 {
+                self.dial_step
+            } else {
+                1.0
+            };
+            let num_steps = if delta.abs() >= 120.0 {
+                (delta / 120.0).round()
+            } else {
+                delta.signum()
+            };
+            self.temp_c = (self.temp_c + num_steps * step).clamp(MIN_TEMP, MAX_TEMP);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl TwoTerminal for Thermistor {}
@@ -262,5 +295,17 @@ mod tests {
         assert!(cold > 10_000.0, "{cold}");
         let hot = Thermistor::resistance_of(50.0, 25.0, 10_000.0, 3455.0);
         assert!(hot < 10_000.0, "{hot}");
+    }
+
+    #[test]
+    fn dial_step_controls_wheel_and_click() {
+        let mut t = Thermistor::default();
+        t.dial_step = 2.5;
+        assert!(t.interact_wheel(Point::new(0.0, 0.0), 120.0));
+        assert!((t.temp_c - 27.5).abs() < 1e-9);
+        assert!(t.interact_toggle(Point::new(0.0, 0.0)));
+        assert!((t.temp_c - 30.0).abs() < 1e-9);
+        assert!(t.interact_wheel(Point::new(0.0, 0.0), -240.0));
+        assert!((t.temp_c - 25.0).abs() < 1e-9);
     }
 }

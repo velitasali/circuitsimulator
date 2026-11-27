@@ -29,7 +29,10 @@ pub const LA_WINDOW_ROWS: usize = 8;
 pub const LA_THRESHOLD_DEFAULT: f64 = 2.5;
 pub const SCOPE_CHANNELS: usize = 4;
 pub const LA_CHANNELS: usize = 8;
-const RING: usize = 1048576;
+pub const SCOPE_DEFAULT_BUFFER_SIZE: usize = 600_000;
+pub const LA_DEFAULT_BUFFER_SIZE: usize = 100_000;
+pub const MIN_BUFFER_SIZE: usize = 100;
+pub const MAX_BUFFER_SIZE: usize = 10_000_000;
 const DISPLAY_N: usize = 512;
 pub const SCOPE_CANVAS_DISPLAY_N: usize = 256;
 /// Raw edges kept inside one display column. Busier columns draw their min/max
@@ -314,6 +317,7 @@ pub struct ScopeSampler {
     n: usize,
     cap: usize,
     nch: usize,
+    first_t: f64,
     trig_t: f64,
     prev: Vec<f64>,
     high: Vec<bool>,
@@ -323,11 +327,94 @@ pub struct ScopeSampler {
 
 impl ScopeSampler {
     pub fn scope() -> Self {
-        Self::with_channels(SCOPE_CHANNELS)
+        Self::scope_with_capacity(SCOPE_DEFAULT_BUFFER_SIZE)
     }
 
     pub fn analyzer() -> Self {
-        Self::with_channels(LA_CHANNELS)
+        Self::analyzer_with_capacity(LA_DEFAULT_BUFFER_SIZE)
+    }
+
+    pub fn scope_with_capacity(cap: usize) -> Self {
+        Self::with_channels(SCOPE_CHANNELS, cap)
+    }
+
+    pub fn analyzer_with_capacity(cap: usize) -> Self {
+        Self::with_channels(LA_CHANNELS, cap)
+    }
+
+    pub fn len(&self) -> usize {
+        self.n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.cap
+    }
+
+    pub fn allocated_len(&self) -> usize {
+        self.t.len()
+    }
+
+    #[inline]
+    fn start_idx(&self) -> usize {
+        if self.n < self.cap { 0 } else { self.i }
+    }
+
+    #[inline]
+    fn last_idx(&self) -> usize {
+        if self.i == 0 {
+            self.cap - 1
+        } else {
+            self.i - 1
+        }
+    }
+
+    #[inline]
+    fn prev_idx(&self, idx: usize) -> usize {
+        if idx == 0 { self.cap - 1 } else { idx - 1 }
+    }
+
+    /// Resize the ring buffer's maximum sample depth while keeping up to `new_cap`
+    /// most recent samples in chronological order without eagerly pre-allocating.
+    pub fn set_capacity(&mut self, new_cap: usize) {
+        let new_cap = new_cap.max(1);
+        if new_cap == self.cap {
+            return;
+        }
+        if self.n == 0 {
+            self.cap = new_cap;
+            self.i = 0;
+            self.t.clear();
+            self.t.shrink_to_fit();
+            for ch in &mut self.ch {
+                ch.clear();
+                ch.shrink_to_fit();
+            }
+            return;
+        }
+        let keep = self.n.min(new_cap);
+        let skip = self.n - keep;
+        let start = self.start_idx();
+        let mut new_t = Vec::with_capacity(keep);
+        let mut new_ch: Vec<Vec<f64>> = (0..self.nch).map(|_| Vec::with_capacity(keep)).collect();
+        for k in skip..self.n {
+            let idx = (start + k) % self.cap;
+            new_t.push(self.t[idx]);
+            for c in 0..self.nch {
+                new_ch[c].push(self.ch[c][idx]);
+            }
+        }
+        self.t = new_t;
+        self.ch = new_ch;
+        self.n = keep;
+        self.cap = new_cap;
+        self.i = if keep == new_cap { 0 } else { keep };
+        if skip > 0 {
+            self.first_t = self.t[0];
+        }
     }
 
     /// Zero one channel and leave the others in the ring.
@@ -335,7 +422,7 @@ impl ScopeSampler {
         if ch >= self.nch {
             return;
         }
-        let start = if self.n < self.cap { 0 } else { self.i };
+        let start = self.start_idx();
         for k in 0..self.n {
             let idx = (start + k) % self.cap;
             self.ch[ch][idx] = 0.0;
@@ -346,14 +433,16 @@ impl ScopeSampler {
         self.freq_meters[ch] = FreqMeterState::default();
     }
 
-    fn with_channels(nch: usize) -> Self {
+    fn with_channels(nch: usize, cap: usize) -> Self {
+        let cap = cap.max(1);
         Self {
-            t: vec![0.0; RING],
-            ch: vec![vec![0.0; RING]; nch],
+            t: Vec::new(),
+            ch: vec![Vec::new(); nch],
             i: 0,
             n: 0,
-            cap: RING,
+            cap,
             nch,
+            first_t: 0.0,
             trig_t: 0.0,
             prev: vec![0.0; nch],
             high: vec![false; nch],
@@ -372,8 +461,22 @@ impl ScopeSampler {
         rising: bool,
         filter: f64,
     ) {
-        let idx = self.i;
-        self.t[idx] = t;
+        if self.n == 0 {
+            self.first_t = t;
+        }
+        let growing = self.t.len() < self.cap;
+        if growing {
+            if self.t.len() == self.t.capacity() {
+                let grow = self.t.len().max(256).min(self.cap - self.t.len());
+                self.t.reserve_exact(grow);
+                for c in 0..self.nch {
+                    self.ch[c].reserve_exact(grow);
+                }
+            }
+            self.t.push(t);
+        } else {
+            self.t[self.i] = t;
+        }
         for c in 0..self.nch {
             let is_conn = connected.get(c).copied().unwrap_or(true);
             self.connected[c] = is_conn;
@@ -382,7 +485,11 @@ impl ScopeSampler {
             } else {
                 0.0
             };
-            self.ch[c][idx] = v;
+            if growing {
+                self.ch[c].push(v);
+            } else {
+                self.ch[c][self.i] = v;
+            }
             if is_conn {
                 self.freq_meters[c].sample(v, filter, t);
             } else {
@@ -401,9 +508,11 @@ impl ScopeSampler {
             }
             self.prev[c] = v;
         }
-        self.i = (self.i + 1) % self.cap;
-        if self.n < self.cap {
+        if growing {
             self.n += 1;
+            self.i = if self.n == self.cap { 0 } else { self.n };
+        } else {
+            self.i = (self.i + 1) % self.cap;
         }
     }
 
@@ -419,11 +528,7 @@ impl ScopeSampler {
     ) {
         let mut changed = self.n == 0;
         if !changed {
-            let last_idx = if self.i == 0 {
-                self.cap - 1
-            } else {
-                self.i - 1
-            };
+            let last_idx = self.last_idx();
             for c in 0..self.nch {
                 let is_conn = connected.get(c).copied().unwrap_or(true);
                 let v = if is_conn {
@@ -440,27 +545,15 @@ impl ScopeSampler {
 
         if changed {
             if self.n > 0 {
-                let last_idx = if self.i == 0 {
-                    self.cap - 1
-                } else {
-                    self.i - 1
-                };
+                let last_idx = self.last_idx();
                 self.t[last_idx] = self.t[last_idx].max(t);
             }
             self.record_raw(t, values, connected, trigger, level, rising, filter);
         } else {
             // Signal has not changed. If the last recorded sample is a hold sample, update its timestamp to t.
             // Otherwise, record a hold sample at t.
-            let last_idx = if self.i == 0 {
-                self.cap - 1
-            } else {
-                self.i - 1
-            };
-            let prev_idx = if last_idx == 0 {
-                self.cap - 1
-            } else {
-                last_idx - 1
-            };
+            let last_idx = self.last_idx();
+            let prev_idx = self.prev_idx(last_idx);
 
             let is_hold_sample = self.n >= 2 && {
                 let mut same_as_prev = true;
@@ -488,6 +581,107 @@ impl ScopeSampler {
                 }
             }
         }
+    }
+
+    /// Serialize all connected channels to IEEE 1364 VCD (Value Change Dump) format.
+    /// `time_step_ps` specifies the VCD timescale in picoseconds (default `1000` = `1ns`).
+    pub fn export_vcd(
+        &self,
+        channel_names: &[&str],
+        time_step_ps: i32,
+        thr_r: f64,
+        thr_f: f64,
+    ) -> String {
+        use std::fmt::Write as _;
+
+        let step_ps = time_step_ps.max(1) as u64;
+        let timescale = format_vcd_timescale(step_ps);
+        let active: Vec<(usize, char, String)> = (0..self.nch)
+            .filter(|&c| self.connected.get(c).copied().unwrap_or(false))
+            .map(|c| {
+                let code = (b'!' + (c as u8).min(90)) as char;
+                let name = sanitize_vcd_name(channel_names.get(c).copied().unwrap_or(""), c);
+                (c, code, name)
+            })
+            .collect();
+
+        let mut out = String::new();
+        let _ = writeln!(out, "$version\n   CircuitSimulator\n$end");
+        let _ = writeln!(out, "$timescale\n   {timescale}\n$end");
+        let _ = writeln!(out, "$scope module logic_analyzer $end");
+        for (_, code, name) in &active {
+            let _ = writeln!(out, "$var wire 1 {code} {name} $end");
+        }
+        let _ = writeln!(out, "$upscope $end");
+        let _ = writeln!(out, "$enddefinitions $end");
+
+        if self.n == 0 || active.is_empty() {
+            return out;
+        }
+
+        let start = self.start_idx();
+        let step_f = step_ps as f64;
+        let mid = 0.5 * (thr_r + thr_f);
+        let to_tick = |t_sec: f64| -> u64 { ((t_sec * 1e12) / step_f).round().max(0.0) as u64 };
+
+        let idx0 = start;
+        let dump_t = if self.n < self.cap {
+            self.first_t.min(self.t[idx0])
+        } else {
+            self.t[idx0]
+        };
+        let mut last_tick = to_tick(dump_t);
+        let mut bits: Vec<bool> = active
+            .iter()
+            .map(|&(c, _, _)| self.ch[c][idx0] >= mid)
+            .collect();
+
+        let _ = writeln!(out, "#{last_tick}");
+        let _ = writeln!(out, "$dumpvars");
+        for (i, &(_, code, _)) in active.iter().enumerate() {
+            let b = if bits[i] { '1' } else { '0' };
+            let _ = writeln!(out, "{b}{code}");
+        }
+        let _ = writeln!(out, "$end");
+
+        let mut final_tick = last_tick;
+        for k in 1..self.n {
+            let prev_idx = (start + k - 1) % self.cap;
+            let idx = (start + k) % self.cap;
+            // In `ScopeSampler::push`, whenever a value changes at time `t`, the
+            // previous sample's timestamp `t[prev_idx]` is updated to `t` as a
+            // corner point and frozen thereafter (whereas `t[idx]` may later be
+            // bumped by a subsequent change). Thus `t[prev_idx]` is the exact
+            // transition time for the change entering sample `k`.
+            let change_tick = to_tick(self.t[prev_idx]).max(last_tick);
+            final_tick = to_tick(self.t[idx]).max(change_tick);
+            let mut changes: Vec<(char, char)> = Vec::new();
+            for (i, &(c, code, _)) in active.iter().enumerate() {
+                let v = self.ch[c][idx];
+                let next = if thr_r > thr_f {
+                    if bits[i] { v > thr_f } else { v >= thr_r }
+                } else {
+                    v >= mid
+                };
+                if next != bits[i] {
+                    bits[i] = next;
+                    changes.push((if next { '1' } else { '0' }, code));
+                }
+            }
+            if !changes.is_empty() {
+                if change_tick > last_tick {
+                    let _ = writeln!(out, "#{change_tick}");
+                    last_tick = change_tick;
+                }
+                for (b, code) in changes {
+                    let _ = writeln!(out, "{b}{code}");
+                }
+            }
+        }
+        if final_tick > last_tick {
+            let _ = writeln!(out, "#{final_tick}");
+        }
+        out
     }
 
     pub fn push_digital(
@@ -1062,6 +1256,36 @@ impl ScopeSampler {
             channels: results,
             time_div,
         }
+    }
+}
+
+fn format_vcd_timescale(time_step_ps: u64) -> String {
+    if time_step_ps % 1_000_000 == 0 {
+        format!("{}us", time_step_ps / 1_000_000)
+    } else if time_step_ps % 1_000 == 0 {
+        format!("{}ns", time_step_ps / 1_000)
+    } else {
+        format!("{time_step_ps}ps")
+    }
+}
+
+fn sanitize_vcd_name(raw: &str, fallback_idx: usize) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return format!("Ch{fallback_idx}");
+    }
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        if ch.is_ascii_graphic() && ch != '$' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        format!("Ch{fallback_idx}")
+    } else {
+        out
     }
 }
 
@@ -1725,5 +1949,119 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn lazy_ring_buffer_bounds_allocation_and_resizes() {
+        let s = ScopeSampler::analyzer_with_capacity(10_000_000);
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.capacity(), 10_000_000);
+        assert_eq!(
+            s.allocated_len(),
+            0,
+            "large buffer_size must not eagerly allocate"
+        );
+
+        let mut bounded = ScopeSampler::scope_with_capacity(120);
+        for i in 0..300 {
+            let t = i as f64 * 1e-6;
+            let v = i as f64 * 0.01;
+            bounded.push(
+                t,
+                &[v, 0.0, 0.0, 0.0],
+                &[true, false, false, false],
+                -1,
+                0.0,
+                true,
+                0.1,
+            );
+        }
+        assert_eq!(bounded.len(), 120);
+        assert_eq!(bounded.allocated_len(), 120);
+        assert!((bounded.last_values()[0] - 2.99).abs() < 1e-9);
+        // Oldest retained sample should be index 180 (t = 180 us, v = 1.80)
+        assert!((bounded.sample_at(180e-6)[0] - 1.80).abs() < 1e-9);
+
+        // Shrink capacity and verify newest samples are retained in order.
+        bounded.set_capacity(50);
+        assert_eq!(bounded.len(), 50);
+        assert_eq!(bounded.capacity(), 50);
+        assert!((bounded.last_values()[0] - 2.99).abs() < 1e-9);
+        assert!((bounded.sample_at(250e-6)[0] - 2.50).abs() < 1e-9);
+
+        // Grow capacity and verify subsequent pushes append cleanly.
+        bounded.set_capacity(200);
+        assert_eq!(bounded.len(), 50);
+        assert_eq!(bounded.capacity(), 200);
+        bounded.push(
+            300e-6,
+            &[3.00, 0.0, 0.0, 0.0],
+            &[true, false, false, false],
+            -1,
+            0.0,
+            true,
+            0.1,
+        );
+        assert_eq!(bounded.len(), 51);
+        assert!((bounded.last_values()[0] - 3.00).abs() < 1e-9);
+    }
+
+    #[test]
+    fn export_vcd_writes_timescale_channels_and_transitions() {
+        let mut la = ScopeSampler::analyzer_with_capacity(1000);
+        let conn = [true, true, false, false, false, false, false, false];
+        la.push(
+            0.0,
+            &[0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            &conn,
+            -1,
+            0.0,
+            true,
+            0.1,
+        );
+        la.push(
+            1e-6,
+            &[5.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            &conn,
+            -1,
+            0.0,
+            true,
+            0.1,
+        );
+        la.push(
+            2e-6,
+            &[5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            &conn,
+            -1,
+            0.0,
+            true,
+            0.1,
+        );
+        la.push(
+            3e-6,
+            &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            &conn,
+            -1,
+            0.0,
+            true,
+            0.1,
+        );
+
+        let vcd = la.export_vcd(&["CLK", "", "UNUSED"], 1000, 2.5, 2.5);
+        assert!(vcd.contains("$timescale\n   1ns\n$end"), "vcd:\n{vcd}");
+        assert!(vcd.contains("$var wire 1 ! CLK $end"), "vcd:\n{vcd}");
+        assert!(vcd.contains("$var wire 1 \" Ch1 $end"), "vcd:\n{vcd}");
+        assert!(
+            !vcd.contains("UNUSED"),
+            "disconnected channel must be omitted"
+        );
+        assert!(vcd.contains("#0\n$dumpvars\n0!\n1\"\n$end"), "vcd:\n{vcd}");
+        assert!(vcd.contains("#1000\n1!\n"), "vcd:\n{vcd}");
+        assert!(vcd.contains("#2000\n0\"\n"), "vcd:\n{vcd}");
+        assert!(vcd.contains("#3000\n0!\n"), "vcd:\n{vcd}");
+
+        let vcd_us = la.export_vcd(&["CLK"], 1_000_000, 2.5, 2.5);
+        assert!(vcd_us.contains("$timescale\n   1us\n$end"));
+        assert!(vcd_us.contains("#1\n1!\n"));
     }
 }

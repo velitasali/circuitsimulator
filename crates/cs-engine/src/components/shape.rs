@@ -12,7 +12,8 @@ use super::props::{
 use super::{CompPin, Component, Stampable};
 use crate::canvas::ImageBuf;
 use crate::canvas::Rect;
-use crate::canvas::draw::{Align, Draw, PaintCtx, parse_hex};
+use crate::canvas::draw::{Align, Draw, PaintCtx, TextStyle, is_monospace_family, parse_hex};
+use crate::canvas::export::text as font_text;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 
@@ -125,12 +126,22 @@ pub fn bytes_to_hex(bytes: &[u8]) -> String {
 }
 
 pub fn measure_text(text: &str, font_size: f64) -> (f64, f64) {
+    measure_text_styled(text, font_size, "", false)
+}
+
+pub fn measure_text_styled(
+    text: &str,
+    font_size: f64,
+    font: &str,
+    fixed_width: bool,
+) -> (f64, f64) {
     let lines: Vec<&str> = text.split('\n').collect();
     let num_lines = lines.len().max(1);
     let line_height = font_size * 1.2;
+    let mono = fixed_width || is_monospace_family(font);
     let mut max_w = 0.0f64;
     for line in lines {
-        let w = (line.chars().count() as f64) * (font_size * 0.6);
+        let w = font_text::text_width_styled(line, font_size, false, mono);
         if w > max_w {
             max_w = w;
         }
@@ -909,7 +920,12 @@ impl Component for Shape {
     fn body(&self) -> Rect {
         match self.shape_kind {
             ShapeKind::Text => {
-                let (tw, th) = measure_text(&self.text, self.font_size as f64);
+                let (tw, th) = measure_text_styled(
+                    &self.text,
+                    self.font_size as f64,
+                    &self.font,
+                    self.fixed_w,
+                );
                 let m = self.margin.max(0) as f64;
                 Rect::new(-m, -m, tw + 2.0 * m, th + 2.0 * m)
             }
@@ -973,7 +989,12 @@ impl Drawable for Shape {
             }
             ShapeKind::Text => {
                 let bg = parse_hex(&self.color).fade(self.opacity);
-                let (tw, th) = measure_text(&self.text, self.font_size as f64);
+                let (tw, th) = measure_text_styled(
+                    &self.text,
+                    self.font_size as f64,
+                    &self.font,
+                    self.fixed_w,
+                );
                 let m = self.margin.max(0) as f64;
                 d.fill_rect(-m, -m, tw + 2.0 * m, th + 2.0 * m, bg);
                 if self.border > 0 {
@@ -987,13 +1008,18 @@ impl Drawable for Shape {
                     );
                 }
                 let fg = parse_hex(&self.font_color).fade(self.opacity);
-                d.text(
+                d.text_styled(
                     0.0,
                     0.0,
                     &self.text,
                     self.font_size as f64,
                     fg,
                     Align::TopLeft,
+                    TextStyle {
+                        family: &self.font,
+                        bold: false,
+                        fixed_width: self.fixed_w,
+                    },
                 );
             }
             ShapeKind::Image => {
@@ -1191,5 +1217,60 @@ mod tests {
         assert!(reloaded_img.image_pixmap.is_some());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn text_shape_honors_font_and_fixed_width() {
+        use crate::canvas::{self, Canvas, Palette};
+        use crate::components::tests::recorder::{DrawOp, record_drawable_paint};
+
+        // Proportional vs fixed-width measurement
+        let (w_i_prop, _) = measure_text_styled("iiiiiiiiii", 12.0, "SansSerif", false);
+        let (w_w_prop, _) = measure_text_styled("WWWWWWWWWW", 12.0, "SansSerif", false);
+        assert!(
+            w_w_prop > w_i_prop + 10.0,
+            "proportional font should measure W wider than i ({w_w_prop} vs {w_i_prop})"
+        );
+
+        let (w_i_fixed, _) = measure_text_styled("iiiiiiiiii", 12.0, "SansSerif", true);
+        let (w_w_fixed, _) = measure_text_styled("WWWWWWWWWW", 12.0, "SansSerif", true);
+        assert!(
+            (w_i_fixed - w_w_fixed).abs() < 1e-3,
+            "fixed-width should measure i and W identically ({w_i_fixed} vs {w_w_fixed})"
+        );
+
+        let (w_i_mono, _) = measure_text_styled("iiiiiiiiii", 12.0, "Ubuntu Mono", false);
+        let (w_w_mono, _) = measure_text_styled("WWWWWWWWWW", 12.0, "Ubuntu Mono", false);
+        assert!((w_i_mono - w_w_mono).abs() < 1e-3);
+
+        // Draw::text_styled receives font family & fixed_width
+        let mut shape = Shape::new_for_kind(ShapeKind::Text);
+        shape.text = "Hello".into();
+        shape.font = "Courier New".into();
+        shape.fixed_w = true;
+        let rec = record_drawable_paint(&shape);
+        let styled = rec.ops.iter().find_map(|op| match op {
+            DrawOp::TextStyled {
+                family,
+                fixed_width,
+                ..
+            } => Some((family.clone(), *fixed_width)),
+            _ => None,
+        });
+        assert_eq!(styled, Some(("Courier New".to_string(), true)));
+
+        // SVG export emits the chosen font-family
+        let mut canvas = Canvas::new();
+        let id = canvas.scene_mut().add_shape("Text", 0.0, 0.0);
+        {
+            let it = canvas.scene_mut().item_by_id_mut(&id).unwrap();
+            it.kind.set_prop_text("Font", "Courier New").unwrap();
+            it.kind.set_prop_text("Fixed_Width", "true").unwrap();
+        }
+        let svg = canvas::svg_string(&canvas, &Palette::light());
+        assert!(
+            svg.contains("font-family=\"Courier New, monospace\""),
+            "SVG should emit Courier New monospace family: {svg}"
+        );
     }
 }

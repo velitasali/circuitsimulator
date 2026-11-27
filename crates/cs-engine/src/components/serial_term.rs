@@ -55,6 +55,8 @@ impl SerialTerm {
     pub fn to_element_kind(&self) -> Kind {
         Kind::SerialTerm {
             baud_rate: self.baud_rate,
+            data_bits: self.data_bits,
+            stop_bits: self.stop_bits,
             uart: SerialUart::default(),
         }
     }
@@ -212,7 +214,16 @@ mod tests {
             stop_bits: 2,
         };
         match st.to_element_kind() {
-            Kind::SerialTerm { baud_rate, .. } => assert_eq!(baud_rate, 57600),
+            Kind::SerialTerm {
+                baud_rate,
+                data_bits,
+                stop_bits,
+                ..
+            } => {
+                assert_eq!(baud_rate, 57600);
+                assert_eq!(data_bits, 7);
+                assert_eq!(stop_bits, 2);
+            }
             other => panic!("expected Kind::SerialTerm, got {other:?}"),
         }
     }

@@ -1,7 +1,7 @@
 //! 4-channel oscilloscope instrument.
 
 use super::component::stamp_to_ground;
-use super::drawable::{Drawable, paint_oscope};
+use super::drawable::{Drawable, paint_oscope, plot_layout};
 use super::props::{
     PropDef, PropError, PropValue, expect_bool, expect_float, expect_int, expect_string,
 };
@@ -75,6 +75,7 @@ impl Oscope {
         Kind::Oscope {
             connect_gnd: self.connect_gnd,
             input_imped: self.input_imped,
+            buffer_size: self.buffer_size.clamp(100, 10_000_000) as usize,
             tunnels: [
                 self.tunnel1.clone(),
                 self.tunnel2.clone(),
@@ -182,23 +183,61 @@ impl Component for Oscope {
     const DESCRIPTION: &'static str = "Oscilloscope instrument.";
 
     fn props() -> &'static [PropDef<Self>] {
-        static PROPS: &[PropDef<Oscope>] = &[
-            PropDef::int(
+        const BASIC_X: PropDef<Oscope> = {
+            let mut p = PropDef::int(
                 "Basic_X",
                 "Screen Width",
                 10,
                 10000,
                 Oscope::get_basic_x,
                 Oscope::set_basic_x,
-            ).with_info("Time base per division in horizontal axis."),
-            PropDef::int(
+            )
+            .with_info("Width of the on-canvas display screen.");
+            p.structural = true;
+            p
+        };
+        const BASIC_Y: PropDef<Oscope> = {
+            let mut p = PropDef::int(
                 "Basic_Y",
                 "Screen Height",
                 10,
                 10000,
                 Oscope::get_basic_y,
                 Oscope::set_basic_y,
-            ).with_info("Voltage scale per division in vertical axis."),
+            )
+            .with_info("Height of the on-canvas display screen.");
+            p.structural = true;
+            p
+        };
+        const TEST_TIME: PropDef<Oscope> = {
+            let mut p = PropDef::float(
+                "TestTime",
+                "Test Time",
+                "s",
+                MIN_TEST_TIME_S,
+                MAX_TEST_TIME_S,
+                Oscope::get_test_time,
+                Oscope::set_test_time,
+            )
+            .with_info("Automated test acquisition window duration.");
+            p.show_by_default = false;
+            p
+        };
+        const DO_TEST: PropDef<Oscope> = {
+            let mut p = PropDef::bool(
+                "DoTest",
+                "Do Test",
+                Oscope::get_do_test,
+                Oscope::set_do_test,
+            )
+            .with_info("Perform automated test verification.");
+            p.show_by_default = false;
+            p
+        };
+
+        static PROPS: &[PropDef<Oscope>] = &[
+            BASIC_X,
+            BASIC_Y,
             PropDef::int(
                 "BufferSize",
                 "Buffer Size",
@@ -222,16 +261,8 @@ impl Component for Oscope {
                 Oscope::get_input_imped,
                 Oscope::set_input_imped,
             ).with_info("Impedance of the input pins."),
-            PropDef::float(
-                "TestTime",
-                "Test Time",
-                "s",
-                MIN_TEST_TIME_S,
-                MAX_TEST_TIME_S,
-                Oscope::get_test_time,
-                Oscope::set_test_time,
-            ).with_info("Automated test acquisition window duration."),
-            PropDef::bool("DoTest", "Do Test", Oscope::get_do_test, Oscope::set_do_test).with_info("Perform automated test verification."),
+            TEST_TIME,
+            DO_TEST,
             PropDef::string(
                 "Tunnel1",
                 "Channel 1",
@@ -265,37 +296,26 @@ impl Component for Oscope {
     }
 
     fn body(&self) -> Rect {
-        Rect::new(-80.0, -72.0, 213.0, 144.0)
+        plot_layout(self.basic_x, self.basic_y).chassis
     }
 
     fn prop_groups(&self) -> Vec<PropGroup> {
-        let all_rows = self.prop_rows();
-        let mut main_rows = Vec::new();
-        let mut tunnels_rows = Vec::new();
-        let mut test_rows = Vec::new();
-        for r in all_rows {
-            if r.name.starts_with("Tunnel") {
-                tunnels_rows.push(r);
-            } else if r.name == "TestTime" || r.name == "DoTest" {
-                test_rows.push(r);
-            } else {
-                main_rows.push(r);
-            }
-        }
-        vec![
-            PropGroup {
-                name: "Main",
-                rows: main_rows,
-            },
-            PropGroup {
-                name: "Tunnels",
-                rows: tunnels_rows,
-            },
-            PropGroup {
-                name: "Test",
-                rows: test_rows,
-            },
-        ]
+        super::group_rows_by(
+            self.prop_rows(),
+            &[
+                (
+                    "Main",
+                    &[
+                        "Basic_X",
+                        "Basic_Y",
+                        "BufferSize",
+                        "connectGnd",
+                        "InputImped",
+                    ],
+                ),
+                ("Tunnels", &["Tunnel1", "Tunnel2", "Tunnel3", "Tunnel4"]),
+            ],
+        )
     }
 }
 
@@ -333,6 +353,8 @@ impl Drawable for Oscope {
         paint_oscope(
             d,
             ctx.pal,
+            self.basic_x,
+            self.basic_y,
             &tunnels,
             &freqs,
             live.as_ref(),
@@ -376,14 +398,42 @@ mod tests {
             Kind::Oscope {
                 connect_gnd,
                 input_imped,
+                buffer_size,
                 tunnels,
             } => {
                 assert!(connect_gnd);
                 assert_eq!(input_imped, 10.0);
+                assert_eq!(buffer_size, 600000);
                 assert_eq!(tunnels.len(), 4);
             }
             other => panic!("expected Kind::Oscope, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn oscope_basic_xy_resizes_body_and_hides_test_tab() {
+        let mut osc = Oscope::default();
+        assert_eq!(osc.body(), Rect::new(-80.0, -72.0, 213.0, 144.0));
+
+        let ch_x = osc.set_prop("Basic_X", PropValue::Int(235)).unwrap();
+        let ch_y = osc.set_prop("Basic_Y", PropValue::Int(235)).unwrap();
+        assert!(ch_x.structural);
+        assert!(ch_y.structural);
+        assert_eq!(osc.body(), Rect::new(-80.0, -122.0, 313.0, 244.0));
+
+        let groups = osc.prop_groups();
+        let names: Vec<&str> = groups.iter().map(|g| g.name).collect();
+        assert_eq!(names, vec!["Main", "Tunnels"]);
+        assert!(
+            groups
+                .iter()
+                .flat_map(|g| g.rows.iter())
+                .all(|r| r.name != "TestTime" && r.name != "DoTest")
+        );
+        osc.set_prop("TestTime", PropValue::Float(1.5)).unwrap();
+        osc.set_prop("DoTest", PropValue::Bool(true)).unwrap();
+        assert_eq!(osc.get_prop("TestTime"), Some(PropValue::Float(1.5)));
+        assert_eq!(osc.get_prop("DoTest"), Some(PropValue::Bool(true)));
     }
 }
 

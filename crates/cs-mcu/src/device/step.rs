@@ -98,6 +98,56 @@ impl Device {
         self.sync_bus_remain();
     }
 
+    /// Advance the MCU by any pending rising edges sampled on the primary external
+    /// oscillator pin (XTAL1). Returns `true` if at least one CPU tick executed.
+    pub fn step_ext_clock(&mut self) -> bool {
+        let edges = std::mem::take(&mut self.host.ext_clk_pending_edges);
+        if edges == 0 || !self.host.ext_osc_enabled || self.host.shared_reset_held {
+            return false;
+        }
+        if !matches!(self.state, McuState::Running | McuState::Sleeping) {
+            return false;
+        }
+        let ticks_per_cpu = self.c_per_tick.round().max(1.0) as u32;
+        let tick_ps = self.ps_tick.max(1);
+        let mut stepped = false;
+        for _ in 0..edges {
+            self.host.ext_osc_div += 1;
+            if self.host.ext_osc_div < ticks_per_cpu {
+                continue;
+            }
+            self.host.ext_osc_div = 0;
+            stepped = true;
+
+            self.host.periph_elapsed = self.host.periph_elapsed.saturating_add(tick_ps);
+            if self.host.periph_dirty {
+                self.host.recompute_periph_next();
+            }
+            if self.host.periph_elapsed >= self.host.periph_next {
+                self.host.flush_peripherals();
+                if self.host.wdt_reset_pending {
+                    self.host.wdt_reset_pending = false;
+                    self.reset();
+                    self.start();
+                    break;
+                }
+            }
+
+            if self.state == McuState::Sleeping {
+                self.dispatch_interrupts();
+                continue;
+            }
+
+            if self.host.ext_cpu_cycles_wait > 1 {
+                self.host.ext_cpu_cycles_wait -= 1;
+            } else {
+                self.step_cpu();
+                self.host.ext_cpu_cycles_wait = self.cycles_done();
+            }
+        }
+        stepped
+    }
+
     #[inline(always)]
     fn dispatch_interrupts(&mut self) {
         let vector = self.host.interrupts.run(&mut self.host.data);

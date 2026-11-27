@@ -22,7 +22,7 @@ const MAX_A: f64 = 1.0;
 const MIN_OHMS: f64 = 1e-3;
 const MAX_OHMS: f64 = 1e6;
 
-use super::led::{LED_COLOR_OPTIONS, LedColor};
+use super::led::{LED_COLOR_OPTIONS, LedColor, led_die_appearance, led_die_ratio};
 
 impl crate::canvas::Item {
     pub fn seven_segment(id: impl Into<String>, x: f64, y: f64, common_anode: bool) -> Self {
@@ -281,6 +281,11 @@ impl Drawable for SevenSegment {
         let lit_c = Color::rgb(lit_rgba.0, lit_rgba.1, lit_rgba.2);
         let unlit_c = Color::rgb(unlit_rgba.0, unlit_rgba.1, unlit_rgba.2);
         let sim_running = ctx.canvas.sim_running();
+        let is_crashed = sim_running
+            && ctx
+                .canvas
+                .item_overload_state(ctx.item_id)
+                .is_some_and(|st| st.crashed);
         let threshold = if self.threshold > 0.1 {
             self.threshold
         } else {
@@ -301,79 +306,39 @@ impl Drawable for SevenSegment {
             } else {
                 0.0
             };
-            let seg_color = |pin_suffix: &str| -> Color {
+            let seg_color = |seg_idx: usize| -> Color {
                 if !sim_running {
                     return lit_c;
                 }
-                let v_seg = with_pin_id(ctx.item_id, pin_suffix, |pin_id| {
+                let v_seg = with_pin_id(ctx.item_id, seg_pins[seg_idx], |pin_id| {
                     ctx.canvas.pin_voltage(pin_id)
                 })
                 .unwrap_or(0.0);
-                let is_on = if self.common_anode {
-                    (v_com - v_seg) >= threshold
+                let v_diff = if self.common_anode {
+                    (v_com - v_seg).max(0.0)
                 } else {
-                    (v_seg - v_com) >= threshold
+                    (v_seg - v_com).max(0.0)
                 };
-                if is_on { lit_c } else { unlit_c }
+                let die_cur = ctx.canvas.led_die_current(ctx.item_id, idx * 8 + seg_idx);
+                let ratio = led_die_ratio(
+                    die_cur,
+                    v_diff,
+                    threshold,
+                    self.resistance,
+                    self.max_current,
+                );
+                let (fill, _) = led_die_appearance(lit_c, unlit_c, ratio, is_crashed);
+                fill
             };
 
-            d.line(
-                x_off - 5.0,
-                -18.0,
-                x_off + 7.0,
-                -18.0,
-                seg_color(seg_pins[0]),
-                3.5,
-            );
-            d.line(
-                x_off + 11.0,
-                -14.0,
-                x_off + 10.0,
-                -4.0,
-                seg_color(seg_pins[1]),
-                3.5,
-            );
-            d.line(
-                x_off + 10.0,
-                4.0,
-                x_off + 9.0,
-                14.0,
-                seg_color(seg_pins[2]),
-                3.5,
-            );
-            d.line(
-                x_off + 5.0,
-                18.0,
-                x_off - 7.0,
-                18.0,
-                seg_color(seg_pins[3]),
-                3.5,
-            );
-            d.line(
-                x_off - 11.0,
-                14.0,
-                x_off - 10.0,
-                4.0,
-                seg_color(seg_pins[4]),
-                3.5,
-            );
-            d.line(
-                x_off - 10.0,
-                -4.0,
-                x_off - 9.0,
-                -14.0,
-                seg_color(seg_pins[5]),
-                3.5,
-            );
-            d.line(
-                x_off - 6.0,
-                0.0,
-                x_off + 6.0,
-                0.0,
-                seg_color(seg_pins[6]),
-                3.5,
-            );
-            d.fill_circle(x_off + 11.0, 18.0, 2.0, seg_color(seg_pins[7]));
+            d.line(x_off - 5.0, -18.0, x_off + 7.0, -18.0, seg_color(0), 3.5);
+            d.line(x_off + 11.0, -14.0, x_off + 10.0, -4.0, seg_color(1), 3.5);
+            d.line(x_off + 10.0, 4.0, x_off + 9.0, 14.0, seg_color(2), 3.5);
+            d.line(x_off + 5.0, 18.0, x_off - 7.0, 18.0, seg_color(3), 3.5);
+            d.line(x_off - 11.0, 14.0, x_off - 10.0, 4.0, seg_color(4), 3.5);
+            d.line(x_off - 10.0, -4.0, x_off - 9.0, -14.0, seg_color(5), 3.5);
+            d.line(x_off - 6.0, 0.0, x_off + 6.0, 0.0, seg_color(6), 3.5);
+            d.fill_circle(x_off + 11.0, 18.0, 2.0, seg_color(7));
         }
         true
     }

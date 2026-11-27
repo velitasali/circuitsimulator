@@ -1,7 +1,7 @@
 //! Per-component visual rendering trait.
 
-use crate::canvas::Rect;
 use crate::canvas::draw::{Align, Color, Draw, PaintCtx, Palette, parse_hex};
+use crate::canvas::{ImageBuf, Rect};
 use crate::plot::{Channel, PlotBuffer};
 use crate::theme::{COMPONENT_BORDER_WIDTH, COMPONENT_FILL_ALPHA, ColorId, ColorTheme};
 
@@ -270,11 +270,41 @@ pub fn paint_diac_body(d: &mut dyn Draw, pal: &Palette) {
     d.line(8.0, -16.0, 8.0, 16.0, pal.border, COMPONENT_BORDER_WIDTH);
 }
 
+/// Layout geometry for on-canvas plot instruments (`Oscope` and `LogicAnalyzer`).
+/// Preserves the default `135×135` silhouette while scaling chassis and screen
+/// dynamically with `Basic_X` and `Basic_Y`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlotLayout {
+    pub chassis: Rect,
+    pub screen: (f64, f64, f64, f64),
+    pub inner: (f64, f64, f64, f64),
+}
+
+pub fn plot_layout(basic_x: i32, basic_y: i32) -> PlotLayout {
+    let screen_w = (basic_x as f64 - 5.0).max(16.0);
+    let screen_h = (basic_y as f64 - 7.0).max(16.0);
+    let screen_x = -6.0;
+    let screen_y = -screen_h * 0.5;
+    let chassis_x = -80.0;
+    let chassis_w = 83.0 + screen_w;
+    let chassis_h = (screen_h + 16.0).max(144.0);
+    let chassis_y = -chassis_h * 0.5;
+    let screen = (screen_x, screen_y, screen_w, screen_h);
+    PlotLayout {
+        chassis: Rect::new(chassis_x, chassis_y, chassis_w, chassis_h),
+        screen,
+        inner: oscope_inner_rect(screen),
+    }
+}
+
 /// Chassis, labels, screen and reticle. `traces` are live samples (sim);
 /// `None` leaves the screen empty. Frequency text is overlaid, not cached.
+#[allow(clippy::too_many_arguments)]
 pub fn paint_oscope(
     d: &mut dyn Draw,
     pal: &Palette,
+    basic_x: i32,
+    basic_y: i32,
     tunnels: &[&str],
     freqs: &[&str],
     traces: Option<&PlotBuffer>,
@@ -284,24 +314,27 @@ pub fn paint_oscope(
     hidden: &[bool; 4],
     zoom: f64,
 ) {
-    paint_oscope_chrome(d, pal, tunnels);
-    paint_oscope_reticle(d, tracks, zoom);
+    let layout = plot_layout(basic_x, basic_y);
+    paint_oscope_chrome(d, pal, &layout, tunnels);
+    paint_oscope_reticle(d, layout.inner, tracks, zoom);
     paint_oscope_freq_labels(d, pal, freqs);
-    paint_oscope_waves(d, traces, volt_divs, volt_pos, tracks, hidden, zoom);
+    paint_oscope_waves(
+        d,
+        layout.inner,
+        traces,
+        volt_divs,
+        volt_pos,
+        tracks,
+        hidden,
+        zoom,
+    );
 }
 
-fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, tunnels: &[&str]) {
+fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, layout: &PlotLayout, tunnels: &[&str]) {
     // 1. Chassis
-    d.fill_round_rect(-80.0, -72.0, 213.0, 144.0, 4.0, pal.body.fade(0.9));
-    d.stroke_round_rect(
-        -80.0,
-        -72.0,
-        213.0,
-        144.0,
-        4.0,
-        pal.border,
-        COMPONENT_BORDER_WIDTH,
-    );
+    let c = layout.chassis;
+    d.fill_round_rect(c.x, c.y, c.w, c.h, 4.0, pal.body.fade(0.9));
+    d.stroke_round_rect(c.x, c.y, c.w, c.h, 4.0, pal.border, COMPONENT_BORDER_WIDTH);
 
     // 2. Sidebar (Channels 0..3)
     for i in 0..4 {
@@ -340,10 +373,7 @@ fn paint_oscope_chrome(d: &mut dyn Draw, pal: &Palette, tunnels: &[&str]) {
     );
 
     // 3. Screen
-    let screen_x = -6.0;
-    let screen_y = -64.0;
-    let screen_w = 130.0;
-    let screen_h = 128.0;
+    let (screen_x, screen_y, screen_w, screen_h) = layout.screen;
     d.fill_round_rect(
         screen_x,
         screen_y,
@@ -371,11 +401,11 @@ fn scope_screen_width(zoom: f64, css_px: f64) -> f64 {
     css_px / zoom.max(0.1)
 }
 
-fn paint_oscope_reticle(d: &mut dyn Draw, tracks: i32, zoom: f64) {
+fn paint_oscope_reticle(d: &mut dyn Draw, inner: (f64, f64, f64, f64), tracks: i32, zoom: f64) {
     let px = 1.0 / zoom.max(0.1);
     paint_scope_grid(
         d,
-        oscope_inner_rect(),
+        inner,
         tracks,
         scope_color(ColorId::ScopeSymbolGrid),
         scope_color(ColorId::ScopeSymbolAccent),
@@ -405,17 +435,13 @@ fn paint_oscope_freq_labels(d: &mut dyn Draw, pal: &Palette, freqs: &[&str]) {
     }
 }
 
-const OSCOPE_SCREEN_X: f64 = -6.0;
-const OSCOPE_SCREEN_Y: f64 = -64.0;
-const OSCOPE_SCREEN_W: f64 = 130.0;
-const OSCOPE_SCREEN_H: f64 = 128.0;
-
-fn oscope_inner_rect() -> (f64, f64, f64, f64) {
+fn oscope_inner_rect(screen: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
+    let (screen_x, screen_y, screen_w, screen_h) = screen;
     (
-        OSCOPE_SCREEN_X + 4.0,
-        OSCOPE_SCREEN_Y + 4.0,
-        OSCOPE_SCREEN_W - 8.0,
-        OSCOPE_SCREEN_H - 8.0,
+        screen_x + 4.0,
+        screen_y + 4.0,
+        (screen_w - 8.0).max(2.0),
+        (screen_h - 8.0).max(2.0),
     )
 }
 
@@ -543,8 +569,10 @@ fn la_trace_y(v: f64, row_y: f64, row_h: f64, inset: f64) -> f64 {
     row_y + row_h - inset - bit * (row_h - 2.0 * inset)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_oscope_waves(
     d: &mut dyn Draw,
+    rect: (f64, f64, f64, f64),
     traces: Option<&PlotBuffer>,
     volt_divs: &[f64; 4],
     volt_pos: &[f64; 4],
@@ -552,7 +580,6 @@ fn paint_oscope_waves(
     hidden: &[bool; 4],
     zoom: f64,
 ) {
-    let rect = oscope_inner_rect();
     let track_h = rect.3 / scope_track_count(tracks) as f64;
     paint_scope_waves(
         d,
@@ -1085,21 +1112,18 @@ pub fn la_signal_at(
 pub fn paint_lanalizer(
     d: &mut dyn Draw,
     pal: &Palette,
+    basic_x: i32,
+    basic_y: i32,
     tunnels: &[&str],
     traces: Option<&PlotBuffer>,
     zoom: f64,
 ) {
+    let layout = plot_layout(basic_x, basic_y);
+    let c = layout.chassis;
+
     // 1. Chassis
-    d.fill_round_rect(-80.0, -72.0, 213.0, 144.0, 4.0, pal.body.fade(0.9));
-    d.stroke_round_rect(
-        -80.0,
-        -72.0,
-        213.0,
-        144.0,
-        4.0,
-        pal.border,
-        COMPONENT_BORDER_WIDTH,
-    );
+    d.fill_round_rect(c.x, c.y, c.w, c.h, 4.0, pal.body.fade(0.9));
+    d.stroke_round_rect(c.x, c.y, c.w, c.h, 4.0, pal.border, COMPONENT_BORDER_WIDTH);
 
     // 2. Sidebar (Channels 0..7)
     for i in 0..8 {
@@ -1127,10 +1151,7 @@ pub fn paint_lanalizer(
     }
 
     // 3. Screen
-    let screen_x = -6.0;
-    let screen_y = -64.0;
-    let screen_w = 130.0;
-    let screen_h = 128.0;
+    let (screen_x, screen_y, screen_w, screen_h) = layout.screen;
     d.fill_round_rect(
         screen_x,
         screen_y,
@@ -1149,7 +1170,7 @@ pub fn paint_lanalizer(
         COMPONENT_BORDER_WIDTH,
     );
 
-    let inner = oscope_inner_rect();
+    let inner = layout.inner;
     paint_la_grid(
         d,
         inner,
@@ -1164,6 +1185,8 @@ pub fn paint_plot(d: &mut dyn Draw, pal: &Palette) {
     paint_oscope(
         d,
         pal,
+        135,
+        135,
         &[],
         &[],
         None,
@@ -1215,6 +1238,7 @@ pub fn paint_trapezoid_body(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn paint_dip_package(
     d: &mut dyn Draw,
     pal: &Palette,
@@ -1226,18 +1250,54 @@ pub fn paint_dip_package(
     bckgnd_color: &str,
     is_active: bool,
 ) {
-    let fill = if custom_color && !bckgnd_color.is_empty() {
-        crate::canvas::draw::parse_hex(bckgnd_color)
-    } else if logic_symbol {
-        crate::canvas::draw::parse_hex("#ebf0ff")
-    } else {
-        crate::canvas::draw::parse_hex("#141e3c")
-    };
-    d.fill_round_rect(0.0, 0.0, w, h, 1.0, fill);
-    d.stroke_round_rect(0.0, 0.0, w, h, 1.0, pal.border, COMPONENT_BORDER_WIDTH);
+    paint_dip_package_with_bg(
+        d,
+        pal,
+        w,
+        h,
+        label,
+        logic_symbol,
+        custom_color,
+        bckgnd_color,
+        is_active,
+        None,
+        false,
+    );
+}
 
-    if !logic_symbol {
-        let notch_color = crate::canvas::draw::parse_hex("#aaaa96");
+#[allow(clippy::too_many_arguments)]
+pub fn paint_dip_package_with_bg(
+    d: &mut dyn Draw,
+    pal: &Palette,
+    w: f64,
+    h: f64,
+    label: &str,
+    logic_symbol: bool,
+    custom_color: bool,
+    bckgnd_color: &str,
+    is_active: bool,
+    background: Option<&ImageBuf>,
+    border: bool,
+) {
+    if let Some(bg) = background {
+        d.draw_pixmap_rect(0.0, 0.0, w, h, bg, 1.0);
+        if border {
+            d.stroke_round_rect(0.0, 0.0, w, h, 1.0, pal.border, COMPONENT_BORDER_WIDTH);
+        }
+    } else {
+        let fill = if custom_color && !bckgnd_color.is_empty() {
+            parse_hex(bckgnd_color)
+        } else if logic_symbol {
+            parse_hex("#ebf0ff")
+        } else {
+            parse_hex("#141e3c")
+        };
+        d.fill_round_rect(0.0, 0.0, w, h, 1.0, fill);
+        d.stroke_round_rect(0.0, 0.0, w, h, 1.0, pal.border, COMPONENT_BORDER_WIDTH);
+    }
+
+    if !logic_symbol && background.is_none() {
+        let notch_color = parse_hex("#aaaa96");
         if (w - h).abs() < 0.5 {
             if !is_active {
                 d.stroke_circle(6.0, 6.0, 2.0, notch_color, COMPONENT_BORDER_WIDTH);

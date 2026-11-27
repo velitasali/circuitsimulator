@@ -1,6 +1,7 @@
 //! Simulation synchronization, runtime stepping loop, MCU cosimulation, and instruments.
 
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::Circuit;
@@ -91,6 +92,7 @@ impl Canvas {
             DebugSession::global().pause();
         }
         self.pause_qemu();
+        self.auto_export_la_vcd();
         Change {
             sim: true,
             ..Change::default()
@@ -947,7 +949,7 @@ impl Canvas {
                     );
                 }
                 Part::Pcd8544(_) => {
-                    let text = self
+                    let (text, extra) = self
                         .running
                         .as_ref()
                         .and_then(|c| {
@@ -956,7 +958,7 @@ impl Canvas {
                                 .find(|comp| comp.id == it.id)
                                 .and_then(|comp| {
                                     if let crate::elements::Kind::Pcd8544(p) = &comp.kind {
-                                        Some(p.hex_bitmap())
+                                        Some((p.hex_bitmap(), format!("{},{}", p.contrast, p.bias)))
                                     } else {
                                         None
                                     }
@@ -969,7 +971,7 @@ impl Canvas {
                             text,
                             max_text: String::new(),
                             avg_text: String::new(),
-                            extra: String::new(),
+                            extra,
                             high: false,
                             low: false,
                             hz_text: String::new(),
@@ -1399,6 +1401,123 @@ impl Canvas {
 
     pub fn la_traces(&self) -> &crate::plot::PlotBuffer {
         &self.la_traces
+    }
+
+    /// Serialize captured data for a specific logic analyzer item to VCD format.
+    pub fn export_la_vcd_for(&self, item_id: &str) -> Result<String, String> {
+        let circuit = self
+            .running
+            .as_ref()
+            .ok_or_else(|| "Simulation is not running.".to_string())?;
+        let sampler = circuit
+            .instruments
+            .las
+            .get(item_id)
+            .ok_or_else(|| format!("No logic analyzer capture found for '{item_id}'."))?;
+        let (tunnels, time_step) = self
+            .scene
+            .item_by_id(item_id)
+            .and_then(|it| match &it.kind {
+                Part::LogicAnalyzer(la) => Some((la.ch_tunnels(), la.time_step)),
+                _ => None,
+            })
+            .unwrap_or_else(|| (Vec::new(), 1000));
+        let names: Vec<&str> = tunnels.iter().map(String::as_str).collect();
+        Ok(sampler.export_vcd(&names, time_step, self.la_threshold_r, self.la_threshold_f))
+    }
+
+    /// Serialize the active logic analyzer capture to VCD format.
+    pub fn export_la_vcd(&self) -> Result<String, String> {
+        let circuit = self
+            .running
+            .as_ref()
+            .ok_or_else(|| "Simulation is not running.".to_string())?;
+        if let Some(it) = self.scene.items().iter().find(|it| {
+            matches!(&it.kind, Part::LogicAnalyzer(_))
+                && circuit.instruments.las.contains_key(&it.id)
+        }) {
+            return self.export_la_vcd_for(&it.id);
+        }
+        if let Some((id, _)) = circuit.instruments.las.iter().next() {
+            return self.export_la_vcd_for(id);
+        }
+        Err("No logic analyzer capture available.".to_string())
+    }
+
+    /// Write VCD files automatically for every `LogicAnalyzer` with `auto_export == true`.
+    /// Target path is `<circuit_dir>/<circuit_stem>_<la_id>.vcd`; unsaved circuits skip cleanly.
+    pub fn auto_export_la_vcd(&self) -> Vec<PathBuf> {
+        let Some(circuit) = self.running.as_ref() else {
+            return Vec::new();
+        };
+        let mut written = Vec::new();
+        let circuit_path = self.file_path().filter(|p| !p.trim().is_empty());
+
+        for it in self.scene.items() {
+            let Part::LogicAnalyzer(la) = &it.kind else {
+                continue;
+            };
+            if !la.auto_export {
+                continue;
+            }
+            let Some(sampler) = circuit.instruments.las.get(&it.id) else {
+                continue;
+            };
+            if sampler.is_empty() {
+                continue;
+            }
+            let Some(cp) = circuit_path else {
+                crate::logging::log_sim(format!(
+                    "AutoExport skipped for {}: save circuit first",
+                    it.id
+                ));
+                continue;
+            };
+            let base = Path::new(cp);
+            let stem = base
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("circuit");
+            let safe_id: String = it
+                .id
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            let file_name = format!("{stem}_{safe_id}.vcd");
+            let dest = match base.parent() {
+                Some(dir) if !dir.as_os_str().is_empty() => dir.join(file_name),
+                _ => PathBuf::from(file_name),
+            };
+            let tunnels = la.ch_tunnels();
+            let names: Vec<&str> = tunnels.iter().map(String::as_str).collect();
+            let vcd = sampler.export_vcd(
+                &names,
+                la.time_step,
+                self.la_threshold_r,
+                self.la_threshold_f,
+            );
+            match fs::write(&dest, vcd) {
+                Ok(()) => {
+                    crate::logging::log_sim(format!("Auto-exported VCD: {}", dest.display()));
+                    written.push(dest);
+                }
+                Err(e) => {
+                    crate::logging::log_sim(format!(
+                        "Failed to auto-export VCD for {} ({}): {e}",
+                        it.id,
+                        dest.display()
+                    ));
+                }
+            }
+        }
+        written
     }
 
     /// Remember the expanded scope size and rebuild its trace when the time
@@ -2356,6 +2475,33 @@ fn eval_part_overload(
                 .item_pin_current(sim_id, PIN_LEFT)
                 .unwrap_or(0.0)
                 .abs();
+            overload::eval_led(
+                current,
+                p.max_current,
+                prev_state.warning,
+                prev_state.crashed,
+            )
+        }
+        Part::SevenSegment(p) => {
+            let current = canvas.led_max_die_current(sim_id).unwrap_or(0.0);
+            overload::eval_led(
+                current,
+                p.max_current,
+                prev_state.warning,
+                prev_state.crashed,
+            )
+        }
+        Part::LedBar(p) => {
+            let current = canvas.led_max_die_current(sim_id).unwrap_or(0.0);
+            overload::eval_led(
+                current,
+                p.max_current,
+                prev_state.warning,
+                prev_state.crashed,
+            )
+        }
+        Part::LedMatrix(p) => {
+            let current = canvas.led_max_die_current(sim_id).unwrap_or(0.0);
             overload::eval_led(
                 current,
                 p.max_current,

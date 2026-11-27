@@ -19,7 +19,7 @@ use crate::theme::COMPONENT_BORDER_WIDTH;
 const MIN_SEGMENTS: i64 = 1;
 const MAX_SEGMENTS: i64 = 32;
 
-use super::led::{LED_COLOR_OPTIONS, LedColor};
+use super::led::{LED_COLOR_OPTIONS, LedColor, led_die_appearance, led_die_ratio};
 
 const MIN_V: f64 = 0.0;
 const MAX_V: f64 = 100.0;
@@ -254,9 +254,14 @@ impl Drawable for LedBar {
         let lit_color = Color::rgb(lit.0, lit.1, lit.2);
         let unlit_color = Color::rgb(unlit.0, unlit.1, unlit.2);
         let sim_running = ctx.canvas.sim_running();
+        let is_crashed = sim_running
+            && ctx
+                .canvas
+                .item_overload_state(ctx.item_id)
+                .is_some_and(|st| st.crashed);
         for i in 0..n {
             let y = -26.0 + i as f64 * 8.0;
-            let is_lit = if sim_running {
+            let (fill, glow) = if sim_running {
                 let va = with_pin_id_idx(ctx.item_id, PIN_LEFT, i, |p| ctx.canvas.pin_voltage(p))
                     .or_else(|| {
                         with_pin_id_idx(ctx.item_id, "aPin", i, |p| ctx.canvas.pin_voltage(p))
@@ -274,24 +279,29 @@ impl Drawable for LedBar {
                         .unwrap_or(0.0)
                 };
 
-                let cur = with_pin_id_idx(ctx.item_id, PIN_LEFT, i, |p| ctx.canvas.pin_current(p))
-                    .or_else(|| {
-                        with_pin_id_idx(ctx.item_id, "aPin", i, |p| ctx.canvas.pin_current(p))
-                    })
-                    .unwrap_or(0.0);
-
-                (va - vc) > 1.5 || cur > 0.0005
+                let die_cur = ctx.canvas.led_die_current(ctx.item_id, i).or_else(|| {
+                    with_pin_id_idx(ctx.item_id, PIN_LEFT, i, |p| ctx.canvas.pin_current(p))
+                        .or_else(|| {
+                            with_pin_id_idx(ctx.item_id, "aPin", i, |p| ctx.canvas.pin_current(p))
+                        })
+                });
+                let ratio = led_die_ratio(
+                    die_cur,
+                    (va - vc).max(0.0),
+                    self.threshold,
+                    self.resistance,
+                    self.max_current,
+                );
+                led_die_appearance(lit_color, unlit_color, ratio, is_crashed)
             } else {
-                false
+                (unlit_color, 0.0)
             };
 
-            if is_lit {
+            if glow > 0.0 {
                 // Soft glow around segment
-                d.fill_round_rect(-7.0, y - 1.0, 14.0, 7.0, 2.0, lit_color.fade(0.35));
-                d.fill_round_rect(-6.0, y, 12.0, 5.0, 1.0, lit_color);
-            } else {
-                d.fill_round_rect(-6.0, y, 12.0, 5.0, 1.0, unlit_color);
+                d.fill_round_rect(-7.0, y - 1.0, 14.0, 7.0, 2.0, fill.fade(glow));
             }
+            d.fill_round_rect(-6.0, y, 12.0, 5.0, 1.0, fill);
         }
         true
     }
@@ -327,6 +337,81 @@ mod tests {
         let mut b = LedBar::default();
         b.grounded = true;
         assert_eq!(b.pin_geoms().len(), 8);
+    }
+
+    #[test]
+    fn max_current_changes_brightness_and_overload() {
+        use crate::canvas::draw::{PaintCtx, Palette};
+        use crate::canvas::{Canvas, Point, Wire};
+        use crate::components::tests::recorder::{DrawOp, DrawRecorder};
+
+        let build = |max_current: &str| {
+            let mut canvas = Canvas::new();
+            let src = canvas.scene_mut().add_fixed_volt(0.0, 0.0, 5.0);
+            let res = canvas.scene_mut().add_resistor(40.0, 0.0, 500.0);
+            let bar = canvas.scene_mut().add_led_bar(80.0, 0.0);
+            {
+                let item = canvas.scene_mut().item_by_id_mut(&bar).unwrap();
+                item.kind.set_prop_text("Segments", "1").unwrap();
+                item.kind.set_prop_text("Grounded", "true").unwrap();
+                item.kind.set_prop_text("MaxCurrent", max_current).unwrap();
+            }
+            canvas.scene_mut().add_saved_wire(Wire::from_saved(
+                "w1",
+                format!("{src}-outnod"),
+                format!("{res}-lPin"),
+                vec![Point::new(0.0, 0.0), Point::new(24.0, 0.0)],
+            ));
+            canvas.scene_mut().add_saved_wire(Wire::from_saved(
+                "w2",
+                format!("{res}-rPin"),
+                format!("{bar}-lPin0"),
+                vec![Point::new(56.0, 0.0), Point::new(64.0, 0.0)],
+            ));
+            canvas.power_on();
+            (canvas, bar)
+        };
+
+        // ~5 mA through segment 0: dim at MaxCurrent=100mA, full at MaxCurrent=5mA, warning at MaxCurrent=2mA
+        let (dim_c, dim_bar) = build("100 mA");
+        let (bright_c, bright_bar) = build("5 mA");
+        let (over_c, over_bar) = build("2 mA");
+
+        let seg_fill = |c: &Canvas, id: &str| {
+            let item = c.scene().item_by_id(id).unwrap();
+            let pal = Palette::light();
+            let ctx = PaintCtx {
+                canvas: c,
+                pal: &pal,
+                scale: 1.0,
+                item_id: id,
+                on_board: false,
+                active_item_id: None,
+            };
+            let mut rec = DrawRecorder::new();
+            item.kind.paint(&mut rec, &ctx);
+            rec.ops
+                .iter()
+                .rev()
+                .find_map(|op| match op {
+                    DrawOp::FillRoundRect { color, .. } => Some(*color),
+                    _ => None,
+                })
+                .unwrap()
+        };
+
+        let dim_col = seg_fill(&dim_c, &dim_bar);
+        let bright_col = seg_fill(&bright_c, &bright_bar);
+        assert!(
+            bright_col.r > dim_col.r || bright_col.g > dim_col.g,
+            "5 mA should look brighter at MaxCurrent=5mA ({bright_col:?}) than 100mA ({dim_col:?})"
+        );
+        assert!(
+            over_c
+                .item_overload_state(&over_bar)
+                .is_some_and(|st| st.warning),
+            "5 mA at MaxCurrent=2mA should trigger overcurrent warning"
+        );
     }
 }
 

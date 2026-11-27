@@ -15,10 +15,12 @@ pub(crate) enum CachedInstrument {
         comp_id: String,
         gnd_node: Option<usize>,
         pins: [Option<usize>; 4],
+        buffer_size: usize,
     },
     LAnalizer {
         comp_id: String,
         pins: [Option<usize>; 8],
+        buffer_size: usize,
     },
     Voltmeter {
         comp_idx: usize,
@@ -228,7 +230,12 @@ impl Circuit {
         for i in 0..self.components.len() {
             let ps = match &mut self.components[i].kind {
                 Kind::Mcu(m) => {
-                    if m.device.freq <= 0.0 {
+                    if m.reset_held {
+                        None
+                    } else if m.is_ext_clock_driven() {
+                        m.device.start();
+                        None
+                    } else if m.device.freq <= 0.0 {
                         None
                     } else {
                         m.device.start();
@@ -451,6 +458,7 @@ impl Circuit {
                     comp_id,
                     gnd_node,
                     pins,
+                    buffer_size,
                 } => {
                     let g = gnd_node
                         .and_then(|n| nodes.get(n))
@@ -475,11 +483,15 @@ impl Circuit {
                             .instruments
                             .scopes
                             .entry(comp_id.clone())
-                            .or_insert_with(ScopeSampler::scope),
+                            .or_insert_with(|| ScopeSampler::scope_with_capacity(*buffer_size)),
                     };
                     s.push(t, &vals, &connected, -1, 0.0, true, 0.1);
                 }
-                CachedInstrument::LAnalizer { comp_id, pins } => {
+                CachedInstrument::LAnalizer {
+                    comp_id,
+                    pins,
+                    buffer_size,
+                } => {
                     let mut vals = [0.0; 8];
                     let mut connected = [false; 8];
                     for (i, p_opt) in pins.iter().enumerate() {
@@ -498,7 +510,7 @@ impl Circuit {
                             .instruments
                             .las
                             .entry(comp_id.clone())
-                            .or_insert_with(ScopeSampler::analyzer),
+                            .or_insert_with(|| ScopeSampler::analyzer_with_capacity(*buffer_size)),
                     };
                     s.push(t, &vals, &connected, -1, 0.0, true, 0.1);
                 }

@@ -1,7 +1,7 @@
 //! 8-channel digital logic analyzer.
 
 use super::component::stamp_to_ground;
-use super::drawable::{Drawable, paint_lanalizer};
+use super::drawable::{Drawable, paint_lanalizer, plot_layout};
 use super::props::{
     PropDef, PropError, PropValue, expect_bool, expect_float, expect_int, expect_string,
 };
@@ -91,6 +91,7 @@ impl LogicAnalyzer {
         Kind::LAnalizer {
             connect_gnd: self.connect_gnd,
             input_imped: self.input_imped,
+            buffer_size: self.buffer_size.clamp(100, 10_000_000) as usize,
             tunnels: [
                 self.tunnel1.clone(),
                 self.tunnel2.clone(),
@@ -250,23 +251,61 @@ impl Component for LogicAnalyzer {
     const DESCRIPTION: &'static str = "Logic analyzer.";
 
     fn props() -> &'static [PropDef<Self>] {
-        static PROPS: &[PropDef<LogicAnalyzer>] = &[
-            PropDef::int(
+        const BASIC_X: PropDef<LogicAnalyzer> = {
+            let mut p = PropDef::int(
                 "Basic_X",
                 "Screen Width",
                 10,
                 10000,
                 LogicAnalyzer::get_basic_x,
                 LogicAnalyzer::set_basic_x,
-            ).with_info("Time base per division in horizontal axis."),
-            PropDef::int(
+            )
+            .with_info("Width of the on-canvas display screen.");
+            p.structural = true;
+            p
+        };
+        const BASIC_Y: PropDef<LogicAnalyzer> = {
+            let mut p = PropDef::int(
                 "Basic_Y",
                 "Screen Height",
                 10,
                 10000,
                 LogicAnalyzer::get_basic_y,
                 LogicAnalyzer::set_basic_y,
-            ).with_info("Voltage scale per division in vertical axis."),
+            )
+            .with_info("Height of the on-canvas display screen.");
+            p.structural = true;
+            p
+        };
+        const TEST_TIME: PropDef<LogicAnalyzer> = {
+            let mut p = PropDef::float(
+                "TestTime",
+                "Test Time",
+                "s",
+                MIN_TEST_TIME_S,
+                MAX_TEST_TIME_S,
+                LogicAnalyzer::get_test_time,
+                LogicAnalyzer::set_test_time,
+            )
+            .with_info("Automated test acquisition window duration.");
+            p.show_by_default = false;
+            p
+        };
+        const DO_TEST: PropDef<LogicAnalyzer> = {
+            let mut p = PropDef::bool(
+                "DoTest",
+                "Do Test",
+                LogicAnalyzer::get_do_test,
+                LogicAnalyzer::set_do_test,
+            )
+            .with_info("Perform automated test verification.");
+            p.show_by_default = false;
+            p
+        };
+
+        static PROPS: &[PropDef<LogicAnalyzer>] = &[
+            BASIC_X,
+            BASIC_Y,
             PropDef::int(
                 "BufferSize",
                 "Buffer Size",
@@ -290,21 +329,8 @@ impl Component for LogicAnalyzer {
                 LogicAnalyzer::get_input_imped,
                 LogicAnalyzer::set_input_imped,
             ).with_info("Impedance of the input pins."),
-            PropDef::float(
-                "TestTime",
-                "Test Time",
-                "s",
-                MIN_TEST_TIME_S,
-                MAX_TEST_TIME_S,
-                LogicAnalyzer::get_test_time,
-                LogicAnalyzer::set_test_time,
-            ).with_info("Automated test acquisition window duration."),
-            PropDef::bool(
-                "DoTest",
-                "Do Test",
-                LogicAnalyzer::get_do_test,
-                LogicAnalyzer::set_do_test,
-            ).with_info("Perform automated test verification."),
+            TEST_TIME,
+            DO_TEST,
             PropDef::bool(
                 "AutoExport",
                 "Export at pause",
@@ -376,44 +402,33 @@ impl Component for LogicAnalyzer {
     }
 
     fn body(&self) -> Rect {
-        Rect::new(-80.0, -72.0, 213.0, 144.0)
+        plot_layout(self.basic_x, self.basic_y).chassis
     }
 
     fn prop_groups(&self) -> Vec<PropGroup> {
-        let all_rows = self.prop_rows();
-        let mut main_rows = Vec::new();
-        let mut tunnels_rows = Vec::new();
-        let mut export_rows = Vec::new();
-        let mut test_rows = Vec::new();
-        for r in all_rows {
-            if r.name.starts_with("Tunnel") {
-                tunnels_rows.push(r);
-            } else if r.name == "TimeStep" || r.name == "AutoExport" {
-                export_rows.push(r);
-            } else if r.name == "TestTime" || r.name == "DoTest" {
-                test_rows.push(r);
-            } else {
-                main_rows.push(r);
-            }
-        }
-        vec![
-            PropGroup {
-                name: "Main",
-                rows: main_rows,
-            },
-            PropGroup {
-                name: "Tunnels",
-                rows: tunnels_rows,
-            },
-            PropGroup {
-                name: "Export",
-                rows: export_rows,
-            },
-            PropGroup {
-                name: "Test",
-                rows: test_rows,
-            },
-        ]
+        super::group_rows_by(
+            self.prop_rows(),
+            &[
+                (
+                    "Main",
+                    &[
+                        "Basic_X",
+                        "Basic_Y",
+                        "BufferSize",
+                        "connectGnd",
+                        "InputImped",
+                    ],
+                ),
+                (
+                    "Tunnels",
+                    &[
+                        "Tunnel1", "Tunnel2", "Tunnel3", "Tunnel4", "Tunnel5", "Tunnel6",
+                        "Tunnel7", "Tunnel8",
+                    ],
+                ),
+                ("Export", &["AutoExport", "TimeStep"]),
+            ],
+        )
     }
 }
 
@@ -445,7 +460,15 @@ impl Drawable for LogicAnalyzer {
             self.tunnel8.as_str(),
         ];
         let live = ctx.canvas.live_la_traces(ctx.item_id);
-        paint_lanalizer(d, ctx.pal, &tunnels, live.as_ref(), ctx.scale);
+        paint_lanalizer(
+            d,
+            ctx.pal,
+            self.basic_x,
+            self.basic_y,
+            &tunnels,
+            live.as_ref(),
+            ctx.scale,
+        );
         true
     }
 }
@@ -474,6 +497,32 @@ mod tests {
         assert_eq!(la.pin_geoms().len(), 8);
         assert!(la.connect_gnd);
         assert_eq!(la.input_imped, 10.0);
+    }
+
+    #[test]
+    fn la_basic_xy_resizes_body_and_hides_test_tab() {
+        let mut la = LogicAnalyzer::default();
+        assert_eq!(la.body(), Rect::new(-80.0, -72.0, 213.0, 144.0));
+
+        let ch_x = la.set_prop("Basic_X", PropValue::Int(205)).unwrap();
+        let ch_y = la.set_prop("Basic_Y", PropValue::Int(205)).unwrap();
+        assert!(ch_x.structural);
+        assert!(ch_y.structural);
+        assert_eq!(la.body(), Rect::new(-80.0, -107.0, 283.0, 214.0));
+
+        let groups = la.prop_groups();
+        let names: Vec<&str> = groups.iter().map(|g| g.name).collect();
+        assert_eq!(names, vec!["Main", "Tunnels", "Export"]);
+        assert!(
+            groups
+                .iter()
+                .flat_map(|g| g.rows.iter())
+                .all(|r| r.name != "TestTime" && r.name != "DoTest")
+        );
+        la.set_prop("TestTime", PropValue::Float(2.0)).unwrap();
+        la.set_prop("DoTest", PropValue::Bool(true)).unwrap();
+        assert_eq!(la.get_prop("TestTime"), Some(PropValue::Float(2.0)));
+        assert_eq!(la.get_prop("DoTest"), Some(PropValue::Bool(true)));
     }
 }
 

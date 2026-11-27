@@ -4,7 +4,7 @@ use super::component::{self, stamp_conductance_between};
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int, expect_string};
 use super::{CompPin, Component, ComponentChange, Stampable};
 use crate::canvas::{Point, Rect};
-use crate::elements::{Kind, SWITCH_CLOSED_ADMIT};
+use crate::elements::{DiodeState, Kind, SWITCH_CLOSED_ADMIT};
 use crate::matrix::CircMatrix;
 
 const MIN_DIM: i64 = 1;
@@ -130,6 +130,7 @@ impl KeyPad {
             diodes: self.diodes,
             dir: self.dir,
             pressed: self.pressed,
+            diode: DiodeState::diode_default(),
         }
     }
 
@@ -360,7 +361,19 @@ impl Stampable for KeyPad {
         if r < self.rows && c < self.cols {
             let row_i = r;
             let col_i = self.rows + c;
-            stamp_conductance_between(matrix, pin_nodes, row_i, col_i, SWITCH_CLOSED_ADMIT);
+            if self.diodes {
+                let mut state = DiodeState::diode_default();
+                let (anode_i, cathode_i) = if self.dir {
+                    (col_i, row_i)
+                } else {
+                    (row_i, col_i)
+                };
+                state.volt_changed(0.0, 0.0);
+                let g = state.admit.max(1e-9);
+                stamp_conductance_between(matrix, pin_nodes, anode_i, cathode_i, g);
+            } else {
+                stamp_conductance_between(matrix, pin_nodes, row_i, col_i, SWITCH_CLOSED_ADMIT);
+            }
         }
     }
 }

@@ -1,7 +1,12 @@
 use std::sync::OnceLock;
 
-const FONT_TTF: &[u8] = include_bytes!("../../../../../resources/fonts/Ubuntu-R.ttf");
-const FONT_BOLD_TTF: &[u8] = include_bytes!("../../../../../resources/fonts/Ubuntu-B.ttf");
+pub(crate) const FONT_TTF: &[u8] = include_bytes!("../../../../../resources/fonts/Ubuntu-R.ttf");
+pub(crate) const FONT_BOLD_TTF: &[u8] =
+    include_bytes!("../../../../../resources/fonts/Ubuntu-B.ttf");
+pub(crate) const FONT_MONO_TTF: &[u8] =
+    include_bytes!("../../../../../resources/fonts/UbuntuMono-R.ttf");
+pub(crate) const FONT_MONO_BOLD_TTF: &[u8] =
+    include_bytes!("../../../../../resources/fonts/UbuntuMono-B.ttf");
 
 pub fn font() -> &'static fontdue::Font {
     static FONT: OnceLock<fontdue::Font> = OnceLock::new();
@@ -15,6 +20,22 @@ pub fn font_bold() -> &'static fontdue::Font {
     FONT_BOLD.get_or_init(|| {
         fontdue::Font::from_bytes(FONT_BOLD_TTF, fontdue::FontSettings::default())
             .expect("Ubuntu-B.ttf")
+    })
+}
+
+pub fn font_mono() -> &'static fontdue::Font {
+    static FONT_MONO: OnceLock<fontdue::Font> = OnceLock::new();
+    FONT_MONO.get_or_init(|| {
+        fontdue::Font::from_bytes(FONT_MONO_TTF, fontdue::FontSettings::default())
+            .expect("UbuntuMono-R.ttf")
+    })
+}
+
+pub fn font_mono_bold() -> &'static fontdue::Font {
+    static FONT_MONO_BOLD: OnceLock<fontdue::Font> = OnceLock::new();
+    FONT_MONO_BOLD.get_or_init(|| {
+        fontdue::Font::from_bytes(FONT_MONO_BOLD_TTF, fontdue::FontSettings::default())
+            .expect("UbuntuMono-B.ttf")
     })
 }
 
@@ -66,7 +87,16 @@ pub fn get_cached_glyph(bold: bool, ch: char, raster_px: f32) -> CachedGlyph {
 }
 
 pub fn text_width(s: &str, size: f64, bold: bool) -> f64 {
-    let font_ref = if bold { font_bold() } else { font() };
+    text_width_styled(s, size, bold, false)
+}
+
+pub fn text_width_styled(s: &str, size: f64, bold: bool, mono: bool) -> f64 {
+    let font_ref = match (bold, mono) {
+        (false, false) => font(),
+        (true, false) => font_bold(),
+        (false, true) => font_mono(),
+        (true, true) => font_mono_bold(),
+    };
     let mut w = 0.0f32;
     for ch in s.chars() {
         let metrics = font_ref.metrics(ch, size as f32);

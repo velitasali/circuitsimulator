@@ -1,12 +1,14 @@
 //! Subcircuit: nested schematic item with IC package footprint.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use super::props::{PropDef, PropError, PropValue, expect_bool, expect_float, expect_string};
+use super::sub_package::decode_package_background;
 use super::{CompPin, Component, ComponentChange, Part, Stampable};
 use crate::canvas::draw::{Color, Draw, PaintCtx, parse_hex};
-use crate::canvas::{Item, Point, Rect, Scene, map_rect, map_scene};
+use crate::canvas::{ImageBuf, Item, Point, Rect, Scene, map_rect, map_scene};
 use crate::digital::{
     LOGIC_DELAY, LOGIC_FALL, LOGIC_IN_HIGH, LOGIC_IN_IMP, LOGIC_IN_LOW, LOGIC_OUT_HIGH,
     LOGIC_OUT_IMP, LOGIC_OUT_LOW, LOGIC_RISE, LogicOverride,
@@ -30,7 +32,7 @@ const LOGIC_PROP_IDS: &[&str] = &[
 ];
 
 /// Subcircuit instance referencing an inner schematic or device package.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Subcircuit {
     pub device: String,
     pub package: Package,
@@ -52,6 +54,26 @@ pub struct Subcircuit {
     /// Per-instance property overrides for exposed (`mainComp="true"`) inner components,
     /// keyed by `(inner_circ_id, prop_id)`. Persisted on the parent `Subcircuit` item.
     pub exposed_overrides: BTreeMap<(String, String), String>,
+    /// Cached decoded package `Background` image (ignored in `PartialEq`).
+    pub background_pixmap: Option<Arc<ImageBuf>>,
+}
+
+impl PartialEq for Subcircuit {
+    fn eq(&self, other: &Self) -> bool {
+        self.device == other.device
+            && self.package == other.package
+            && self.packages == other.packages
+            && self.nested_src == other.nested_src
+            && self.nested_path == other.nested_path
+            && self.logic_symbol == other.logic_symbol
+            && self.program == other.program
+            && self.firmware_dir == other.firmware_dir
+            && self.logic == other.logic
+            && self.board_children == other.board_children
+            && self.active_board_child == other.active_board_child
+            && self.last_interacted_child == other.last_interacted_child
+            && self.exposed_overrides == other.exposed_overrides
+    }
 }
 
 impl Item {
@@ -67,26 +89,24 @@ impl Item {
     ) -> Self {
         let nested_src = nested_src.into();
         let board_children = subcircuit::board_children(&nested_src, &package, logic_symbol);
-        Self::new(
-            id,
-            x,
-            y,
-            Subcircuit {
-                device: device.into(),
-                package,
-                packages: BTreeMap::new(),
-                nested_src,
-                nested_path,
-                logic_symbol,
-                program: String::new(),
-                firmware_dir: None,
-                logic: LogicOverride::default(),
-                board_children,
-                active_board_child: None,
-                last_interacted_child: None,
-                exposed_overrides: BTreeMap::new(),
-            },
-        )
+        let mut subc = Subcircuit {
+            device: device.into(),
+            package,
+            packages: BTreeMap::new(),
+            nested_src,
+            nested_path,
+            logic_symbol,
+            program: String::new(),
+            firmware_dir: None,
+            logic: LogicOverride::default(),
+            board_children,
+            active_board_child: None,
+            last_interacted_child: None,
+            exposed_overrides: BTreeMap::new(),
+            background_pixmap: None,
+        };
+        subc.resolve_background(None);
+        Self::new(id, x, y, subc)
     }
 }
 
@@ -106,12 +126,40 @@ impl Default for Subcircuit {
             active_board_child: None,
             last_interacted_child: None,
             exposed_overrides: BTreeMap::new(),
+            background_pixmap: None,
         }
     }
 }
 
 impl Subcircuit {
     pub const TYPE_ID: &'static str = "Subcircuit";
+
+    pub fn resolve_background(&mut self, extra_dir: Option<&Path>) -> bool {
+        let mut dirs: Vec<&Path> = Vec::new();
+        let nested_parent = self
+            .nested_path
+            .as_deref()
+            .and_then(|p| Path::new(p).parent())
+            .filter(|p| !p.as_os_str().is_empty());
+        if let Some(d) = nested_parent {
+            dirs.push(d);
+        }
+        let pkg_parent = (!self.package.package_file.trim().is_empty())
+            .then(|| Path::new(self.package.package_file.trim()).parent())
+            .flatten()
+            .filter(|p| !p.as_os_str().is_empty());
+        if let Some(d) = pkg_parent {
+            dirs.push(d);
+        }
+        if let Some(d) = self.firmware_dir.as_deref() {
+            dirs.push(d);
+        }
+        if let Some(d) = extra_dir {
+            dirs.push(d);
+        }
+        self.background_pixmap = decode_package_background(&self.package.background, &dirs);
+        self.background_pixmap.is_some()
+    }
 
     /// Rebuild `board_children` from `nested_src`, `package`, and `logic_symbol`.
     pub fn refresh_board_children(&mut self) {
@@ -181,6 +229,7 @@ impl Subcircuit {
             crate::package::retarget_package(&self.package, &self.packages, ls, None);
         self.logic_symbol = is_ls;
         self.package = pkg;
+        self.resolve_background(None);
         self.refresh_board_children();
         Ok(())
     }
@@ -198,6 +247,7 @@ impl Subcircuit {
         );
         self.logic_symbol = is_ls;
         self.package = pkg;
+        self.resolve_background(None);
         self.refresh_board_children();
         Ok(())
     }
@@ -736,14 +786,29 @@ impl super::drawable::Drawable for Subcircuit {
         let w = self.package.body_w().max(8.0);
         let h = self.package.body_h().max(8.0);
         if !self.board_children.is_empty() && !self.logic_symbol {
-            let fill = if self.package.custom_color && !self.package.bckgndcolor.is_empty() {
-                parse_hex(&self.package.bckgndcolor)
+            if let Some(bg) = self.background_pixmap.as_deref() {
+                d.draw_pixmap_rect(0.0, 0.0, w, h, bg, 1.0);
+                if self.package.border {
+                    d.stroke_round_rect(
+                        0.0,
+                        0.0,
+                        w,
+                        h,
+                        2.0,
+                        ctx.pal.border,
+                        COMPONENT_BORDER_WIDTH,
+                    );
+                }
             } else {
-                let (r, g, b, a) = ColorTheme::get_rgba(ColorId::ChipBody, false);
-                Color::rgba(r, g, b, a)
-            };
-            d.fill_round_rect(0.0, 0.0, w, h, 2.0, fill);
-            d.stroke_round_rect(0.0, 0.0, w, h, 2.0, ctx.pal.border, COMPONENT_BORDER_WIDTH);
+                let fill = if self.package.custom_color && !self.package.bckgndcolor.is_empty() {
+                    parse_hex(&self.package.bckgndcolor)
+                } else {
+                    let (r, g, b, a) = ColorTheme::get_rgba(ColorId::ChipBody, false);
+                    Color::rgba(r, g, b, a)
+                };
+                d.fill_round_rect(0.0, 0.0, w, h, 2.0, fill);
+                d.stroke_round_rect(0.0, 0.0, w, h, 2.0, ctx.pal.border, COMPONENT_BORDER_WIDTH);
+            }
             if ctx.is_active() {
                 d.fill_round_rect(4.0, 4.0, 4.0, 4.0, 2.0, ctx.pal.exposed_highlight);
                 d.stroke_round_rect(4.0, 4.0, 4.0, 4.0, 2.0, ctx.pal.border, 0.5);
@@ -778,7 +843,7 @@ impl super::drawable::Drawable for Subcircuit {
         } else {
             ""
         };
-        super::drawable::paint_dip_package(
+        super::drawable::paint_dip_package_with_bg(
             d,
             ctx.pal,
             w,
@@ -788,6 +853,8 @@ impl super::drawable::Drawable for Subcircuit {
             self.package.custom_color,
             &self.package.bckgndcolor,
             ctx.is_active(),
+            self.background_pixmap.as_deref(),
+            self.package.border,
         );
         true
     }
@@ -883,6 +950,7 @@ mod tests {
             active_board_child: None,
             last_interacted_child: None,
             exposed_overrides: BTreeMap::new(),
+            background_pixmap: None,
         };
         match sub.to_element_kind() {
             Kind::Subcircuit {

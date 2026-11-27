@@ -147,12 +147,12 @@ impl super::drawable::Drawable for Pcd8544 {
         // Screen glass
         let sx = -42.0;
         let sy = -42.0;
-        let hex = ctx
-            .canvas
-            .readings()
-            .get(ctx.item_id)
-            .map(|reading| reading.text.as_str())
-            .unwrap_or("");
+        let reading = ctx.canvas.readings().get(ctx.item_id);
+        let hex = reading.map(|r| r.text.as_str()).unwrap_or("");
+        let (contrast, bias) = reading
+            .and_then(|r| parse_contrast_bias(&r.extra))
+            .unwrap_or((self.contrast, self.bias));
+        let (fg, bg) = pcd8544_colors(contrast, bias);
         super::mono_fb::paint_mono_screen(
             d,
             sx,
@@ -162,14 +162,54 @@ impl super::drawable::Drawable for Pcd8544 {
             84,
             6,
             hex,
-            Color::rgb(28, 44, 32),
-            Color::rgb(200, 215, 180),
+            fg,
+            bg,
             Color::rgb(140, 160, 144),
             1.0,
             false,
         );
         true
     }
+}
+
+fn parse_contrast_bias(extra: &str) -> Option<(u8, u8)> {
+    let (c, b) = extra.split_once(',')?;
+    let contrast = c.parse::<u8>().ok()?.min(MAX_CONTRAST as u8);
+    let bias = b.parse::<u8>().ok()?.min(MAX_BIAS as u8);
+    Some((contrast, bias))
+}
+
+fn lerp_u8(a: u8, b: u8, t: f64) -> u8 {
+    (a as f64 + (b as f64 - a as f64) * t)
+        .round()
+        .clamp(0.0, 255.0) as u8
+}
+
+fn lerp_color(a: Color, b: Color, t: f64) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    Color::rgb(
+        lerp_u8(a.r, b.r, t),
+        lerp_u8(a.g, b.g, t),
+        lerp_u8(a.b, b.b, t),
+    )
+}
+
+/// Compute LCD foreground and glass background colors from PCD8544 `contrast` (`0..=127`)
+/// and `bias` (`0..=7`, nominal `4` = 1:48 multiplex ratio).
+pub fn pcd8544_colors(contrast: u8, bias: u8) -> (Color, Color) {
+    let bg_base = Color::rgb(200, 215, 180);
+    let fg_dark = Color::rgb(28, 44, 32);
+
+    let bias_offset = (bias.min(7) as f64 - 4.0) * 8.0;
+    let eff = (contrast.min(127) as f64 + bias_offset).clamp(0.0, 127.0);
+
+    let fg_t = (eff / 60.0).clamp(0.0, 1.0);
+    let fg = lerp_color(bg_base, fg_dark, fg_t);
+
+    let bg_t = ((eff - 75.0) / 100.0).clamp(0.0, 0.55);
+    let bg = lerp_color(bg_base, fg_dark, bg_t);
+
+    (fg, bg)
 }
 
 impl crate::canvas::Scene {

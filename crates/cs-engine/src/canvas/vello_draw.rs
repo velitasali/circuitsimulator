@@ -6,14 +6,11 @@ use super::draw;
 use super::export::arc;
 use super::export::paint;
 use super::export::text;
-use super::{Align, Canvas, Color, Draw, ImageBuf, PaintCtx, Palette, Point, Rect};
+use super::{Align, Canvas, Color, Draw, ImageBuf, PaintCtx, Palette, Point, Rect, TextStyle};
 use skrifa::{FontRef, GlyphId, MetadataProvider, instance::LocationRef, instance::Size};
 use vello::kurbo::{Affine, BezPath, Circle, Ellipse, Rect as KRect, RoundedRect, Shape, Stroke};
 use vello::peniko::{Blob, Fill, Font, Image, ImageFormat, ImageQuality, Mix};
 use vello::{Glyph, Scene};
-
-const FONT_REGULAR: &[u8] = include_bytes!("../../../../resources/fonts/Ubuntu-R.ttf");
-const FONT_BOLD: &[u8] = include_bytes!("../../../../resources/fonts/Ubuntu-B.ttf");
 
 pub fn color_of(c: Color) -> vello::peniko::Color {
     vello::peniko::Color::from_rgba8(c.r, c.g, c.b, c.a)
@@ -376,12 +373,37 @@ impl Draw for VelloDraw<'_> {
 
     fn text(&mut self, x: f64, y: f64, s: &str, size: f64, c: Color, align: Align) {
         let xf = self.xf();
-        draw_text(self.scene, xf, false, x, y, s, size, c, align);
+        draw_text(self.scene, xf, false, false, x, y, s, size, c, align);
     }
 
     fn text_bold(&mut self, x: f64, y: f64, s: &str, size: f64, c: Color, align: Align) {
         let xf = self.xf();
-        draw_text(self.scene, xf, true, x, y, s, size, c, align);
+        draw_text(self.scene, xf, true, false, x, y, s, size, c, align);
+    }
+
+    fn text_styled(
+        &mut self,
+        x: f64,
+        y: f64,
+        s: &str,
+        size: f64,
+        c: Color,
+        align: Align,
+        style: TextStyle<'_>,
+    ) {
+        let xf = self.xf();
+        draw_text(
+            self.scene,
+            xf,
+            style.bold,
+            style.is_monospace(),
+            x,
+            y,
+            s,
+            size,
+            c,
+            align,
+        );
     }
 
     fn grid_dots(&mut self, scene: Rect, step: i32, c: Color) {
@@ -645,20 +667,35 @@ fn bez_lines(pts: &[[f64; 2]], close: bool) -> Option<BezPath> {
     Some(path)
 }
 
-fn font_data(bold: bool) -> &'static Font {
-    static REGULAR: OnceLock<Font> = OnceLock::new();
-    static BOLD: OnceLock<Font> = OnceLock::new();
-    let slot = if bold { &BOLD } else { &REGULAR };
-    slot.get_or_init(|| {
-        let bytes: &'static [u8] = if bold { FONT_BOLD } else { FONT_REGULAR };
-        Font::new(Blob::new(Arc::new(bytes)), 0)
-    })
+fn font_bytes(bold: bool, mono: bool) -> &'static [u8] {
+    match (bold, mono) {
+        (false, false) => text::FONT_TTF,
+        (true, false) => text::FONT_BOLD_TTF,
+        (false, true) => text::FONT_MONO_TTF,
+        (true, true) => text::FONT_MONO_BOLD_TTF,
+    }
 }
 
+fn font_data(bold: bool, mono: bool) -> &'static Font {
+    static REGULAR: OnceLock<Font> = OnceLock::new();
+    static BOLD: OnceLock<Font> = OnceLock::new();
+    static MONO_REGULAR: OnceLock<Font> = OnceLock::new();
+    static MONO_BOLD: OnceLock<Font> = OnceLock::new();
+    let slot = match (bold, mono) {
+        (false, false) => &REGULAR,
+        (true, false) => &BOLD,
+        (false, true) => &MONO_REGULAR,
+        (true, true) => &MONO_BOLD,
+    };
+    slot.get_or_init(|| Font::new(Blob::new(Arc::new(font_bytes(bold, mono))), 0))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_text(
     scene: &mut Scene,
     xf: Affine,
     bold: bool,
+    mono: bool,
     x: f64,
     y: f64,
     text: &str,
@@ -670,7 +707,7 @@ fn draw_text(
         return;
     }
     let clean = text::strip_tags(text);
-    let bytes = if bold { FONT_BOLD } else { FONT_REGULAR };
+    let bytes = font_bytes(bold, mono);
     let Ok(font_ref) = FontRef::new(bytes) else {
         return;
     };
@@ -752,7 +789,7 @@ fn draw_text(
         xf
     };
     scene
-        .draw_glyphs(font_data(bold))
+        .draw_glyphs(font_data(bold, mono))
         .transform(draw_xf)
         .font_size(px)
         .brush(color_of(c))

@@ -126,11 +126,8 @@ impl Component for Max72xx {
             p.structural = true;
             p
         };
-        static PROPS: &[PropDef<Max72xx>] = &[
-            PropDef::enumeration("Color", "Color", LED_COLOR_OPTIONS, Max72xx::get_color, Max72xx::set_color)
-                .with_info("Display color."),
-            MODS,
-            PropDef::float(
+        const THRESHOLD: PropDef<Max72xx> = {
+            let mut p = PropDef::float(
                 "Threshold",
                 "Forward Voltage",
                 "V",
@@ -138,8 +135,13 @@ impl Component for Max72xx {
                 MAX_V,
                 Max72xx::get_threshold,
                 Max72xx::set_threshold,
-            ).with_info("Voltage drop when forward biased."),
-            PropDef::float(
+            )
+            .with_info("Voltage drop when forward biased.");
+            p.show_by_default = false;
+            p
+        };
+        const MAX_CURRENT: PropDef<Max72xx> = {
+            let mut p = PropDef::float(
                 "MaxCurrent",
                 "Max Current",
                 "A",
@@ -147,8 +149,15 @@ impl Component for Max72xx {
                 MAX_A,
                 Max72xx::get_max_current,
                 Max72xx::set_max_current,
-            ).with_info("Maximum current (it will blink if exceeded).\nMaximum brightness is reached at this current."),
-            PropDef::float(
+            )
+            .with_info(
+                "Maximum current (it will blink if exceeded).\nMaximum brightness is reached at this current.",
+            );
+            p.show_by_default = false;
+            p
+        };
+        const RESISTANCE: PropDef<Max72xx> = {
+            let mut p = PropDef::float(
                 "Resistance",
                 "Resistance",
                 "Ω",
@@ -156,19 +165,30 @@ impl Component for Max72xx {
                 MAX_OHMS,
                 Max72xx::get_resistance,
                 Max72xx::set_resistance,
-            ).with_info("Series resistance."),
+            )
+            .with_info("Series resistance.");
+            p.show_by_default = false;
+            p
+        };
+        static PROPS: &[PropDef<Max72xx>] = &[
+            PropDef::enumeration(
+                "Color",
+                "Color",
+                LED_COLOR_OPTIONS,
+                Max72xx::get_color,
+                Max72xx::set_color,
+            )
+            .with_info("Display color."),
+            MODS,
+            THRESHOLD,
+            MAX_CURRENT,
+            RESISTANCE,
         ];
         PROPS
     }
 
     fn prop_groups(&self) -> Vec<super::PropGroup> {
-        super::group_rows_by(
-            self.prop_rows(),
-            &[
-                ("Main", &["Color", "Modules"]),
-                ("Electric", &["Threshold", "MaxCurrent", "Resistance"]),
-            ],
-        )
+        super::group_rows_by(self.prop_rows(), &[("Main", &["Color", "Modules"])])
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
@@ -297,6 +317,16 @@ mod tests {
         assert_eq!(m.threshold, LedColor::Yellow.threshold());
         assert_eq!(m.pin_geoms().len(), 6);
         assert_eq!(m.body(), Rect::new(-36.0, -44.0, 264.0, 88.0));
+        let groups = m.prop_groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, "Main");
+        assert_eq!(
+            groups[0].rows.iter().map(|r| r.name).collect::<Vec<_>>(),
+            vec!["Color", "Modules"]
+        );
+        for hidden in ["Threshold", "MaxCurrent", "Resistance"] {
+            assert!(m.persisted_props().iter().any(|(k, _)| *k == hidden));
+        }
     }
 }
 

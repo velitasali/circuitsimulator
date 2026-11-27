@@ -1,11 +1,13 @@
 //! Canvas component property editing, package pin geometry, linker and monitors.
 
+use std::path::{Path, PathBuf};
+
 use crate::canvas::drag::Drag;
 use crate::canvas::events::{Change, CursorKind};
 use crate::canvas::scene::Part;
 use crate::canvas::{Canvas, LinkMode, Rect};
 use crate::components::ComponentChange;
-use crate::subcircuit;
+use crate::{settings, subcircuit};
 
 fn item_monitor_names(it: &crate::canvas::scene::Item) -> Vec<String> {
     match &it.kind {
@@ -211,7 +213,17 @@ impl Canvas {
                 return c;
             }
         }
+        let circuit_dir = self
+            .file_path
+            .as_deref()
+            .and_then(|cp| Path::new(cp).parent().map(Path::to_path_buf));
         let mut c = self.apply_property_result(uid, |it| {
+            if let Part::Mcu(mcu) = &mut it.kind
+                && name.replace('_', "").eq_ignore_ascii_case("Program")
+                && mcu.mcu.firmware_dir.is_none()
+            {
+                mcu.mcu.firmware_dir = circuit_dir.clone();
+            }
             let res = it.kind.set_prop_text(&name, &text).map_err(|_| ());
             if res.is_ok() {
                 if let Part::Mcu(mcu) = &it.kind {
@@ -224,6 +236,14 @@ impl Canvas {
         });
         if name.replace('_', "").eq_ignore_ascii_case("ImageFile")
             && self.resolve_shape_image_for(uid)
+        {
+            c.items = true;
+            c.props = true;
+        }
+        if matches!(
+            name.replace('_', "").to_ascii_lowercase().as_str(),
+            "background" | "packagefile"
+        ) && self.resolve_package_background_for(uid)
         {
             c.items = true;
             c.props = true;
@@ -513,6 +533,89 @@ impl Canvas {
         self.apply_component_edit(ComponentChange::structural(uid), |scene| {
             scene.load_package_xml(&uid_s, &xml)
         })
+    }
+
+    pub fn load_package_file_xml(&mut self, uid: &str, xml: &str, file_path: &str) -> Change {
+        let uid_s = uid.to_string();
+        let xml = xml.to_string();
+        let rel = self.relative_to_circuit(file_path);
+        let pkg_dir = Path::new(file_path)
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(Path::to_path_buf);
+        let mut c = self.apply_component_edit(ComponentChange::structural(uid), |scene| {
+            scene.load_package_xml_from_path(&uid_s, &xml, &rel, pkg_dir.as_deref())
+        });
+        if self.scene.item_by_id(&uid_s).is_some_and(|it| {
+            matches!(
+                &it.kind,
+                Part::SubPackage(sp) if sp.background_pixmap.is_none() && !sp.package.background.is_empty()
+            )
+        }) {
+            self.resolve_package_background_for(&uid_s);
+        }
+        c.props = true;
+        c
+    }
+
+    pub fn set_package_file(&mut self, uid: &str, file_path: &str) -> Change {
+        let rel = self.relative_to_circuit(file_path);
+        if self.scene.set_package_file(uid, &rel) {
+            self.resolve_package_background_for(uid);
+            self.dirty_item_now(uid);
+            Change {
+                items: true,
+                props: true,
+                ..Change::default()
+            }
+        } else {
+            Change::default()
+        }
+    }
+
+    pub fn suggest_package_path(&self, uid: &str) -> String {
+        let target_uid = if !uid.is_empty() {
+            uid.to_string()
+        } else {
+            self.scene
+                .items()
+                .iter()
+                .find(|it| it.selected)
+                .map(|it| it.id.clone())
+                .unwrap_or_default()
+        };
+        let Some(pkg) = self.scene.package_ref(&target_uid) else {
+            return String::new();
+        };
+        let base_dir = self
+            .file_path
+            .as_deref()
+            .and_then(|p| Path::new(p).parent().map(Path::to_path_buf))
+            .or_else(|| settings::get().last_project_dir.as_ref().map(PathBuf::from));
+        let raw = pkg.package_file.trim();
+        if !raw.is_empty() {
+            let p = Path::new(raw);
+            if p.is_absolute() {
+                return p.to_string_lossy().into_owned();
+            }
+            if let Some(dir) = base_dir {
+                return dir.join(p).to_string_lossy().into_owned();
+            }
+            return raw.to_string();
+        }
+        let name = pkg.name.trim();
+        if !name.is_empty() && name != "Package" {
+            let filename = if name.ends_with(".package") {
+                name.to_string()
+            } else {
+                format!("{name}.package")
+            };
+            if let Some(dir) = base_dir {
+                return dir.join(filename).to_string_lossy().into_owned();
+            }
+            return filename;
+        }
+        String::new()
     }
 
     pub fn export_package_xml(&self, uid: &str) -> Option<String> {

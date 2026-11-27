@@ -26,6 +26,7 @@ impl Circuit {
                         control_pins: true,
                         ..
                     }
+                    | Kind::KeyPad { diodes: true, .. }
                     | Kind::RgbLed { .. }
                     | Kind::LedBar { .. }
                     | Kind::SevenSegment { .. }
@@ -52,6 +53,7 @@ impl Circuit {
                 Kind::OpAmp { state } => state.reset_stamp(),
                 Kind::Jfet { state } => state.reset_stamp(),
                 Kind::VoltReg { state } => state.reset_stamp(),
+                Kind::KeyPad { diode, .. } => diode.reset_stamp(),
                 Kind::RgbLed { leds, .. } => leds.iter_mut().for_each(|led| led.reset_stamp()),
                 Kind::LedBar { leds, .. } => leds.iter_mut().for_each(|led| led.reset_stamp()),
                 Kind::SevenSegment { leds, .. } => {

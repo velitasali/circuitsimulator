@@ -834,14 +834,42 @@ impl Canvas {
         false
     }
 
+    pub(crate) fn resolve_package_background_for(&mut self, uid: &str) -> bool {
+        let circuit_dir = self
+            .file_path
+            .as_deref()
+            .and_then(|cp| Path::new(cp).parent().map(Path::to_path_buf));
+        let Some(it) = self.scene.item_by_id_mut(uid) else {
+            return false;
+        };
+        let resolved = match &mut it.kind {
+            Part::SubPackage(sp) => sp.resolve_background(circuit_dir.as_deref()),
+            Part::Subcircuit(subc) => subc.resolve_background(circuit_dir.as_deref()),
+            _ => false,
+        };
+        if resolved {
+            self.dirty.mark_full();
+        }
+        resolved
+    }
+
     pub(crate) fn resolve_shape_images(&mut self) {
         let circuit_dir = self
             .file_path
             .as_deref()
             .and_then(|cp| Path::new(cp).parent().map(Path::to_path_buf));
         for it in self.scene.items_mut() {
-            if let Part::Shape(sh) = &mut it.kind {
-                Self::resolve_one_shape_image(sh, circuit_dir.as_deref());
+            match &mut it.kind {
+                Part::Shape(sh) => {
+                    Self::resolve_one_shape_image(sh, circuit_dir.as_deref());
+                }
+                Part::SubPackage(sp) => {
+                    sp.resolve_background(circuit_dir.as_deref());
+                }
+                Part::Subcircuit(subc) => {
+                    subc.resolve_background(circuit_dir.as_deref());
+                }
+                _ => {}
             }
         }
     }

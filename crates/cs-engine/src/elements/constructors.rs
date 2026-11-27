@@ -76,10 +76,15 @@ impl Comp {
     }
 
     pub fn capacitor(id: impl Into<String>, farads: f64) -> Self {
+        Self::capacitor_with_esr(id, farads, CAPACITOR_DEFAULT_OHMS)
+    }
+
+    pub fn capacitor_with_esr(id: impl Into<String>, farads: f64, ohms: f64) -> Self {
         Self {
             id: id.into(),
             kind: Kind::Capacitor {
                 capacitance: farads.max(CAP_MIN),
+                resistance: ohms.max(0.0),
                 volt: 0.0,
             },
         }
@@ -90,16 +95,22 @@ impl Comp {
             id: id.into(),
             kind: Kind::ElCapacitor {
                 capacitance: farads.max(CAP_MIN),
+                resistance: CAPACITOR_DEFAULT_OHMS,
                 volt: 0.0,
             },
         }
     }
 
     pub fn inductor(id: impl Into<String>, henries: f64) -> Self {
+        Self::inductor_with_resistance(id, henries, INDUCTOR_DEFAULT_OHMS)
+    }
+
+    pub fn inductor_with_resistance(id: impl Into<String>, henries: f64, ohms: f64) -> Self {
         Self {
             id: id.into(),
             kind: Kind::Inductor {
                 inductance: henries.max(IND_MIN),
+                resistance: ohms.max(0.0),
                 ieq: 0.0,
             },
         }
@@ -461,6 +472,7 @@ impl Comp {
                 diodes,
                 dir,
                 pressed: None,
+                diode: DiodeState::diode_default(),
             },
         }
     }
@@ -669,21 +681,44 @@ impl Comp {
         port_name: impl Into<String>,
         baud_rate: u32,
     ) -> Self {
+        Self::serial_port_with(id, port_name, baud_rate, 8, 1)
+    }
+
+    pub fn serial_port_with(
+        id: impl Into<String>,
+        port_name: impl Into<String>,
+        baud_rate: u32,
+        data_bits: usize,
+        stop_bits: usize,
+    ) -> Self {
         Self {
             id: id.into(),
             kind: Kind::SerialPort {
                 port_name: port_name.into(),
                 baud_rate,
+                data_bits: data_bits.clamp(5, 9),
+                stop_bits: stop_bits.clamp(1, 2),
                 uart: SerialUart::default(),
             },
         }
     }
 
     pub fn serial_term(id: impl Into<String>, baud_rate: u32) -> Self {
+        Self::serial_term_with(id, baud_rate, 8, 1)
+    }
+
+    pub fn serial_term_with(
+        id: impl Into<String>,
+        baud_rate: u32,
+        data_bits: usize,
+        stop_bits: usize,
+    ) -> Self {
         Self {
             id: id.into(),
             kind: Kind::SerialTerm {
                 baud_rate,
+                data_bits: data_bits.clamp(5, 9),
+                stop_bits: stop_bits.clamp(1, 2),
                 uart: SerialUart::default(),
             },
         }
@@ -1338,6 +1373,7 @@ impl Comp {
             freq_hz,
             duty,
             phase,
+            steps,
             ..
         } = &self.kind
         else {
@@ -1362,6 +1398,9 @@ impl Comp {
             duty.clamp(0.0, 1.0)
         };
 
+        const MIN_WAVE_STEP_PS: u64 = 1_000;
+        const MAX_WAVE_STEP_PS: u64 = 1_000_000_000;
+
         match classify_wave_kind(wave_type) {
             WaveKind::Square => {
                 let half_w = ((ps_per_cycle as f64) * duty_frac).round() as u64;
@@ -1371,11 +1410,15 @@ impl Comp {
                     Some(ps_per_cycle.saturating_sub(t_cycle).max(1))
                 }
             }
+            WaveKind::Wav => {
+                // `freq_hz` is already the WAV audio sample rate, so one cycle is one sample.
+                Some(ps_per_cycle.clamp(MIN_WAVE_STEP_PS, MAX_WAVE_STEP_PS))
+            }
             _ => {
-                // Continuous waves: Sine, Triangle, Saw, Random, Wav
-                // 40 steps per cycle (9 degrees resolution for sine)
-                const SAMPLES_PER_CYCLE: u64 = 40;
-                let dt = (ps_per_cycle / SAMPLES_PER_CYCLE).clamp(1, 1_000_000_000);
+                // Continuous / stepped waves: Sine, Triangle, Saw, Random.
+                let samples_per_cycle = (*steps).max(10) as u64;
+                let dt =
+                    (ps_per_cycle / samples_per_cycle).clamp(MIN_WAVE_STEP_PS, MAX_WAVE_STEP_PS);
                 Some(dt)
             }
         }
@@ -1459,11 +1502,31 @@ impl Comp {
         input_imped: f64,
         tunnels: [String; 4],
     ) -> Self {
+        Self::oscope_with_buffer(
+            id,
+            connect_gnd,
+            input_imped,
+            crate::instruments::SCOPE_DEFAULT_BUFFER_SIZE,
+            tunnels,
+        )
+    }
+
+    pub fn oscope_with_buffer(
+        id: impl Into<String>,
+        connect_gnd: bool,
+        input_imped: f64,
+        buffer_size: usize,
+        tunnels: [String; 4],
+    ) -> Self {
         Self {
             id: id.into(),
             kind: Kind::Oscope {
                 connect_gnd,
                 input_imped,
+                buffer_size: buffer_size.clamp(
+                    crate::instruments::MIN_BUFFER_SIZE,
+                    crate::instruments::MAX_BUFFER_SIZE,
+                ),
                 tunnels,
             },
         }
@@ -1479,11 +1542,31 @@ impl Comp {
         input_imped: f64,
         tunnels: [String; 8],
     ) -> Self {
+        Self::lanalizer_with_buffer(
+            id,
+            connect_gnd,
+            input_imped,
+            crate::instruments::LA_DEFAULT_BUFFER_SIZE,
+            tunnels,
+        )
+    }
+
+    pub fn lanalizer_with_buffer(
+        id: impl Into<String>,
+        connect_gnd: bool,
+        input_imped: f64,
+        buffer_size: usize,
+        tunnels: [String; 8],
+    ) -> Self {
         Self {
             id: id.into(),
             kind: Kind::LAnalizer {
                 connect_gnd,
                 input_imped,
+                buffer_size: buffer_size.clamp(
+                    crate::instruments::MIN_BUFFER_SIZE,
+                    crate::instruments::MAX_BUFFER_SIZE,
+                ),
                 tunnels,
             },
         }

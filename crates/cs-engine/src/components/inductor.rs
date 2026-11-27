@@ -1,17 +1,18 @@
-//! Inductor: backward-Euler companion `G = dt/L`. `InitVolt` is initial current.
+//! Inductor: backward-Euler companion with series winding resistance `G = 1 / (R + L/dt)`.
+//! `InitVolt` is initial current.
 
 use super::component::{stamp_two_terminal, two_terminal_pins};
 use super::props::{PropDef, PropError, PropValue, expect_float};
 use super::{CompPin, Component, Stampable, TwoTerminal};
 use crate::canvas::Rect;
-use crate::elements::{INDUCTOR_DEFAULT_HENRIES, Kind};
+use crate::elements::{self, INDUCTOR_DEFAULT_HENRIES, INDUCTOR_DEFAULT_OHMS, Kind};
 use crate::matrix::CircMatrix;
 
 const MIN_L: f64 = 1e-12;
 const MAX_L: f64 = 1e6;
 const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
-const DEFAULT_R: f64 = 1e-6;
+const DEFAULT_R: f64 = INDUCTOR_DEFAULT_OHMS;
 
 impl crate::canvas::Item {
     pub fn inductor(id: impl Into<String>, x: f64, y: f64, inductance: f64) -> Self {
@@ -49,6 +50,7 @@ impl Inductor {
     pub fn to_element_kind(&self) -> Kind {
         Kind::Inductor {
             inductance: self.inductance.max(MIN_L),
+            resistance: self.resistance.max(MIN_OHMS),
             ieq: self.init_curr,
         }
     }
@@ -136,8 +138,13 @@ impl Stampable for Inductor {
         if dt <= 0.0 {
             return;
         }
-        let g = dt / self.inductance.max(MIN_L);
-        stamp_two_terminal(matrix, pin_nodes, g, self.init_curr);
+        let (g, i_src) = elements::inductor_companion(
+            self.inductance.max(MIN_L),
+            self.resistance,
+            self.init_curr,
+            dt,
+        );
+        stamp_two_terminal(matrix, pin_nodes, g, i_src);
     }
 }
 

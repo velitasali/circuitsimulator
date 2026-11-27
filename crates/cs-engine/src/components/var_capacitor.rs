@@ -5,7 +5,7 @@ use super::prop_links;
 use super::props::{PropDef, PropError, PropUpdate, PropValue, expect_float};
 use super::{CompPin, Component, ComponentChange, Dialed, Stampable, TwoTerminal};
 use crate::canvas::Rect;
-use crate::elements::Kind;
+use crate::elements::{self, CAPACITOR_DEFAULT_OHMS, Kind};
 use crate::matrix::CircMatrix;
 
 const MIN_C: f64 = 1e-15;
@@ -13,7 +13,7 @@ const MAX_C: f64 = 1e3;
 const MIN_OHMS: f64 = 1e-12;
 const MAX_OHMS: f64 = 1e12;
 const DEFAULT_MAX_C: f64 = 10e-6;
-const DEFAULT_ESR: f64 = 1e-6;
+const DEFAULT_ESR: f64 = CAPACITOR_DEFAULT_OHMS;
 
 impl crate::canvas::Item {
     pub fn var_capacitor(id: impl Into<String>, x: f64, y: f64, capacitance: f64) -> Self {
@@ -102,6 +102,7 @@ impl VarCapacitor {
     pub fn to_element_kind(&self) -> Kind {
         Kind::VarCapacitor {
             capacitance: self.capacitance.max(MIN_C),
+            resistance: self.resistance.max(MIN_OHMS),
             volt: self.init_volt,
         }
     }
@@ -302,7 +303,7 @@ impl Stampable for VarCapacitor {
         if dt <= 0.0 {
             return;
         }
-        let g = self.capacitance.max(MIN_C) / dt;
+        let g = elements::capacitor_companion_g(self.capacitance.max(MIN_C), self.resistance, dt);
         stamp_two_terminal(matrix, pin_nodes, g, self.init_volt * g);
     }
 }

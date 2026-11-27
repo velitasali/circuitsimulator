@@ -174,3 +174,104 @@ fn test_oscope_sampling_fidelity_rc_charging() {
         "Oscilloscope trace must preserve exponential curvature without linear flattening: delta1={delta1:.4}, delta2={delta2:.4}"
     );
 }
+
+#[test]
+fn test_capacitor_esr_step_response_and_current() {
+    // 10 V source -> R_ext = 100 Ω -> C = 1 µF with ESR = 100 Ω -> GND.
+    // Total series resistance R_tot = 200 Ω, tau = 200 µs.
+    // At t = 0+ (v_C = 0), terminal voltage immediately jumps to V * ESR / (R_ext + ESR) = 5.0 V.
+    // Thereafter v_term(t) = V * (1 - (R_ext / R_tot) * exp(-t / tau)).
+    let mut circ = Circuit::default();
+    circ.dt = 1e-6;
+
+    circ.add_comp(Comp::fixed_volt("v1", 10.0));
+    circ.add_comp(Comp::resistor("r1", 100.0));
+    circ.add_comp(Comp::capacitor_with_esr("c1", 1e-6, 100.0));
+    circ.add_comp(Comp::ground("gnd"));
+
+    circ.connect("v1-outnod", "r1-lPin");
+    circ.connect("r1-rPin", "c1-lPin");
+    circ.connect("c1-rPin", "gnd-Gnd");
+
+    circ.solve().expect("solve circuit");
+
+    let v0 = circ.pin_voltage("c1-lPin").unwrap();
+    // First backward-Euler step: Z_c = ESR + dt/C = 101 Ω, divider = 101 / 201 ≈ 5.0249 V
+    assert!(
+        (v0 - 10.0 * 101.0 / 201.0).abs() < 0.02,
+        "expected initial ESR jump near 5.025 V, got {v0}"
+    );
+
+    // Branch current entering c1-lPin should match resistor current (10 - v0) / 100 ≈ 49.75 mA
+    let i_cap_in = -circ.current_out_of_pin("c1-lPin").unwrap();
+    let i_res_out = circ.current_out_of_pin("r1-rPin").unwrap();
+    assert!(
+        (i_cap_in - i_res_out).abs() < 1e-4,
+        "capacitor current {i_cap_in} should match resistor current {i_res_out}"
+    );
+
+    // Run to t = 1 tau = 200 µs = 200_000_000 ps
+    circ.run_ps(200_000_000).expect("run 1 tau");
+    let v_1tau = circ.pin_voltage("c1-lPin").unwrap();
+    let expected_1tau = 10.0 * (1.0 - 0.5 * (-1.0_f64).exp());
+    assert!(
+        (v_1tau - expected_1tau).abs() < 0.05,
+        "at t = 1 tau: sim = {v_1tau:.4} V, exact = {expected_1tau:.4} V"
+    );
+
+    // Run to t = 5 tau (another 800 µs): approaches 10 V
+    circ.run_ps(800_000_000).expect("run to 5 tau");
+    let v_5tau = circ.pin_voltage("c1-lPin").unwrap();
+    assert!(
+        (v_5tau - 10.0).abs() < 0.1,
+        "at t = 5 tau should approach 10 V, got {v_5tau}"
+    );
+}
+
+#[test]
+fn test_inductor_winding_resistance_rl_step_and_dc_steady_state() {
+    // 10 V source -> R_ext = 100 Ω -> L = 20 mH with winding R_L = 100 Ω -> GND.
+    // Total series resistance R_tot = 200 Ω, tau = L / R_tot = 100 µs.
+    // Current: i(t) = (V / R_tot) * (1 - exp(-t / tau)) = 0.05 * (1 - exp(-t / tau)).
+    // Inductor terminal voltage: v_L(t) = V - R_ext * i(t) = 5 + 5 * exp(-t / tau).
+    // At DC steady state: i(∞) = 50 mA, v_L(∞) = 5.0 V.
+    let mut circ = Circuit::default();
+    circ.dt = 1e-6;
+
+    circ.add_comp(Comp::fixed_volt("v1", 10.0));
+    circ.add_comp(Comp::resistor("r1", 100.0));
+    circ.add_comp(Comp::inductor_with_resistance("l1", 20e-3, 100.0));
+    circ.add_comp(Comp::ground("gnd"));
+
+    circ.connect("v1-outnod", "r1-lPin");
+    circ.connect("r1-rPin", "l1-lPin");
+    circ.connect("l1-rPin", "gnd-Gnd");
+
+    circ.solve().expect("solve circuit");
+
+    // At t = 0+, inductor resists current change so v_L is near 10 V.
+    let v0 = circ.pin_voltage("l1-lPin").unwrap();
+    assert!(v0 > 9.9, "expected initial v_L near 10 V, got {v0}");
+
+    // At t = 1 tau = 100 µs = 100_000_000 ps
+    circ.run_ps(100_000_000).expect("run 1 tau");
+    let v_1tau = circ.pin_voltage("l1-lPin").unwrap();
+    let expected_1tau = 5.0 + 5.0 * (-1.0_f64).exp();
+    assert!(
+        (v_1tau - expected_1tau).abs() < 0.05,
+        "at t = 1 tau: sim = {v_1tau:.4} V, exact = {expected_1tau:.4} V"
+    );
+
+    // At t = 10 tau (1 ms total): DC steady state
+    circ.run_ps(900_000_000).expect("run to 10 tau");
+    let v_dc = circ.pin_voltage("l1-lPin").unwrap();
+    assert!(
+        (v_dc - 5.0).abs() < 0.01,
+        "DC steady-state v_L must settle to divider voltage 5.0 V, got {v_dc}"
+    );
+    let i_dc = -circ.current_out_of_pin("l1-lPin").unwrap();
+    assert!(
+        (i_dc - 0.05).abs() < 1e-4,
+        "DC steady-state inductor current must settle to 50 mA, got {i_dc}"
+    );
+}

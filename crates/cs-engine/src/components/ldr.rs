@@ -5,8 +5,8 @@ use super::drawable::Drawable;
 use super::props::{PropDef, PropError, PropValue, expect_float};
 use super::resistor::paint_resistor_body;
 use super::{CompPin, Component, Stampable, TwoTerminal};
-use crate::canvas::Rect;
 use crate::canvas::draw::{Draw, PaintCtx};
+use crate::canvas::{Point, Rect};
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 
@@ -182,6 +182,39 @@ impl Component for Ldr {
     fn body(&self) -> Rect {
         Rect::new(-11.0, -4.5, 22.0, 9.0)
     }
+
+    fn interact_toggle(&mut self, local: Point) -> bool {
+        if local.x.abs() <= 12.0 && local.y.abs() <= 8.0 {
+            let step = if self.dial_step > 0.0 {
+                self.dial_step
+            } else {
+                10.0
+            };
+            self.lux = (self.lux + step).clamp(MIN_LUX, MAX_LUX);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn interact_wheel(&mut self, local: Point, delta: f64) -> bool {
+        if local.x.abs() <= 12.0 && local.y.abs() <= 8.0 {
+            let step = if self.dial_step > 0.0 {
+                self.dial_step
+            } else {
+                10.0
+            };
+            let num_steps = if delta.abs() >= 120.0 {
+                (delta / 120.0).round()
+            } else {
+                delta.signum()
+            };
+            self.lux = (self.lux + num_steps * step).clamp(MIN_LUX, MAX_LUX);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl TwoTerminal for Ldr {}
@@ -234,5 +267,16 @@ mod tests {
         assert!(l.resistance() <= l.r_dark);
         assert_eq!(l.pin_geoms().len(), 2);
         assert_eq!(l.body(), Rect::new(-11.0, -4.5, 22.0, 9.0));
+    }
+
+    #[test]
+    fn dial_step_controls_wheel_and_click() {
+        let mut l = Ldr::default();
+        l.dial_step = 25.0;
+        assert!(l.interact_wheel(Point::new(0.0, 0.0), 120.0));
+        assert!((l.lux - 26.0).abs() < 1e-9);
+        assert!(l.interact_toggle(Point::new(0.0, 0.0)));
+        assert!((l.lux - 51.0).abs() < 1e-9);
+        assert!(!l.interact_wheel(Point::new(50.0, 0.0), 120.0));
     }
 }

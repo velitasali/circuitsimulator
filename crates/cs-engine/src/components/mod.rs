@@ -195,7 +195,7 @@ pub use ky040::KY040;
 pub use lamp::Lamp;
 pub use latch::Latch;
 pub use ldr::Ldr;
-pub use led::{LED_COLOR_OPTIONS, Led, LedColor};
+pub use led::{LED_COLOR_OPTIONS, Led, LedColor, led_die_ratio};
 pub use led_bar::LedBar;
 pub use led_matrix::LedMatrix;
 pub use lm555::Lm555;
@@ -211,7 +211,7 @@ pub use not_gate::NotGate;
 pub use opamp::OpAmp;
 pub use or_gate::OrGate;
 pub use oscope::Oscope;
-pub use pcd8544::Pcd8544;
+pub use pcd8544::{Pcd8544, pcd8544_colors};
 pub use pcf8833::Pcf8833;
 pub use potentiometer::Potentiometer;
 pub use probe::Probe;
@@ -1477,7 +1477,7 @@ impl Part {
             Self::Mcu(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::Mcu(p.mcu.clone()),
+                    kind: p.to_element_kind(),
                 });
             }
             Self::QemuDevice(p) => {
@@ -1564,14 +1564,7 @@ impl Part {
             Self::KeyPad(p) => {
                 c.add_comp(crate::elements::Comp {
                     id: id.to_string(),
-                    kind: crate::elements::Kind::KeyPad {
-                        rows: p.rows,
-                        cols: p.cols,
-                        key: p.key.clone(),
-                        diodes: p.diodes,
-                        dir: p.dir,
-                        pressed: p.pressed,
-                    },
+                    kind: p.to_element_kind(),
                 });
             }
             Self::Relay(p) => {

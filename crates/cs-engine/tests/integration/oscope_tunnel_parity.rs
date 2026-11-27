@@ -1,5 +1,7 @@
+use cs_engine::Circuit;
 use cs_engine::canvas::scene::Scene;
 use cs_engine::canvas::{Canvas, Wire};
+use cs_engine::elements::Comp;
 
 #[test]
 fn test_oscope_properties_and_prop_groups() {
@@ -7,12 +9,11 @@ fn test_oscope_properties_and_prop_groups() {
     let osc_id = scene.add_oscope(0.0, 0.0);
     let it = scene.item_by_id_mut(&osc_id).expect("osc item");
 
-    // Verify Main tab, Tunnels tab, Test tab
+    // Verify Main tab and Tunnels tab (hidden TestTime/DoTest drop the empty Test tab)
     let groups = it.prop_groups();
-    assert_eq!(groups.len(), 3);
+    assert_eq!(groups.len(), 2);
     assert_eq!(groups[0].name, "Main");
     assert_eq!(groups[1].name, "Tunnels");
-    assert_eq!(groups[2].name, "Test");
 
     // Verify Main tab properties
     assert_eq!(it.prop_text("Basic_X").as_deref(), Some("135"));
@@ -78,11 +79,10 @@ fn test_lanalizer_properties_and_prop_groups() {
     let it = scene.item_by_id_mut(&la_id).expect("la item");
 
     let groups = it.prop_groups();
-    assert_eq!(groups.len(), 4);
+    assert_eq!(groups.len(), 3);
     assert_eq!(groups[0].name, "Main");
     assert_eq!(groups[1].name, "Tunnels");
     assert_eq!(groups[2].name, "Export");
-    assert_eq!(groups[3].name, "Test");
 
     assert_eq!(it.prop_text("Basic_X").as_deref(), Some("135"));
     assert_eq!(it.prop_text("TimeStep").as_deref(), Some("1000"));
@@ -430,4 +430,181 @@ fn live_logic_analyzer_tunnel_retargets_while_running() {
         peak > 0.5,
         "expected a logic high from the rail, got {peak}"
     );
+}
+
+#[test]
+fn resized_oscope_and_la_paint_and_bounds_match_basic_xy() {
+    use cs_engine::canvas::Rect;
+    use cs_engine::canvas::draw::{Align, Color, Draw, PaintCtx, Palette};
+    use cs_engine::components::{Component, Drawable, LogicAnalyzer, Oscope, PropValue};
+
+    struct RoundRectRecorder {
+        rects: Vec<(f64, f64, f64, f64)>,
+    }
+    impl Draw for RoundRectRecorder {
+        fn fill_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color) {}
+        fn stroke_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn fill_round_rect(&mut self, x: f64, y: f64, w: f64, h: f64, _: f64, _: Color) {
+            self.rects.push((x, y, w, h));
+        }
+        fn stroke_round_rect(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn fill_circle(&mut self, _: f64, _: f64, _: f64, _: Color) {}
+        fn stroke_circle(&mut self, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn fill_ellipse(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color) {}
+        fn stroke_ellipse(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn fill_poly(&mut self, _: &[[f64; 2]], _: Color) {}
+        fn stroke_poly(&mut self, _: &[[f64; 2]], _: Color, _: f64, _: bool) {}
+        fn polyline(&mut self, _: &[[f64; 2]], _: Color, _: f64, _: bool) {}
+        fn line(&mut self, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn arc(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64, _: Color, _: f64) {}
+        fn text(&mut self, _: f64, _: f64, _: &str, _: f64, _: Color, _: Align) {}
+        fn text_bold(&mut self, _: f64, _: f64, _: &str, _: f64, _: Color, _: Align) {}
+        fn grid_dots(&mut self, _: Rect, _: i32, _: Color) {}
+        fn push(&mut self, _: f64, _: f64, _: f64, _: f64, _: f64) {}
+        fn pop(&mut self) {}
+    }
+
+    let canvas = Canvas::new();
+    let pal = Palette::light();
+    let ctx = PaintCtx {
+        canvas: &canvas,
+        pal: &pal,
+        scale: 1.0,
+        item_id: "inst",
+        on_board: false,
+        active_item_id: None,
+    };
+
+    // For Basic_X = 250, Basic_Y = 210:
+    // screen = (-6, -101.5, 245, 203), chassis = (-80, -109.5, 328, 219)
+    let expected_chassis = Rect::new(-80.0, -109.5, 328.0, 219.0);
+    let expected_screen = (-6.0, -101.5, 245.0, 203.0);
+
+    let mut osc = Oscope::default();
+    osc.set_prop("Basic_X", PropValue::Int(250)).unwrap();
+    osc.set_prop("Basic_Y", PropValue::Int(210)).unwrap();
+    assert_eq!(osc.body(), expected_chassis);
+
+    let mut rec_osc = RoundRectRecorder { rects: Vec::new() };
+    osc.paint(&mut rec_osc, &ctx);
+    assert!(rec_osc.rects.contains(&(
+        expected_chassis.x,
+        expected_chassis.y,
+        expected_chassis.w,
+        expected_chassis.h,
+    )));
+    assert!(rec_osc.rects.contains(&expected_screen));
+
+    let mut la = LogicAnalyzer::default();
+    la.set_prop("Basic_X", PropValue::Int(250)).unwrap();
+    la.set_prop("Basic_Y", PropValue::Int(210)).unwrap();
+    assert_eq!(la.body(), expected_chassis);
+
+    let mut rec_la = RoundRectRecorder { rects: Vec::new() };
+    la.paint(&mut rec_la, &ctx);
+    assert!(rec_la.rects.contains(&(
+        expected_chassis.x,
+        expected_chassis.y,
+        expected_chassis.w,
+        expected_chassis.h,
+    )));
+    assert!(rec_la.rects.contains(&expected_screen));
+}
+
+#[test]
+fn bounded_buffer_size_limits_captured_samples_in_circuit() {
+    let mut c = Circuit::new();
+    c.add_comp(Comp::wave_gen(
+        "WG", "Sine", 10_000.0, 2.5, 2.5, 0.5, 0.0, 100, false, false,
+    ));
+    c.add_comp(Comp::resistor("R1", 1000.0));
+    c.add_comp(Comp::ground("GND"));
+    c.add_comp(Comp::oscope_with_buffer(
+        "OSC",
+        true,
+        10.0,
+        120,
+        Default::default(),
+    ));
+    c.add_comp(Comp::lanalizer_with_buffer(
+        "LA",
+        true,
+        10.0,
+        150,
+        Default::default(),
+    ));
+
+    c.connect("WG-outnod", "R1-lPin");
+    c.connect("R1-rPin", "GND-Gnd");
+    c.connect("WG-outnod", "OSC-Pin0");
+    c.connect("GND-Gnd", "OSC-PinG");
+    c.connect("WG-outnod", "LA-Pin0");
+
+    c.solve().unwrap();
+    c.run_ps(1_000_000_000).unwrap(); // 1 ms = 10 cycles @ 10 kHz (~1000 steps)
+
+    let osc = c.instruments.scopes.get("OSC").expect("oscope sampler");
+    assert_eq!(osc.capacity(), 120);
+    assert_eq!(osc.len(), 120);
+    assert_eq!(osc.allocated_len(), 120);
+
+    let la = c.instruments.las.get("LA").expect("LA sampler");
+    assert_eq!(la.capacity(), 150);
+    assert!(la.len() <= 150 && la.len() > 0);
+}
+
+#[test]
+fn logic_analyzer_vcd_export_and_auto_export_on_pause() {
+    use std::fs;
+
+    let mut canvas = Canvas::new();
+    let clk_id = canvas.scene_mut().add_clock(0.0, 0.0);
+    let tun_id = canvas.scene_mut().add_tunnel(40.0, 0.0);
+    let la_id = canvas.scene_mut().add_lanalizer(160.0, 0.0);
+
+    canvas.set_prop_text_for(&tun_id, "Name".into(), "CLK".into());
+    canvas.set_prop_text_for(&clk_id, "Freq".into(), "10 kHz".into());
+    canvas.set_prop_text_for(&la_id, "Tunnel1".into(), "CLK".into());
+    canvas.set_prop_text_for(&la_id, "AutoExport".into(), "true".into());
+    canvas.set_prop_text_for(&la_id, "TimeStep".into(), "1000".into());
+
+    let clk_pin = format!("{clk_id}-outnod");
+    let tun_pin = format!("{tun_id}-pin");
+    canvas
+        .scene_mut()
+        .add_saved_wire(Wire::from_saved("w-clk", clk_pin, tun_pin, vec![]));
+
+    canvas.power_on();
+    for _ in 0..3 {
+        canvas.tick();
+    }
+
+    // Manual VCD export works even before the circuit has a file path.
+    let vcd = canvas.export_la_vcd().expect("export_la_vcd");
+    assert!(vcd.contains("$timescale\n   1ns\n$end"), "vcd:\n{vcd}");
+    assert!(vcd.contains("$var wire 1 ! CLK $end"), "vcd:\n{vcd}");
+    assert!(vcd.contains("$dumpvars\n"), "vcd:\n{vcd}");
+    assert!(
+        vcd.contains("\n1!\n") && vcd.contains("\n0!\n"),
+        "expected rising and falling edges on CLK:\n{vcd}"
+    );
+
+    // Unsaved circuit skips AutoExport cleanly on pause.
+    canvas.pause_sim();
+    canvas.resume_sim();
+
+    // Saved circuit writes `<stem>_<la_id>.vcd` automatically on pause.
+    let tmp_dir = std::env::temp_dir().join(format!("cs_vcd_auto_export_{}", std::process::id()));
+    let _ = fs::create_dir_all(&tmp_dir);
+    let circuit_path = tmp_dir.join("demo_circuit.sim1");
+    canvas.set_file_path(Some(circuit_path.to_string_lossy().into_owned()));
+
+    canvas.pause_sim();
+
+    let expected_vcd = tmp_dir.join(format!("demo_circuit_{la_id}.vcd"));
+    let written = fs::read_to_string(&expected_vcd).expect("auto-exported VCD file should exist");
+    assert!(written.contains("$var wire 1 ! CLK $end"));
+    assert!(written.contains("$timescale\n   1ns\n$end"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
 }

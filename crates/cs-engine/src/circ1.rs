@@ -1455,6 +1455,10 @@ pub fn to_parsed_circuit(parsed: ParsedCirc1) -> ParsedCircuit {
                     pgm: (!m.pgm.is_empty()).then(|| m.pgm.clone()),
                     logic_symbol: m.logic_symbol,
                     package_name: (!m.package.name.is_empty()).then(|| m.package.name.clone()),
+                    rst_enabled: m.rst_enabled,
+                    ext_osc: m.ext_osc,
+                    wdt_enabled: m.wdt_enabled,
+                    clk_out: m.clk_out,
                 };
                 Comp::mcu_item(it.circ_id.clone(), spec)
             }

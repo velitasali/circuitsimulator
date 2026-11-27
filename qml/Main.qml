@@ -1579,13 +1579,8 @@ ApplicationWindow {
         if (!spec)
             return
         var comma = spec.indexOf(",")
-        var name = comma >= 0 ? spec.substring(0, comma).trim() : spec.trim()
         var compType = comma >= 0 ? spec.substring(comma + 1).trim() : spec.trim()
         ComponentList.addRecent(spec)
-        if (compType === "MCU" && name === "MCU") {
-            App.showMcu()
-            return
-        }
         CircuitCanvas.addComponent(spec)
         if (compType === "Oscope" || compType === "Oscilloscope") {
             App.showOsc()

@@ -1349,13 +1349,6 @@ fn catalog() -> Vec<LibraryItem> {
             aliases: &[],
         },
         Spec {
-            caption: "MCU",
-            parent: "Micro",
-            kind: Some(PlaceKind::Mcu),
-            icon: "ic2.svg",
-            aliases: &["Microcontroller", "Microprocessor", "CPU", "Processor"],
-        },
-        Spec {
             caption: "Arduino",
             parent: "Micro",
             kind: None,
@@ -2269,6 +2262,17 @@ mod tests {
         assert_eq!(
             lib.item(RECENT_ITEM_BASE_ID).and_then(|i| i.description()),
             Some("Simple resistance.")
+        );
+    }
+
+    #[test]
+    fn no_generic_mcu_placeholder_in_catalog() {
+        let lib = Library::new();
+        assert!(
+            !lib.items().iter().any(|i| i.item_type == TYPE_COMPONENT
+                && i.caption == "MCU"
+                && i.comp_type == "MCU"),
+            "generic unplaceable MCU entry should not be in static catalog"
         );
     }
 }

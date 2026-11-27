@@ -165,6 +165,7 @@ Item {
                                 color: tabBtn.itemColor
                             }
                             onClicked: {
+                                CircuitPanel.promoteFloating("editor")
                                 docTabs.currentIndex = tabBtn.index
                                 EditorPanel.fileProps()
                             }
@@ -290,6 +291,7 @@ Item {
                 iconLigature: "settings"
                 onTriggered: {
                     if (tabContextMenu.targetIndex >= 0) {
+                        CircuitPanel.promoteFloating("editor")
                         docTabs.currentIndex = tabContextMenu.targetIndex
                         EditorPanel.fileProps()
                     }

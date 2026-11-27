@@ -245,17 +245,25 @@ Item {
         return root.fileIconForName( trimmed, false, false )
     }
 
+    function openFolderDialog(): void {
+        CircuitPanel.promoteFloating( "files" )
+        folderDialog.open()
+    }
+
     function openCreateFileDialog(): void {
+        CircuitPanel.promoteFloating( "files" )
         newFileInput.text = ""
         createFileDialog.open()
     }
 
     function openCreateFolderDialog(): void {
+        CircuitPanel.promoteFloating( "files" )
         newDirInput.text = ""
         createFolderDialog.open()
     }
 
     function openRenameDialog(): void {
+        CircuitPanel.promoteFloating( "files" )
         var parts = root.selectedPath.split( "/" )
         renameInput.text = parts[parts.length - 1]
         renameDialog.open()
@@ -269,6 +277,7 @@ Item {
 
     function openTrashDialog(): void {
         if ( !root.selectedPath || root.selectedPath.length === 0 || root.selectedPath === FileBrowser.rootPath ) return
+        CircuitPanel.promoteFloating( "files" )
         root.trashTargetPath = root.selectedPath
         root.trashTargetIsDir = root.selectedIsDir
         trashDialog.open()
@@ -1460,7 +1469,7 @@ Item {
                 AppButton {
                     text: I18n.tr( "Open Folder" )
                     Layout.alignment: Qt.AlignHCenter
-                    onClicked: folderDialog.open()
+                    onClicked: root.openFolderDialog()
                 }
             }
         }
@@ -1586,7 +1595,7 @@ Item {
                             ContextMenuItem {
                                 text: I18n.tr( "Open Project Folder..." )
                                 iconLigature: "folder_open"
-                                onTriggered: folderDialog.open()
+                                onTriggered: root.openFolderDialog()
                             }
                             ContextMenuItem {
                                 text: I18n.tr( "Show Hidden" )

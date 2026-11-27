@@ -618,14 +618,20 @@ Item {
             text: EditorPanel.compilerName.length > 0
                   ? I18n.tr("%1 Settings").arg(EditorPanel.compilerName)
                   : I18n.tr("Compiler Settings")
-            onTriggered: EditorPanel.compilerProps()
+            onTriggered: {
+                CircuitPanel.promoteFloating("editor")
+                EditorPanel.compilerProps()
+            }
         }
         ContextMenuItem {
             visible: EditorPanel.hasCompiler
             height: visible ? implicitHeight : 0
             iconLigature: "settings_applications"
             text: I18n.tr("File Settings")
-            onTriggered: EditorPanel.fileProps()
+            onTriggered: {
+                CircuitPanel.promoteFloating("editor")
+                EditorPanel.fileProps()
+            }
         }
 
         ContextMenuSeparator {}
@@ -721,6 +727,7 @@ Item {
     Dialog {
         id: diskPromptDialog
         visible: EditorPanel.diskPromptVisible
+        onVisibleChanged: if (visible) CircuitPanel.promoteFloating("editor")
         parent: Overlay.overlay
         modal: true
         dim: true

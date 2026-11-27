@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Templates as T
+import QtQuick.Window
 import cs_app
 import cs_ui
 
@@ -18,6 +19,7 @@ Item {
     id: root
     objectName: "circuitPanelRoot"
     SystemPalette { id: appTheme }
+    readonly property var hostWindow: Window.window
     readonly property var rects: CircuitPanel.overlayRects
     readonly property var emptyRectObj: ({ x: 0, y: 0, w: 0, h: 0 })
     readonly property var emptyPanelObj: ({
@@ -116,8 +118,18 @@ Item {
         return false
     }
 
+    function hoverCloseBlocked(): bool {
+        return root.hoveredButtonId !== ""
+            || root.hoveredPanelId !== ""
+            || floatResize.pressed
+            || CircuitPanel.floatingHoldCount > 0
+            || root.floatingInputFocused()
+            || UiUtils.hasModalOverlay( root.Overlay.overlay, null )
+            || ( root.hostWindow !== null && !root.hostWindow.active )
+    }
+
     function scheduleHoverClose(): void {
-        if ( root.hoveredButtonId === "" && root.hoveredPanelId === "" && !floatResize.pressed )
+        if ( !root.hoverCloseBlocked() )
             hoverCloseTimer.restart()
     }
 
@@ -126,10 +138,17 @@ Item {
         interval: 90
         repeat: false
         onTriggered: {
-            if ( root.hoveredButtonId === "" && root.hoveredPanelId === ""
-                 && !floatResize.pressed && !cornerBtnMenu.opened && !root.floatingInputFocused() ) {
+            if ( !root.hoverCloseBlocked() ) {
                 CircuitPanel.setHoverPanel( "" )
             }
+        }
+    }
+
+    Connections {
+        target: root.hostWindow
+        function onActiveChanged(): void {
+            if ( root.hostWindow && root.hostWindow.active )
+                root.scheduleHoverClose()
         }
     }
 
@@ -283,6 +302,7 @@ Item {
     // ---- Reusable 4-corner overlay shell ---------------------------------
     component OverlayShell: AppSurface {
         id: shell
+        readonly property bool isOverlayShell: true
         required property string panelId
         property int contentMargin: 6
         readonly property var info: root.panelInfo( shell.panelId )
@@ -995,6 +1015,7 @@ Item {
     AppContextMenu {
         id: cornerBtnMenu
         popupType: Popup.Item
+        keepHoverOverlayOpen: true
         property string targetPanelId: ""
         property string targetCorner: "tl"
         property bool targetPinned: false
@@ -1952,6 +1973,10 @@ Item {
 
     Connections {
         target: CircuitPanel
+        function onFloatingHoldCountChanged(): void {
+            if ( CircuitPanel.floatingHoldCount === 0 )
+                root.scheduleHoverClose()
+        }
         function onLoadCircuitRequested( path: string ): void {
             CircuitCanvas.loadSubcircuit( path )
         }

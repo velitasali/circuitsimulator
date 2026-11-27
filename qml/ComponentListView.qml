@@ -196,6 +196,7 @@ Item {
             shortcutText: contextMenu.targetShortcut
             iconLigature: "keyboard"
             onTriggered: {
+                CircuitPanel.promoteFloating( "components" )
                 compShortcutDialog.actionId = contextMenu.targetActionId
                 compShortcutDialog.actionName = contextMenu.targetName
                 compShortcutDialog.currentShortcut = contextMenu.targetShortcut

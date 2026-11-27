@@ -121,6 +121,7 @@ fn ensure_stack_in_tree<'a>(
 
 pub struct CircuitPanel {
     overlays: Overlays,
+    floating_hold_count: i32,
     coords_x: i32,
     coords_y: i32,
     zoom_text: String,
@@ -160,6 +161,7 @@ impl Default for CircuitPanel {
         let layout_cfg = settings::get().overlay_layout;
         Self {
             overlays: Overlays::from_config(&layout_cfg),
+            floating_hold_count: 0,
             coords_x: 0,
             coords_y: 0,
             zoom_text: "100%".into(),
@@ -291,6 +293,11 @@ impl CircuitPanel {
         Notify = overlay_layout_changed
     );
     qproperty!(
+        "floatingHoldCount",
+        Read = floating_hold_count,
+        Notify = floating_hold_count_changed
+    );
+    qproperty!(
         "toolbarItems",
         Read = toolbar_items,
         Notify = toolbar_changed
@@ -359,6 +366,8 @@ impl CircuitPanel {
     #[qsignal]
     fn overlay_layout_changed(&mut self);
     #[qsignal]
+    fn floating_hold_count_changed(&mut self);
+    #[qsignal]
     fn toolbar_changed(&mut self);
     #[qsignal]
     fn subc_nav_changed(&mut self);
@@ -423,6 +432,10 @@ impl CircuitPanel {
 
     fn overlay_rects(&self) -> Value {
         snapshot_json(self.overlays.snapshot())
+    }
+
+    fn floating_hold_count(&self) -> i32 {
+        self.floating_hold_count
     }
 
     fn info_visible(&self) -> bool {
@@ -1042,11 +1055,43 @@ impl CircuitPanel {
     #[qslot]
     fn set_hover_panel(&mut self, panel_id: String) {
         let target = if panel_id.is_empty() {
+            if self.floating_hold_count > 0 {
+                return;
+            }
             None
         } else {
             PanelId::parse(&panel_id)
         };
         if self.overlays.set_hover_panel(target) {
+            self.overlay_layout_changed();
+        }
+    }
+
+    #[qslot]
+    fn push_floating_hold(&mut self) {
+        self.floating_hold_count = self.floating_hold_count.saturating_add(1);
+        self.floating_hold_count_changed();
+    }
+
+    #[qslot]
+    fn pop_floating_hold(&mut self) {
+        if self.floating_hold_count > 0 {
+            self.floating_hold_count -= 1;
+            self.floating_hold_count_changed();
+        }
+    }
+
+    #[qslot]
+    fn promote_floating(&mut self, panel_id: String) {
+        let target = if panel_id.is_empty() {
+            None
+        } else {
+            let Some(parsed) = PanelId::parse(&panel_id) else {
+                return;
+            };
+            Some(parsed)
+        };
+        if self.overlays.promote_floating(target) {
             self.overlay_layout_changed();
         }
     }

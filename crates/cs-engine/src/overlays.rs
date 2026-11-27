@@ -785,6 +785,30 @@ impl Overlays {
         (changed, false)
     }
 
+    /// Upgrades a hover-opened floating overlay to `FloatingReason::Focused`
+    /// so mouse-leave no longer dismisses it (e.g., when opening a dialog or
+    /// child window from the overlay).
+    ///
+    /// If `panel` is `Some(p)`, only promotes when `p` is the active floating
+    /// panel. Does nothing if no hover panel is floating or if the panel is
+    /// pinned or already `Focused`.
+    pub fn promote_floating(&mut self, panel: Option<PanelId>) -> bool {
+        let Some(active) = self.floating_panel else {
+            return false;
+        };
+        if let Some(expected) = panel {
+            if active != expected {
+                return false;
+            }
+        }
+        if self.floating_reason != FloatingReason::Hover {
+            return false;
+        }
+        self.floating_reason = FloatingReason::Focused;
+        self.relayout();
+        true
+    }
+
     /// Dismisses any open floating overlay (whether hover or focused).
     pub fn dismiss_floating(&mut self) -> bool {
         if self.floating_panel.is_none() {
@@ -1859,6 +1883,47 @@ mod tests {
         // Explicit dismiss (Esc / click canvas) closes it.
         assert!(o.dismiss_floating());
         assert!(!o.snapshot().panels[&PanelId::Files].visible);
+    }
+
+    #[test]
+    fn promote_floating_upgrades_hover_to_focused() {
+        let mut o = sized();
+        assert!(!o.promote_floating(None));
+        assert!(!o.promote_floating(Some(PanelId::Files)));
+
+        // Pinned panel cannot be promoted.
+        assert!(o.is_pinned(PanelId::Editor));
+        assert!(!o.promote_floating(Some(PanelId::Editor)));
+
+        // Open Files in Hover mode.
+        assert!(o.set_hover_panel(Some(PanelId::Files)));
+        assert_eq!(o.floating_panel(), Some(PanelId::Files));
+        assert_eq!(o.floating_reason(), FloatingReason::Hover);
+
+        // Wrong panel ID does not promote.
+        assert!(!o.promote_floating(Some(PanelId::Components)));
+        assert_eq!(o.floating_reason(), FloatingReason::Hover);
+
+        // Matching panel ID upgrades Hover -> Focused.
+        assert!(o.promote_floating(Some(PanelId::Files)));
+        assert_eq!(o.floating_reason(), FloatingReason::Focused);
+        assert_eq!(o.snapshot().floating_reason, "focused");
+
+        // Promoting again when already Focused is a no-op.
+        assert!(!o.promote_floating(Some(PanelId::Files)));
+        assert!(!o.promote_floating(None));
+
+        // Mouse leave no longer dismisses it, while explicit dismiss still does.
+        assert!(!o.set_hover_panel(None));
+        assert!(o.snapshot().panels[&PanelId::Files].visible);
+        assert!(o.dismiss_floating());
+        assert!(!o.snapshot().panels[&PanelId::Files].visible);
+
+        // Passing None promotes whichever panel is currently hovering.
+        assert!(o.set_hover_panel(Some(PanelId::Components)));
+        assert!(o.promote_floating(None));
+        assert_eq!(o.floating_panel(), Some(PanelId::Components));
+        assert_eq!(o.floating_reason(), FloatingReason::Focused);
     }
 
     #[test]

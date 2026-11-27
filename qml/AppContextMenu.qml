@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Templates as T
+import cs_app
 
 // Template Menu, not the platform style: Windows Quick Controls draws a light
 // popup and accent-colored hover regardless of the app palette / dark theme.
@@ -57,6 +58,42 @@ T.Menu {
     property real contentImplicitWidth: 180
     property real contentImplicitHeight: 0
     property bool populating: false
+
+    // Opt-in override for menus (e.g. cornerBtnMenu) whose visual parent sits
+    // outside OverlayShell but should still keep hover-mode overlays open.
+    property bool keepHoverOverlayOpen: false
+    property bool _holdingFloatingOverlay: false
+
+    function _shouldHoldHoverOverlay() {
+        if (control.keepHoverOverlayOpen)
+            return true
+        var p = control.parent
+        while (p) {
+            if (p.isOverlayShell === true)
+                return true
+            p = p.parent
+        }
+        return false
+    }
+
+    onOpenedChanged: {
+        if (control.opened) {
+            if (!control._holdingFloatingOverlay && control._shouldHoldHoverOverlay()) {
+                control._holdingFloatingOverlay = true
+                CircuitPanel.pushFloatingHold()
+            }
+        } else if (control._holdingFloatingOverlay) {
+            control._holdingFloatingOverlay = false
+            CircuitPanel.popFloatingHold()
+        }
+    }
+
+    Component.onDestruction: {
+        if (control._holdingFloatingOverlay) {
+            control._holdingFloatingOverlay = false
+            CircuitPanel.popFloatingHold()
+        }
+    }
 
     function closeTree() {
         for (var i = 0; i < count; ++i) {

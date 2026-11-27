@@ -769,7 +769,7 @@ Simülatör varsayılanları uygulamak için yeniden başlatılacak.</translatio
     <message>
         <location filename="../../src/components/passive/reactive/capacitorbase.cpp" line="30" />
         <source>Initial Voltage</source>
-        <translation>Başlangıç ​​Gerilimi</translation>
+        <translation>Başlangıç Gerilimi</translation>
     </message>
 </context>
 <context>
@@ -854,7 +854,7 @@ Simülatör varsayılanları uygulamak için yeniden başlatılacak.</translatio
     <message>
         <location filename="../../src/gui/circuitwidget/circuitwidget.cpp" line="293" />
         <source>New C&amp;ircuit	Ctrl+N</source>
-        <translation>Yeni Devre	Ctrl+N</translation>
+        <translation>Yeni &amp;Devre	Ctrl+N</translation>
     </message>
     <message>
         <location filename="../../src/gui/circuitwidget/circuitwidget.cpp" line="294" />
@@ -1021,7 +1021,7 @@ Değişikliklerinizi kaydetmek istiyor musunuz?
     <message>
         <location filename="../../src/gui/circuitwidget/circuitwidget.cpp" line="346" />
         <source>Step Over</source>
-        <translation>Bir Adım Atın</translation>
+        <translation>Üzerinden Adımla</translation>
     </message>
     <message>
         <location filename="../../src/gui/circuitwidget/circuitwidget.cpp" line="350" />
@@ -1480,7 +1480,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/codeeditor.cpp" line="291" />
         <source>Load Breakpoints</source>
-        <translation>Yük Kesme Noktaları</translation>
+        <translation>Kesme Noktalarını Yükle</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/codeeditor.cpp" line="294" />
@@ -1558,7 +1558,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/compiler.cpp" line="185" />
         <source>     No command Defined</source>
-        <translation>Komut yok Tanımlandı</translation>
+        <translation>     Tanımlı komut yok</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/compiler.cpp" line="208" />
@@ -1578,7 +1578,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/compiler.cpp" line="454" />
         <source>Check that Tool Path is correct</source>
-        <translation>Takım Yolunun doğru olup olmadığını kontrol edin</translation>
+        <translation>Araç yolunun doğru olduğunu kontrol edin</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/compiler.cpp" line="49" />
@@ -1599,7 +1599,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/compiler.cpp" line="53" />
         <source>Tool Path</source>
-        <translation>Takım Yolu</translation>
+        <translation>Araç Yolu</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/compiler.cpp" line="134" />
@@ -1609,7 +1609,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/compiler.cpp" line="146" />
         <source>Device</source>
-        <translation>Aile</translation>
+        <translation>Cihaz</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/compiler.cpp" line="152" />
@@ -1737,7 +1737,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/logic/counter.cpp" line="44" />
         <source>Use Set Pin</source>
-        <translation>Ayar Pini Kullan</translation>
+        <translation>Set Pinini Kullan</translation>
     </message>
     <message>
         <location filename="../../src/components/logic/counter.cpp" line="53" />
@@ -2086,7 +2086,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/micro/dht22.cpp" line="86" />
         <source>Model</source>
-        <translation>Modeli</translation>
+        <translation>Model</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/dht22.cpp" line="89" />
@@ -2106,7 +2106,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/micro/dht22.cpp" line="96" />
         <source>Humid. increment</source>
-        <translation>Nemli. artış</translation>
+        <translation>Nem Artışı</translation>
     </message>
 </context>
 <context>
@@ -2124,12 +2124,12 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/active/diac.cpp" line="66" />
         <source>On Resistance</source>
-        <translation>Direnç Üzerine</translation>
+        <translation>İletim Direnci</translation>
     </message>
     <message>
         <location filename="../../src/components/active/diac.cpp" line="68" />
         <source>Off Resistance</source>
-        <translation>Kapalı Direnç</translation>
+        <translation>Kesim Direnci</translation>
     </message>
     <message>
         <location filename="../../src/components/active/diac.cpp" line="70" />
@@ -2229,7 +2229,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/active/diode.cpp" line="59" />
         <source>Model</source>
-        <translation>Modeli</translation>
+        <translation>Model</translation>
     </message>
     <message>
         <location filename="../../src/components/active/diode.cpp" line="64" />
@@ -2521,7 +2521,7 @@ Değişikliklerinizi kaydetmek istiyor musunuz?</translation>
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="294" />
         <source>Close</source>
-        <translation>Kapalı</translation>
+        <translation>Kapat</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="562" />
@@ -2567,7 +2567,7 @@ and you have unsaved changes here.
 </source>
         <translation>%1
 
-başka bir program tarafından değiştirilmişse,
+başka bir program tarafından değiştirildi,
 ve burada kaydedilmemiş değişiklikleriniz var.</translation>
     </message>
     <message>
@@ -2629,12 +2629,12 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1017" />
         <source>Save Fil&amp;e	Ctrl+S</source>
-        <translation>Dosyayı Kaydet	Ctrl+S</translation>
+        <translation>Dosyayı Ka&amp;ydet	Ctrl+S</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1022" />
         <source>Sa&amp;ve File As...	Ctrl+Shift+S</source>
-        <translation>Dosyayı Farklı Kaydet...	Ctrl+Shift+S</translation>
+        <translation>Dosyayı &amp;Farklı Kaydet...	Ctrl+Shift+S</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1023" />
@@ -2714,12 +2714,12 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1062" />
         <source>StepOver</source>
-        <translation>Adım Atla</translation>
+        <translation>Üzerinden Adımla</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1063" />
         <source>Step Over</source>
-        <translation>Bir Adım Atın</translation>
+        <translation>Üzerinden Adımla</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1068" />
@@ -2785,7 +2785,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1099" />
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1100" />
         <source>Find Replace</source>
-        <translation>Bul Değiştir</translation>
+        <translation>Bul ve Değiştir</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1104" />
@@ -2795,7 +2795,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1105" />
         <source>Format source document using clang-format</source>
-        <translation>Clang-formatını kullanarak kaynak belgeyi biçimlendirin</translation>
+        <translation>Kaynak belgeyi clang-format ile biçimlendir</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwidget.cpp" line="1109" />
@@ -2839,7 +2839,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/editorwindow.cpp" line="108" />
         <source>Starting Debbuger...</source>
-        <translation>Debbuger başlatılıyor...</translation>
+        <translation>Hata ayıklayıcı başlatılıyor...</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwindow.cpp" line="188" />
@@ -2859,7 +2859,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/editorwindow.cpp" line="65" />
         <source>Line </source>
-        <translation>Astar</translation>
+        <translation>Satır </translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwindow.cpp" line="65" />
@@ -2869,7 +2869,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/editorwindow.cpp" line="65" />
         <source>Time us: </source>
-        <translation>Bize zaman:</translation>
+        <translation>Süre µs: </translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwindow.cpp" line="131" />
@@ -2889,7 +2889,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/editorwindow.cpp" line="374" />
         <source>    Loading Compilers at:</source>
-        <translation>Derleyiciler şu adrese yükleniyor:</translation>
+        <translation>    Derleyiciler şu konumda yükleniyor:</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/editorwindow.cpp" line="394" />
@@ -2946,7 +2946,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/microsim/cores/qemu/esp32/esp32.cpp" line="126" />
         <source>No firmware loaded. Compile a sketch, or load a .bin with "Load firmware".</source>
-        <translation>Firmware yüklü değil. Bir çizim derleyin veya "Firmware'i yükle" ile bir .bin dosyası yükleyin.</translation>
+        <translation>Firmware yüklü değil. Bir taslak derleyin veya &quot;Firmware Yükle&quot; ile bir .bin dosyası yükleyin.</translation>
     </message>
     <message>
         <location filename="../../src/microsim/cores/qemu/esp32/esp32.cpp" line="131" />
@@ -2956,7 +2956,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/microsim/cores/qemu/esp32/esp32.cpp" line="135" />
         <source>Firmware must be a whole 4 MB flash image, this one is:</source>
-        <translation>Firmwarenın tamamı 4 MB'lık bir flash görüntü olmalıdır, bu:</translation>
+        <translation>Firmware tam 4 MB'lık bir flash imajı olmalı, bu dosya:</translation>
     </message>
     <message>
         <location filename="../../src/microsim/cores/qemu/esp32/esp32.cpp" line="136" />
@@ -3166,7 +3166,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.ui" line="92" />
         <source>All</source>
-        <translation>Tüm</translation>
+        <translation>Tümü</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.ui" line="134" />
@@ -3186,7 +3186,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.ui" line="198" />
         <source>Close</source>
-        <translation>Kapalı</translation>
+        <translation>Kapat</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.ui" line="211" />
@@ -3201,7 +3201,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.ui" line="231" />
         <source>Case sensitive.</source>
-        <translation>Harfe duyarlı.</translation>
+        <translation>Büyük/küçük harfe duyarlı.</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.ui" line="238" />
@@ -3211,21 +3211,17 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.ui" line="245" />
         <source>Regular Expression.</source>
-        <translation>Normal İfade.</translation>
+        <translation>Düzenli ifade.</translation>
     </message>
     <message numerus="yes">
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.cpp" line="46" />
         <source>Found %n occurrence(s)</source>
-        <translation>
-            <numerusform>%n olay bulundu</numerusform>
-        </translation>
+        <translation>%n eşleşme bulundu</translation>
     </message>
     <message numerus="yes">
         <location filename="../../src/gui/editorwidget/dialogs/findreplace.cpp" line="87" />
         <source>Replaced %n occurrence(s)</source>
-        <translation>
-            <numerusform>%n olay değiştirildi</numerusform>
-        </translation>
+        <translation>%n eşleşme değiştirildi</translation>
     </message>
 </context>
 <context>
@@ -3502,12 +3498,12 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/memory/headerwidget.ui" line="72" />
         <source>Name</source>
-        <translation>İsim</translation>
+        <translation>Ad</translation>
     </message>
     <message>
         <location filename="../../src/gui/memory/headerwidget.ui" line="119" />
         <source>Value</source>
-        <translation>Tip</translation>
+        <translation>Değer</translation>
     </message>
     <message>
         <location filename="../../src/gui/memory/headerwidget.ui" line="154" />
@@ -3651,7 +3647,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/passive/reactive/inductor.cpp" line="41" />
         <source>Initial Current</source>
-        <translation>Başlangıç ​​Akımı</translation>
+        <translation>Başlangıç Akımı</translation>
     </message>
 </context>
 <context>
@@ -3724,7 +3720,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/editorwidget/debuggers/inodebugger.cpp" line="598" />
         <source>Error: xtensa-esp32-elf-gdb not found (install the ESP32 board package)</source>
-        <translation>Hata: xtensa-esp32-elf-gdb bulunamadı (ESP32 anakart paketini yükleyin)</translation>
+        <translation>Hata: xtensa-esp32-elf-gdb bulunamadı (ESP32 kart paketini yükleyin)</translation>
     </message>
     <message>
         <location filename="../../src/gui/editorwidget/debuggers/inodebugger.cpp" line="605" />
@@ -3963,7 +3959,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/switches/keypad.cpp" line="51" />
         <source>Key Labels</source>
-        <translation>Anahtar Etiketler</translation>
+        <translation>Tuş Etiketleri</translation>
     </message>
     <message>
         <location filename="../../src/components/switches/keypad.cpp" line="41" />
@@ -4405,7 +4401,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/outputs/leds/ledmatrix.cpp" line="54" />
         <source>Vertical Pins</source>
-        <translation>Dikey Pimler</translation>
+        <translation>Dikey Pinler</translation>
     </message>
     <message>
         <location filename="../../src/components/outputs/leds/ledmatrix.cpp" line="59" />
@@ -4479,7 +4475,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/outputs/leds/ledrgb.cpp" line="80" />
         <source>Blue:</source>
-        <translation>%1 kanalda aşırı akım: %2 mA (maks %3 mA)</translation>
+        <translation>Mavi:</translation>
     </message>
     <message>
         <location filename="../../src/components/outputs/leds/ledrgb.cpp" line="139" />
@@ -4778,7 +4774,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/mainwindow.cpp" line="619" />
         <source>&amp;View</source>
-        <translation>&amp;Görüş</translation>
+        <translation>&amp;Görünüm</translation>
     </message>
     <message>
         <location filename="../../src/mainwindow.cpp" line="621" />
@@ -5047,7 +5043,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/mainwindow.cpp" line="810" />
         <source>StepOver</source>
-        <translation>Adım Atla</translation>
+        <translation>Üzerinden Adımla</translation>
     </message>
     <message>
         <location filename="../../src/mainwindow.cpp" line="853" />
@@ -5665,7 +5661,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/dataplotwidget/plotbase.cpp" line="81" />
         <source>Connect to ground</source>
-        <translation>Yere bağlanın</translation>
+        <translation>Toprağa Bağla</translation>
     </message>
     <message>
         <location filename="../../src/gui/dataplotwidget/plotbase.cpp" line="84" />
@@ -5895,7 +5891,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/switches/push.cpp" line="40" />
         <source>Key</source>
-        <translation>Anahtar</translation>
+        <translation>Tuş</translation>
     </message>
 </context>
 <context>
@@ -5968,7 +5964,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/componentlist/itemlibrary.cpp" line="228" />
         <source>Displays</source>
-        <translation>Gösterimler</translation>
+        <translation>Gösterge Sayısı</translation>
     </message>
     <message>
         <location filename="../../src/gui/componentlist/itemlibrary.cpp" line="241" />
@@ -6237,12 +6233,12 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/memory/ramtable.cpp" line="91" />
         <source>Name</source>
-        <translation>İsim</translation>
+        <translation>Ad</translation>
     </message>
     <message>
         <location filename="../../src/gui/memory/ramtable.cpp" line="91" />
         <source>Value</source>
-        <translation>Tip</translation>
+        <translation>Değer</translation>
     </message>
     <message>
         <location filename="../../src/gui/memory/ramtable.cpp" line="91" />
@@ -6325,7 +6321,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/switches/relay.cpp" line="60" />
         <source>Double Throw</source>
-        <translation>Çift Atış</translation>
+        <translation>Çift Yollu</translation>
     </message>
     <message>
         <location filename="../../src/components/switches/relay.cpp" line="62" />
@@ -6444,7 +6440,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/active/scr.cpp" line="71" />
         <source>Holding Current</source>
-        <translation>Akım Tutma</translation>
+        <translation>Tutma Akımı</translation>
     </message>
 </context>
 <context>
@@ -6601,7 +6597,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="102" />
         <source>Stop Bits</source>
-        <translation>Bitleri Durdur</translation>
+        <translation>Stop Bitleri</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="166" />
@@ -6629,7 +6625,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="163" />
         <source>Close</source>
-        <translation>Kapalı</translation>
+        <translation>Kapat</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/serialport.cpp" line="94" />
@@ -6662,12 +6658,12 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/micro/serialterm.cpp" line="101" />
         <source>Stop Bits</source>
-        <translation>Bitleri Durdur</translation>
+        <translation>Stop Bitleri</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/serialterm.cpp" line="172" />
         <source>Close</source>
-        <translation>Kapalı</translation>
+        <translation>Kapat</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/serialterm.cpp" line="213" />
@@ -6745,7 +6741,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/outputs/leds/sevensegment.cpp" line="74" />
         <source>Vertical Pins</source>
-        <translation>Dikey Pimler</translation>
+        <translation>Dikey Pinler</translation>
     </message>
     <message>
         <location filename="../../src/components/outputs/leds/sevensegment.cpp" line="79" />
@@ -7205,7 +7201,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/other/subpackage.cpp" line="91" />
         <source>Name</source>
-        <translation>İsim</translation>
+        <translation>Ad</translation>
     </message>
     <message>
         <location filename="../../src/components/other/subpackage.cpp" line="93" />
@@ -7338,7 +7334,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/switches/switch.cpp" line="43" />
         <source>Double Throw</source>
-        <translation>Çift Atış</translation>
+        <translation>Çift Yollu</translation>
     </message>
     <message>
         <location filename="../../src/components/switches/switch.cpp" line="45" />
@@ -7348,7 +7344,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/switches/switch.cpp" line="48" />
         <source>Key</source>
-        <translation>Anahtar</translation>
+        <translation>Tuş</translation>
     </message>
 </context>
 <context>
@@ -7371,7 +7367,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/switches/switchdip.cpp" line="53" />
         <source>Exclusive</source>
-        <translation>Özel</translation>
+        <translation>Tek Seçim</translation>
     </message>
     <message>
         <location filename="../../src/components/switches/switchdip.cpp" line="56" />
@@ -7482,7 +7478,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/other/testunit.cpp" line="59" />
         <source>Period</source>
-        <translation>Dönem</translation>
+        <translation>Periyot</translation>
     </message>
     <message>
         <location filename="../../src/components/other/testunit.cpp" line="218" />
@@ -7631,7 +7627,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/micro/touchpad.cpp" line="104" />
         <source>RxMax</source>
-        <translation>RxMaks</translation>
+        <translation>RxMax</translation>
     </message>
     <message>
         <location filename="../../src/components/micro/touchpad.cpp" line="107" />
@@ -7702,7 +7698,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/active/triac.cpp" line="78" />
         <source>Holding Current</source>
-        <translation>Akım Tutma</translation>
+        <translation>Tutma Akımı</translation>
     </message>
 </context>
 <context>
@@ -7773,7 +7769,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/connectors/tunnel.cpp" line="228" />
         <source>New name:</source>
-        <translation>Yeni isim:</translation>
+        <translation>Yeni ad:</translation>
     </message>
 </context>
 <context>
@@ -7781,7 +7777,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/gui/memory/valuewidget.ui" line="63" />
         <source>Name</source>
-        <translation>İsim</translation>
+        <translation>Ad</translation>
     </message>
     <message>
         <location filename="../../src/gui/memory/valuewidget.ui" line="118" />
@@ -7824,7 +7820,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/passive/reactive/varcapacitor.cpp" line="68" />
         <source>Initial Voltage</source>
-        <translation>Başlangıç ​​Gerilimi</translation>
+        <translation>Başlangıç Gerilimi</translation>
     </message>
     <message>
         <location filename="../../src/components/passive/reactive/varcapacitor.cpp" line="71" />
@@ -7872,7 +7868,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/passive/reactive/varinductor.cpp" line="68" />
         <source>Initial Voltage</source>
-        <translation>Başlangıç ​​Gerilimi</translation>
+        <translation>Başlangıç Gerilimi</translation>
     </message>
     <message>
         <location filename="../../src/components/passive/reactive/varinductor.cpp" line="71" />
@@ -8217,7 +8213,7 @@ başka bir program tarafından silinmiş veya yeniden adlandırılmış.</transl
     <message>
         <location filename="../../src/components/active/zener.cpp" line="24" />
         <source>Model</source>
-        <translation>Modeli</translation>
+        <translation>Model</translation>
     </message>
 </context>
 <context>
@@ -13065,7 +13061,7 @@ yanlış: Sabit değerli Kaynak veya bağlayıcı tarafından kontrol edilen.</t
     </message>
     <message>
         <source>Switch Pins</source>
-        <translation>Pinleri Değiştir</translation>
+        <translation>Pinleri Takas Et</translation>
     </message>
     <message>
         <source>Positive Supply</source>
@@ -13623,6 +13619,1236 @@ yanlış: Sabit değerli Kaynak veya bağlayıcı tarafından kontrol edilen.</t
     <message>
         <source>Wrap text in compiler and simulator messages</source>
         <translation>Derleyici ve simülatör mesajlarında metni kaydır</translation>
+    </message>
+    <message>
+        <source> pts). </source>
+        <translation> nokta). </translation>
+    </message>
+    <message>
+        <source> traces (</source>
+        <translation> eğri (</translation>
+    </message>
+    <message>
+        <source>(Auto-detected: %1)</source>
+        <translation>(Otomatik bulundu: %1)</translation>
+    </message>
+    <message>
+        <source>A firmware file with this name already exists in the selected directory.</source>
+        <translation>Seçilen klasörde bu adda bir firmware dosyası zaten var.</translation>
+    </message>
+    <message>
+        <source>A new version (%1) is available!</source>
+        <translation>Yeni bir sürüm (%1) var!</translation>
+    </message>
+    <message>
+        <source>AC Sweep</source>
+        <translation>AC Tarama</translation>
+    </message>
+    <message>
+        <source>AC sweep failed.</source>
+        <translation>AC tarama başarısız.</translation>
+    </message>
+    <message>
+        <source>AC Sweep...</source>
+        <translation>AC Tarama...</translation>
+    </message>
+    <message>
+        <source>Analog input channel</source>
+        <translation>Analog giriş kanalı</translation>
+    </message>
+    <message>
+        <source>Analog positive supply voltage (AVCC)</source>
+        <translation>Analog pozitif besleme gerilimi (AVCC)</translation>
+    </message>
+    <message>
+        <source>Analog reference voltage (AREF)</source>
+        <translation>Analog referans gerilimi (AREF)</translation>
+    </message>
+    <message>
+        <source>Assign Shortcut...</source>
+        <translation>Kısayol Ata...</translation>
+    </message>
+    <message>
+        <source>Auxiliary Inductance</source>
+        <translation>Yardımcı İndüktans</translation>
+    </message>
+    <message>
+        <source>Auxiliary Resistance</source>
+        <translation>Yardımcı Direnç</translation>
+    </message>
+    <message>
+        <source>Auxiliary Secondary</source>
+        <translation>Yardımcı Sekonder</translation>
+    </message>
+    <message>
+        <source>Auxiliary secondary winding inductance in Henrys.</source>
+        <translation>Yardımcı sekonder sargının indüktansı, henry cinsinden.</translation>
+    </message>
+    <message>
+        <source>Auxiliary secondary winding series resistance in Ohms.</source>
+        <translation>Yardımcı sekonder sargının seri direnci, ohm cinsinden.</translation>
+    </message>
+    <message>
+        <source>Board Layout — drag components onto the package face (R to rotate), press Esc or Done to finish</source>
+        <translation>Kart Yerleşimi — bileşenleri kılıf yüzeyine sürükleyin (döndürmek için R), bitirmek için Esc'ye veya Bitti'ye basın</translation>
+    </message>
+    <message>
+        <source>Bottom Left</source>
+        <translation>Sol Alt</translation>
+    </message>
+    <message>
+        <source>Bottom Right</source>
+        <translation>Sağ Alt</translation>
+    </message>
+    <message>
+        <source>Bounce Time</source>
+        <translation>Sıçrama Süresi</translation>
+    </message>
+    <message>
+        <source>Breakback Voltage</source>
+        <translation>Geri Düşüş Gerilimi</translation>
+    </message>
+    <message>
+        <source>Breakback voltage drop across the DIAC upon entering breakover.</source>
+        <translation>DIAC kırılmaya girdikten sonra üzerindeki geri gerilim düşümü.</translation>
+    </message>
+    <message>
+        <source>Breakpoint</source>
+        <translation>Kesme Noktası</translation>
+    </message>
+    <message>
+        <source>Build up to date, skipping recompile</source>
+        <translation>Derleme güncel, yeniden derleme atlandı</translation>
+    </message>
+    <message>
+        <source>Center Tap Secondary</source>
+        <translation>Orta Uçlu Sekonder</translation>
+    </message>
+    <message>
+        <source>Check Again</source>
+        <translation>Yeniden Kontrol Et</translation>
+    </message>
+    <message>
+        <source>Check for Updates...</source>
+        <translation>Güncellemeleri Kontrol Et...</translation>
+    </message>
+    <message>
+        <source>Choose a directory to save the firmware.</source>
+        <translation>Firmware'i kaydedecek klasörü seçin.</translation>
+    </message>
+    <message>
+        <source>Choose a voltage source and a probe pin.</source>
+        <translation>Bir gerilim kaynağı ve bir prob pini seçin.</translation>
+    </message>
+    <message>
+        <source>Choose a voltage source and probe pin, then click Run Sweep.</source>
+        <translation>Bir gerilim kaynağı ve prob pini seçin, sonra Taramayı Çalıştır'a tıklayın.</translation>
+    </message>
+    <message>
+        <source>Choose directory</source>
+        <translation>Klasör seç</translation>
+    </message>
+    <message>
+        <source>Choose UART, I2C, or SPI</source>
+        <translation>UART, I2C veya SPI seçin</translation>
+    </message>
+    <message>
+        <source>Circuit changed. Run the sweep again.</source>
+        <translation>Devre değişti. Taramayı yeniden çalıştırın.</translation>
+    </message>
+    <message>
+        <source>Circuit Simulator is up to date (%1).</source>
+        <translation>Devre Simülatörü güncel (%1).</translation>
+    </message>
+    <message>
+        <source>Circuit Simulator Updates</source>
+        <translation>Devre Simülatörü Güncellemeleri</translation>
+    </message>
+    <message>
+        <source>Circuit-commutated recovery time required before forward voltage can be reapplied.</source>
+        <translation>İleri gerilim yeniden uygulanmadan önce gereken devre komütasyonlu toparlanma süresi.</translation>
+    </message>
+    <message>
+        <source>Click 'Check for Updates' to query the latest GitHub release.</source>
+        <translation>Son GitHub sürümünü sorgulamak için 'Güncellemeleri Kontrol Et'e tıklayın.</translation>
+    </message>
+    <message>
+        <source>click components to toggle, click empty space or Esc to finish</source>
+        <translation>seçmek için bileşene tıklayın, bitirmek için boş alana tıklayın veya Esc'ye basın</translation>
+    </message>
+    <message>
+        <source>Click to pin C1 cursor, drag to zoom, right-click to clear C1.</source>
+        <translation>C1 imlecini sabitlemek için tıklayın, yakınlaştırmak için sürükleyin, C1'i temizlemek için sağ tıklayın.</translation>
+    </message>
+    <message>
+        <source>Click to view compiler output</source>
+        <translation>Derleyici çıktısını görmek için tıklayın</translation>
+    </message>
+    <message>
+        <source>Close All</source>
+        <translation>Tümünü Kapat</translation>
+    </message>
+    <message>
+        <source>Close Others</source>
+        <translation>Diğerlerini Kapat</translation>
+    </message>
+    <message>
+        <source>Close Tabs to the Left</source>
+        <translation>Soldaki Sekmeleri Kapat</translation>
+    </message>
+    <message>
+        <source>Close Tabs to the Right</source>
+        <translation>Sağdaki Sekmeleri Kapat</translation>
+    </message>
+    <message>
+        <source>Closed contact series resistance.</source>
+        <translation>Kapalı kontağın seri direnci.</translation>
+    </message>
+    <message>
+        <source>Commands</source>
+        <translation>Komutlar</translation>
+    </message>
+    <message>
+        <source>Compile Cancelled</source>
+        <translation>Derleme İptal Edildi</translation>
+    </message>
+    <message>
+        <source>Compile Failed</source>
+        <translation>Derleme Başarısız</translation>
+    </message>
+    <message>
+        <source>Compiled</source>
+        <translation>Derlendi</translation>
+    </message>
+    <message>
+        <source>Compiling</source>
+        <translation>Derleniyor</translation>
+    </message>
+    <message>
+        <source>Compiling...</source>
+        <translation>Derleniyor...</translation>
+    </message>
+    <message>
+        <source>Component Properties...</source>
+        <translation>Bileşen Özellikleri...</translation>
+    </message>
+    <message>
+        <source>Configure sources and probe, then click Run Sweep.</source>
+        <translation>Kaynakları ve probu ayarlayın, sonra Taramayı Çalıştır'a tıklayın.</translation>
+    </message>
+    <message>
+        <source>Contact bounce duration upon switching.</source>
+        <translation>Anahtarlama sırasındaki kontak sıçrama süresi.</translation>
+    </message>
+    <message>
+        <source>Contact dielectric breakdown voltage.</source>
+        <translation>Kontak dielektrik delinme gerilimi.</translation>
+    </message>
+    <message>
+        <source>Contact Resistance</source>
+        <translation>Kontak Direnci</translation>
+    </message>
+    <message>
+        <source>Core eddy current loss resistance in Ohms (0 or high = lossless).</source>
+        <translation>Çekirdek girdap akımı kayıp direnci, ohm cinsinden (0 veya yüksek = kayıpsız).</translation>
+    </message>
+    <message>
+        <source>Core Resistance</source>
+        <translation>Çekirdek Direnci</translation>
+    </message>
+    <message>
+        <source>Counter width in bits.</source>
+        <translation>Sayacın bit cinsinden genişliği.</translation>
+    </message>
+    <message>
+        <source>Create Firmware</source>
+        <translation>Firmware Oluştur</translation>
+    </message>
+    <message>
+        <source>Create firmware...</source>
+        <translation>Firmware oluştur...</translation>
+    </message>
+    <message>
+        <source>Creates: %1</source>
+        <translation>Oluşturulacak: %1</translation>
+    </message>
+    <message>
+        <source>Critical dV/dt</source>
+        <translation>Kritik dV/dt</translation>
+    </message>
+    <message>
+        <source>Critical rate of off-state voltage rise triggering conduction.</source>
+        <translation>İletime sokan, kapalı durumdaki gerilim yükselme hızı.</translation>
+    </message>
+    <message>
+        <source>Critical rate of voltage rise (dV/dt) triggering breakover.</source>
+        <translation>Kırılmayı tetikleyen gerilim yükselme hızı (dV/dt).</translation>
+    </message>
+    <message>
+        <source>Crystal oscillator input (XTAL_IN)</source>
+        <translation>Kristal osilatör girişi (XTAL_IN)</translation>
+    </message>
+    <message>
+        <source>Crystal oscillator output (XTAL_OUT)</source>
+        <translation>Kristal osilatör çıkışı (XTAL_OUT)</translation>
+    </message>
+    <message>
+        <source>CSV</source>
+        <translation>CSV</translation>
+    </message>
+    <message>
+        <source>CSV files (*.csv)</source>
+        <translation>CSV dosyaları (*.csv)</translation>
+    </message>
+    <message>
+        <source>Current (I)</source>
+        <translation>Akım (I)</translation>
+    </message>
+    <message>
+        <source>Current group: %1 (%2 tunnels)</source>
+        <translation>Geçerli grup: %1 (%2 tünel)</translation>
+    </message>
+    <message>
+        <source>Current group: %1 (1 tunnel)</source>
+        <translation>Geçerli grup: %1 (1 tünel)</translation>
+    </message>
+    <message>
+        <source>Current: %1</source>
+        <translation>Yüklü: %1</translation>
+    </message>
+    <message>
+        <source>Currently assigned to %1. Saving will clear that binding.</source>
+        <translation>Şu anda %1 için atanmış. Kaydederseniz o atama silinir.</translation>
+    </message>
+    <message>
+        <source>DC Parameter Sweep / Curve Tracer</source>
+        <translation>DC Parametre Taraması / Eğri İzleyici</translation>
+    </message>
+    <message>
+        <source>DC Parameter Sweep...</source>
+        <translation>DC Parametre Taraması...</translation>
+    </message>
+    <message>
+        <source>DC sweep failed.</source>
+        <translation>DC tarama başarısız.</translation>
+    </message>
+    <message>
+        <source>Debian / Ubuntu Package (.deb)</source>
+        <translation>Debian / Ubuntu Paketi (.deb)</translation>
+    </message>
+    <message>
+        <source>Decode</source>
+        <translation>Çöz</translation>
+    </message>
+    <message>
+        <source>Directory</source>
+        <translation>Klasör</translation>
+    </message>
+    <message>
+        <source>Docked (click to collapse, double-click for hover mode, drag to move)</source>
+        <translation>Sabitlendi (katlamak için tıklayın, üzerine gelme modu için çift tıklayın, taşımak için sürükleyin)</translation>
+    </message>
+    <message>
+        <source>Docked (click to show, double-click for hover mode, drag to move)</source>
+        <translation>Sabitlendi (göstermek için tıklayın, üzerine gelme modu için çift tıklayın, taşımak için sürükleyin)</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Bitti</translation>
+    </message>
+    <message>
+        <source>Download failed:</source>
+        <translation>İndirme başarısız:</translation>
+    </message>
+    <message>
+        <source>Download Update</source>
+        <translation>Güncellemeyi İndir</translation>
+    </message>
+    <message>
+        <source>Downloaded %1.</source>
+        <translation>%1 indirildi.</translation>
+    </message>
+    <message>
+        <source>Downloading %1...</source>
+        <translation>%1 indiriliyor...</translation>
+    </message>
+    <message>
+        <source>Downloading...</source>
+        <translation>İndiriliyor...</translation>
+    </message>
+    <message>
+        <source>e.g. blink</source>
+        <translation>örn. blink</translation>
+    </message>
+    <message>
+        <source>e.g. VCC, CLK, DATA0</source>
+        <translation>örn. VCC, CLK, DATA0</translation>
+    </message>
+    <message>
+        <source>Edit Board Layout</source>
+        <translation>Kart Yerleşimini Düzenle</translation>
+    </message>
+    <message>
+        <source>EEPROM image saved with the circuit when Save EEPROM is on.</source>
+        <translation>EEPROM'u Kaydet açıkken devreyle birlikte saklanan EEPROM imajı.</translation>
+    </message>
+    <message>
+        <source>Enables center-tapped secondary winding (adds pin ct).</source>
+        <translation>Orta uçlu sekonder sargıyı açar (ct pini eklenir).</translation>
+    </message>
+    <message>
+        <source>Enables third isolated auxiliary secondary winding (adds pins a1, a2).</source>
+        <translation>Üçüncü yalıtılmış yardımcı sekonder sargıyı açar (a1 ve a2 pinleri eklenir).</translation>
+    </message>
+    <message>
+        <source>Error saving netlist:</source>
+        <translation>Netlist kaydedilirken hata:</translation>
+    </message>
+    <message>
+        <source>Example circuits</source>
+        <translation>Örnek devreler</translation>
+    </message>
+    <message>
+        <source>Example Circuits...</source>
+        <translation>Örnek Devreler...</translation>
+    </message>
+    <message>
+        <source>Exit Board Layout</source>
+        <translation>Kart Yerleşiminden Çık</translation>
+    </message>
+    <message>
+        <source>Export AC Sweep CSV</source>
+        <translation>AC Tarama CSV'sini Dışa Aktar</translation>
+    </message>
+    <message>
+        <source>Export as Subcircuit...</source>
+        <translation>Alt Devre Olarak Dışa Aktar...</translation>
+    </message>
+    <message>
+        <source>Export DC Sweep CSV</source>
+        <translation>DC Tarama CSV'sini Dışa Aktar</translation>
+    </message>
+    <message>
+        <source>Export KiCad Netlist...</source>
+        <translation>KiCad Netlist Dışa Aktar...</translation>
+    </message>
+    <message>
+        <source>Export SPICE Netlist...</source>
+        <translation>SPICE Netlist Dışa Aktar...</translation>
+    </message>
+    <message>
+        <source>Exported CSV: </source>
+        <translation>Dışa aktarılan CSV: </translation>
+    </message>
+    <message>
+        <source>Exposed Properties</source>
+        <translation>Dışa Açık Özellikler</translation>
+    </message>
+    <message>
+        <source>Exposes parallel load (in4) and parallel data input pins (in10..).</source>
+        <translation>Paralel yükleme (in4) ve paralel veri giriş pinlerini (in10..) açar.</translation>
+    </message>
+    <message>
+        <source>Exposes parallel load (Pin_ldp) and data input pins.</source>
+        <translation>Paralel yükleme (Pin_ldp) ve veri giriş pinlerini açar.</translation>
+    </message>
+    <message>
+        <source>Exposes shift-left serial input (in5) and direction select (in6) pins.</source>
+        <translation>Sola kaydırma seri girişini (in5) ve yön seçimini (in6) açar.</translation>
+    </message>
+    <message>
+        <source>Exposes the asynchronous Set pin.</source>
+        <translation>Asenkron Set pinini açar.</translation>
+    </message>
+    <message>
+        <source>Exposes the reset/blanking pin.</source>
+        <translation>Sıfırlama/karartma pinini açar.</translation>
+    </message>
+    <message>
+        <source>Exposes the Ripple Carry Output (Pin_rco) pin.</source>
+        <translation>Dalgalı elde çıkışı pinini (Pin_rco) açar.</translation>
+    </message>
+    <message>
+        <source>Exposes the Up/Down Direction (Pin_dir) pin.</source>
+        <translation>Yukarı/aşağı yön pinini (Pin_dir) açar.</translation>
+    </message>
+    <message>
+        <source>External capacitor pin (CAP1)</source>
+        <translation>Harici kondansatör pini (CAP1)</translation>
+    </message>
+    <message>
+        <source>External capacitor pin (CAP2)</source>
+        <translation>Harici kondansatör pini (CAP2)</translation>
+    </message>
+    <message>
+        <source>External mechanical load torque opposing rotation.</source>
+        <translation>Dönüşe karşı koyan dış mekanik yük torku.</translation>
+    </message>
+    <message>
+        <source>Failed to create firmware.</source>
+        <translation>Firmware oluşturulamadı.</translation>
+    </message>
+    <message>
+        <source>Failed to export CSV.</source>
+        <translation>CSV dışa aktarılamadı.</translation>
+    </message>
+    <message>
+        <source>Failed to save plot image.</source>
+        <translation>Çizim görüntüsü kaydedilemedi.</translation>
+    </message>
+    <message>
+        <source>Fall time copied onto logic parts inside this subcircuit.</source>
+        <translation>Bu alt devrenin içindeki mantık parçalarına kopyalanan düşme süresi.</translation>
+    </message>
+    <message>
+        <source>Fetching release notes from GitHub...</source>
+        <translation>Sürüm notları GitHub'dan alınıyor...</translation>
+    </message>
+    <message>
+        <source>Filament thermal time constant.</source>
+        <translation>Filaman ısıl zaman sabiti.</translation>
+    </message>
+    <message>
+        <source>Firmware name</source>
+        <translation>Firmware adı</translation>
+    </message>
+    <message>
+        <source>Flash image saved with the circuit when Save Program is on.</source>
+        <translation>Programı Kaydet açıkken devreyle birlikte saklanan flash imajı.</translation>
+    </message>
+    <message>
+        <source>Flip Horizontal</source>
+        <translation>Yatay Çevir</translation>
+    </message>
+    <message>
+        <source>Flip Vertical</source>
+        <translation>Dikey Çevir</translation>
+    </message>
+    <message>
+        <source>Focus in File Tree</source>
+        <translation>Dosya Ağacında Odaklan</translation>
+    </message>
+    <message>
+        <source>Forward voltage, computed from the saturation current and emission coefficient. Editing it changes the saturation current.</source>
+        <translation>Doygunluk akımı ve emisyon katsayısından hesaplanan ileri gerilim. Düzenlemek doygunluk akımını değiştirir.</translation>
+    </message>
+    <message>
+        <source>Gate Delay</source>
+        <translation>Kapı Gecikmesi</translation>
+    </message>
+    <message>
+        <source>GND</source>
+        <translation>GND</translation>
+    </message>
+    <message>
+        <source>Holding Torque</source>
+        <translation>Tutma Torku</translation>
+    </message>
+    <message>
+        <source>Hover mode (click to open/close, double-click to dock, drag to move)</source>
+        <translation>Üzerine gelme modu (açmak/kapatmak için tıklayın, sabitlemek için çift tıklayın, taşımak için sürükleyin)</translation>
+    </message>
+    <message>
+        <source>Hysteresis Width</source>
+        <translation>Histerezis Genişliği</translation>
+    </message>
+    <message>
+        <source>I2C needs SCL on channel 1 and SDA on channel 2</source>
+        <translation>I2C için kanal 1'de SCL ve kanal 2'de SDA gerekir</translation>
+    </message>
+    <message>
+        <source>Idle Current</source>
+        <translation>Boşta Akım</translation>
+    </message>
+    <message>
+        <source>Images (*.png *.jpg *.jpeg *.bmp)</source>
+        <translation>Görüntüler (*.png *.jpg *.jpeg *.bmp)</translation>
+    </message>
+    <message>
+        <source>In Project</source>
+        <translation>Projede</translation>
+    </message>
+    <message>
+        <source>Input impedance copied onto logic parts inside this subcircuit.</source>
+        <translation>Bu alt devrenin içindeki mantık parçalarına kopyalanan giriş empedansı.</translation>
+    </message>
+    <message>
+        <source>Input threshold copied onto logic parts inside this subcircuit.</source>
+        <translation>Bu alt devrenin içindeki mantık parçalarına kopyalanan giriş eşiği.</translation>
+    </message>
+    <message>
+        <source>Jump</source>
+        <translation>Atla</translation>
+    </message>
+    <message>
+        <source>Jump to component, or type &gt; for commands...</source>
+        <translation>Bileşene atlayın veya komutlar için &gt; yazın...</translation>
+    </message>
+    <message>
+        <source>Keep My Changes</source>
+        <translation>Değişikliklerimi Koru</translation>
+    </message>
+    <message>
+        <source>Keep My Circuit</source>
+        <translation>Devremi Koru</translation>
+    </message>
+    <message>
+        <source>Latching Current</source>
+        <translation>Tutunma Akımı</translation>
+    </message>
+    <message>
+        <source>Latest: %1</source>
+        <translation>Son: %1</translation>
+    </message>
+    <message>
+        <source>Latest: %1 (%2)</source>
+        <translation>Son: %1 (%2)</translation>
+    </message>
+    <message>
+        <source>Led color. Sets the forward voltage for that color.</source>
+        <translation>LED rengi. O renk için ileri gerilimi ayarlar.</translation>
+    </message>
+    <message>
+        <source>Linux AppImage (.AppImage)</source>
+        <translation>Linux AppImage (.AppImage)</translation>
+    </message>
+    <message>
+        <source>Load Firmware for %1</source>
+        <translation>%1 için Firmware Yükle</translation>
+    </message>
+    <message>
+        <source>Load Firmware for Other MCU</source>
+        <translation>Başka MCU için Firmware Yükle</translation>
+    </message>
+    <message>
+        <source>Load Torque</source>
+        <translation>Yük Torku</translation>
+    </message>
+    <message>
+        <source>Loaded example:</source>
+        <translation>Yüklenen örnek:</translation>
+    </message>
+    <message>
+        <source>Log X</source>
+        <translation>Log X</translation>
+    </message>
+    <message>
+        <source>Log Y</source>
+        <translation>Log Y</translation>
+    </message>
+    <message>
+        <source>macOS Disk Image (.dmg)</source>
+        <translation>macOS Disk İmajı (.dmg)</translation>
+    </message>
+    <message>
+        <source>Magnetic hysteresis coercive current width in Amps (0.0 = no hysteresis).</source>
+        <translation>Manyetik histerezisin zorlayıcı akım genişliği, amper cinsinden (0.0 = histerezis yok).</translation>
+    </message>
+    <message>
+        <source>Magnitude</source>
+        <translation>Genlik</translation>
+    </message>
+    <message>
+        <source>Magnitude (dB)</source>
+        <translation>Genlik (dB)</translation>
+    </message>
+    <message>
+        <source>Master Clear / Reset input (MCLR)</source>
+        <translation>Ana temizleme / sıfırlama girişi (MCLR)</translation>
+    </message>
+    <message>
+        <source>Max Value</source>
+        <translation>Maksimum Değer</translation>
+    </message>
+    <message>
+        <source>Maximize</source>
+        <translation>Ekranı kapla</translation>
+    </message>
+    <message>
+        <source>Maximum counter value before wrapping (0 uses 2^Bits - 1 or 9 if decade).</source>
+        <translation>Başa dönmeden önceki en yüksek sayaç değeri (0 ise 2^Bit - 1, onluk sayaçta 9).</translation>
+    </message>
+    <message>
+        <source>Maximum current when jammed or under max stall torque.</source>
+        <translation>Kilitlendiğinde veya en yüksek durma torkundayken çekilen en yüksek akım.</translation>
+    </message>
+    <message>
+        <source>Maximum holding / stall torque capability of the servo.</source>
+        <translation>Servonun tutabildiği en yüksek tutma / durma torku.</translation>
+    </message>
+    <message>
+        <source>MCUs:</source>
+        <translation>MCU'lar:</translation>
+    </message>
+    <message>
+        <source>Mechanical rotor and shaft moment of inertia.</source>
+        <translation>Rotor ve milin mekanik eylemsizlik momenti.</translation>
+    </message>
+    <message>
+        <source>Minimize</source>
+        <translation>Simge durumuna küçült</translation>
+    </message>
+    <message>
+        <source>Minimum anode current to keep conducting after gate trigger drops.</source>
+        <translation>Kapı tetiği kalktıktan sonra iletimi sürdürmek için gereken en düşük anot akımı.</translation>
+    </message>
+    <message>
+        <source>Minimum main terminal current to keep conducting after gate trigger drops.</source>
+        <translation>Kapı tetiği kalktıktan sonra iletimi sürdürmek için gereken en düşük ana uç akımı.</translation>
+    </message>
+    <message>
+        <source>more</source>
+        <translation>daha fazla</translation>
+    </message>
+    <message>
+        <source>Move to Bottom Left</source>
+        <translation>Sol Alta Taşı</translation>
+    </message>
+    <message>
+        <source>Move to Bottom Right</source>
+        <translation>Sağ Alta Taşı</translation>
+    </message>
+    <message>
+        <source>Move to Top Left</source>
+        <translation>Sol Üste Taşı</translation>
+    </message>
+    <message>
+        <source>Move to Top Right</source>
+        <translation>Sağ Üste Taşı</translation>
+    </message>
+    <message>
+        <source>Name Tunnel</source>
+        <translation>Tüneli Adlandır</translation>
+    </message>
+    <message>
+        <source>Net name</source>
+        <translation>Ağ adı</translation>
+    </message>
+    <message>
+        <source>New name</source>
+        <translation>Yeni ad</translation>
+    </message>
+    <message>
+        <source>No debug variables loaded.
+Compile the sketch to generate an ELF file with program variables.</source>
+        <translation>Hata ayıklama değişkeni yüklenmedi.
+Program değişkenlerini listelemek için taslağı derleyin; ELF dosyası gerekir.</translation>
+    </message>
+    <message>
+        <source>no frames</source>
+        <translation>kare yok</translation>
+    </message>
+    <message>
+        <source>No matching commands</source>
+        <translation>Eşleşen komut yok</translation>
+    </message>
+    <message>
+        <source>No matching components</source>
+        <translation>Eşleşen bileşen yok</translation>
+    </message>
+    <message>
+        <source>No MCU selected.</source>
+        <translation>MCU seçilmedi.</translation>
+    </message>
+    <message>
+        <source>No release notes available.</source>
+        <translation>Sürüm notu yok.</translation>
+    </message>
+    <message>
+        <source>Open a built-in circuit. It stays unsaved until you choose Save.</source>
+        <translation>Yerleşik bir devre açın. Kaydet'i seçene kadar kaydedilmez.</translation>
+    </message>
+    <message>
+        <source>Open Containing Folder Externally</source>
+        <translation>Bulunduğu Klasörü Dışarıda Aç</translation>
+    </message>
+    <message>
+        <source>Open Externally</source>
+        <translation>Dışarıda Aç</translation>
+    </message>
+    <message>
+        <source>Open Project Folder...</source>
+        <translation>Proje Klasörünü Aç...</translation>
+    </message>
+    <message>
+        <source>Operating current while rotating towards target.</source>
+        <translation>Hedefe dönerken çekilen çalışma akımı.</translation>
+    </message>
+    <message>
+        <source>Oscillator pin</source>
+        <translation>Osilatör pini</translation>
+    </message>
+    <message>
+        <source>Output high voltage copied onto logic parts inside this subcircuit.</source>
+        <translation>Bu alt devrenin içindeki mantık parçalarına kopyalanan yüksek çıkış gerilimi.</translation>
+    </message>
+    <message>
+        <source>Output impedance copied onto logic parts inside this subcircuit.</source>
+        <translation>Bu alt devrenin içindeki mantık parçalarına kopyalanan çıkış empedansı.</translation>
+    </message>
+    <message>
+        <source>Output low voltage copied onto logic parts inside this subcircuit.</source>
+        <translation>Bu alt devrenin içindeki mantık parçalarına kopyalanan düşük çıkış gerilimi.</translation>
+    </message>
+    <message>
+        <source>Output stage is open collector instead of push-pull.</source>
+        <translation>Çıkış katı push-pull yerine açık kolektördür.</translation>
+    </message>
+    <message>
+        <source>Output value. A value outside the min/max range moves that end.</source>
+        <translation>Çıkış değeri. Alt veya üst sınırın dışındaki bir değer o sınırı kaydırır.</translation>
+    </message>
+    <message>
+        <source>Package:</source>
+        <translation>Paket:</translation>
+    </message>
+    <message>
+        <source>Path to the compiled firmware binary for nested MCUs.</source>
+        <translation>İç içe MCU'lar için derlenmiş firmware dosyasının yolu.</translation>
+    </message>
+    <message>
+        <source>Peak holding torque at rated current.</source>
+        <translation>Anma akımındaki tepe tutma torku.</translation>
+    </message>
+    <message>
+        <source>Peak: </source>
+        <translation>Tepe: </translation>
+    </message>
+    <message>
+        <source>Per-instance property overrides for exposed inner components.</source>
+        <translation>Dışa açılmış iç bileşenler için örneğe özel özellik geçersiz kılmaları.</translation>
+    </message>
+    <message>
+        <source>Phase</source>
+        <translation>Faz</translation>
+    </message>
+    <message>
+        <source>Phase (deg)</source>
+        <translation>Faz (derece)</translation>
+    </message>
+    <message>
+        <source>Phase (deg, unwrapped)</source>
+        <translation>Faz (derece, açılmış)</translation>
+    </message>
+    <message>
+        <source>Pinned probes:</source>
+        <translation>Sabitlenmiş problar:</translation>
+    </message>
+    <message>
+        <source>PNG</source>
+        <translation>PNG</translation>
+    </message>
+    <message>
+        <source>PNG image (*.png)</source>
+        <translation>PNG görüntüsü (*.png)</translation>
+    </message>
+    <message>
+        <source>PNG images (*.png)</source>
+        <translation>PNG görüntüleri (*.png)</translation>
+    </message>
+    <message>
+        <source>Power (W)</source>
+        <translation>Güç (W)</translation>
+    </message>
+    <message>
+        <source>Press a key (A–Z, 0–9)...</source>
+        <translation>Bir tuşa basın (A–Z, 0–9)...</translation>
+    </message>
+    <message>
+        <source>Primary and secondary sources must be different components.</source>
+        <translation>Birincil ve ikincil kaynaklar farklı bileşenler olmalıdır.</translation>
+    </message>
+    <message>
+        <source>Primary Source:</source>
+        <translation>Birincil Kaynak:</translation>
+    </message>
+    <message>
+        <source>Probe Voltage (V)</source>
+        <translation>Prob Gerilimi (V)</translation>
+    </message>
+    <message>
+        <source>Probe:</source>
+        <translation>Prob:</translation>
+    </message>
+    <message>
+        <source>Program</source>
+        <translation>Program</translation>
+    </message>
+    <message>
+        <source>Propagation delay copied onto logic parts inside this subcircuit.</source>
+        <translation>Bu alt devrenin içindeki mantık parçalarına kopyalanan yayılma gecikmesi.</translation>
+    </message>
+    <message>
+        <source>Pts/dec:</source>
+        <translation>Nokta/dek:</translation>
+    </message>
+    <message>
+        <source>Quiescent current when holding steady state.</source>
+        <translation>Kararlı durumda tutarken çekilen sükunet akımı.</translation>
+    </message>
+    <message>
+        <source>Ref:</source>
+        <translation>Referans:</translation>
+    </message>
+    <message>
+        <source>Release Notes</source>
+        <translation>Sürüm Notları</translation>
+    </message>
+    <message>
+        <source>Rename Tunnel Group</source>
+        <translation>Tünel Grubunu Yeniden Adlandır</translation>
+    </message>
+    <message>
+        <source>Reserved shortcut (%1). Choose another key combination.</source>
+        <translation>Ayrılmış kısayol (%1). Başka bir tuş birleşimi seçin.</translation>
+    </message>
+    <message>
+        <source>Reset input (active high)</source>
+        <translation>Sıfırlama girişi (aktif yüksek)</translation>
+    </message>
+    <message>
+        <source>Reset Overlay Layout</source>
+        <translation>Kaplama Yerleşimini Sıfırla</translation>
+    </message>
+    <message>
+        <source>Reset Position</source>
+        <translation>Konumu Sıfırla</translation>
+    </message>
+    <message>
+        <source>Resistance of the current-sense branch between the control pins.</source>
+        <translation>Kontrol pinleri arasındaki akım algılama kolunun direnci.</translation>
+    </message>
+    <message>
+        <source>Restore</source>
+        <translation>Geri Yükle</translation>
+    </message>
+    <message>
+        <source>RF antenna / LNA pin</source>
+        <translation>RF anten / LNA pini</translation>
+    </message>
+    <message>
+        <source>Right-click the trace to place cursor X2.</source>
+        <translation>X2 imlecini koymak için ize sağ tıklayın.</translation>
+    </message>
+    <message>
+        <source>Ripple Carry Out</source>
+        <translation>Elde Çıkışı</translation>
+    </message>
+    <message>
+        <source>Rise time copied onto logic parts inside this subcircuit.</source>
+        <translation>Bu alt devrenin içindeki mantık parçalarına kopyalanan yükselme süresi.</translation>
+    </message>
+    <message>
+        <source>Rotor bearing and aerodynamic viscous damping coefficient.</source>
+        <translation>Rotor yatağı ve aerodinamik viskoz sönüm katsayısı.</translation>
+    </message>
+    <message>
+        <source>Rotor Inertia</source>
+        <translation>Rotor Eylemsizliği</translation>
+    </message>
+    <message>
+        <source>Run Installer</source>
+        <translation>Kurucuyu Çalıştır</translation>
+    </message>
+    <message>
+        <source>Run Sweep</source>
+        <translation>Taramayı Çalıştır</translation>
+    </message>
+    <message>
+        <source>Running Current</source>
+        <translation>Çalışma Akımı</translation>
+    </message>
+    <message>
+        <source>Save AC Sweep Plot Image</source>
+        <translation>AC Tarama Çizimini Kaydet</translation>
+    </message>
+    <message>
+        <source>Save DC Sweep Plot Image</source>
+        <translation>DC Tarama Çizimini Kaydet</translation>
+    </message>
+    <message>
+        <source>Saved netlist:</source>
+        <translation>Netlist kaydedildi:</translation>
+    </message>
+    <message>
+        <source>Saved plot image: </source>
+        <translation>Kaydedilen çizim: </translation>
+    </message>
+    <message>
+        <source>Search commands or components...</source>
+        <translation>Komut veya bileşen ara...</translation>
+    </message>
+    <message>
+        <source>Secondary (Family):</source>
+        <translation>İkincil (Aile):</translation>
+    </message>
+    <message>
+        <source>Select a primary source and a probe pin.</source>
+        <translation>Birincil kaynağı ve bir prob pinini seçin.</translation>
+    </message>
+    <message>
+        <source>Select Exposed Components — click components to toggle, click empty space or Esc to finish</source>
+        <translation>Dışa Açık Bileşenleri Seçin — seçmek için bileşene tıklayın, bitirmek için boş alana tıklayın veya Esc'ye basın</translation>
+    </message>
+    <message>
+        <source>Select Firmware Directory</source>
+        <translation>Firmware Klasörünü Seç</translation>
+    </message>
+    <message>
+        <source>Sense Resistance</source>
+        <translation>Algılama Direnci</translation>
+    </message>
+    <message>
+        <source>Set Name</source>
+        <translation>Adı Belirle</translation>
+    </message>
+    <message>
+        <source>Set Up Firmware...</source>
+        <translation>Firmware Ayarla...</translation>
+    </message>
+    <message>
+        <source>Show in Folder</source>
+        <translation>Klasörde Göster</translation>
+    </message>
+    <message>
+        <source>Software Update</source>
+        <translation>Yazılım Güncellemesi</translation>
+    </message>
+    <message>
+        <source>Source Value</source>
+        <translation>Kaynak Değeri</translation>
+    </message>
+    <message>
+        <source>Source:</source>
+        <translation>Kaynak:</translation>
+    </message>
+    <message>
+        <source>Spectrum</source>
+        <translation>Spektrum</translation>
+    </message>
+    <message>
+        <source>Stall Current</source>
+        <translation>Durma Akımı</translation>
+    </message>
+    <message>
+        <source>Stall Torque</source>
+        <translation>Durma Torku</translation>
+    </message>
+    <message>
+        <source>Start (Hz):</source>
+        <translation>Başlangıç (Hz):</translation>
+    </message>
+    <message>
+        <source>Start:</source>
+        <translation>Başlangıç:</translation>
+    </message>
+    <message>
+        <source>Step Into</source>
+        <translation>İçine Adımla</translation>
+    </message>
+    <message>
+        <source>Step:</source>
+        <translation>Adım:</translation>
+    </message>
+    <message>
+        <source>Stop (Hz):</source>
+        <translation>Bitiş (Hz):</translation>
+    </message>
+    <message>
+        <source>Stop:</source>
+        <translation>Bitiş:</translation>
+    </message>
+    <message>
+        <source>Sweep completed (</source>
+        <translation>Tarama tamamlandı (</translation>
+    </message>
+    <message>
+        <source>Sweep completed: </source>
+        <translation>Tarama tamamlandı: </translation>
+    </message>
+    <message>
+        <source>Switch to Command Center</source>
+        <translation>Komuta Merkezine Geç</translation>
+    </message>
+    <message>
+        <source>Switch to Docked Mode</source>
+        <translation>Sabit Moda Geç</translation>
+    </message>
+    <message>
+        <source>Switch to Hover Mode</source>
+        <translation>Üzerine Gelme Moduna Geç</translation>
+    </message>
+    <message>
+        <source>Switch to Jump to Reference</source>
+        <translation>Referansa Atlama Moduna Geç</translation>
+    </message>
+    <message>
+        <source>The sweep returned no points.</source>
+        <translation>Tarama hiç nokta döndürmedi.</translation>
+    </message>
+    <message>
+        <source>Thermal Tau</source>
+        <translation>Isıl Zaman Sabiti</translation>
+    </message>
+    <message>
+        <source>This circuit file has been deleted or renamed on disk by another program.</source>
+        <translation>Bu devre dosyası diskte başka bir program tarafından silinmiş veya yeniden adlandırılmış.</translation>
+    </message>
+    <message>
+        <source>This circuit file has been modified on disk by another program, and the simulation is running.</source>
+        <translation>Bu devre dosyası diskte başka bir program tarafından değiştirilmiş ve simülasyon çalışıyor.</translation>
+    </message>
+    <message>
+        <source>This circuit file has been modified on disk by another program, and you have unsaved changes.</source>
+        <translation>Bu devre dosyası diskte başka bir program tarafından değiştirilmiş ve kaydedilmemiş değişiklikleriniz var.</translation>
+    </message>
+    <message>
+        <source>This circuit file has been modified on disk by another program, you have unsaved changes, and the simulation is running.</source>
+        <translation>Bu devre dosyası diskte başka bir program tarafından değiştirilmiş, kaydedilmemiş değişiklikleriniz var ve simülasyon çalışıyor.</translation>
+    </message>
+    <message>
+        <source>This file has been deleted or renamed on disk by another program.</source>
+        <translation>Bu dosya diskte başka bir program tarafından silinmiş veya yeniden adlandırılmış.</translation>
+    </message>
+    <message>
+        <source>This file has been modified on disk by another program, and you have unsaved changes in the editor.</source>
+        <translation>Bu dosya diskte başka bir program tarafından değiştirilmiş ve düzenleyicide kaydedilmemiş değişiklikleriniz var.</translation>
+    </message>
+    <message>
+        <source>Toggle Scrollbars</source>
+        <translation>Kaydırma Çubuklarını Aç/Kapat</translation>
+    </message>
+    <message>
+        <source>Top Left</source>
+        <translation>Sol Üst</translation>
+    </message>
+    <message>
+        <source>Top Right</source>
+        <translation>Sağ Üst</translation>
+    </message>
+    <message>
+        <source>Trigger Completion</source>
+        <translation>Tamamlamayı Tetikle</translation>
+    </message>
+    <message>
+        <source>Turn-Off Time (tq)</source>
+        <translation>Kapanma Süresi (tq)</translation>
+    </message>
+    <message>
+        <source>UART needs a signal on channel 1</source>
+        <translation>UART için kanal 1'de bir sinyal gerekir</translation>
+    </message>
+    <message>
+        <source>Unknown example:</source>
+        <translation>Bilinmeyen örnek:</translation>
+    </message>
+    <message>
+        <source>Unnamed tunnel — only this tunnel will be named.</source>
+        <translation>Adsız tünel — yalnızca bu tünel adlandırılacak.</translation>
+    </message>
+    <message>
+        <source>Unwrap phase</source>
+        <translation>Fazı aç</translation>
+    </message>
+    <message>
+        <source>Update available: %1</source>
+        <translation>Güncelleme var: %1</translation>
+    </message>
+    <message>
+        <source>View on GitHub</source>
+        <translation>GitHub'da Görüntüle</translation>
+    </message>
+    <message>
+        <source>Viscous Friction</source>
+        <translation>Viskoz Sürtünme</translation>
+    </message>
+    <message>
+        <source>Voltage (V)</source>
+        <translation>Gerilim (V)</translation>
+    </message>
+    <message>
+        <source>Will merge with %1 existing tunnels in &quot;%2&quot;.</source>
+        <translation>&quot;%2&quot; içindeki mevcut %1 tünelle birleşecek.</translation>
+    </message>
+    <message>
+        <source>Will merge with 1 existing tunnel in &quot;%1&quot;.</source>
+        <translation>&quot;%1&quot; içindeki mevcut 1 tünelle birleşecek.</translation>
+    </message>
+    <message>
+        <source>Windows Installer (.exe)</source>
+        <translation>Windows Kurucusu (.exe)</translation>
+    </message>
+    <message>
+        <source>Windows Portable (.zip)</source>
+        <translation>Windows Taşınabilir (.zip)</translation>
+    </message>
+    <message>
+        <source>X:</source>
+        <translation>X:</translation>
+    </message>
+    <message>
+        <source>Y:</source>
+        <translation>Y:</translation>
+    </message>
+    <message>
+        <source>&amp;Close</source>
+        <translation>&amp;Kapat</translation>
+    </message>
+    <message>
+        <source>&amp;DC Parameter Sweep...</source>
+        <translation>&amp;DC Parametre Taraması...</translation>
+    </message>
+    <message>
+        <source>AC &amp;Sweep...</source>
+        <translation>AC &amp;Tarama...</translation>
+    </message>
+    <message>
+        <source>Check for &amp;Updates...</source>
+        <translation>&amp;Güncellemeleri Kontrol Et...</translation>
+    </message>
+    <message>
+        <source>Circuits (*.circ1)</source>
+        <translation>Devreler (*.circ1)</translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation>Kapat</translation>
+    </message>
+    <message>
+        <source>Example &amp;Circuits...</source>
+        <translation>Örnek &amp;Devreler...</translation>
+    </message>
+    <message>
+        <source>Export &amp;KiCad Netlist...</source>
+        <translation>&amp;KiCad Netlist Dışa Aktar...</translation>
+    </message>
+    <message>
+        <source>Export &amp;SPICE Netlist...</source>
+        <translation>&amp;SPICE Netlist Dışa Aktar...</translation>
+    </message>
+    <message>
+        <source>Export KiCad Netlist</source>
+        <translation>KiCad Netlist Dışa Aktar</translation>
+    </message>
+    <message>
+        <source>Export SPICE Netlist</source>
+        <translation>SPICE Netlist Dışa Aktar</translation>
+    </message>
+    <message>
+        <source>KiCad netlist (*.net)</source>
+        <translation>KiCad netlist (*.net)</translation>
+    </message>
+    <message>
+        <source>Menu</source>
+        <translation>Menü</translation>
+    </message>
+    <message>
+        <source>SPICE netlist (*.cir *.sp)</source>
+        <translation>SPICE netlist (*.cir *.sp)</translation>
+    </message>
+    <message>
+        <source>[Breakpoint] </source>
+        <translation>[Kesme Noktası] </translation>
     </message>
 </context>
 </TS>

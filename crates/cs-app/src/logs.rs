@@ -191,8 +191,30 @@ const MAX_LOG_ENTRIES: usize = 2000;
 
 fn render_entry_html(line: &str, level: LogLevel, dark: bool) -> String {
     let hex = color_for_level(level, dark);
-    let escaped = html_escape(line);
-    format!("<span style=\"color: {hex};\">{escaped}</span>")
+    if line.is_empty() {
+        format!("<div style=\"-qt-paragraph-type:empty; color: {hex};\"><br/></div>")
+    } else {
+        let escaped = html_escape(line);
+        format!("<div style=\"color: {hex};\">{escaped}</div>")
+    }
+}
+
+fn build_entries_html(entries: &[(String, LogLevel)], dark: bool) -> String {
+    let mut html = String::new();
+    for (line, level) in entries {
+        html.push_str(&render_entry_html(line, *level, dark));
+    }
+    html
+}
+
+fn split_log_lines(text: &str) -> impl Iterator<Item = &str> {
+    let stripped = text
+        .strip_suffix("\r\n")
+        .or_else(|| text.strip_suffix('\n'))
+        .unwrap_or(text);
+    stripped
+        .split('\n')
+        .map(|part| part.strip_suffix('\r').unwrap_or(part))
 }
 
 pub struct SimulatorLog {
@@ -308,14 +330,7 @@ impl SimulatorLog {
     }
 
     fn rebuild_html(&mut self) {
-        let mut html = String::new();
-        for (i, (line, level)) in self.entries.iter().enumerate() {
-            if i > 0 {
-                html.push_str("<br/>");
-            }
-            html.push_str(&render_entry_html(line, *level, self.dark));
-        }
-        self.text = html;
+        self.text = build_entries_html(&self.entries, self.dark);
         self.text_changed();
     }
 
@@ -330,8 +345,13 @@ impl SimulatorLog {
 
     #[qslot]
     fn append_line(&mut self, line: String) {
-        let level = classify_line(&line);
-        self.append_line_with_level(line, level);
+        for part in split_log_lines(&line) {
+            let level = classify_line(part);
+            self.push_single_line(part.to_string(), level);
+        }
+        self.trim_overflow();
+        self.text_changed();
+        self.appended();
     }
 
     #[qslot]
@@ -340,26 +360,30 @@ impl SimulatorLog {
             return;
         }
         for line in lines {
-            let level = classify_line(&line);
-            self.push_entry_raw(line, level);
+            for part in split_log_lines(&line) {
+                let level = classify_line(part);
+                self.push_single_line(part.to_string(), level);
+            }
         }
         self.trim_overflow();
         self.text_changed();
         self.appended();
     }
 
-    fn push_entry_raw(&mut self, line: String, level: LogLevel) {
-        if !self.raw_text.is_empty() && !self.raw_text.ends_with('\n') {
+    fn push_single_line(&mut self, line: String, level: LogLevel) {
+        if !self.entries.is_empty() {
             self.raw_text.push('\n');
         }
         self.raw_text.push_str(&line);
-
-        if !self.text.is_empty() {
-            self.text.push_str("<br/>");
-        }
         self.text
             .push_str(&render_entry_html(&line, level, self.dark));
         self.entries.push((line, level));
+    }
+
+    fn push_entry_raw(&mut self, line: String, level: LogLevel) {
+        for part in split_log_lines(&line) {
+            self.push_single_line(part.to_string(), level);
+        }
     }
 
     fn trim_overflow(&mut self) {
@@ -372,14 +396,7 @@ impl SimulatorLog {
                 .map(|(l, _)| l.as_str())
                 .collect::<Vec<_>>()
                 .join("\n");
-            let mut html = String::new();
-            for (i, (line, level)) in self.entries.iter().enumerate() {
-                if i > 0 {
-                    html.push_str("<br/>");
-                }
-                html.push_str(&render_entry_html(line, *level, self.dark));
-            }
-            self.text = html;
+            self.text = build_entries_html(&self.entries, self.dark);
         }
     }
 
@@ -532,14 +549,7 @@ impl CompilerLog {
     }
 
     fn rebuild_html(&mut self) {
-        let mut html = String::new();
-        for (i, (line, level)) in self.entries.iter().enumerate() {
-            if i > 0 {
-                html.push_str("<br/>");
-            }
-            html.push_str(&render_entry_html(line, *level, self.dark));
-        }
-        self.text = html;
+        self.text = build_entries_html(&self.entries, self.dark);
         self.text_changed();
     }
 
@@ -554,8 +564,13 @@ impl CompilerLog {
 
     #[qslot]
     fn append_line(&mut self, line: String) {
-        let level = classify_line(&line);
-        self.append_line_with_level(line, level);
+        for part in split_log_lines(&line) {
+            let level = classify_line(part);
+            self.push_single_line(part.to_string(), level);
+        }
+        self.trim_overflow();
+        self.text_changed();
+        self.appended();
     }
 
     #[qslot]
@@ -564,26 +579,30 @@ impl CompilerLog {
             return;
         }
         for line in lines {
-            let level = classify_line(&line);
-            self.push_entry_raw(line, level);
+            for part in split_log_lines(&line) {
+                let level = classify_line(part);
+                self.push_single_line(part.to_string(), level);
+            }
         }
         self.trim_overflow();
         self.text_changed();
         self.appended();
     }
 
-    fn push_entry_raw(&mut self, line: String, level: LogLevel) {
-        if !self.raw_text.is_empty() && !self.raw_text.ends_with('\n') {
+    fn push_single_line(&mut self, line: String, level: LogLevel) {
+        if !self.entries.is_empty() {
             self.raw_text.push('\n');
         }
         self.raw_text.push_str(&line);
-
-        if !self.text.is_empty() {
-            self.text.push_str("<br/>");
-        }
         self.text
             .push_str(&render_entry_html(&line, level, self.dark));
         self.entries.push((line, level));
+    }
+
+    fn push_entry_raw(&mut self, line: String, level: LogLevel) {
+        for part in split_log_lines(&line) {
+            self.push_single_line(part.to_string(), level);
+        }
     }
 
     fn trim_overflow(&mut self) {
@@ -596,14 +615,7 @@ impl CompilerLog {
                 .map(|(l, _)| l.as_str())
                 .collect::<Vec<_>>()
                 .join("\n");
-            let mut html = String::new();
-            for (i, (line, level)) in self.entries.iter().enumerate() {
-                if i > 0 {
-                    html.push_str("<br/>");
-                }
-                html.push_str(&render_entry_html(line, *level, self.dark));
-            }
-            self.text = html;
+            self.text = build_entries_html(&self.entries, self.dark);
         }
     }
 
@@ -705,5 +717,31 @@ mod tests {
         assert_eq!(sim_log.font_size, s.editor_font_size);
         assert_eq!(comp_log.font_family, s.editor_font_family);
         assert_eq!(comp_log.font_size, s.editor_font_size);
+    }
+
+    #[test]
+    fn render_lines_as_separate_div_blocks() {
+        let entries = vec![
+            ("Compiling...".to_string(), LogLevel::Info),
+            (String::new(), LogLevel::Stdout),
+            ("main.c:10: error: <bad>".to_string(), LogLevel::Error),
+        ];
+        let html = build_entries_html(&entries, false);
+        assert!(!html.contains("</div><br/>"));
+        assert!(html.contains(">Compiling...</div>"));
+        assert!(html.contains("-qt-paragraph-type:empty"));
+        assert!(html.contains(">main.c:10: error: &lt;bad&gt;</div>"));
+    }
+
+    #[test]
+    fn split_log_lines_handles_multiline_and_trailing_newlines() {
+        let parts: Vec<&str> = split_log_lines("line1\r\nline2\n").collect();
+        assert_eq!(parts, vec!["line1", "line2"]);
+
+        let empty_parts: Vec<&str> = split_log_lines("").collect();
+        assert_eq!(empty_parts, vec![""]);
+
+        let blank_middle: Vec<&str> = split_log_lines("a\n\nb").collect();
+        assert_eq!(blank_middle, vec!["a", "", "b"]);
     }
 }

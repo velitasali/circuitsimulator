@@ -24,6 +24,7 @@ Item {
     property bool wordWrap: false
     property int wrapMode: wordWrap ? TextEdit.Wrap : TextEdit.NoWrap
     property int contentPadding: 9
+    property int leftContentPadding: contentPadding
     property bool defaultContextMenu: true
     property bool followTail: false
     readonly property bool _wrapped: wrapMode !== TextEdit.NoWrap
@@ -174,7 +175,7 @@ Item {
             wrapMode: root.wrapMode
             topPadding: root.contentPadding
             bottomPadding: root.contentPadding
-            leftPadding: root.contentPadding
+            leftPadding: root.leftContentPadding
             rightPadding: root.contentPadding
             font.family: App.fontFamily
             font.pixelSize: App.fontNormal

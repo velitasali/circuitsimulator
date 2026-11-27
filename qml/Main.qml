@@ -103,8 +103,22 @@ ApplicationWindow {
     minimumWidth: App.minWindowWidth + win.linuxShadowMargin * 2
     minimumHeight: App.minWindowHeight + win.linuxShadowMargin * 2
     // setCustomMargins grows a Wayland window by the gutter. X11 does not, so only X11 adds it here.
-    width: 1200 + ((win.linuxCustomChrome && !win.linuxWayland) ? win.linuxBaseShadowMargin * 2 : 0)
-    height: 800 + ((win.linuxCustomChrome && !win.linuxWayland) ? win.linuxBaseShadowMargin * 2 : 0)
+    width: App.defaultWindowWidth + ((win.linuxCustomChrome && !win.linuxWayland) ? win.linuxBaseShadowMargin * 2 : 0)
+    height: App.defaultWindowHeight + ((win.linuxCustomChrome && !win.linuxWayland) ? win.linuxBaseShadowMargin * 2 : 0)
+
+    function applyInitialWindowSize(): void {
+        const availW = Screen.desktopAvailableWidth
+        const availH = Screen.desktopAvailableHeight
+        if (availW <= 0 || availH <= 0)
+            return
+        const shadowPad = (win.linuxCustomChrome && !win.linuxWayland) ? win.linuxBaseShadowMargin * 2 : 0
+        const targetW = App.initialWindowWidth(availW, availH) + shadowPad
+        const targetH = App.initialWindowHeight(availW, availH) + shadowPad
+        if (win.width !== targetW)
+            win.width = targetW
+        if (win.height !== targetH)
+            win.height = targetH
+    }
     title: {
         var _tick = App.i18nTick
         var state = CircuitCanvas.simRunning
@@ -1415,6 +1429,7 @@ ApplicationWindow {
         InfoWidget.updateThemeColors(isDark)
     }
     Component.onCompleted: {
+        win.applyInitialWindowSize()
         var isDark = App.darkTheme
         CircuitCanvas.dark = isDark
         Oscilloscope.dark = isDark

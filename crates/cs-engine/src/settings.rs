@@ -32,6 +32,48 @@ pub const LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("tr", "Türkçe")];
 
 pub const MIN_WINDOW_WIDTH: i32 = 800;
 pub const MIN_WINDOW_HEIGHT: i32 = 550;
+pub const DEFAULT_WINDOW_WIDTH: i32 = 1280;
+pub const DEFAULT_WINDOW_HEIGHT: i32 = 800;
+pub const MAX_DEFAULT_WINDOW_WIDTH: i32 = 1920;
+pub const MAX_DEFAULT_WINDOW_HEIGHT: i32 = 1200;
+pub const INITIAL_WINDOW_MARGIN: i32 = 24;
+
+/// Compute the initial unmaximized main-window frame size for a screen's
+/// available desktop area (in logical pixels, excluding taskbar/dock/panels).
+///
+/// - Starts from the 16:10 baseline (`DEFAULT_WINDOW_WIDTH × DEFAULT_WINDOW_HEIGHT`).
+/// - Scales up smoothly to ~2/3 of the available desktop on larger displays
+///   (e.g., 1440p, ultrawide, 4K), capped at `MAX_DEFAULT_WINDOW_WIDTH × MAX_DEFAULT_WINDOW_HEIGHT`.
+/// - Scales down proportionally on smaller HD / high-DPI displays so the window
+///   fits inside the available desktop with `INITIAL_WINDOW_MARGIN` clearance,
+///   never dropping below `MIN_WINDOW_WIDTH × MIN_WINDOW_HEIGHT`.
+pub fn initial_window_size(avail_w: i32, avail_h: i32) -> (i32, i32) {
+    if avail_w <= 0 || avail_h <= 0 {
+        return (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+    }
+
+    let base_w = DEFAULT_WINDOW_WIDTH as f64;
+    let base_h = DEFAULT_WINDOW_HEIGHT as f64;
+
+    let fill_scale =
+        ((avail_w as f64 * (2.0 / 3.0)) / base_w).min((avail_h as f64 * (2.0 / 3.0)) / base_h);
+    let max_scale =
+        (MAX_DEFAULT_WINDOW_WIDTH as f64 / base_w).min(MAX_DEFAULT_WINDOW_HEIGHT as f64 / base_h);
+    let desired_scale = fill_scale.clamp(1.0, max_scale);
+
+    let max_frame_w = (avail_w - INITIAL_WINDOW_MARGIN).max(MIN_WINDOW_WIDTH);
+    let max_frame_h = (avail_h - INITIAL_WINDOW_MARGIN).max(MIN_WINDOW_HEIGHT);
+    let fit_scale = (max_frame_w as f64 / base_w).min(max_frame_h as f64 / base_h);
+
+    let scale = desired_scale.min(fit_scale);
+    let w = ((base_w * scale).round() as i32)
+        .min(max_frame_w)
+        .clamp(MIN_WINDOW_WIDTH, MAX_DEFAULT_WINDOW_WIDTH);
+    let h = ((base_h * scale).round() as i32)
+        .min(max_frame_h)
+        .clamp(MIN_WINDOW_HEIGHT, MAX_DEFAULT_WINDOW_HEIGHT);
+    (w, h)
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -529,5 +571,32 @@ mod tests {
         c.set_react(10, 1); // 10 ns
         assert_eq!(c.react_step_ps, 10_000);
         assert!((c.analog_dt() - 1e-8).abs() < 1e-20);
+    }
+
+    #[test]
+    fn initial_window_size_scales_across_displays() {
+        // Invalid / headless falls back to default.
+        assert_eq!(initial_window_size(0, 0), (1280, 800));
+
+        // 720p HD (or 1080p @ 150% DPI) with 48px taskbar: scales down proportionally (16:10).
+        assert_eq!(initial_window_size(1280, 672), (1037, 648));
+
+        // 1366x768 laptop with 48px taskbar: fits with margin while keeping 16:10.
+        assert_eq!(initial_window_size(1366, 720), (1114, 696));
+
+        // 1080p @ 125% fits comfortably with margin; 1080p @ 100% stays at baseline 1280x800.
+        assert_eq!(initial_window_size(1536, 816), (1267, 792));
+        assert_eq!(initial_window_size(1920, 1032), (1280, 800));
+
+        // 1440p (and 4K @ 150% / 3440x1440 ultrawide) scales up smoothly.
+        assert_eq!(initial_window_size(2560, 1392), (1485, 928));
+        assert_eq!(initial_window_size(3440, 1392), (1485, 928));
+
+        // 4K @ 125% scales further; 4K @ 100% caps at MAX_DEFAULT_WINDOW (1920x1200).
+        assert_eq!(initial_window_size(3072, 1680), (1792, 1120));
+        assert_eq!(initial_window_size(3840, 2112), (1920, 1200));
+
+        // Very small displays never go below minimum window size.
+        assert_eq!(initial_window_size(800, 560), (800, 550));
     }
 }

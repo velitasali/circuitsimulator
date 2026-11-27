@@ -27,6 +27,8 @@ pub struct App {
     i18n_tick: i32,
     min_window_width: i32,
     min_window_height: i32,
+    default_window_width: i32,
+    default_window_height: i32,
 }
 
 impl Default for App {
@@ -58,6 +60,8 @@ impl Default for App {
             i18n_tick: 0,
             min_window_width: cs_engine::settings::MIN_WINDOW_WIDTH,
             min_window_height: cs_engine::settings::MIN_WINDOW_HEIGHT,
+            default_window_width: cs_engine::settings::DEFAULT_WINDOW_WIDTH,
+            default_window_height: cs_engine::settings::DEFAULT_WINDOW_HEIGHT,
         }
     }
 }
@@ -167,6 +171,12 @@ impl App {
     qproperty!("fontTitle", Read = font_title, Notify = font_changed);
     qproperty!("minWindowWidth", Read = min_window_width, Constant);
     qproperty!("minWindowHeight", Read = min_window_height, Constant);
+    qproperty!("defaultWindowWidth", Read = default_window_width, Constant);
+    qproperty!(
+        "defaultWindowHeight",
+        Read = default_window_height,
+        Constant
+    );
 
     #[qsignal]
     fn window_title_changed(&mut self);
@@ -342,6 +352,14 @@ impl App {
 
     fn min_window_height(&self) -> i32 {
         self.min_window_height
+    }
+
+    fn default_window_width(&self) -> i32 {
+        self.default_window_width
+    }
+
+    fn default_window_height(&self) -> i32 {
+        self.default_window_height
     }
 
     fn set_window_title(&mut self, title: String) {
@@ -671,6 +689,16 @@ impl App {
     #[qslot]
     fn titlebar_leading_inset(&self) -> i32 {
         macos_host::titlebar_leading_inset()
+    }
+
+    #[qslot]
+    fn initial_window_width(&self, avail_w: i32, avail_h: i32) -> i32 {
+        cs_engine::settings::initial_window_size(avail_w, avail_h).0
+    }
+
+    #[qslot]
+    fn initial_window_height(&self, avail_w: i32, avail_h: i32) -> i32 {
+        cs_engine::settings::initial_window_size(avail_w, avail_h).1
     }
 
     #[qslot]

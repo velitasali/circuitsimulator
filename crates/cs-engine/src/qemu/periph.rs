@@ -162,6 +162,8 @@ impl QemuUsart {
         self.dr = 0;
         self.int_enable = 0;
         self.ore_read = 0;
+        self.module.enable_tx(false, &mut [], None);
+        self.module.enable_rx(false);
         if self.family == UsartFamily::Esp32 {
             self.module.set_baud_rate(115200);
         } else {
@@ -234,6 +236,10 @@ impl QemuUsart {
         pins: &mut [IoPin],
         apb: u32,
     ) -> Option<(u8, u8)> {
+        if !self.module.is_tx_enabled() && matches!(offset, 0x00 | 0x0C | 0x14 | 0x20 | 0x24) {
+            self.module.enable_tx(true, pins, self.tx);
+            self.module.enable_rx(true);
+        }
         match offset {
             0x00 => {
                 if self.tx_fifo.len() >= ESP32_UART_FIFO_CAP {

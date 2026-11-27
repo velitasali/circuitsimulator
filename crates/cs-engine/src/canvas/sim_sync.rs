@@ -826,7 +826,12 @@ impl Canvas {
                                 .find(|comp| comp.id == it.id)
                                 .and_then(|comp| {
                                     if let crate::elements::Kind::Hd44780(h) = &comp.kind {
-                                        Some((h.hex_bitmap(), h.lines().join("\n")))
+                                        let lines = if h.disp_on {
+                                            h.lines().join("\n")
+                                        } else {
+                                            String::new()
+                                        };
+                                        Some((h.hex_bitmap(), lines))
                                     } else {
                                         None
                                     }
@@ -886,7 +891,12 @@ impl Canvas {
                                 .find(|comp| comp.id == it.id)
                                 .and_then(|comp| {
                                     if let crate::elements::Kind::Aip31068(a) = &comp.kind {
-                                        Some((a.hex_bitmap(), a.lines().join("\n")))
+                                        let lines = if a.hd44780.disp_on {
+                                            a.lines().join("\n")
+                                        } else {
+                                            String::new()
+                                        };
+                                        Some((a.hex_bitmap(), lines))
                                     } else {
                                         None
                                     }

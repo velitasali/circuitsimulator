@@ -798,10 +798,13 @@ impl QemuComp {
                 let v = self.pins[i].out_volt();
                 let _ = self.pins[i].get_inp_state(v);
             }
-            for i in 0..self.usarts.len() {
-                let tx = self.usarts[i].tx;
-                self.usarts[i].module.enable_tx(true, &mut self.pins, tx);
-                self.usarts[i].module.enable_rx(true);
+            // Only UART0 (G01/G03) is active on boot for the ESP32 ROM banner.
+            // UART1 (G10/G09) and UART2 (G17/G16) stay unconfigured until
+            // firmware writes their registers so those pads remain usable as GPIO.
+            if let Some(u) = self.usarts.first_mut() {
+                let tx = u.tx;
+                u.module.enable_tx(true, &mut self.pins, tx);
+                u.module.enable_rx(true);
             }
         }
         if let Err(e) = self.start_live() {
@@ -1230,7 +1233,12 @@ impl QemuComp {
                     self.next_wake = Some(dp.max_until);
                     return Vec::new();
                 }
-                self.consume_mailbox(now);
+                if self.consume_mailbox(now) {
+                    // Return to the circuit solver immediately after a pin change
+                    // so edge-sensitive peripherals see every transition.
+                    self.next_wake = Some(now.saturating_add(1));
+                    break;
+                }
                 if let Some(pd) = self.next_periph_due()
                     && self.guest_circuit_time(now).is_some_and(|g| g >= pd)
                 {
@@ -1259,8 +1267,15 @@ impl QemuComp {
                     self.next_wake = Some(dp.max_until);
                     return Vec::new();
                 }
-                self.consume_mailbox(now);
+                let pin_changed = self.consume_mailbox(now);
                 hot = true;
+                if pin_changed {
+                    // Yield to the circuit solver after any pin-changing MMIO
+                    // write so rapid GPIO pulses (e.g. HD44780 En strobes) are
+                    // solved individually rather than coalesced inside one wake.
+                    self.next_wake = Some(now.saturating_add(1));
+                    return Vec::new();
+                }
                 // If an active peripheral bit edge is pending and the guest has
                 // already reached or passed it (e.g. polling UART_STATUS in
                 // Serial.flush()), yield back to the circuit solver so the bit
@@ -1402,13 +1417,17 @@ impl QemuComp {
                 self.time_offset = self.time_offset.saturating_add(now - guest);
             }
         }
-        self.consume_mailbox(now);
+        let _ = self.consume_mailbox(now);
     }
 
     /// Apply the posted mailbox slot immediately. Reads stay blocked in the
     /// guest until `push_live` publishes `qemu_action`; writes are applied
     /// before the single pending-event slot can be overwritten.
-    fn consume_mailbox(&mut self, now: u64) {
+    ///
+    /// Returns `true` if this mailbox action dirtied any device pin state.
+    fn consume_mailbox(&mut self, now: u64) -> bool {
+        let prev_dirty = self.pins_dirty;
+        self.pins_dirty = false;
         self.pull_live();
         self.observe_guest_raw(self.arena.qemu_time, now);
         let action = SimAction::from_u64(self.arena.simu_action);
@@ -1427,6 +1446,9 @@ impl QemuComp {
         self.arena.simu_action = 0;
         self.arena.simu_time = 0;
         self.push_live();
+        let changed = self.pins_dirty;
+        self.pins_dirty |= prev_dirty;
+        changed
     }
 
     fn yield_behind(&mut self, now: u64) {
@@ -1510,6 +1532,31 @@ impl QemuComp {
             self.pending_guest_raw = None;
             self.last_mailbox_read_addr = None;
             self.deferred_poll = None;
+            self.esp32_gpio.state = 0;
+            self.esp32_gpio.enable = 0;
+            for u in &mut self.usarts {
+                u.reset();
+            }
+            for s in &mut self.spis {
+                s.reset();
+            }
+            for t in &mut self.twis {
+                t.reset();
+            }
+            for (idx, pin) in self.pins.iter_mut().enumerate() {
+                if idx != i {
+                    pin.set_pin_mode(PinMode::Input);
+                    pin.set_out_state(false);
+                }
+            }
+            if self.family == QemuFamily::Esp32
+                && let Some(u) = self.usarts.first_mut()
+            {
+                let tx = u.tx;
+                u.module.enable_tx(true, &mut self.pins, tx);
+                u.module.enable_rx(true);
+            }
+            self.pins_dirty = true;
             if let Err(e) = self.start_live() {
                 crate::logging::log_sim_err(format!("[QEMU] {e}"));
                 self.last_error = Some(e);
@@ -2110,6 +2157,7 @@ impl QemuComp {
             if let Some(idx) = self.esp32_gpio.pad[i] {
                 if new_enable & mask != 0 {
                     self.pins[idx].set_pin_mode(PinMode::Output);
+                    self.pins[idx].set_out_state(self.esp32_gpio.state & mask != 0);
                 } else {
                     self.pins[idx].set_pin_mode(PinMode::Input);
                 }
@@ -3303,5 +3351,204 @@ mod tests {
         };
         assert!(!q.deferred_poll_ready(dp3, dp3.max_until - 1));
         assert!(q.deferred_poll_ready(dp3, dp3.max_until));
+    }
+
+    #[test]
+    fn esp32_uart2_pins_stay_gpio_until_configured() {
+        let mut q = QemuComp::esp32("Esp32-uart2-gpio");
+        q.stamp_init(0);
+
+        let g17 = q.esp32_gpio.pad[17].expect("G17");
+        let g16 = q.esp32_gpio.pad[16].expect("G16");
+        let g01 = q.esp32_gpio.pad[1].expect("G01");
+
+        // UART0 TX is enabled for ROM boot, while UART1/UART2 leave their pads as GPIO.
+        assert_eq!(q.pins[g01].mode, PinMode::Output);
+        assert!(q.pins[g01].get_out_state());
+        assert_eq!(q.pins[g17].mode, PinMode::Input);
+        assert!(!q.pins[g17].get_out_state());
+        assert!(!q.usarts[2].module.is_tx_enabled());
+        assert!(!q.usarts[2].module.is_rx_enabled());
+
+        // Configuring G17 as GPIO output and writing LOW must drive LOW, not stay stuck HIGH.
+        q.post(
+            SimAction::Write,
+            ESP32_GPIO_START + GPIO_ENABLE_W1TS,
+            1 << 17,
+            1,
+        );
+        q.process_pending();
+        assert_eq!(q.pins[g17].mode, PinMode::Output);
+        assert!(!q.pins[g17].get_out_state());
+
+        q.post(
+            SimAction::Write,
+            ESP32_GPIO_START + GPIO_OUT_W1TC,
+            1 << 17,
+            2,
+        );
+        q.process_pending();
+        assert!(!q.pins[g17].get_out_state());
+
+        // Toggling G16 low as a GPIO must not trigger bogus UART2 RX start bits.
+        q.pins[g16].get_inp_state(3.3);
+        assert!(!q.on_input_pins_changed(10));
+        q.pins[g16].get_inp_state(0.0);
+        assert!(!q.on_input_pins_changed(20));
+
+        // Writing to UART2 registers lazily activates UART2 TX/RX.
+        q.post(SimAction::Write, ESP32_UART2_START, b'Z' as u64, 30);
+        q.process_pending();
+        assert!(q.usarts[2].module.is_tx_enabled());
+        assert!(q.usarts[2].module.is_rx_enabled());
+        assert_eq!(q.usarts[2].tx_fifo.len(), 1);
+    }
+
+    #[test]
+    fn live_gpio_enable_pulses_drive_hd44780_without_coalescing() {
+        use std::ptr;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        use crate::elements::{Comp, Kind};
+
+        let Some(stub) = qemu_stub_path() else {
+            return;
+        };
+
+        let mut c = Circuit::new();
+        c.add_qemu_esp32("Esp32-1")
+            .add_comp(Comp::hd44780("Lcd-1", 2, 16))
+            .add_ground("Gnd-1")
+            .connect("Lcd-1-PinRS", "Esp32-1-G19")
+            .connect("Lcd-1-PinEn", "Esp32-1-G18")
+            .connect("Lcd-1-PinRW", "Gnd-1-Gnd")
+            .connect("Lcd-1-dataPin4", "Esp32-1-G05")
+            .connect("Lcd-1-dataPin5", "Esp32-1-G17")
+            .connect("Lcd-1-dataPin6", "Esp32-1-G16")
+            .connect("Lcd-1-dataPin7", "Esp32-1-G04");
+        c.solve().unwrap();
+
+        let key = cs_qemu::shm_key(std::process::id(), "qhd44780");
+        {
+            let q = c.qemu_mut("Esp32-1").unwrap();
+            q.set_shm_key(key.clone());
+            let args = vec![format!("esp32-cs,cosim-shm={key}")];
+            q.start_live_with(&stub, &args, Duration::from_secs(2))
+                .expect("stub should start");
+        }
+
+        // Open the same shared arena from a worker thread acting like QEMU
+        // executing LiquidCrystal 4-bit initialization and writing "Hi!".
+        let guest_shm = SharedArena::open(&key).expect("open shm");
+        let guest = thread::spawn(move || {
+            let post_write = |addr: u64, data: u32, t_ps: u64| {
+                while guest_shm.load_simu_action() != 0 {
+                    thread::yield_now();
+                }
+                unsafe {
+                    let p = guest_shm.as_ref() as *const Arena as *mut Arena;
+                    (*p).reg_addr = addr;
+                    (*p).reg_data = u64::from(data);
+                    (*p).qemu_time = t_ps;
+                    (*p).simu_time = t_ps;
+                    (&*ptr::addr_of!((*p).simu_action).cast::<AtomicU64>())
+                        .store(SimAction::Write as u64, Ordering::Release);
+                }
+            };
+
+            let rs_bit = 1u32 << 19;
+            let en_bit = 1u32 << 18;
+            let data_bits = |nibble: u8| -> u32 {
+                let mut m = 0u32;
+                if nibble & 1 != 0 {
+                    m |= 1 << 5;
+                }
+                if nibble & 2 != 0 {
+                    m |= 1 << 17;
+                }
+                if nibble & 4 != 0 {
+                    m |= 1 << 16;
+                }
+                if nibble & 8 != 0 {
+                    m |= 1 << 4;
+                }
+                m
+            };
+            let all_pins = rs_bit | en_bit | (1 << 5) | (1 << 17) | (1 << 16) | (1 << 4);
+            let mut t = 1_000_000u64;
+            post_write(ESP32_GPIO_START + GPIO_ENABLE_W1TS, all_pins, t);
+
+            let mut pulse_nibble = |rs: bool, nibble: u8| {
+                let mut out = data_bits(nibble);
+                if rs {
+                    out |= rs_bit;
+                }
+                t += 1_000_000;
+                post_write(ESP32_GPIO_START + GPIO_OUT, out, t);
+                // 1 us Enable pulse (far shorter than GUEST_AHEAD_PS = 50 us)
+                t += 1_000_000;
+                post_write(ESP32_GPIO_START + GPIO_OUT_W1TS, en_bit, t);
+                t += 1_000_000;
+                post_write(ESP32_GPIO_START + GPIO_OUT_W1TC, en_bit, t);
+            };
+            let send_byte = |rs: bool, byte: u8, pulse: &mut dyn FnMut(bool, u8)| {
+                pulse(rs, (byte >> 4) & 0x0F);
+                pulse(rs, byte & 0x0F);
+            };
+
+            // Standard HD44780 4-bit init sequence
+            pulse_nibble(false, 0x03);
+            pulse_nibble(false, 0x03);
+            pulse_nibble(false, 0x03);
+            pulse_nibble(false, 0x02);
+            send_byte(false, 0x28, &mut pulse_nibble); // 4-bit, 2 lines
+            send_byte(false, 0x0C, &mut pulse_nibble); // display on
+            send_byte(false, 0x01, &mut pulse_nibble); // clear
+            send_byte(false, 0x06, &mut pulse_nibble); // entry mode
+            for &ch in b"Hi!" {
+                send_byte(true, ch, &mut pulse_nibble);
+            }
+            while guest_shm.load_simu_action() != 0 {
+                thread::yield_now();
+            }
+        });
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(3) {
+            c.run_ps_budgeted(16_666_666_667, Some(Duration::from_millis(12)))
+                .unwrap();
+            let done = c.components().iter().any(|comp| {
+                if let Kind::Hd44780(h) = &comp.kind {
+                    h.disp_on && h.lines()[0].starts_with("Hi!")
+                } else {
+                    false
+                }
+            });
+            if done {
+                break;
+            }
+        }
+
+        guest.join().expect("guest thread finished");
+        if let Some(q) = c.qemu_mut("Esp32-1") {
+            q.stop_live();
+        }
+
+        let lcd = c
+            .components()
+            .iter()
+            .find_map(|comp| match &comp.kind {
+                Kind::Hd44780(h) => Some(h),
+                _ => None,
+            })
+            .expect("Lcd-1");
+        assert!(lcd.disp_on, "HD44780 display should be turned on");
+        assert_eq!(lcd.data_length, 4);
+        assert_eq!(lcd.line_length, 40);
+        assert!(
+            lcd.lines()[0].starts_with("Hi!"),
+            "expected 'Hi!' on LCD row 0, got {:?}",
+            lcd.lines()
+        );
     }
 }

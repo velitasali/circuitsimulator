@@ -48,6 +48,8 @@ pub struct GpioPin {
     pub pullup: bool,
     pub open_coll: bool,
     pub inp_state: bool,
+    /// Latest sampled analog voltage (V) on this pin for ADC / analog peripherals.
+    pub inp_volt: f64,
     pub out_mask: bool,
     pub inp_mask_inactive: bool,
     /// C++ `McuPin::m_outCtrl`: a peripheral is driving the pin.
@@ -77,6 +79,7 @@ impl GpioPin {
             pullup: false,
             open_coll: false,
             inp_state: false,
+            inp_volt: 0.0,
             out_mask: false,
             inp_mask_inactive: true,
             out_ctrl: false,

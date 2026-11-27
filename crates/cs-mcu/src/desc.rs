@@ -200,6 +200,68 @@ pub struct TwiSpec {
     pub config: ConfigSpec,
 }
 
+/// C++ `<adc>` (`McuCreator::createAdc`).
+#[derive(Clone, Debug, Default)]
+pub struct AdcSpec {
+    pub name: String,
+    pub type_id: i32,
+    pub bits: u8,
+    pub config: ConfigSpec,
+    pub data_regs: Vec<String>,
+    pub multiplex: String,
+    pub interrupt: String,
+    pub prescalers: String,
+    pub adc_pins: Vec<String>,
+    pub vref_pins: Vec<String>,
+}
+
+/// C++ `<rom>` (`McuCreator::createRom`): on-chip EEPROM SFR controller.
+#[derive(Clone, Debug, Default)]
+pub struct RomSpec {
+    pub name: String,
+    pub config: ConfigSpec,
+    pub data_reg: String,
+    pub addr_regs: Vec<String>,
+    pub interrupt: String,
+}
+
+/// C++ `<wdt>` (`McuCreator::createWdt`): watchdog timer.
+#[derive(Clone, Debug, Default)]
+pub struct WdtSpec {
+    pub name: String,
+    pub type_id: i32,
+    pub config: ConfigSpec,
+    pub interrupt: String,
+    pub prescalers: String,
+}
+
+/// C++ `<comp>` (`McuCreator::createComp`): analog comparator.
+#[derive(Clone, Debug, Default)]
+pub struct CompSpec {
+    pub name: String,
+    pub type_id: i32,
+    pub config: ConfigSpec,
+    pub interrupt: String,
+    pub pins: Vec<String>,
+}
+
+/// C++ `<sleep>` (`McuCreator::createSleep`): sleep mode controller.
+#[derive(Clone, Debug, Default)]
+pub struct SleepSpec {
+    pub name: String,
+    pub config: ConfigSpec,
+}
+
+/// C++ `<intosc>` (`McuCreator::createIntOsc`): internal oscillator / CLKOUT.
+#[derive(Clone, Debug, Default)]
+pub struct IntOscSpec {
+    pub name: String,
+    pub type_id: i32,
+    pub config: ConfigSpec,
+    pub clock_pins: Vec<String>,
+    pub clock_out_pin: Option<String>,
+}
+
 impl StackSpec {
     pub fn pre(&self) -> bool {
         self.increment.contains("pre")
@@ -238,6 +300,12 @@ pub struct McuDesc {
     pub usarts: Vec<UsartSpec>,
     pub spis: Vec<SpiSpec>,
     pub twis: Vec<TwiSpec>,
+    pub adcs: Vec<AdcSpec>,
+    pub roms: Vec<RomSpec>,
+    pub wdts: Vec<WdtSpec>,
+    pub comps: Vec<CompSpec>,
+    pub sleeps: Vec<SleepSpec>,
+    pub intoscs: Vec<IntOscSpec>,
     /// C++ `<mcu script="…">` next to the `.mcu` file (scripted cores).
     pub script: Option<String>,
 }
@@ -271,6 +339,12 @@ impl McuDesc {
             usarts: Vec::new(),
             spis: Vec::new(),
             twis: Vec::new(),
+            adcs: Vec::new(),
+            roms: Vec::new(),
+            wdts: Vec::new(),
+            comps: Vec::new(),
+            sleeps: Vec::new(),
+            intoscs: Vec::new(),
             script: None,
         }
     }

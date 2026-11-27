@@ -163,6 +163,9 @@ impl CpuHost {
                 | Watch::TwiStatus(_)
                 | Watch::TwiDataWrite(_)
                 | Watch::TwiAddr(_)
+                | Watch::SpiConfig(_)
+                | Watch::SpiDataWrite(_)
+                | Watch::WdtConfig(_)
         );
         if mutates_periph {
             self.flush_peripherals();
@@ -379,9 +382,100 @@ impl CpuHost {
                     t.write_addr_reg(val);
                 }
             }
+            Watch::SpiConfig(i) => {
+                if write {
+                    if let Some(s) = self.spis.get_mut(i) {
+                        s.configure(&self.data, &mut self.ports, self.ps_inst);
+                    }
+                }
+            }
+            Watch::SpiStatusRead(i) => {
+                if !write {
+                    if let Some(s) = self.spis.get_mut(i) {
+                        s.read_status(&self.data);
+                    }
+                }
+            }
+            Watch::SpiDataWrite(i) => {
+                if write {
+                    if let Some(s) = self.spis.get_mut(i) {
+                        s.write_data(val, &mut self.data, &mut self.ports);
+                    }
+                }
+            }
+            Watch::SpiDataRead(i) => {
+                if !write {
+                    if let Some(s) = self.spis.get_mut(i) {
+                        if s.enabled {
+                            let rx = s.read_data(&mut self.data);
+                            self.data.reg_override = Some(rx);
+                        }
+                    }
+                }
+            }
             Watch::AdcConfig => {
                 if write {
-                    complete_adc_conversion(&mut self.data, val);
+                    if self.adcs.is_empty() {
+                        complete_adc_conversion(&mut self.data, val);
+                    } else {
+                        for adc in &self.adcs {
+                            adc.convert(
+                                val,
+                                &mut self.data,
+                                &self.ports,
+                                &mut self.interrupts,
+                                self.vdd,
+                            );
+                        }
+                    }
+                }
+            }
+            Watch::RomCtrl(i) => {
+                if write {
+                    if let Some(r) = self.roms.get_mut(i) {
+                        r.write_ctrl(val, &mut self.data, &mut self.eeprom, &mut self.interrupts);
+                    }
+                }
+            }
+            Watch::RomUnlock(i) => {
+                if write {
+                    if let Some(r) = self.roms.get_mut(i) {
+                        r.write_unlock(val);
+                    }
+                }
+            }
+            Watch::WdtConfig(i) => {
+                if write {
+                    if let Some(w) = self.wdts.get_mut(i) {
+                        w.configure(val, &mut self.data);
+                    }
+                }
+            }
+            Watch::CompConfig(i) => {
+                if write {
+                    if let Some(c) = self.comps.get_mut(i) {
+                        c.evaluate(&mut self.data, &self.ports, &mut self.interrupts);
+                    }
+                }
+            }
+            Watch::SleepConfig => {
+                let _ = val;
+            }
+            Watch::IntOscConfig => {
+                if write && self.intosc_ircf.mask != 0 {
+                    // PIC16F88 / PIC16F88x OSCCON IRCF2:0 internal oscillator frequencies (Hz)
+                    const PIC_IRCF_HZ: [f64; 8] = [
+                        31_250.0,
+                        125_000.0,
+                        250_000.0,
+                        500_000.0,
+                        1_000_000.0,
+                        2_000_000.0,
+                        4_000_000.0,
+                        8_000_000.0,
+                    ];
+                    let idx = usize::from(self.intosc_ircf.val(val)) & 7;
+                    self.pending_freq_hz = Some(PIC_IRCF_HZ[idx]);
                 }
             }
         }
@@ -399,7 +493,7 @@ fn complete_adc_conversion(data: &mut crate::dataspace::DataSpace, val: u8) {
         return;
     }
     let adif = data.get_reg_bits("ADIF");
-    let mut v = val & !adsc.mask;
+    let mut v = data.reg_override.take().unwrap_or(val) & !adsc.mask;
     if adif.mask != 0 {
         v |= adif.mask;
     }

@@ -10,16 +10,21 @@ mod tests;
 pub use host::CpuHost;
 pub use step::{BatchDebugMode, BatchStop};
 
+use crate::adc::Adc;
 use crate::ccp::CcpUnit;
+use crate::comp::Comparator;
 use crate::cpu::{Avr, I51, Mcs65, Pic12, Pic14, Z80};
-use crate::dataspace::Watch;
+use crate::dataspace::{RegBits, Watch};
 use crate::desc::{CoreKind, McuDesc};
+use crate::eeprom::EepromCtrl;
 use crate::hex::load_hex;
 use crate::interrupts::{IntCallback, Interrupts};
-use crate::port::Port;
+use crate::port::{self, Port};
+use crate::spi::Spi;
 use crate::timer::Timer;
 use crate::twi::Twi;
 use crate::usart::Usart;
+use crate::wdt::Wdt;
 use crate::{Error, Result};
 use registers::watch_config;
 
@@ -58,7 +63,6 @@ pub struct Device {
     pub vdd: f64,
     pub word_size: u8,
     pub(crate) bank_from_status: bool,
-    pub(crate) eeprom: Vec<u8>,
     /// SPI module names from the `.mcu` description (C++ `m_transModules` SPI entries).
     pub(crate) spi_module_names: Vec<String>,
     /// Remaining ps until the next `runStep` (C++ `eMcu` event).
@@ -420,8 +424,33 @@ impl Device {
             }
             usarts.push(u);
         }
-        if data.reg_exist("ADCSRA") {
-            data.watch_reg_write("ADCSRA", Watch::AdcConfig);
+        let mut adcs = Vec::new();
+        if matches!(desc.core, CoreKind::Avr | CoreKind::Pic12 | CoreKind::Pic14) {
+            for spec in &desc.adcs {
+                let adc = Adc::from_spec(spec, &data, &ports, desc.core, &interrupts);
+                let mut watched = false;
+                if !spec.config.regs_a.is_empty() {
+                    for reg in spec.config.regs_a.split(',') {
+                        let name = reg.trim();
+                        if !name.is_empty() && data.reg_exist(name) {
+                            data.watch_reg_write_after(name, Watch::AdcConfig);
+                            watched = true;
+                        }
+                    }
+                }
+                let fallback = if desc.core == CoreKind::Avr {
+                    "ADCSRA"
+                } else {
+                    "ADCON0"
+                };
+                if !watched && data.reg_exist(fallback) {
+                    data.watch_reg_write_after(fallback, Watch::AdcConfig);
+                }
+                adcs.push(adc);
+            }
+        }
+        if adcs.is_empty() && data.reg_exist("ADCSRA") {
+            data.watch_reg_write_after("ADCSRA", Watch::AdcConfig);
         }
         for (ui, u) in usarts.iter().enumerate() {
             let _ = u;
@@ -458,6 +487,114 @@ impl Device {
                 data.watch_reg_write(&spec.status_reg, Watch::TwiStatus(idx));
             }
             twis.push(t);
+        }
+
+        let mut spis = Vec::new();
+        for spec in &desc.spis {
+            let idx = spis.len();
+            let s = Spi::from_spec(spec, &data, desc.core, &interrupts);
+            watch_config(
+                &mut data,
+                &spec.config,
+                Watch::SpiConfig(idx),
+                Watch::SpiConfig(idx),
+                Watch::SpiConfig(idx),
+            );
+            if !spec.status_reg.is_empty() {
+                data.watch_reg_write(&spec.status_reg, Watch::SpiConfig(idx));
+                data.watch_reg_read(&spec.status_reg, Watch::SpiStatusRead(idx));
+            }
+            if !spec.data_reg.is_empty() {
+                data.watch_reg_write(&spec.data_reg, Watch::SpiDataWrite(idx));
+                data.watch_reg_read(&spec.data_reg, Watch::SpiDataRead(idx));
+            }
+            spis.push(s);
+        }
+
+        let mut roms = Vec::new();
+        for spec in &desc.roms {
+            let idx = roms.len();
+            let r = EepromCtrl::from_spec(spec, &data, desc.core, &interrupts);
+            watch_config(
+                &mut data,
+                &spec.config,
+                Watch::RomCtrl(idx),
+                Watch::RomUnlock(idx),
+                Watch::RomUnlock(idx),
+            );
+            roms.push(r);
+        }
+
+        let mut wdts = Vec::new();
+        for spec in &desc.wdts {
+            let idx = wdts.len();
+            let w = Wdt::from_spec(spec, &data, desc.core, &interrupts);
+            watch_config(
+                &mut data,
+                &spec.config,
+                Watch::WdtConfig(idx),
+                Watch::WdtConfig(idx),
+                Watch::WdtConfig(idx),
+            );
+            wdts.push(w);
+        }
+
+        let adc_pin_names: Vec<String> = desc
+            .adcs
+            .first()
+            .map(|a| a.adc_pins.clone())
+            .unwrap_or_default();
+        let mut comps = Vec::new();
+        for spec in &desc.comps {
+            let idx = comps.len();
+            let c =
+                Comparator::from_spec(spec, &data, &ports, &adc_pin_names, desc.core, &interrupts);
+            watch_config(
+                &mut data,
+                &spec.config,
+                Watch::CompConfig(idx),
+                Watch::CompConfig(idx),
+                Watch::CompConfig(idx),
+            );
+            comps.push(c);
+        }
+
+        let mut sleep_se = RegBits::default();
+        for spec in &desc.sleeps {
+            if !spec.config.regs_a.is_empty() {
+                watch_config(
+                    &mut data,
+                    &spec.config,
+                    Watch::SleepConfig,
+                    Watch::SleepConfig,
+                    Watch::SleepConfig,
+                );
+            }
+            let se = data.get_reg_bits("SE");
+            if se.mask != 0 {
+                sleep_se = se;
+            }
+        }
+
+        let mut intosc_ircf = RegBits::default();
+        let mut intosc_clkout_pin = None;
+        for spec in &desc.intoscs {
+            if !spec.config.regs_a.is_empty() {
+                watch_config(
+                    &mut data,
+                    &spec.config,
+                    Watch::IntOscConfig,
+                    Watch::IntOscConfig,
+                    Watch::IntOscConfig,
+                );
+            }
+            let ircf = data.get_reg_bits("IRCF0,IRCF1,IRCF2");
+            if ircf.mask != 0 {
+                intosc_ircf = ircf;
+            }
+            if intosc_clkout_pin.is_none() {
+                intosc_clkout_pin = spec.clock_out_pin.clone();
+            }
         }
 
         let (spl_addr, sph_addr, sp_pre, sp_inc) = if let Some(st) = &desc.stack {
@@ -534,6 +671,19 @@ impl Device {
                 ccps,
                 usarts,
                 twis,
+                spis,
+                adcs,
+                roms,
+                eeprom: vec![0xFF; desc.eeprom_size as usize],
+                wdts,
+                wdt_reset_pending: false,
+                comps,
+                sleep_se,
+                intosc_ircf,
+                intosc_clkout_pin,
+                clk_out_enabled: false,
+                pending_freq_hz: None,
+                vdd: 5.0,
                 freq_hz: 0.0,
                 ps_inst: 0,
                 ports_dirty: true,
@@ -552,7 +702,6 @@ impl Device {
             vdd: 5.0,
             word_size: desc.word_size.max(1),
             bank_from_status,
-            eeprom: vec![0xFF; desc.eeprom_size as usize],
             spi_module_names: desc.spis.iter().map(|s| s.name.clone()).collect(),
             cpu_remain: 0,
             bus_remain: None,
@@ -575,19 +724,36 @@ impl Device {
     }
 
     pub fn eeprom(&self) -> &[u8] {
-        &self.eeprom
+        &self.host.eeprom
     }
 
     pub fn set_eeprom(&mut self, addr: usize, v: u8) {
-        if let Some(slot) = self.eeprom.get_mut(addr) {
+        if let Some(slot) = self.host.eeprom.get_mut(addr) {
             *slot = v;
         }
     }
 
     pub fn replace_eeprom(&mut self, data: &[u8]) {
         for (i, v) in data.iter().enumerate() {
-            if let Some(slot) = self.eeprom.get_mut(i) {
+            if let Some(slot) = self.host.eeprom.get_mut(i) {
                 *slot = *v;
+            }
+        }
+    }
+
+    pub fn set_wdt_enabled(&mut self, enabled: bool) {
+        for w in &mut self.host.wdts {
+            w.set_forced_enabled(enabled);
+        }
+        self.host.periph_dirty = true;
+    }
+
+    pub fn set_clk_out(&mut self, enabled: bool) {
+        self.host.clk_out_enabled = enabled;
+        if let Some(pin) = self.host.intosc_clkout_pin.clone() {
+            port::control_gpio(&mut self.host.ports, &pin, enabled, enabled);
+            if enabled {
+                port::set_gpio_dir(&mut self.host.ports, &pin, true);
             }
         }
     }
@@ -654,6 +820,20 @@ impl Device {
         for u in &mut self.host.usarts {
             u.reset(&mut self.host.ports, &mut self.host.interrupts);
         }
+        for s in &mut self.host.spis {
+            s.reset(&mut self.host.ports);
+        }
+        for r in &mut self.host.roms {
+            r.reset();
+        }
+        for w in &mut self.host.wdts {
+            w.reset();
+        }
+        self.host.wdt_reset_pending = false;
+        self.host.pending_freq_hz = None;
+        for c in &mut self.host.comps {
+            c.reset();
+        }
         let fired = self.host.data.initialize();
         self.apply_init_watches(fired);
         for u in &mut self.host.usarts {
@@ -664,6 +844,9 @@ impl Device {
         }
         for twi in &mut self.host.twis {
             twi.update_freq(self.freq);
+        }
+        for s in &mut self.host.spis {
+            s.update_timing(self.ps_inst);
         }
         match &mut self.cpu {
             Cpu::None => {}

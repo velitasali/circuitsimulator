@@ -145,7 +145,10 @@ impl PartialEq for Mcu {
 impl Mcu {
     pub const TYPE_ID: &'static str = "Mcu";
     pub fn to_element_kind(&self) -> Kind {
-        Kind::Mcu(self.mcu.clone())
+        let mut comp = self.mcu.clone();
+        comp.device.set_wdt_enabled(self.wdt_enabled);
+        comp.device.set_clk_out(self.clk_out);
+        Kind::Mcu(comp)
     }
 
     fn get_device(&self) -> PropValue {

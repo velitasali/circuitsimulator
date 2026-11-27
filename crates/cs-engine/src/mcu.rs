@@ -504,7 +504,7 @@ impl McuComp {
             if let Some(&Some(node_idx)) = self.node_indices.get(i) {
                 if let Some(n) = nodes.get(node_idx) {
                     let high = p.get_inp_state(n.volt);
-                    self.device.set_gpio_input(i, high);
+                    self.device.set_gpio_input_volt(i, high, n.volt);
                 }
             }
         }
@@ -529,7 +529,7 @@ impl McuComp {
         for (i, p) in self.pins.iter_mut().enumerate() {
             if let Some(v) = v_of(&p.id) {
                 let high = p.get_inp_state(v);
-                self.device.set_gpio_input(i, high);
+                self.device.set_gpio_input_volt(i, high, v);
             }
         }
         if let Some(rst) = &mut self.reset_pin {

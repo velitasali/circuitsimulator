@@ -9,19 +9,24 @@
 //! Pin analog stamps stay in `cs-engine`; this crate reports GPIO direction
 //! and level so the host can drive `McuPin` / `IoPin`.
 
+mod adc;
 mod ccp;
+mod comp;
 mod cpu;
 mod dataspace;
 mod desc;
 mod device;
+mod eeprom;
 mod hex;
 mod icunit;
 mod interrupts;
 mod ocunit;
 mod port;
+mod spi;
 mod timer;
 pub mod twi;
 mod usart;
+mod wdt;
 mod xml;
 
 pub use cpu::{Rv32, Thumb};

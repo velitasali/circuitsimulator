@@ -1374,3 +1374,109 @@ fn avr_timer0_counter_reaches_255_before_overflow_and_reschedules_on_prescaler_c
         "TCNT0 on the cycle immediately preceding TOV0 must be 255"
     );
 }
+
+#[test]
+fn avr_sleep_gated_by_smcr_se_and_wakes_on_wdt_irq() {
+    let xml = r#"
+<mcu name="mega328sleep" core="AVR" data="512" prog="256" progword="2" inst_cycle="1" freq="16000000">
+  <regblock start="0x0000" end="0x00FF" streg="SREG">
+    <register name="SMCR" addr="0x0053" reset="" bits="SE,SM0,SM1,SM2,0,0,0,0"/>
+    <register name="SPL" addr="0x005D" reset=""/>
+    <register name="SPH" addr="0x005E" reset=""/>
+    <register name="SREG" addr="0x005F" reset="" bits="C,Z,N,V,S,H,T,I"/>
+    <register name="WDTCSR" addr="0x0060" reset="" bits="WDP0,WDP1,WDP2,WDE,WDCE,WDP3,WDIE,WDIF"/>
+  </regblock>
+  <interrupts enable="I">
+    <interrupt name="WDT" enable="WDIE" flag="WDIF" priority="20" vector="0x000C"/>
+  </interrupts>
+  <sleep name="SLEEP" configregsA="SMCR"/>
+  <wdt name="WDT00" configregsA="WDTCSR" interrupt="WDT"/>
+</mcu>
+"#;
+    let mut d = Device::from_xml("m", xml).unwrap();
+    // 0: SLEEP (0x9588), 1: SLEEP (0x9588), 2: NOP (0x0000), 0x0C: NOP
+    d.load_words(&[0x9588, 0x9588, 0x0000]);
+    d.start();
+
+    // With SMCR.SE = 0, SLEEP acts as NOP and CPU keeps running
+    d.step_cpu();
+    assert_eq!(d.state, McuState::Running);
+    assert_eq!(d.pc(), 1);
+
+    // Enable SMCR.SE = 1, global interrupts, and WDT 16 ms interrupt
+    d.poke_reg(0x0053, 0x01);
+    d.poke_reg(0x005F, 0x80);
+    d.poke_reg(0x0060, 0x18);
+    d.poke_reg(0x0060, 0x40);
+
+    // Executing SLEEP enters McuState::Sleeping
+    d.step_cpu();
+    assert_eq!(d.state, McuState::Sleeping);
+    assert_eq!(d.pc(), 2);
+
+    // Advancing wakes CPU on WDT interrupt vector 0x000C
+    let mut woke = false;
+    for _ in 0..10 {
+        d.advance();
+        if d.state == McuState::Running && d.pc() == 0x000C {
+            woke = true;
+            break;
+        }
+    }
+    assert!(
+        woke,
+        "WDT interrupt must wake sleeping MCU (state={:?} pc=0x{:x})",
+        d.state,
+        d.pc()
+    );
+}
+
+#[test]
+fn pic_intosc_osccon_updates_freq_and_avr_clkout_toggles() {
+    let pic_xml = r#"
+<mcu name="p16osc" core="Pic14" data="256" prog="256" progword="2" inst_cycle="4" freq="4000000">
+  <regblock start="0x0000" end="0x00FF" streg="STATUS">
+    <register name="STATUS" addr="0x0003" reset="00011000" bits="C,DC,Z,PD,TO,RP0|R0,RP1|R1,IRP"/>
+    <register name="OSCCON" addr="0x008F" reset="01101000" bits="SCS,LTS,HTS,OSTS,IRCF0,IRCF1,IRCF2,0"/>
+  </regblock>
+  <intosc name="intosc" type="00" configregsA="OSCCON"/>
+</mcu>
+"#;
+    let mut p = Device::from_xml("p", pic_xml).unwrap();
+    p.start();
+    // IRCF = 7 (bits 6:4 = 0b111 -> 0x70) selects 8 MHz
+    p.poke_reg(0x008F, 0x70);
+    p.step_cpu();
+    assert!((p.freq - 8_000_000.0).abs() < 1.0, "freq={}", p.freq);
+
+    let avr_xml = r#"
+<mcu name="m328clk" core="AVR" data="512" prog="256" progword="2" inst_cycle="1" freq="16000000">
+  <regblock start="0x0000" end="0x00FF" streg="SREG">
+    <register name="PINB" addr="0x0023" reset=""/>
+    <register name="DDRB" addr="0x0024" reset=""/>
+    <register name="PORTB" addr="0x0025" reset=""/>
+    <register name="SPL" addr="0x005D" reset=""/>
+    <register name="SPH" addr="0x005E" reset=""/>
+    <register name="SREG" addr="0x005F" reset="" bits="C,Z,N,V,S,H,T,I"/>
+  </regblock>
+  <port name="PORTB" pins="8" outreg="PORTB" inreg="PINB" dirreg="DDRB"/>
+  <intosc name="intosc" clockpins="PORTB6,PORTB7" clockoutpin="PORTB0"/>
+</mcu>
+"#;
+    let mut a = Device::from_xml("a", avr_xml).unwrap();
+    a.set_clk_out(true);
+    a.start();
+    let b0 = |dev: &Device| {
+        dev.gpio_pins()
+            .find(|pin| pin.name.ends_with("PORTB0"))
+            .unwrap()
+            .out_state
+    };
+    let s0 = b0(&a);
+    a.step_cpu();
+    let s1 = b0(&a);
+    a.step_cpu();
+    let s2 = b0(&a);
+    assert_ne!(s0, s1, "CLKOUT pin should toggle each instruction");
+    assert_eq!(s0, s2, "CLKOUT pin should toggle back on next instruction");
+}

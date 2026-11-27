@@ -9,8 +9,9 @@ use quick_xml::events::Event;
 
 use crate::dataspace::DataSpace;
 use crate::desc::{
-    CcpSpec, ConfigSpec, CoreKind, ExtIntSpec, IcUnitSpec, InterruptSpec, InterruptsSpec, McuDesc,
-    OcUnitSpec, PortIntSpec, SpiSpec, StackSpec, TimerSpec, TrUnitSpec, TwiSpec, UsartSpec,
+    AdcSpec, CcpSpec, CompSpec, ConfigSpec, CoreKind, ExtIntSpec, IcUnitSpec, IntOscSpec,
+    InterruptSpec, InterruptsSpec, McuDesc, OcUnitSpec, PortIntSpec, RomSpec, SleepSpec, SpiSpec,
+    StackSpec, TimerSpec, TrUnitSpec, TwiSpec, UsartSpec, WdtSpec,
 };
 use crate::port::PortSpec;
 use crate::{Error, Result};
@@ -116,6 +117,12 @@ fn build_desc(root: &Elem, base: Option<&Path>) -> Result<McuDesc> {
             "usart" => desc.usarts.push(parse_usart(child)),
             "spi" => desc.spis.push(parse_spi(child)),
             "twi" => desc.twis.push(parse_twi(child)),
+            "adc" => desc.adcs.push(parse_adc(child)),
+            "rom" => desc.roms.push(parse_rom(child)),
+            "wdt" => desc.wdts.push(parse_wdt(child)),
+            "comp" => desc.comps.push(parse_comp(child)),
+            "sleep" => desc.sleeps.push(parse_sleep(child)),
+            "intosc" => desc.intoscs.push(parse_intosc(child)),
             "msspunit" => {
                 for el in &child.children {
                     match el.name.as_str() {
@@ -442,6 +449,72 @@ fn parse_twi(e: &Elem) -> TwiSpec {
         interrupt: e.attr("interrupt").unwrap_or("").to_string(),
         prescalers: e.attr("prescalers").unwrap_or("").replace(' ', ""),
         config: parse_config(e),
+    }
+}
+
+fn parse_adc(e: &Elem) -> AdcSpec {
+    AdcSpec {
+        name: e.attr("name").unwrap_or("ADC").to_string(),
+        type_id: parse_uint_auto(e.attr("type").unwrap_or("0")) as i32,
+        bits: parse_uint_auto(e.attr("bits").unwrap_or("10")) as u8,
+        config: parse_config(e),
+        data_regs: split_csv(e.attr("dataregs").unwrap_or("")),
+        multiplex: e.attr("multiplex").unwrap_or("").to_string(),
+        interrupt: e.attr("interrupt").unwrap_or("").to_string(),
+        prescalers: e.attr("prescalers").unwrap_or("").replace(' ', ""),
+        adc_pins: split_csv(e.attr("adcpins").unwrap_or("")),
+        vref_pins: split_csv(e.attr("vrefpins").unwrap_or("")),
+    }
+}
+
+fn parse_rom(e: &Elem) -> RomSpec {
+    RomSpec {
+        name: e.attr("name").unwrap_or("ROM").to_string(),
+        config: parse_config(e),
+        data_reg: e.attr("dataregs").unwrap_or("").to_string(),
+        addr_regs: split_csv(e.attr("addressreg").unwrap_or("")),
+        interrupt: e.attr("interrupt").unwrap_or("").to_string(),
+    }
+}
+
+fn parse_wdt(e: &Elem) -> WdtSpec {
+    WdtSpec {
+        name: e.attr("name").unwrap_or("WDT").to_string(),
+        type_id: parse_uint_auto(e.attr("type").unwrap_or("0")) as i32,
+        config: parse_config(e),
+        interrupt: e.attr("interrupt").unwrap_or("").to_string(),
+        prescalers: e.attr("prescalers").unwrap_or("").replace(' ', ""),
+    }
+}
+
+fn parse_comp(e: &Elem) -> CompSpec {
+    CompSpec {
+        name: e.attr("name").unwrap_or("COMP").to_string(),
+        type_id: parse_uint_auto(e.attr("type").unwrap_or("0")) as i32,
+        config: parse_config(e),
+        interrupt: e.attr("interrupt").unwrap_or("").to_string(),
+        pins: split_csv(e.attr("pins").unwrap_or("")),
+    }
+}
+
+fn parse_sleep(e: &Elem) -> SleepSpec {
+    SleepSpec {
+        name: e.attr("name").unwrap_or("SLEEP").to_string(),
+        config: parse_config(e),
+    }
+}
+
+fn parse_intosc(e: &Elem) -> IntOscSpec {
+    IntOscSpec {
+        name: e.attr("name").unwrap_or("intosc").to_string(),
+        type_id: parse_uint_auto(e.attr("type").unwrap_or("0")) as i32,
+        config: parse_config(e),
+        clock_pins: split_csv(e.attr("clockpins").unwrap_or("")),
+        clock_out_pin: e
+            .attr("clockoutpin")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from),
     }
 }
 

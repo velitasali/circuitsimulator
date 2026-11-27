@@ -1,6 +1,7 @@
 //! Clock stepping, instruction execution, event scheduling, frequency timing, and interrupt handling.
 
 use super::{Cpu, Device, McuState};
+use crate::port;
 
 /// Optional debug break/step filter evaluated inside [`Device::advance_batch`]
 /// without locking any mutexes or resolving symbols per instruction.
@@ -76,6 +77,9 @@ impl Device {
         for twi in &mut self.host.twis {
             twi.update_freq(self.freq);
         }
+        for s in &mut self.host.spis {
+            s.update_timing(self.ps_inst);
+        }
         self.host.periph_dirty = true;
     }
 
@@ -104,6 +108,9 @@ impl Device {
 
     fn take_interrupt(&mut self, vector: u32) {
         self.is_spinning = false;
+        if self.state == McuState::Sleeping {
+            self.state = McuState::Running;
+        }
         let Device { cpu, host, .. } = self;
         match cpu {
             Cpu::None => {}
@@ -137,6 +144,18 @@ impl Device {
         }
         if self.host.periph_elapsed >= self.host.periph_next {
             self.host.flush_peripherals();
+            if self.host.wdt_reset_pending {
+                self.host.wdt_reset_pending = false;
+                self.reset();
+                self.start();
+                self.sched = self.next_remain().max(1);
+                return;
+            }
+        }
+        if self.state == McuState::Sleeping {
+            self.dispatch_interrupts();
+            self.sched = self.next_remain().max(1);
+            return;
         }
         let bus_due = self.bus_remain == Some(0);
         if bus_due {
@@ -169,7 +188,7 @@ impl Device {
         let max_step_ps = self.ps_tick.saturating_mul(4);
         loop {
             let prev_pc = self.host.pc;
-            if self.state == McuState::Running {
+            if matches!(self.state, McuState::Running | McuState::Sleeping) {
                 self.advance();
             }
             match debug {
@@ -242,7 +261,9 @@ impl Device {
                     }
                 }
             }
-            if self.state != McuState::Running || self.host.ports_dirty {
+            if !matches!(self.state, McuState::Running | McuState::Sleeping)
+                || self.host.ports_dirty
+            {
                 break;
             }
             let delta = self.next_event_ps();
@@ -265,7 +286,7 @@ impl Device {
     #[inline(always)]
     fn next_remain(&mut self) -> u64 {
         let periph = self.host.periph_remain();
-        let cpu = if self.is_spinning {
+        let cpu = if self.is_spinning || self.state == McuState::Sleeping {
             let horizon = periph.min(self.bus_remain.unwrap_or(u64::MAX));
             if horizon < u64::MAX {
                 horizon.max(self.ps_tick.max(1))
@@ -357,7 +378,19 @@ impl Device {
                 Cpu::Avr(_) | Cpu::I51(_) | Cpu::Mcs65(_) | Cpu::Z80(_) | Cpu::None => {}
             }
             if host.sleep {
-                *state = McuState::Sleeping;
+                let sleep_allowed = host.sleep_se.mask == 0
+                    || (host.data.get(host.sleep_se.reg_addr) & host.sleep_se.mask) != 0;
+                if sleep_allowed {
+                    *state = McuState::Sleeping;
+                }
+            }
+            if host.wdr {
+                for w in &mut host.wdts {
+                    w.kick();
+                }
+                if !host.wdts.is_empty() {
+                    host.periph_dirty = true;
+                }
             }
             if host.reti {
                 host.interrupts.ret_i();
@@ -366,9 +399,25 @@ impl Device {
                 host.interrupts.enable_global(en);
             }
             host.cycles_done = host.cycles_done.max(1);
+            for r in &mut host.roms {
+                r.step_cycles(host.cycles_done, &mut host.data);
+            }
+            for w in &mut host.wdts {
+                w.step_cycles(host.cycles_done, &mut host.data);
+            }
+            if host.clk_out_enabled {
+                if let Some(pin) = host.intosc_clkout_pin.clone() {
+                    let prev = port::gpio_out(&host.ports, &pin).unwrap_or(false);
+                    port::set_gpio_out(&mut host.ports, &pin, !prev);
+                    host.ports_dirty = true;
+                }
+            }
             let is_single_step = matches!(cpu, Cpu::Pic12(_) | Cpu::Pic14(_) | Cpu::Avr(_));
             is_single_step && host.pc == prev_pc && !host.sleep
         };
+        if let Some(f) = self.host.pending_freq_hz.take() {
+            self.force_freq(f);
+        }
         self.is_spinning = spinning;
     }
 

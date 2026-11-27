@@ -1,7 +1,7 @@
 //! GPIO port queries, pin state updates, and direction synchronization.
 
 use super::Device;
-use crate::port::Port;
+use crate::port::{self, Port};
 
 impl Device {
     pub fn ports(&self) -> &[Port] {
@@ -39,15 +39,35 @@ impl Device {
     }
 
     /// Direct index-based GPIO pin input (zero string lookups).
-    pub fn set_gpio_input(&mut self, mut pin_idx: usize, high: bool) {
-        self.is_spinning = false;
+    pub fn set_gpio_input(&mut self, pin_idx: usize, high: bool) {
+        let volt = if high { self.vdd } else { 0.0 };
+        self.set_gpio_input_volt(pin_idx, high, volt);
+    }
+
+    /// Direct index-based GPIO pin input with exact analog voltage for ADC sampling.
+    pub fn set_gpio_input_volt(&mut self, mut pin_idx: usize, high: bool, volt: f64) {
         for pi in 0..self.host.ports.len() {
             let port_len = self.host.ports[pi].pins.len();
             if pin_idx < port_len {
+                let old_volt = self.host.ports[pi].pins[pin_idx].inp_volt;
+                self.host.ports[pi].pins[pin_idx].inp_volt = volt;
+                if (old_volt - volt).abs() > 1e-4 {
+                    self.is_spinning = false;
+                    if !self.host.comps.is_empty() {
+                        for c in &mut self.host.comps {
+                            c.evaluate(
+                                &mut self.host.data,
+                                &self.host.ports,
+                                &mut self.host.interrupts,
+                            );
+                        }
+                    }
+                }
                 let old = self.host.ports[pi].pins[pin_idx].inp_state;
                 if old == high {
                     return;
                 }
+                self.is_spinning = false;
                 self.host.ports[pi].pins[pin_idx].inp_state = high;
                 let mask = self.host.ports[pi].pins[pin_idx].pin_mask;
                 let ext_int = self.host.ports[pi].pins[pin_idx].ext_int;
@@ -86,6 +106,13 @@ impl Device {
                 for u in &mut self.host.usarts {
                     u.rx_pin_changed(&self.host.ports);
                 }
+                for s in &mut self.host.spis {
+                    s.on_pins_changed(
+                        &mut self.host.ports,
+                        &mut self.host.data,
+                        &mut self.host.interrupts,
+                    );
+                }
                 self.host.periph_dirty = true;
                 if !self.host.ports_dirty && self.host.ports.iter().any(|p| p.dirty) {
                     self.host.ports_dirty = true;
@@ -93,6 +120,24 @@ impl Device {
                 return;
             }
             pin_idx -= port_len;
+        }
+    }
+
+    /// Sample an analog voltage onto a named GPIO pin (updates both voltage and logic level).
+    /// Accepts either the full pin ID (e.g. `"mega328-1-PORTC0"`) or short XML name (`"PORTC0"`).
+    pub fn set_pin_volt(&mut self, pin_name: &str, volt: f64) {
+        let high = volt > self.vdd * 0.5;
+        let mut flat_idx = 0usize;
+        for port in &self.host.ports {
+            if let Some(pos) = port.pins.iter().position(|pin| pin.name == pin_name) {
+                self.set_gpio_input_volt(flat_idx + pos, high, volt);
+                return;
+            }
+            flat_idx += port.pins.len();
+        }
+        if let Some((pi, idx)) = port::find_gpio(&self.host.ports, pin_name) {
+            let base: usize = self.host.ports[..pi].iter().map(|p| p.pins.len()).sum();
+            self.set_gpio_input_volt(base + idx, high, volt);
         }
     }
 
@@ -146,6 +191,13 @@ impl Device {
                 }
                 for u in &mut self.host.usarts {
                     u.rx_pin_changed(&self.host.ports);
+                }
+                for s in &mut self.host.spis {
+                    s.on_pins_changed(
+                        &mut self.host.ports,
+                        &mut self.host.data,
+                        &mut self.host.interrupts,
+                    );
                 }
                 self.host.periph_dirty = true;
                 if !self.host.ports_dirty && self.host.ports.iter().any(|p| p.dirty) {

@@ -75,6 +75,16 @@ pub enum Watch {
     TwiDataWrite(usize),
     TwiDataRead(usize),
     TwiAddr(usize),
+    SpiConfig(usize),
+    SpiStatusRead(usize),
+    SpiDataWrite(usize),
+    SpiDataRead(usize),
+    RomCtrl(usize),
+    RomUnlock(usize),
+    WdtConfig(usize),
+    CompConfig(usize),
+    SleepConfig,
+    IntOscConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -316,6 +326,18 @@ impl DataSpace {
     pub fn watch_reg_write(&mut self, name: &str, watch: Watch) {
         if let Some(addr) = self.reg_addr(name) {
             self.watch_write(addr, watch, 0xFF);
+        }
+    }
+
+    /// Append a write watcher after existing watchers on `name` (e.g. so `IntWriteFlag`
+    /// processes write-1-to-clear bits before `AdcConfig` starts a new conversion).
+    pub fn watch_reg_write_after(&mut self, name: &str, watch: Watch) {
+        if let Some(addr) = self.reg_addr(name) {
+            let idx = addr as usize;
+            if idx >= self.write_watch.len() {
+                self.write_watch.resize(idx + 1, Vec::new());
+            }
+            self.write_watch[idx].push(Watcher { watch, mask: 0xFF });
         }
     }
 

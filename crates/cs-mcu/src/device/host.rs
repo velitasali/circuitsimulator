@@ -1,12 +1,17 @@
 //! CPU host view: data space, flash, program counter, and stack operations.
 
+use crate::adc::Adc;
 use crate::ccp::CcpUnit;
-use crate::dataspace::DataSpace;
+use crate::comp::Comparator;
+use crate::dataspace::{DataSpace, RegBits};
+use crate::eeprom::EepromCtrl;
 use crate::interrupts::{IntCallback, Interrupts};
 use crate::port::Port;
+use crate::spi::Spi;
 use crate::timer::Timer;
 use crate::twi::Twi;
 use crate::usart::Usart;
+use crate::wdt::{Wdt, WdtAction};
 
 /// Mutable CPU view: data space, flash, PC, GPIO. Watchers run here.
 #[derive(Clone, Debug)]
@@ -36,6 +41,19 @@ pub struct CpuHost {
     pub ccps: Vec<CcpUnit>,
     pub usarts: Vec<Usart>,
     pub twis: Vec<Twi>,
+    pub spis: Vec<Spi>,
+    pub adcs: Vec<Adc>,
+    pub roms: Vec<EepromCtrl>,
+    pub eeprom: Vec<u8>,
+    pub wdts: Vec<Wdt>,
+    pub wdt_reset_pending: bool,
+    pub comps: Vec<Comparator>,
+    pub sleep_se: RegBits,
+    pub intosc_ircf: RegBits,
+    pub intosc_clkout_pin: Option<String>,
+    pub clk_out_enabled: bool,
+    pub pending_freq_hz: Option<f64>,
+    pub vdd: f64,
     pub freq_hz: f64,
     pub ps_inst: u64,
     pub ports_dirty: bool,
@@ -121,6 +139,16 @@ impl CpuHost {
                 n = n.min(r.max(1));
             }
         }
+        for spi in &self.spis {
+            if let Some(r) = spi.remain_ps {
+                n = n.min(r.max(1));
+            }
+        }
+        for wdt in &self.wdts {
+            if let Some(r) = wdt.remain_ps {
+                n = n.min(r.max(1));
+            }
+        }
         self.periph_next = n;
         self.periph_dirty = false;
     }
@@ -184,6 +212,25 @@ impl CpuHost {
                 )
             {
                 self.ports_dirty = true;
+            }
+        }
+        for spi in &mut self.spis {
+            if spi.remain_ps.is_some()
+                && spi.advance(
+                    elapsed,
+                    &mut self.data,
+                    &mut self.interrupts,
+                    &mut self.ports,
+                )
+            {
+                self.ports_dirty = true;
+            }
+        }
+        for wdt in &mut self.wdts {
+            if wdt.remain_ps.is_some()
+                && wdt.advance(elapsed, &mut self.data, &mut self.interrupts) == WdtAction::Reset
+            {
+                self.wdt_reset_pending = true;
             }
         }
         if !self.cbs_buf.is_empty() {

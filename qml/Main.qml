@@ -1239,6 +1239,15 @@ ApplicationWindow {
         onTriggered: EditorPanel.pollLsp()
     }
 
+    // Poll the open circuit file watcher so external edits or deletions are
+    // detected even while the simulation is stopped.
+    Timer {
+        interval: 320
+        running: CircuitCanvas.filePath.length > 0
+        repeat: true
+        onTriggered: CircuitCanvas.pollFileWatcher()
+    }
+
     Connections {
         target: EditorPanel
         function onRequestShowFind() { findWin.bringToFront() }
@@ -1711,6 +1720,40 @@ ApplicationWindow {
         onAccepted: EditorPanel.confirmCloseSave()
         onDiscarded: EditorPanel.confirmCloseDiscard()
         onCancelled: EditorPanel.confirmCloseCancel()
+    }
+
+    DiskPromptDialog {
+        id: circuitDiskPromptDialog
+        visible: CircuitCanvas.diskPromptVisible
+        targetPath: CircuitCanvas.diskPromptPath
+        isDeleted: CircuitCanvas.diskPromptKind === "deleted"
+        titleText: isDeleted
+            ? I18n.tr("Circuit Deleted on Disk")
+            : I18n.tr("Circuit Changed on Disk")
+        messageText: {
+            if (isDeleted)
+                return I18n.tr("This circuit file has been deleted or renamed on disk by another program.")
+            if (CircuitCanvas.diskPromptReason === "modified_and_running")
+                return I18n.tr("This circuit file has been modified on disk by another program, you have unsaved changes, and the simulation is running.")
+            if (CircuitCanvas.diskPromptReason === "running")
+                return I18n.tr("This circuit file has been modified on disk by another program, and the simulation is running.")
+            return I18n.tr("This circuit file has been modified on disk by another program, and you have unsaved changes.")
+        }
+        secondaryText: isDeleted ? I18n.tr("Keep in Editor") : I18n.tr("Reload")
+        primaryText: isDeleted ? I18n.tr("Close Circuit") : I18n.tr("Keep My Circuit")
+        onSecondaryTriggered: {
+            if (isDeleted)
+                CircuitCanvas.diskPromptKeep()
+            else
+                CircuitCanvas.diskPromptReload()
+        }
+        onPrimaryTriggered: {
+            if (isDeleted)
+                CircuitCanvas.diskPromptClose()
+            else
+                CircuitCanvas.diskPromptKeep()
+        }
+        onDismissed: CircuitCanvas.diskPromptKeep()
     }
 
     Connections {

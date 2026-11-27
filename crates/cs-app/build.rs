@@ -559,6 +559,7 @@ fn compile_resources() {
         "ShortcutDialog.qml",
         "TabSwitcherDialog.qml",
         "AppConfirmDialog.qml",
+        "DiskPromptDialog.qml",
         "AppListPopup.qml",
         "OverloadPanel.qml",
         "CanvasOverflowPanel.qml",

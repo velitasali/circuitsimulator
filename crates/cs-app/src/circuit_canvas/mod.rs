@@ -20,8 +20,9 @@ use crate::actions;
 use crate::path_util::strip_file_url;
 use cs_engine::backup;
 use cs_engine::canvas::{Canvas, Change, DirtySet, Palette};
-use cs_engine::editor;
+use cs_engine::editor::{self, FileWatcher, WatchEvent};
 use cs_engine::i18n;
+use cs_engine::logging;
 use cs_engine::settings;
 use cs_engine::units;
 use files::PendingReplace;
@@ -120,6 +121,12 @@ pub struct CircuitCanvas {
     pub(crate) last_warnings_crashed: bool,
     pub(crate) dpr: f64,
     pub(crate) unsaved_root_snapshot: Option<(String, bool)>,
+    pub(crate) file_watcher: FileWatcher,
+    pub(crate) watched_path: Option<String>,
+    pub(crate) disk_prompt_path: String,
+    pub(crate) disk_prompt_kind: String,
+    pub(crate) disk_prompt_reason: String,
+    pub(crate) disk_prompt_visible: bool,
 }
 
 impl Default for CircuitCanvas {
@@ -217,6 +224,12 @@ impl Default for CircuitCanvas {
             project_path: String::new(),
             initial_loaded: false,
             unsaved_root_snapshot: None,
+            file_watcher: FileWatcher::new(),
+            watched_path: None,
+            disk_prompt_path: String::new(),
+            disk_prompt_kind: String::new(),
+            disk_prompt_reason: String::new(),
+            disk_prompt_visible: false,
         };
         s.apply_palette();
         s
@@ -247,6 +260,7 @@ impl CircuitCanvas {
         self.unsaved_root_snapshot = None;
         let c = files::replace_with_new(&mut self.inner, &self.project_path);
         self.apply(c);
+        self.sync_watched_path();
         self.file_path_changed();
         self.circ_settings_changed();
         self.canvas_overflow_changed();
@@ -273,6 +287,7 @@ impl CircuitCanvas {
                 let prefix = cs_engine::i18n::tr("Loaded example:");
                 cs_engine::logging::log_sim(format!("{prefix} {}", ex.title));
                 self.apply(c);
+                self.sync_watched_path();
                 self.file_path_changed();
                 self.canvas_overflow_changed();
                 self.last_warnings_count = 0;
@@ -294,6 +309,7 @@ impl CircuitCanvas {
             Ok(c) => {
                 self.unsaved_root_snapshot = None;
                 self.apply(c);
+                self.sync_watched_path();
                 self.file_path_changed();
                 self.canvas_overflow_changed();
                 self.last_warnings_count = 0;
@@ -313,6 +329,7 @@ impl CircuitCanvas {
             Ok(Some(c)) => {
                 self.unsaved_root_snapshot = None;
                 self.apply(c);
+                self.sync_watched_path();
                 self.file_path_changed();
                 self.flush_sim_logs();
                 self.root_circuit_loaded();
@@ -320,6 +337,120 @@ impl CircuitCanvas {
             Ok(None) => {}
             Err(_) => {
                 self.flush_sim_logs();
+            }
+        }
+    }
+
+    fn clear_disk_prompt(&mut self) {
+        if self.disk_prompt_visible
+            || !self.disk_prompt_path.is_empty()
+            || !self.disk_prompt_kind.is_empty()
+            || !self.disk_prompt_reason.is_empty()
+        {
+            self.disk_prompt_visible = false;
+            self.disk_prompt_path.clear();
+            self.disk_prompt_kind.clear();
+            self.disk_prompt_reason.clear();
+            self.disk_prompt_changed();
+        }
+    }
+
+    fn sync_watched_path(&mut self) {
+        let current = self
+            .inner
+            .file_path()
+            .filter(|p| !p.is_empty())
+            .map(|p| p.to_string());
+        if self.watched_path != current
+            && let Some(old) = self.watched_path.take()
+        {
+            self.file_watcher.unwatch(&old);
+        }
+        self.clear_disk_prompt();
+        if let Some(path) = current {
+            self.file_watcher.watch(&path);
+            self.watched_path = Some(path);
+        }
+    }
+
+    fn reload_circuit_from_disk(&mut self, path: &str) {
+        match fs::read_to_string(path) {
+            Ok(src) => match self.inner.load_circ1(&src, Some(path.to_string())) {
+                Ok(c) => {
+                    backup::clear_circuit_for(path, &self.project_path);
+                    self.file_watcher.sync(path);
+                    self.clear_disk_prompt();
+                    self.apply(c);
+                    self.file_path_changed();
+                    self.circ_settings_changed();
+                    self.canvas_overflow_changed();
+                    self.last_warnings_count = 0;
+                    self.last_warnings_crashed = false;
+                    self.warnings_changed();
+                    self.subcircuits_changed();
+                    let reload_prefix = i18n::tr("Reloaded from disk:");
+                    logging::log_sim(format!("{reload_prefix} {path}"));
+                    self.flush_sim_logs();
+                }
+                Err(e) => {
+                    self.file_watcher.acknowledge(path);
+                    let err_prefix = i18n::tr("Error loading circuit:");
+                    logging::log_sim(format!("{err_prefix} {e}"));
+                    self.flush_sim_logs();
+                    self.sim_changed();
+                }
+            },
+            Err(e) => {
+                self.file_watcher.acknowledge(path);
+                let err_prefix = i18n::tr("Error reading circuit file:");
+                logging::log_sim(format!("{err_prefix} {e}"));
+                self.flush_sim_logs();
+            }
+        }
+    }
+
+    fn handle_watch_events(&mut self, events: Vec<WatchEvent>) {
+        if events.is_empty() {
+            return;
+        }
+        let Some(current_path) = self
+            .inner
+            .file_path()
+            .filter(|p| !p.is_empty())
+            .map(|p| p.to_string())
+        else {
+            return;
+        };
+        for event in events {
+            match event {
+                WatchEvent::Changed(path) if path == current_path => {
+                    let modified = self.inner.is_modified();
+                    let running = self.inner.sim_running();
+                    if !modified && !running {
+                        self.reload_circuit_from_disk(&path);
+                    } else if !self.disk_prompt_visible {
+                        self.disk_prompt_path = path;
+                        self.disk_prompt_kind = "changed".into();
+                        self.disk_prompt_reason = match (modified, running) {
+                            (true, true) => "modified_and_running".into(),
+                            (true, false) => "modified".into(),
+                            (false, true) => "running".into(),
+                            (false, false) => String::new(),
+                        };
+                        self.disk_prompt_visible = true;
+                        self.disk_prompt_changed();
+                    }
+                }
+                WatchEvent::Deleted(path) if path == current_path => {
+                    if !self.disk_prompt_visible {
+                        self.disk_prompt_path = path;
+                        self.disk_prompt_kind = "deleted".into();
+                        self.disk_prompt_reason.clear();
+                        self.disk_prompt_visible = true;
+                        self.disk_prompt_changed();
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -715,6 +846,26 @@ impl CircuitCanvas {
     qproperty!("animTick", Read = anim_tick, Notify = anim_changed);
     qproperty!("filePath", Read = file_path, Notify = file_path_changed);
     qproperty!("fileName", Read = file_name, Notify = file_path_changed);
+    qproperty!(
+        "diskPromptPath",
+        Read = disk_prompt_path,
+        Notify = disk_prompt_changed
+    );
+    qproperty!(
+        "diskPromptKind",
+        Read = disk_prompt_kind,
+        Notify = disk_prompt_changed
+    );
+    qproperty!(
+        "diskPromptReason",
+        Read = disk_prompt_reason,
+        Notify = disk_prompt_changed
+    );
+    qproperty!(
+        "diskPromptVisible",
+        Read = disk_prompt_visible,
+        Notify = disk_prompt_changed
+    );
     qproperty!(
         "suggestImagePath",
         Read = suggest_image_path,
@@ -1356,6 +1507,8 @@ impl CircuitCanvas {
     #[qsignal]
     fn file_path_changed(&mut self);
     #[qsignal]
+    fn disk_prompt_changed(&mut self);
+    #[qsignal]
     fn appearance_changed(&mut self);
     #[qsignal]
     fn show_scroll_changed(&mut self);
@@ -1700,6 +1853,7 @@ impl CircuitCanvas {
             let defaults = cs_engine::settings::get().to_circ();
             let c = self.inner.new_circuit_with(defaults);
             self.apply(c);
+            self.sync_watched_path();
             self.file_path_changed();
             self.circ_settings_changed();
             self.root_circuit_loaded();
@@ -1745,6 +1899,22 @@ impl CircuitCanvas {
 
     fn file_name(&self) -> String {
         self.inner.file_name()
+    }
+
+    fn disk_prompt_path(&self) -> String {
+        self.disk_prompt_path.clone()
+    }
+
+    fn disk_prompt_kind(&self) -> String {
+        self.disk_prompt_kind.clone()
+    }
+
+    fn disk_prompt_reason(&self) -> String {
+        self.disk_prompt_reason.clone()
+    }
+
+    fn disk_prompt_visible(&self) -> bool {
+        self.disk_prompt_visible
     }
 
     fn suggest_image_path(&self) -> String {
@@ -3559,6 +3729,7 @@ impl CircuitCanvas {
         match loaded {
             Ok(c) => {
                 self.apply(c);
+                self.sync_watched_path();
                 self.file_path_changed();
                 self.canvas_overflow_changed();
                 self.last_warnings_count = 0;
@@ -3584,6 +3755,7 @@ impl CircuitCanvas {
                 if was_unsaved {
                     self.unsaved_root_snapshot = None;
                 }
+                self.sync_watched_path();
                 self.flush_sim_logs();
                 self.file_path_changed();
                 self.history_changed();
@@ -3602,6 +3774,52 @@ impl CircuitCanvas {
     fn save(&mut self) {
         if let Some(path) = self.inner.file_path().map(|s| s.to_string()) {
             self.save_path(path);
+        }
+    }
+
+    #[qslot]
+    fn poll_file_watcher(&mut self) {
+        let events = self.file_watcher.poll();
+        self.handle_watch_events(events);
+    }
+
+    #[qslot]
+    fn disk_prompt_reload(&mut self) {
+        let path = self.disk_prompt_path.clone();
+        self.clear_disk_prompt();
+        if path.is_empty() {
+            return;
+        }
+        if self.inner.file_path() == Some(path.as_str()) {
+            self.reload_circuit_from_disk(&path);
+        }
+    }
+
+    #[qslot]
+    fn disk_prompt_keep(&mut self) {
+        let path = self.disk_prompt_path.clone();
+        let kind = self.disk_prompt_kind.clone();
+        self.clear_disk_prompt();
+        if path.is_empty() {
+            return;
+        }
+        self.file_watcher.acknowledge(&path);
+        if kind == "deleted" && self.inner.file_path() == Some(path.as_str()) {
+            self.inner.mark_modified();
+            self.persist_circuit_draft_now();
+            self.history_changed();
+        }
+    }
+
+    #[qslot]
+    fn disk_prompt_close(&mut self) {
+        let path = self.disk_prompt_path.clone();
+        self.clear_disk_prompt();
+        if path.is_empty() {
+            return;
+        }
+        if self.inner.file_path() == Some(path.as_str()) {
+            self.replace_with_new();
         }
     }
 
@@ -4749,6 +4967,174 @@ mod tests {
         );
         let empty = arr.iter().find(|d| d["label"] == "EmptyMCU").unwrap();
         assert_eq!(empty["firmwareSource"], "");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_disk_deleted_prompt_keep_marks_modified_and_save_rewatches() {
+        let dir = std::env::temp_dir().join("cs_test_disk_deleted_keep");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let circ_path = dir.join("keep_me.circ1");
+        let path_str = circ_path.to_string_lossy().into_owned();
+        fs::write(
+            &circ_path,
+            r#"<circuit version="1.0.0">
+  <item itemtype="Resistor" CircId="R1" Pos="50,100" Resistance="1000 Ω"/>
+</circuit>"#,
+        )
+        .unwrap();
+
+        let cc_holder = CircuitCanvas::default_with_attached_qobject();
+        let mut cc = cc_holder.borrow_mut();
+        cc.load_path_now(&path_str);
+        assert_eq!(cc.file_path(), path_str);
+        assert!(!cc.is_modified());
+        assert!(!cc.disk_prompt_visible());
+
+        fs::remove_file(&circ_path).unwrap();
+        cc.handle_watch_events(vec![WatchEvent::Deleted(path_str.clone())]);
+        assert!(cc.disk_prompt_visible());
+        assert_eq!(cc.disk_prompt_kind(), "deleted");
+        assert_eq!(cc.disk_prompt_path(), path_str);
+
+        cc.disk_prompt_keep();
+        assert!(!cc.disk_prompt_visible());
+        assert_eq!(cc.file_path(), path_str);
+        assert!(
+            cc.is_modified(),
+            "keeping a deleted circuit must mark it modified"
+        );
+
+        cc.save();
+        assert!(
+            circ_path.exists(),
+            "saving a kept deleted circuit should recreate it on disk"
+        );
+        assert!(!cc.is_modified());
+        assert_eq!(
+            cc.watched_path.as_deref().map(Path::new),
+            Some(circ_path.as_path())
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_disk_deleted_prompt_close_resets_to_new_circuit() {
+        let dir = std::env::temp_dir().join("cs_test_disk_deleted_close");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let circ_path = dir.join("close_me.circ1");
+        let path_str = circ_path.to_string_lossy().into_owned();
+        fs::write(
+            &circ_path,
+            r#"<circuit version="1.0.0">
+  <item itemtype="Resistor" CircId="R1" Pos="50,100" Resistance="1000 Ω"/>
+</circuit>"#,
+        )
+        .unwrap();
+
+        let cc_holder = CircuitCanvas::default_with_attached_qobject();
+        let mut cc = cc_holder.borrow_mut();
+        cc.load_path_now(&path_str);
+        assert_eq!(cc.items().as_array().unwrap().len(), 1);
+
+        fs::remove_file(&circ_path).unwrap();
+        cc.handle_watch_events(vec![WatchEvent::Deleted(path_str.clone())]);
+        assert!(cc.disk_prompt_visible());
+
+        cc.disk_prompt_close();
+        assert!(!cc.disk_prompt_visible());
+        assert!(cc.file_path().is_empty());
+        assert!(!cc.is_modified());
+        assert!(cc.watched_path.is_none());
+        assert_eq!(cc.items().as_array().unwrap().len(), 0);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_disk_changed_autoreloads_when_clean_and_prompts_when_modified() {
+        let dir = std::env::temp_dir().join("cs_test_disk_changed");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let circ_path = dir.join("changed.circ1");
+        let path_str = circ_path.to_string_lossy().into_owned();
+        let v1 = r#"<circuit version="1.0.0">
+  <item itemtype="Resistor" CircId="R1" Pos="50,100" Resistance="1000 Ω"/>
+</circuit>"#;
+        let v2 = r#"<circuit version="1.0.0">
+  <item itemtype="Resistor" CircId="R1" Pos="50,100" Resistance="1000 Ω"/>
+  <item itemtype="Resistor" CircId="R2" Pos="150,100" Resistance="2000 Ω"/>
+</circuit>"#;
+        fs::write(&circ_path, v1).unwrap();
+
+        let cc_holder = CircuitCanvas::default_with_attached_qobject();
+        let mut cc = cc_holder.borrow_mut();
+        cc.load_path_now(&path_str);
+        assert_eq!(cc.items().as_array().unwrap().len(), 1);
+
+        // External edit while clean and stopped -> silent auto-reload.
+        fs::write(&circ_path, v2).unwrap();
+        cc.handle_watch_events(vec![WatchEvent::Changed(path_str.clone())]);
+        assert!(!cc.disk_prompt_visible());
+        assert_eq!(cc.items().as_array().unwrap().len(), 2);
+        assert!(!cc.is_modified());
+
+        // External edit while modified -> prompt, then reload.
+        cc.inner.mark_modified();
+        assert!(cc.is_modified());
+        fs::write(&circ_path, v1).unwrap();
+        cc.handle_watch_events(vec![WatchEvent::Changed(path_str.clone())]);
+        assert!(cc.disk_prompt_visible());
+        assert_eq!(cc.disk_prompt_kind(), "changed");
+        assert_eq!(cc.disk_prompt_reason(), "modified");
+        assert_eq!(cc.items().as_array().unwrap().len(), 2);
+
+        cc.disk_prompt_reload();
+        assert!(!cc.disk_prompt_visible());
+        assert_eq!(cc.items().as_array().unwrap().len(), 1);
+        assert!(!cc.is_modified());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_poll_file_watcher_detects_real_deletion() {
+        let dir = std::env::temp_dir().join("cs_test_poll_real_delete");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let circ_path = dir.join("deleted_live.circ1");
+        let path_str = circ_path.to_string_lossy().into_owned();
+        fs::write(
+            &circ_path,
+            r#"<circuit version="1.0.0">
+  <item itemtype="Resistor" CircId="R1" Pos="50,100" Resistance="1000 Ω"/>
+</circuit>"#,
+        )
+        .unwrap();
+
+        let cc_holder = CircuitCanvas::default_with_attached_qobject();
+        let mut cc = cc_holder.borrow_mut();
+        cc.load_path_now(&path_str);
+        assert!(!cc.disk_prompt_visible());
+
+        fs::remove_file(&circ_path).unwrap();
+        for _ in 0..7 {
+            std::thread::sleep(Duration::from_millis(310));
+            cc.poll_file_watcher();
+            if cc.disk_prompt_visible() {
+                break;
+            }
+        }
+        assert!(
+            cc.disk_prompt_visible(),
+            "poll_file_watcher should open disk prompt after deleting the open circuit file"
+        );
+        assert_eq!(cc.disk_prompt_kind(), "deleted");
+        assert_eq!(cc.disk_prompt_path(), path_str);
 
         let _ = fs::remove_dir_all(&dir);
     }

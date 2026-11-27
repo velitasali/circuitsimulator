@@ -771,6 +771,12 @@ impl Canvas {
         self.saved_circ1 = self.scene.to_circ1();
     }
 
+    /// Force `is_modified()` to return `true` (e.g. when the backing file was
+    /// deleted on disk and the user chooses to keep the circuit open).
+    pub fn mark_modified(&mut self) {
+        self.saved_circ1.clear();
+    }
+
     pub fn is_idle(&self) -> bool {
         matches!(self.drag, Drag::None) && !self.scene.drawing()
     }

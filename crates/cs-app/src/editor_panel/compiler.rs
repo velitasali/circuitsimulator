@@ -295,24 +295,49 @@ impl EditorPanel {
     }
 
     pub fn compile_inner(&mut self, debug: bool, then_upload: bool, then_run: bool) {
+        let idx = usize::try_from(self.current).unwrap_or(usize::MAX);
+        self.compile_doc_inner(idx, debug, then_upload, then_run);
+    }
+
+    pub fn compile_doc_inner(
+        &mut self,
+        index: usize,
+        debug: bool,
+        then_upload: bool,
+        then_run: bool,
+    ) {
         if self.compiling {
             self.push_log(format!(
                 "     {}",
-                cs_engine::i18n::tr("Error: Compiler is already running")
+                i18n::tr("Error: Compiler is already running")
             ));
             return;
         }
-        if self.current_doc().is_some_and(|d| d.dirty) {
-            let path = self.current_path();
-            if path.is_empty() {
-                self.push_log(cs_engine::i18n::tr("Error: File not saved"));
-                self.request_save_as();
-                return;
+        let Some(doc) = self.docs.get(index) else {
+            self.request_compiler_log();
+            self.push_log("-------------------------------------------------------".to_string());
+            self.push_log("     Error: No open document to compile");
+            return;
+        };
+        if doc.path.is_empty() {
+            if self.current != index as i32 {
+                self.set_current_document(index as i32);
             }
-            self.write_current(&path);
+            self.push_log(i18n::tr("Error: File not saved"));
+            self.request_save_as();
+            return;
+        }
+        let doc_path = doc.path.clone();
+        let (any_saved, saved_current) = self.save_dirty_docs_for_target(Some(index), &doc_path);
+        if any_saved {
+            self.documents_changed();
+            if saved_current {
+                self.sync_lsp_open();
+            }
         }
         self.request_compiler_log();
         self.push_log("-------------------------------------------------------".to_string());
+        let d = &self.docs[index];
         let (
             src_path,
             mut compiler_name,
@@ -326,31 +351,20 @@ impl EditorPanel {
             incl_path,
             tool_path,
             breakpoints,
-        ) = if let Some(d) = self.current_doc() {
-            (
-                d.path.clone(),
-                d.compiler.clone(),
-                d.board.clone(),
-                d.custom_board.clone(),
-                d.raw_board.clone(),
-                d.raw_custom_board.clone(),
-                d.device.clone(),
-                d.family.clone(),
-                d.extra_args.clone(),
-                d.incl_path.clone(),
-                d.tool_path.clone(),
-                d.breakpoints.clone(),
-            )
-        } else {
-            self.push_log("     Error: No open document to compile");
-            return;
-        };
-
-        if src_path.is_empty() {
-            self.push_log("     Error: File not saved");
-            self.request_save_as();
-            return;
-        }
+        ) = (
+            d.path.clone(),
+            d.compiler.clone(),
+            d.board.clone(),
+            d.custom_board.clone(),
+            d.raw_board.clone(),
+            d.raw_custom_board.clone(),
+            d.device.clone(),
+            d.family.clone(),
+            d.extra_args.clone(),
+            d.incl_path.clone(),
+            d.tool_path.clone(),
+            d.breakpoints.clone(),
+        );
 
         if compiler_name.is_empty() || compiler_name == "None" {
             let lower = src_path.to_ascii_lowercase();
@@ -369,7 +383,7 @@ impl EditorPanel {
             board
         };
         let tool_path = if tool_path.is_empty() && is_arduino {
-            cs_engine::editor::arduino::tool_path_candidates()
+            arduino::tool_path_candidates()
                 .first()
                 .cloned()
                 .unwrap_or_default()
@@ -377,7 +391,7 @@ impl EditorPanel {
             tool_path
         };
 
-        if let Some(d) = self.current_doc_mut() {
+        if let Some(d) = self.docs.get_mut(index) {
             let mut changed = false;
             if d.compiler.is_empty() || d.compiler == "None" {
                 d.compiler = compiler_name.clone();
@@ -393,7 +407,9 @@ impl EditorPanel {
             }
             if changed {
                 self.documents_changed();
-                self.file_settings_changed();
+                if self.current == index as i32 {
+                    self.file_settings_changed();
+                }
             }
         }
 

@@ -255,6 +255,7 @@ Item {
                 }
                 return out
             }
+            readonly property bool showCompile: targetHasCompiler
             readonly property bool showLoadFirmware: targetHasCompiler && activeDevice !== null
             readonly property bool showSetupFirmware: !targetHasCompiler && targetHasSettings
             readonly property bool showFileActions: targetInProject || targetPath.length > 0
@@ -295,6 +296,20 @@ Item {
                         docTabs.currentIndex = tabContextMenu.targetIndex
                         EditorPanel.fileProps()
                     }
+                }
+            }
+
+            ContextMenuItem {
+                visible: tabContextMenu.showCompile
+                enabled: !EditorPanel.compiling
+                text: I18n.tr("Compile")
+                iconLigature: "build"
+                shortcutText: tabContextMenu.targetIndex === EditorPanel.currentDocument
+                              ? UiUtils.shortcutFor("sim.compile")
+                              : ""
+                onTriggered: {
+                    if (tabContextMenu.targetIndex >= 0)
+                        EditorPanel.compileDoc(tabContextMenu.targetIndex)
                 }
             }
 
@@ -343,7 +358,7 @@ Item {
             }
 
             ContextMenuSeparator {
-                visible: tabContextMenu.showLoadFirmware || tabContextMenu.showSetupFirmware
+                visible: tabContextMenu.showCompile || tabContextMenu.showLoadFirmware || tabContextMenu.showSetupFirmware
             }
 
             ContextMenuItem {

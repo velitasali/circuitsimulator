@@ -2815,6 +2815,14 @@ impl EditorPanel {
     }
 
     #[qslot]
+    fn compile_doc(&mut self, index: i32) {
+        if index < 0 {
+            return;
+        }
+        self.compile_doc_inner(index as usize, false, false, false);
+    }
+
+    #[qslot]
     fn upload(&mut self) {
         self.compile_inner(false, true, false);
     }
@@ -4381,5 +4389,73 @@ mod tests {
         assert_eq!(panel.highlight_start_line(), 350);
         assert!(panel.highlight_html().contains("marker_400"));
         assert!(!panel.highlight_html().contains("marker_1\n"));
+    }
+
+    #[test]
+    fn compile_doc_compiles_inactive_tab_without_switching_or_uploading() {
+        let dir = std::env::temp_dir().join("cs_test_compile_doc_inactive_tab");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let active_path = dir.join("notes.txt");
+        let fw_path = dir.join("blink.ino");
+        let hdr_path = dir.join("pins.h");
+        fs::write(&active_path, "notes").unwrap();
+        fs::write(&fw_path, "void setup() {}\nvoid loop() {}\n").unwrap();
+        fs::write(&hdr_path, "#define LED 13\n").unwrap();
+
+        let active_str = active_path.to_string_lossy().into_owned();
+        let fw_str = fw_path.to_string_lossy().into_owned();
+        let hdr_str = hdr_path.to_string_lossy().into_owned();
+
+        let panel = EditorPanel::default_with_attached_qobject();
+        let mut panel = panel.borrow_mut();
+
+        let d0 = doc_with_path(1, "notes.txt", &active_str);
+        let mut d1 = doc_with_path(2, "blink.ino", &fw_str);
+        d1.text = "void setup() {}\nvoid loop() { /* updated */ }\n".to_string();
+        d1.dirty = true;
+        d1.compiler = "AScript".to_string();
+        let mut d2 = doc_with_path(3, "pins.h", &hdr_str);
+        d2.text = "#define LED 12\n".to_string();
+        d2.dirty = true;
+        let mut d3 = Document::untitled(4, "untitled".to_string());
+        d3.compiler = "Arduino".to_string();
+
+        panel.docs.push(d0);
+        panel.docs.push(d1);
+        panel.docs.push(d2);
+        panel.docs.push(d3);
+        panel.current = 0;
+
+        // Compiling an unsaved inactive tab switches to it and does not spawn a compile job.
+        panel.compile_doc(3);
+        assert_eq!(panel.current, 3);
+        assert!(!panel.compiling);
+        assert!(panel.compile_job.is_none());
+
+        // Compiling a saved inactive tab saves it + sibling, keeps current tab, and spawns compile-only job.
+        panel.current = 0;
+        panel.compile_doc(1);
+        assert_eq!(panel.current, 0);
+        assert!(!panel.docs[1].dirty);
+        assert!(!panel.docs[2].dirty);
+        assert_eq!(
+            fs::read_to_string(&fw_path).unwrap(),
+            "void setup() {}\nvoid loop() { /* updated */ }\n"
+        );
+        assert_eq!(fs::read_to_string(&hdr_path).unwrap(), "#define LED 12\n");
+        assert!(panel.compiling);
+        assert_eq!(panel.compile_file, "blink.ino");
+        let job = panel
+            .compile_job
+            .as_ref()
+            .expect("expected compile job for inactive tab");
+        assert_eq!(job.src_path, fw_str);
+        assert!(!job.debug);
+        assert!(!job.then_upload);
+        assert!(!job.then_run);
+
+        panel.cancel_compile();
+        let _ = fs::remove_dir_all(&dir);
     }
 }

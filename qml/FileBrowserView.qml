@@ -1440,262 +1440,244 @@ Item {
         }
     }
 
-    Rectangle {
-        id: browserCard
+    ColumnLayout {
         anchors.fill: parent
-        radius: 10
-        color: appTheme.base
-        border.color: appTheme.mid
-        border.width: 1
-        clip: true
+        spacing: 4
 
-        Item {
-            id: emptyState
-            anchors.fill: parent
-            visible: !FileBrowser.hasProject
-
-            ColumnLayout {
-                anchors.centerIn: parent
-                width: Math.min( parent.width - 40, 260 )
-                spacing: 12
-
-                AppText {
-                    text: I18n.tr( "Open a project folder to load the file explorer." )
-                    wrapMode: Text.WordWrap
-                    horizontalAlignment: Text.AlignHCenter
-                    color: appTheme.windowText
-                    Layout.fillWidth: true
-                }
-                AppButton {
-                    text: I18n.tr( "Open Folder" )
-                    Layout.alignment: Qt.AlignHCenter
-                    onClicked: root.openFolderDialog()
-                }
-            }
-        }
-
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 1
-            spacing: 0
+        RowLayout {
+            id: toolbar
             visible: FileBrowser.hasProject
+            Layout.fillWidth: true
+            Layout.leftMargin: 2
+            Layout.rightMargin: 2
+            spacing: 1
 
             Rectangle {
-                id: headerBar
+                id: projectHeaderBtn
+                readonly property int naturalWidth: Math.ceil( projectNameLabel.implicitWidth ) + 26
                 Layout.fillWidth: true
-                Layout.preferredHeight: 30
-                topLeftRadius: 9
-                topRightRadius: 9
-                color: appTheme.window
+                Layout.preferredWidth: naturalWidth
+                Layout.maximumWidth: naturalWidth
+                Layout.minimumWidth: Math.min( naturalWidth, 40 )
+                Layout.preferredHeight: 22
+                Layout.alignment: Qt.AlignVCenter
+                radius: 6
+                color: ( projectBtnMouse.pressed || projectMenu.opened )
+                       ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.18 )
+                       : projectBtnMouse.containsMouse
+                           ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.10 )
+                           : "transparent"
+
+                Behavior on color { ColorAnimation { duration: 90 } }
 
                 RowLayout {
-                    id: toolbar
                     anchors.fill: parent
-                    anchors.leftMargin: 4
-                    anchors.rightMargin: 4
-                    anchors.bottomMargin: 1
-                    spacing: 1
+                    anchors.leftMargin: 6
+                    anchors.rightMargin: 2
+                    spacing: 2
 
-                    Rectangle {
-                        id: projectHeaderBtn
-                        readonly property int naturalWidth: Math.ceil( projectNameLabel.implicitWidth ) + 26
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: naturalWidth
-                        Layout.maximumWidth: naturalWidth
-                        Layout.minimumWidth: Math.min( naturalWidth, 40 )
-                        Layout.preferredHeight: 22
-                        Layout.alignment: Qt.AlignVCenter
-                        radius: 6
-                        color: ( projectBtnMouse.pressed || projectMenu.opened )
-                               ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.18 )
-                               : projectBtnMouse.containsMouse
-                                   ? Qt.rgba( appTheme.windowText.r, appTheme.windowText.g, appTheme.windowText.b, 0.10 )
-                                   : "transparent"
-
-                        Behavior on color { ColorAnimation { duration: 90 } }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 6
-                            anchors.rightMargin: 2
-                            spacing: 2
-
-                            AppText {
-                                id: projectNameLabel
-                                text: root.projectName
-                                font.bold: true
-                                font.pixelSize: App.fontSmall
-                                color: appTheme.windowText
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 0
-                            }
-
-                            AppIcon {
-                                icon: "arrow_drop_down"
-                                size: 16
-                                color: appTheme.windowText
-                                opacity: 0.65
-                                Layout.alignment: Qt.AlignVCenter
-                            }
-                        }
-
-                        MouseArea {
-                            id: projectBtnMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if ( projectMenu.opened ) {
-                                    projectMenu.close()
-                                    return
-                                }
-                                projectMenu.recentItems = FileBrowser.recentProjectItems() || []
-                                projectMenu.x = 0
-                                projectMenu.y = projectHeaderBtn.height + 4
-                                projectMenu.open()
-                            }
-                        }
-
-                        ToolTip.text: FileBrowser.rootPath
-                        ToolTip.visible: projectBtnMouse.containsMouse && !projectMenu.opened
-                        ToolTip.delay: 600
-
-                        AppContextMenu {
-                            id: projectMenu
-                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
-                            property var recentItems: []
-
-                            Instantiator {
-                                model: projectMenu.recentItems
-                                delegate: ContextMenuItem {
-                                    id: recentProjItem
-                                    required property var modelData
-                                    text: recentProjItem.modelData.name || ""
-                                    iconLigature: recentProjItem.modelData.current ? "check" : "folder"
-                                    onTriggered: {
-                                        if ( !recentProjItem.modelData.current && recentProjItem.modelData.path ) {
-                                            FileBrowser.rootPath = String( recentProjItem.modelData.path )
-                                        }
-                                    }
-                                }
-                                onObjectAdded: ( index, object ) => {
-                                    const item = object as ContextMenuItem
-                                    if ( item ) projectMenu.insertItem( index, item )
-                                }
-                                onObjectRemoved: ( _, object ) => {
-                                    const item = object as ContextMenuItem
-                                    if ( item ) projectMenu.removeItem( item )
-                                }
-                            }
-
-                            ContextMenuSeparator {
-                                visible: projectMenu.recentItems.length > 0
-                            }
-                            ContextMenuItem {
-                                text: I18n.tr( "Open Project Folder..." )
-                                iconLigature: "folder_open"
-                                onTriggered: root.openFolderDialog()
-                            }
-                            ContextMenuItem {
-                                text: I18n.tr( "Show Hidden" )
-                                checkable: true
-                                checked: FileBrowser.showHidden
-                                onTriggered: FileBrowser.showHidden = checked
-                                Binding on checked { value: FileBrowser.showHidden }
-                            }
-                            ContextMenuSeparator {}
-                            ContextMenuItem {
-                                text: I18n.tr( "Close Project" )
-                                iconLigature: "folder_off"
-                                onTriggered: FileBrowser.closeProject()
-                            }
-                        }
-                    }
-
-                    Item {
+                    AppText {
+                        id: projectNameLabel
+                        text: root.projectName
+                        font.bold: true
+                        font.pixelSize: App.fontSmall
+                        color: appTheme.windowText
+                        elide: Text.ElideRight
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
-                        Layout.preferredWidth: 0
                     }
 
-                    AppToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
-                        padding: 0
+                    AppIcon {
+                        icon: "arrow_drop_down"
+                        size: 16
+                        color: appTheme.windowText
+                        opacity: 0.65
                         Layout.alignment: Qt.AlignVCenter
-                        contentItem: AppIcon { icon: "note_add"; size: 16; color: appTheme.windowText }
-                        ToolTip.text: I18n.tr( "New File" )
-                        ToolTip.visible: hovered
-                        onClicked: root.openCreateFileDialog()
-                    }
-                    AppToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
-                        padding: 0
-                        Layout.alignment: Qt.AlignVCenter
-                        contentItem: AppIcon { icon: "create_new_folder"; size: 16; color: appTheme.windowText }
-                        ToolTip.text: I18n.tr( "New Folder" )
-                        ToolTip.visible: hovered
-                        onClicked: root.openCreateFolderDialog()
-                    }
-
-                    Rectangle {
-                        Layout.alignment: Qt.AlignVCenter
-                        Layout.leftMargin: 2
-                        Layout.rightMargin: 2
-                        implicitWidth: 1
-                        implicitHeight: 12
-                        color: appTheme.mid
-                        opacity: 0.45
-                    }
-
-                    AppToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
-                        padding: 0
-                        Layout.alignment: Qt.AlignVCenter
-                        contentItem: AppIcon { icon: "refresh"; size: 16; color: appTheme.windowText }
-                        ToolTip.text: I18n.tr( "Refresh" )
-                        ToolTip.visible: hovered
-                        onClicked: FileBrowser.reload()
-                    }
-                    AppToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
-                        padding: 0
-                        Layout.alignment: Qt.AlignVCenter
-                        contentItem: AppIcon { icon: "expand_more"; size: 16; color: appTheme.windowText }
-                        ToolTip.text: I18n.tr( "Expand All" )
-                        ToolTip.visible: hovered
-                        onClicked: FileBrowser.expandAll()
-                    }
-                    AppToolButton {
-                        implicitWidth: 22
-                        implicitHeight: 22
-                        padding: 0
-                        Layout.alignment: Qt.AlignVCenter
-                        contentItem: AppIcon { icon: "expand_less"; size: 16; color: appTheme.windowText }
-                        ToolTip.text: I18n.tr( "Collapse All" )
-                        ToolTip.visible: hovered
-                        onClicked: FileBrowser.collapseAll()
                     }
                 }
 
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: 1
-                    color: appTheme.mid
-                    opacity: 0.6
+                MouseArea {
+                    id: projectBtnMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if ( projectMenu.opened ) {
+                            projectMenu.close()
+                            return
+                        }
+                        projectMenu.recentItems = FileBrowser.recentProjectItems() || []
+                        projectMenu.x = 0
+                        projectMenu.y = projectHeaderBtn.height + 4
+                        projectMenu.open()
+                    }
+                }
+
+                ToolTip.text: FileBrowser.rootPath
+                ToolTip.visible: projectBtnMouse.containsMouse && !projectMenu.opened
+                ToolTip.delay: 600
+
+                AppContextMenu {
+                    id: projectMenu
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+                    property var recentItems: []
+
+                    Instantiator {
+                        model: projectMenu.recentItems
+                        delegate: ContextMenuItem {
+                            id: recentProjItem
+                            required property var modelData
+                            text: recentProjItem.modelData.name || ""
+                            iconLigature: recentProjItem.modelData.current ? "check" : "folder"
+                            onTriggered: {
+                                if ( !recentProjItem.modelData.current && recentProjItem.modelData.path ) {
+                                    FileBrowser.rootPath = String( recentProjItem.modelData.path )
+                                }
+                            }
+                        }
+                        onObjectAdded: ( index, object ) => {
+                            const item = object as ContextMenuItem
+                            if ( item ) projectMenu.insertItem( index, item )
+                        }
+                        onObjectRemoved: ( _, object ) => {
+                            const item = object as ContextMenuItem
+                            if ( item ) projectMenu.removeItem( item )
+                        }
+                    }
+
+                    ContextMenuSeparator {
+                        visible: projectMenu.recentItems.length > 0
+                    }
+                    ContextMenuItem {
+                        text: I18n.tr( "Open Project Folder..." )
+                        iconLigature: "folder_open"
+                        onTriggered: root.openFolderDialog()
+                    }
+                    ContextMenuItem {
+                        text: I18n.tr( "Show Hidden" )
+                        checkable: true
+                        checked: FileBrowser.showHidden
+                        onTriggered: FileBrowser.showHidden = checked
+                        Binding on checked { value: FileBrowser.showHidden }
+                    }
+                    ContextMenuSeparator {}
+                    ContextMenuItem {
+                        text: I18n.tr( "Close Project" )
+                        iconLigature: "folder_off"
+                        onTriggered: FileBrowser.closeProject()
+                    }
                 }
             }
 
             Item {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
+                Layout.minimumWidth: 0
+                Layout.preferredWidth: 0
+            }
+
+            AppToolButton {
+                implicitWidth: 22
+                implicitHeight: 22
+                padding: 0
+                Layout.alignment: Qt.AlignVCenter
+                contentItem: AppIcon { icon: "note_add"; size: 16; color: appTheme.windowText }
+                ToolTip.text: I18n.tr( "New File" )
+                ToolTip.visible: hovered
+                onClicked: root.openCreateFileDialog()
+            }
+            AppToolButton {
+                implicitWidth: 22
+                implicitHeight: 22
+                padding: 0
+                Layout.alignment: Qt.AlignVCenter
+                contentItem: AppIcon { icon: "create_new_folder"; size: 16; color: appTheme.windowText }
+                ToolTip.text: I18n.tr( "New Folder" )
+                ToolTip.visible: hovered
+                onClicked: root.openCreateFolderDialog()
+            }
+
+            Rectangle {
+                Layout.alignment: Qt.AlignVCenter
+                Layout.leftMargin: 2
+                Layout.rightMargin: 2
+                implicitWidth: 1
+                implicitHeight: 12
+                color: appTheme.mid
+                opacity: 0.45
+            }
+
+            AppToolButton {
+                implicitWidth: 22
+                implicitHeight: 22
+                padding: 0
+                Layout.alignment: Qt.AlignVCenter
+                contentItem: AppIcon { icon: "refresh"; size: 16; color: appTheme.windowText }
+                ToolTip.text: I18n.tr( "Refresh" )
+                ToolTip.visible: hovered
+                onClicked: FileBrowser.reload()
+            }
+            AppToolButton {
+                implicitWidth: 22
+                implicitHeight: 22
+                padding: 0
+                Layout.alignment: Qt.AlignVCenter
+                contentItem: AppIcon { icon: "expand_more"; size: 16; color: appTheme.windowText }
+                ToolTip.text: I18n.tr( "Expand All" )
+                ToolTip.visible: hovered
+                onClicked: FileBrowser.expandAll()
+            }
+            AppToolButton {
+                implicitWidth: 22
+                implicitHeight: 22
+                padding: 0
+                Layout.alignment: Qt.AlignVCenter
+                contentItem: AppIcon { icon: "expand_less"; size: 16; color: appTheme.windowText }
+                ToolTip.text: I18n.tr( "Collapse All" )
+                ToolTip.visible: hovered
+                onClicked: FileBrowser.collapseAll()
+            }
+        }
+
+        Rectangle {
+            id: browserCard
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            radius: 10
+            color: appTheme.base
+            border.color: appTheme.mid
+            border.width: 1
+            clip: true
+
+            Item {
+                id: emptyState
+                anchors.fill: parent
+                visible: !FileBrowser.hasProject
+
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: Math.min( parent.width - 40, 260 )
+                    spacing: 12
+
+                    AppText {
+                        text: I18n.tr( "Open a project folder to load the file explorer." )
+                        wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
+                        color: appTheme.windowText
+                        Layout.fillWidth: true
+                    }
+                    AppButton {
+                        text: I18n.tr( "Open Folder" )
+                        Layout.alignment: Qt.AlignHCenter
+                        onClicked: root.openFolderDialog()
+                    }
+                }
+            }
+
+            Item {
+                anchors.fill: parent
+                anchors.margins: 1
                 clip: true
+                visible: FileBrowser.hasProject
 
                 MouseArea {
                     anchors.fill: parent

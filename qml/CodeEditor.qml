@@ -210,6 +210,27 @@ Item {
         EditorPanel.hideHover()
     }
 
+    function _hideHoverIfOutside(): void {
+        var overEditor = Boolean(root.activePane && root.activePane.editorHovered)
+        if (!hoverTooltipHover.hovered && !overEditor && !gutterMouseArea.containsMouse) {
+            root.hideHover()
+        }
+    }
+
+    function _hideGutterHoverIfOutside(): void {
+        if (!hoverTooltipHover.hovered && !gutterMouseArea.containsMouse) {
+            root.hideHover()
+        }
+    }
+
+    function scheduleHideHoverIfOutside(): void {
+        Qt.callLater(root._hideHoverIfOutside)
+    }
+
+    function scheduleHideGutterHoverIfOutside(): void {
+        Qt.callLater(root._hideGutterHoverIfOutside)
+    }
+
     function applyCompletion(edit: var): void {
         var a = root.activeArea
         var p = root.activePane
@@ -266,6 +287,7 @@ Item {
         target: root.hostWindow
         function onActiveChanged(): void {
             if (root.hostWindow && !root.hostWindow.active) {
+                root.hideHover()
                 EditorPanel.hideCompletion()
             }
         }
@@ -465,6 +487,7 @@ Item {
                         root.hoverTargetX = gutter.width + 4
                         root.hoverTargetY = root.activeTopPadding + (targetLine - 1) * root.lineHeight - gutterFlick.contentY
                         root.hoverTargetHeight = root.lineHeight
+                        hoverFlick.contentY = 0
                         EditorPanel.showGutterHover(targetLine)
                     } else {
                         root.hideHover()
@@ -474,6 +497,7 @@ Item {
         }
 
         MouseArea {
+            id: gutterMouseArea
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             hoverEnabled: true
@@ -503,7 +527,9 @@ Item {
             }
             onExited: {
                 root.hoveredGutterLine = -1
-                root.hideHover()
+                gutterHoverTimer.stop()
+                gutterHoverTimer.targetLine = -1
+                root.scheduleHideGutterHoverIfOutside()
             }
         }
     }
@@ -529,10 +555,12 @@ Item {
             hoverTooltipVisible: hoverTooltip.visible
             hoverTooltipRect: Qt.rect(hoverTooltip.x, hoverTooltip.y, hoverTooltip.width, hoverTooltip.height)
             onHideHoverRequested: root.hideHover()
+            onEditorExited: root.scheduleHideHoverIfOutside()
             onHoverTargetRequested: (tx, ty, th, pos) => {
                 root.hoverTargetX = tx
                 root.hoverTargetY = ty
                 root.hoverTargetHeight = th
+                hoverFlick.contentY = 0
                 EditorPanel.showHover(pos)
             }
             onContextMenuRequested: editorMenu.popup()
@@ -681,25 +709,57 @@ Item {
         id: hoverTooltip
         z: 1000
         visible: EditorPanel.hoverHtml.length > 0 && !EditorPanel.completionVisible
+        onVisibleChanged: {
+            if (!visible)
+                hoverFlick.contentY = 0
+        }
 
         readonly property int padX: 10
         readonly property int padY: 8
+        readonly property int edgeMargin: 8
+        readonly property int targetGap: 4
         readonly property int maxTooltipWidth: Math.min(520, Math.max(160, root.width - gutter.width - 20))
+        readonly property real naturalWidth: hoverText.implicitWidth + 2 * padX + 2
+        readonly property real naturalHeight: hoverText.implicitHeight + 2 * padY + 2
+        readonly property real belowY: root.effectiveHoverY + root.effectiveHoverHeight + targetGap
+        readonly property real spaceBelow: Math.max(0, root.height - edgeMargin - belowY)
+        readonly property real spaceAbove: Math.max(0, root.effectiveHoverY - targetGap - edgeMargin)
+        readonly property bool placeAbove: {
+            if (naturalHeight <= spaceBelow)
+                return false
+            if (naturalHeight <= spaceAbove)
+                return true
+            return spaceAbove > spaceBelow
+        }
+        readonly property real availableHeight: Math.max(
+            40,
+            Math.min(Math.max(40, root.height - 2 * edgeMargin), Math.floor(placeAbove ? spaceAbove : spaceBelow))
+        )
 
         x: Math.max(gutter.width + 4, Math.min(root.width - width - 10, root.effectiveHoverX))
         y: {
-            var below = root.effectiveHoverY + root.effectiveHoverHeight + 4
-            if (below + height > root.height - 10) {
-                var above = root.effectiveHoverY - height - 4
-                return Math.max(0, above)
+            if (placeAbove) {
+                return Math.max(edgeMargin, root.effectiveHoverY - targetGap - height)
             }
-            return Math.max(0, below)
+            return Math.max(edgeMargin, Math.min(root.height - edgeMargin - height, belowY))
         }
 
-        implicitWidth: hoverText.implicitWidth + 2 * padX + 2
-        implicitHeight: hoverText.implicitHeight + 2 * padY + 2
+        implicitWidth: naturalWidth
+        implicitHeight: naturalHeight
         width: Math.min(implicitWidth, maxTooltipWidth)
-        height: implicitHeight
+        height: Math.min(implicitHeight, availableHeight)
+
+        // RichText QQuickText accepts hover events internally; tracking hover on
+        // the tooltip lets editorMouseArea ignore synthetic exits when the
+        // tooltip appears under or receives the pointer.
+        HoverHandler {
+            id: hoverTooltipHover
+            enabled: hoverTooltip.visible
+            onHoveredChanged: {
+                if (!hovered)
+                    root.scheduleHideHoverIfOutside()
+            }
+        }
 
         Rectangle {
             anchors.fill: parent
@@ -710,16 +770,31 @@ Item {
             radius: 10
         }
 
-        AppText {
-            id: hoverText
+        Flickable {
+            id: hoverFlick
             x: hoverTooltip.padX
             y: hoverTooltip.padY
-            width: Math.min(implicitWidth, hoverTooltip.maxTooltipWidth - 2 * hoverTooltip.padX - 2)
-            text: EditorPanel.hoverHtml
-            textFormat: Text.RichText
-            color: appTheme.text
-            font: root.editorFont
-            wrapMode: Text.Wrap
+            width: Math.max(0, hoverTooltip.width - 2 * hoverTooltip.padX)
+            height: Math.max(0, hoverTooltip.height - 2 * hoverTooltip.padY)
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            contentWidth: width
+            contentHeight: hoverText.implicitHeight
+            interactive: contentHeight > height
+
+            ScrollBar.vertical: AppScrollBar {
+                policy: ScrollBar.AsNeeded
+            }
+
+            AppText {
+                id: hoverText
+                width: Math.min(implicitWidth, hoverTooltip.maxTooltipWidth - 2 * hoverTooltip.padX - 2)
+                text: EditorPanel.hoverHtml
+                textFormat: Text.RichText
+                color: appTheme.text
+                font: root.editorFont
+                wrapMode: Text.Wrap
+            }
         }
     }
 

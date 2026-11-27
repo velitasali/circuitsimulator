@@ -33,8 +33,10 @@ Item {
 
     readonly property alias flick: flick
     readonly property alias area: area
+    readonly property bool editorHovered: editorMouseArea.containsMouse
 
     signal hideHoverRequested()
+    signal editorExited()
     signal hoverTargetRequested(real targetX, real targetY, real targetHeight, int pos)
     signal contextMenuRequested()
     signal completionAccepted(var edit)
@@ -470,7 +472,8 @@ Item {
                     lastMouseY = -1
                     hoverLink = false
                     EditorPanel.clearHoverLink()
-                    hideHoverState()
+                    pane.stopHover()
+                    pane.editorExited()
                 }
             }
 

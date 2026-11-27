@@ -18,6 +18,7 @@ Item {
 
     readonly property bool dark: App.darkTheme
     readonly property real dpr: Screen.devicePixelRatio
+    readonly property real horizontalScrollBarHeight: hBar.visible ? hBar.height : 0
 
     function rgba(hex: string): vector4d {
         var h = ("" + hex).replace("#", "")
@@ -1187,60 +1188,6 @@ Item {
     Keys.onReleased: (ev) => {
         CircuitCanvas.handleKeyRelease(ev.key, ev.modifiers, ev.text, ev.isAutoRepeat)
         ev.accepted = true
-    }
-
-    Rectangle {
-        visible: CircuitCanvas.linkingFrom.length > 0 || CircuitCanvas.boardLayoutPkg.length > 0
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: hBar.visible ? hBar.height + 10 : 10
-        z: 40
-        radius: 6
-        height: linkBannerRow.implicitHeight + 10
-        width: linkBannerRow.implicitWidth + 20
-        color: appTheme.window
-        border.color: CircuitCanvas.linkingExposed
-            ? CircuitCanvas.exposedHighlightColor
-            : CircuitCanvas.linkHighlightColor
-        border.width: 1.5
-
-        Row {
-            id: linkBannerRow
-            anchors.centerIn: parent
-            spacing: 10
-
-            Rectangle {
-                anchors.verticalCenter: parent.verticalCenter
-                width: 8
-                height: 8
-                radius: 4
-                color: CircuitCanvas.linkingExposed
-                    ? CircuitCanvas.exposedHighlightColor
-                    : CircuitCanvas.linkHighlightColor
-            }
-
-            AppText {
-                anchors.verticalCenter: parent.verticalCenter
-                color: appTheme.windowText
-                text: CircuitCanvas.boardLayoutPkg.length > 0
-                    ? I18n.tr("Board Layout — drag components onto the package face (R to rotate), press Esc or Done to finish")
-                    : (CircuitCanvas.linkingExposed
-                        ? I18n.tr("Select Exposed Components — click components to toggle, click empty space or Esc to finish")
-                        : I18n.tr("Link to Component") + " (" + CircuitCanvas.linkingFrom + ") — "
-                            + I18n.tr("click components to toggle, click empty space or Esc to finish"))
-            }
-
-            AppButton {
-                anchors.verticalCenter: parent.verticalCenter
-                text: I18n.tr("Done")
-                onClicked: {
-                    if (CircuitCanvas.boardLayoutPkg.length > 0)
-                        CircuitCanvas.exitBoardLayout()
-                    else
-                        CircuitCanvas.stopLinking()
-                }
-            }
-        }
     }
 
     Rectangle {

@@ -283,6 +283,7 @@ pub struct OverlaySnapshot {
     pub top_min: i32,
     pub bottom_max: i32,
     pub available_area: IRect,
+    pub dock_area: IRect,
     pub fit_area: IRect,
     pub toolbar: IRect,
     pub toolbar_z: i32,
@@ -633,6 +634,31 @@ impl Overlays {
         self.info_h = h;
         self.relayout();
         true
+    }
+
+    /// Horizontal X coordinate that centers an overlay of `width` in the
+    /// available canvas area, matching the overlay toolbar's default position.
+    pub fn centered_x(&self, width: i32) -> i32 {
+        let width = width.max(0);
+        let snap = &self.snapshot;
+        let margin = snap.margin;
+        let view_right = (self.view_w - margin).max(margin);
+        let (clear_lo, clear_hi) = if snap.available_area.w > 0 {
+            (
+                snap.available_area.x,
+                snap.available_area.x + snap.available_area.w,
+            )
+        } else {
+            (margin, margin)
+        };
+        let (dock_lo, dock_hi) = if snap.dock_area.w > 0 {
+            (snap.dock_area.x, snap.dock_area.x + snap.dock_area.w)
+        } else {
+            (clear_lo, clear_hi)
+        };
+        center_horiz_in_available(
+            width, clear_lo, clear_hi, dock_lo, dock_hi, margin, view_right,
+        )
     }
 
     /// Handles single-clicking an overlay's corner icon button.
@@ -1104,6 +1130,30 @@ fn clamp_horiz_to_available(
     clamp_i(raw, view_lo, view_max)
 }
 
+/// Center an item of `size` horizontally in the available canvas area:
+/// inside the clear area between corner strips when it fits, falling back to
+/// the space between docked columns, and finally clamping to window margins.
+fn center_horiz_in_available(
+    size: i32,
+    clear_lo: i32,
+    clear_hi: i32,
+    dock_lo: i32,
+    dock_hi: i32,
+    view_lo: i32,
+    view_hi: i32,
+) -> i32 {
+    let clear_w = (clear_hi - clear_lo).max(0);
+    let dock_w = (dock_hi - dock_lo).max(0);
+    let centered = if clear_w >= size {
+        clear_lo + (clear_w - size) / 2
+    } else {
+        dock_lo + (dock_w - size) / 2
+    };
+    clamp_horiz_to_available(
+        centered, size, clear_lo, clear_hi, dock_lo, dock_hi, view_lo, view_hi,
+    )
+}
+
 fn strip_height(count: usize) -> i32 {
     if count == 0 {
         return 0;
@@ -1536,11 +1586,16 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
     };
     let clear_w = (clear_right - clear_left).max(0);
     let dock_w = (dock_right - dock_left).max(0);
+    let dock_area = if s.view_w > 0 && s.view_h > 0 && avail_h > 0 && dock_w > 0 {
+        IRect::new(dock_left, top_min, dock_w, avail_h)
+    } else {
+        IRect::default()
+    };
     let available_area = if s.view_w > 0 && s.view_h > 0 && avail_h > 0 {
         if clear_w > 0 {
             IRect::new(clear_left, top_min, clear_w, avail_h)
         } else if dock_w > 0 {
-            IRect::new(dock_left, top_min, dock_w, avail_h)
+            dock_area
         } else {
             IRect::default()
         }
@@ -1568,14 +1623,8 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
             clamp_i(s.toolbar_pos.1, top_min, max_y),
         )
     } else {
-        let centered = if clear_w >= tb_w {
-            clear_left + (clear_w - tb_w) / 2
-        } else {
-            dock_left + (dock_w - tb_w) / 2
-        };
         (
-            clamp_horiz_to_available(
-                centered,
+            center_horiz_in_available(
                 tb_w,
                 clear_left,
                 clear_right,
@@ -1637,6 +1686,7 @@ fn layout(s: &Overlays) -> OverlaySnapshot {
         top_min,
         bottom_max,
         available_area,
+        dock_area,
         fit_area,
         toolbar: IRect::new(tb_x, tb_y, tb_w, tb_h),
         toolbar_z,
@@ -2076,5 +2126,47 @@ mod tests {
             snap.toolbar.x + snap.toolbar.w <= snap.available_area.x + snap.available_area.w,
             "dragged toolbar should not overlap right docked overlay"
         );
+    }
+
+    #[test]
+    fn centered_x_matches_default_toolbar_across_dock_configs() {
+        let mut o = sized();
+        // Default layout (right docked): centered_x matches default toolbar X.
+        assert_eq!(o.centered_x(400), o.snapshot().toolbar.x);
+
+        // Floating hover overlay on the left must not shift centered_x.
+        let right_dock_x = o.centered_x(520);
+        o.set_hover_panel(Some(PanelId::Components));
+        assert_eq!(o.centered_x(520), right_dock_x);
+        o.dismiss_floating();
+
+        // Wide overlay that exceeds clear_w but fits dock_w centers in dock_area.
+        let snap = o.snapshot().clone();
+        let wide_w = snap.available_area.w + 20;
+        assert!(wide_w <= snap.dock_area.w);
+        o.set_toolbar_size(wide_w, 34);
+        assert_eq!(o.centered_x(wide_w), o.snapshot().toolbar.x);
+
+        // Very wide overlay exceeding dock_w clamps inside window margins like toolbar.
+        let huge_w = snap.dock_area.w + 100;
+        o.set_toolbar_size(huge_w, 34);
+        assert_eq!(o.centered_x(huge_w), o.snapshot().toolbar.x);
+
+        // Undock everything: centers in full window.
+        o.set_toolbar_size(400, 34);
+        o.set_panel_pinned(PanelId::Editor, false);
+        o.set_panel_pinned(PanelId::SimLog, false);
+        o.set_panel_pinned(PanelId::CompLog, false);
+        assert_eq!(o.centered_x(400), o.snapshot().toolbar.x);
+
+        // Dock left only: shifts right of window center and matches toolbar.
+        o.set_panel_pinned(PanelId::Components, true);
+        assert_eq!(o.centered_x(400), o.snapshot().toolbar.x);
+
+        // Asymmetric strips (all panels moved to right): still matches toolbar.
+        for p in PanelId::ALL {
+            o.move_panel_to_corner(p, Corner::Tr);
+        }
+        assert_eq!(o.centered_x(400), o.snapshot().toolbar.x);
     }
 }

@@ -245,6 +245,7 @@ fn snapshot_json(s: &OverlaySnapshot) -> Value {
         "topMin": s.top_min,
         "bottomMax": s.bottom_max,
         "availableArea": rect_json(s.available_area),
+        "dockArea": rect_json(s.dock_area),
         "fitArea": rect_json(s.fit_area),
         "toolbar": rect_json(s.toolbar),
         "toolbarZ": s.toolbar_z,
@@ -1000,6 +1001,11 @@ impl CircuitPanel {
         {
             self.overlay_layout_changed();
         }
+    }
+
+    #[qslot]
+    fn centered_overlay_x(&self, width: f64) -> f64 {
+        self.overlays.centered_x(width.round() as i32) as f64
     }
 
     fn persist_layout(&self) {

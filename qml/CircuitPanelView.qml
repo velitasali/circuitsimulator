@@ -217,6 +217,11 @@ Item {
         return Math.max( 8, Math.min( root.width - w - 8, rawX ) )
     }
 
+    function centeredOverlayX( w: real ): real {
+        var _rects = root.rects
+        return CircuitPanel.centeredOverlayX( w )
+    }
+
     function placeToolbarPopup( popup: T.Popup, anchor: Item, alignRight: bool,
                                 width: real, naturalHeight: real, capToRoom: bool ): void {
         var room = root.toolbarPopupRoom()
@@ -1823,6 +1828,72 @@ Item {
                 icon: "close"
                 size: 16
                 color: appTheme.windowText
+            }
+        }
+    }
+
+    // ---- Canvas mode overlay (Board Layout / Exposed Components / Link) ---
+    Rectangle {
+        id: modeBanner
+        readonly property CircuitView canvasView: canvasLoader.item as CircuitView
+        readonly property real hBarHeight: modeBanner.canvasView
+            ? modeBanner.canvasView.horizontalScrollBarHeight
+            : ( CircuitCanvas.showScroll ? 12 : 0 )
+        visible: CircuitCanvas.linkingFrom.length > 0 || CircuitCanvas.boardLayoutPkg.length > 0
+        x: root.centeredOverlayX( modeBanner.width )
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: modeBanner.hBarHeight > 0 ? modeBanner.hBarHeight + 10 : 10
+        z: 5
+        radius: 6
+        height: linkBannerRow.implicitHeight + 10
+        width: linkBannerRow.implicitWidth + 20
+        color: appTheme.window
+        border.color: CircuitCanvas.linkingExposed
+            ? CircuitCanvas.exposedHighlightColor
+            : CircuitCanvas.linkHighlightColor
+        border.width: 1.5
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            onWheel: (wheel) => { wheel.accepted = true }
+        }
+
+        Row {
+            id: linkBannerRow
+            anchors.centerIn: parent
+            spacing: 10
+
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 8
+                height: 8
+                radius: 4
+                color: CircuitCanvas.linkingExposed
+                    ? CircuitCanvas.exposedHighlightColor
+                    : CircuitCanvas.linkHighlightColor
+            }
+
+            AppText {
+                anchors.verticalCenter: parent.verticalCenter
+                color: appTheme.windowText
+                text: CircuitCanvas.boardLayoutPkg.length > 0
+                    ? I18n.tr("Board Layout — drag components onto the package face (R to rotate), press Esc or Done to finish")
+                    : (CircuitCanvas.linkingExposed
+                        ? I18n.tr("Select Exposed Components — click components to toggle, click empty space or Esc to finish")
+                        : I18n.tr("Link to Component") + " (" + CircuitCanvas.linkingFrom + ") — "
+                            + I18n.tr("click components to toggle, click empty space or Esc to finish"))
+            }
+
+            AppButton {
+                anchors.verticalCenter: parent.verticalCenter
+                text: I18n.tr("Done")
+                onClicked: {
+                    if (CircuitCanvas.boardLayoutPkg.length > 0)
+                        CircuitCanvas.exitBoardLayout()
+                    else
+                        CircuitCanvas.stopLinking()
+                }
             }
         }
     }

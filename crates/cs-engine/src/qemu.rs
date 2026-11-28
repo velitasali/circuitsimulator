@@ -1293,6 +1293,10 @@ impl QemuComp {
                 if deadline.is_some_and(|dl| Instant::now() >= dl) {
                     break;
                 }
+                if let Some(event_time) = self.pending_mailbox_future_time(now) {
+                    self.next_wake = Some(event_time);
+                    break;
+                }
                 if let Some(dp) = self.try_defer_uart_status_poll(now) {
                     self.deferred_poll = Some(dp);
                     self.next_wake = Some(dp.max_until);
@@ -1320,6 +1324,10 @@ impl QemuComp {
         self.next_wake = None;
         loop {
             if self.load_simu_action() != 0 {
+                if let Some(event_time) = self.pending_mailbox_future_time(now) {
+                    self.park_at_guest(now, Some(event_time));
+                    return Vec::new();
+                }
                 // The first post is always taken. Further posts stop when the
                 // frame budget is gone so a hot guest cannot hold the UI thread.
                 // The slot stays posted; the next frame consumes it.
@@ -1345,10 +1353,12 @@ impl QemuComp {
                 // already reached or passed it (e.g. polling UART_STATUS in
                 // Serial.flush()), yield back to the circuit solver so the bit
                 // edge can fire instead of spinning until frame timeout.
-                if let Some(pd) = self.next_periph_due() {
+                if let Some(pd) = self.next_periph_due()
+                    && pd > now
+                {
                     let guest = self.guest_circuit_time(now);
-                    if guest.is_some_and(|g| g >= pd && g > now) {
-                        self.park_at_guest(now, guest);
+                    if guest.is_some_and(|g| g >= pd) {
+                        self.park_at_guest(now, Some(pd));
                         return Vec::new();
                     }
                 }
@@ -1365,6 +1375,12 @@ impl QemuComp {
                     now.saturating_add(GUEST_AHEAD_PS).min(pd)
                 });
             let guest = self.guest_circuit_time(now);
+            // Re-check mailbox after sampling `qemu_time`: a fire-and-forget
+            // `SIM_WRITE` may have posted an earlier `simu_time` while `qemu_time`
+            // kept advancing, and we must not park past that write.
+            if self.load_simu_action() != 0 {
+                continue;
+            }
             if guest.is_some_and(|g| g >= ahead_limit && g > now) {
                 self.park_at_guest(now, guest);
                 return Vec::new();
@@ -1394,6 +1410,10 @@ impl QemuComp {
                     break;
                 }
                 let guest = self.guest_circuit_time(now);
+                if self.load_simu_action() != 0 {
+                    got_action = true;
+                    break;
+                }
                 if guest.is_some_and(|g| g >= ahead_limit && g > now) {
                     self.park_at_guest(now, guest);
                     return Vec::new();
@@ -1418,6 +1438,9 @@ impl QemuComp {
                 continue;
             }
             let guest = self.guest_circuit_time(now);
+            if self.load_simu_action() != 0 {
+                continue;
+            }
             if guest.is_some_and(|g| g >= ahead_limit && g > now) {
                 self.park_at_guest(now, guest);
                 return Vec::new();
@@ -1431,6 +1454,19 @@ impl QemuComp {
                 return Vec::new();
             }
         }
+    }
+
+    /// If the mailbox holds a posted action whose guest timestamp
+    /// (`simu_time + time_offset`) is still in the future relative to `now`,
+    /// return that absolute circuit time so the solver advances to it before
+    /// applying the MMIO access.
+    fn pending_mailbox_future_time(&self, now: u64) -> Option<u64> {
+        let view = self.live.as_ref()?.shm.load_mailbox();
+        if view.simu_action == 0 || view.simu_time == 0 {
+            return None;
+        }
+        let event_time = view.simu_time.saturating_add(self.time_offset);
+        (event_time > now).then_some(event_time)
     }
 
     fn find_busy_usart_status(&self, addr: u64) -> Option<usize> {
@@ -3861,5 +3897,122 @@ mod tests {
             "expected 'Hi!' on LCD row 0, got {:?}",
             lcd.lines()
         );
+    }
+
+    #[test]
+    fn live_future_gpio_writes_wait_for_simu_time_without_collapsing() {
+        use std::ptr;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let Some(stub) = qemu_stub_path() else {
+            return;
+        };
+
+        let mut c = Circuit::new();
+        c.add_qemu_esp32("Esp32-1")
+            .add_resistor("Resistor-1", 100.0)
+            .add_led("Led-1")
+            .add_ground("Ground-1")
+            .connect("Resistor-1-lPin", "Esp32-1-G02")
+            .connect("Led-1-lPin", "Resistor-1-rPin")
+            .connect("Led-1-rPin", "Ground-1-Gnd");
+        c.configure_led("Led-1", 2.4, 0.03, 0.6, false);
+        c.solve().unwrap();
+
+        let key = cs_qemu::shm_key(std::process::id(), "qblink");
+        {
+            let q = c.qemu_mut("Esp32-1").unwrap();
+            q.set_shm_key(key.clone());
+            let args = vec![format!("esp32-cs,cosim-shm={key}")];
+            q.start_live_with(&stub, &args, Duration::from_secs(2))
+                .expect("stub should start");
+        }
+
+        // Simulate QEMU running -icount sleep=off: the guest executes 100 ms
+        // delays almost instantaneously in wall time, posting future simu_time
+        // writes and advancing qemu_time ahead while the circuit steps in 10 ms
+        // frames.
+        const PERIOD_PS: u64 = 100_000_000_000; // 100 ms per half-cycle
+        const FRAME_PS: u64 = 10_000_000_000; // 10 ms per frame
+        let guest_shm = SharedArena::open(&key).expect("open shm");
+        let guest = thread::spawn(move || {
+            let post_write = |addr: u64, data: u32, t_ps: u64| {
+                while guest_shm.load_simu_action() != 0 {
+                    thread::yield_now();
+                }
+                unsafe {
+                    let p = guest_shm.as_ref() as *const Arena as *mut Arena;
+                    (*p).reg_addr = addr;
+                    (*p).reg_data = u64::from(data);
+                    (*p).qemu_time = t_ps;
+                    (*p).simu_time = t_ps;
+                    (&*ptr::addr_of!((*p).simu_action).cast::<AtomicU64>())
+                        .store(SimAction::Write as u64, Ordering::Release);
+                }
+            };
+            let set_qemu_time = |t_ps: u64| unsafe {
+                let p = guest_shm.as_ref() as *const Arena as *mut Arena;
+                (&*ptr::addr_of!((*p).qemu_time).cast::<AtomicU64>())
+                    .store(t_ps, Ordering::Release);
+            };
+
+            let bit = 1u32 << 2;
+            post_write(ESP32_GPIO_START + GPIO_ENABLE_W1TS, bit, 10_000_000_000);
+            // Blink ON at 100 ms, OFF at 200 ms, ON at 300 ms, OFF at 400 ms.
+            // Advance qemu_time ahead after each write to mimic unthrottled
+            // irq_poll_timer_cb ticking during delay().
+            post_write(ESP32_GPIO_START + GPIO_OUT_W1TS, bit, PERIOD_PS);
+            set_qemu_time(2 * PERIOD_PS);
+            post_write(ESP32_GPIO_START + GPIO_OUT_W1TC, bit, 2 * PERIOD_PS);
+            set_qemu_time(3 * PERIOD_PS);
+            post_write(ESP32_GPIO_START + GPIO_OUT_W1TS, bit, 3 * PERIOD_PS);
+            set_qemu_time(4 * PERIOD_PS);
+            post_write(ESP32_GPIO_START + GPIO_OUT_W1TC, bit, 4 * PERIOD_PS);
+            while guest_shm.load_simu_action() != 0 {
+                thread::yield_now();
+            }
+            set_qemu_time(5 * PERIOD_PS);
+        });
+
+        let mut edges: Vec<(bool, u64)> = Vec::new();
+        let mut last_high = false;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while c.circ_time < 450_000_000_000 && Instant::now() < deadline {
+            c.run_ps_budgeted(FRAME_PS, Some(Duration::from_millis(10)))
+                .unwrap();
+            let high = c.pin_voltage("Esp32-1-G02").unwrap_or(0.0) > 2.0;
+            if high != last_high {
+                edges.push((high, c.circ_time));
+                last_high = high;
+            }
+        }
+
+        if let Some(q) = c.qemu_mut("Esp32-1") {
+            q.stop_live();
+        }
+        // Unblock the guest thread if the test stopped early so join cannot hang.
+        if let Ok(shm) = SharedArena::open(&key) {
+            unsafe {
+                let arena = shm.as_ref() as *const Arena as *mut Arena;
+                (&*ptr::addr_of!((*arena).simu_action).cast::<AtomicU64>())
+                    .store(0, Ordering::Release);
+            }
+        }
+        let _ = guest.join();
+
+        assert_eq!(
+            edges.len(),
+            4,
+            "expected 4 LED transitions (ON/OFF/ON/OFF), got {edges:?}"
+        );
+        let states: Vec<bool> = edges.iter().map(|(s, _)| *s).collect();
+        assert_eq!(states, vec![true, false, true, false]);
+        for pair in edges.windows(2) {
+            let dt = pair[1].1.saturating_sub(pair[0].1);
+            assert!(
+                dt.abs_diff(PERIOD_PS) <= FRAME_PS,
+                "each blink half-period should be ~100 ms (within 1 frame), got {dt} ps in {edges:?}"
+            );
+        }
     }
 }

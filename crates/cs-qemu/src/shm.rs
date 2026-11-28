@@ -94,7 +94,7 @@ impl SharedArena {
     }
 
     pub fn load_qemu_time(&self) -> u64 {
-        unsafe { load_u64(ptr::addr_of!((*self.ptr).qemu_time), Ordering::Relaxed) }
+        unsafe { load_u64(ptr::addr_of!((*self.ptr).qemu_time), Ordering::Acquire) }
     }
 
     pub fn load_running(&self) -> u64 {

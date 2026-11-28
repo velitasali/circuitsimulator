@@ -661,12 +661,8 @@ impl Comp {
                 .chain(std::iter::once(&p.int_pin))
                 .chain(std::iter::once(&p.scl))
                 .chain(std::iter::once(&p.sda))
+                .chain(p.addr_pins.iter())
                 .map(|p| p.id.clone())
-                .chain(
-                    ["in2", "in3", "in4"]
-                        .into_iter()
-                        .map(|s| format!("{}-{s}", self.id)),
-                )
                 .collect(),
             Kind::Adc(a) => a
                 .outputs
@@ -778,13 +774,11 @@ impl Comp {
                 .chain(std::iter::once(&dm.oe))
                 .map(|p| p.id.clone())
                 .collect(),
-            Kind::I2CRam(r) => vec![
-                r.sda.id.clone(),
-                r.scl.id.clone(),
-                format!("{}-in2", self.id),
-                format!("{}-in3", self.id),
-                format!("{}-in4", self.id),
-            ],
+            Kind::I2CRam(r) => std::iter::once(&r.sda)
+                .chain(std::iter::once(&r.scl))
+                .chain(r.addr_pins.iter())
+                .map(|p| p.id.clone())
+                .collect(),
             Kind::Lm555(_) => (0..8).map(|i| format!("{}-ePin{i}", self.id)).collect(),
             Kind::Tunnel { pin_id, .. } => vec![pin_id.clone()],
             Kind::Subcircuit { .. } => Vec::new(),

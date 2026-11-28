@@ -77,6 +77,7 @@ impl Comparator {
         state.family.out_imp = self.out_imp;
         state.inverted = self.inverted;
         state.open_col = self.open_col;
+        state.apply_electric();
         Kind::Comparator { state }
     }
 

@@ -140,10 +140,8 @@ impl Component for FlipFlop {
             p.structural = true;
             p
         };
-        static PROPS: &[PropDef<FlipFlop>] = &[
-            KIND,
-            USE_RS,
-            PropDef::enumeration(
+        const TRIGGER: PropDef<FlipFlop> = {
+            let mut p = PropDef::enumeration(
                 "Trigger",
                 "Trigger",
                 TRIGGER_OPTIONS,
@@ -152,7 +150,14 @@ impl Component for FlipFlop {
             )
             .with_info(
                 "\"Clock\" triggers every active edge.\n\"Enable\" any change during active state.\n\"None\" hides Clock pin.",
-            ),
+            );
+            p.structural = true;
+            p
+        };
+        static PROPS: &[PropDef<FlipFlop>] = &[
+            KIND,
+            USE_RS,
+            TRIGGER,
             PropDef::bool(
                 "ResetInverted",
                 "Reset Inverted",
@@ -190,20 +195,21 @@ impl Component for FlipFlop {
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
+        let has_clk = self.trigger != Trigger::None;
         match self.ff_kind {
-            FlipFlopKind::Jk => flipflop_jk_pins("", self.use_rs)
+            FlipFlopKind::Jk => flipflop_jk_pins("", self.use_rs, has_clk)
                 .into_iter()
                 .map(CompPin::from)
                 .collect(),
-            FlipFlopKind::Rs => flipflop_rs_pins("")
+            FlipFlopKind::Rs => flipflop_rs_pins("", has_clk)
                 .into_iter()
                 .map(CompPin::from)
                 .collect(),
-            FlipFlopKind::T => flipflop_t_pins("", self.use_rs)
+            FlipFlopKind::T => flipflop_t_pins("", self.use_rs, has_clk)
                 .into_iter()
                 .map(CompPin::from)
                 .collect(),
-            FlipFlopKind::D => flipflop_d_pins("", self.use_rs)
+            FlipFlopKind::D => flipflop_d_pins("", self.use_rs, has_clk)
                 .into_iter()
                 .map(CompPin::from)
                 .collect(),
@@ -238,22 +244,24 @@ impl Drawable for FlipFlop {
             ctx.pal.border,
             COMPONENT_BORDER_WIDTH,
         );
-        d.line(
-            -16.0,
-            -4.0,
-            -12.0,
-            0.0,
-            ctx.pal.border,
-            COMPONENT_BORDER_WIDTH,
-        );
-        d.line(
-            -12.0,
-            0.0,
-            -16.0,
-            4.0,
-            ctx.pal.border,
-            COMPONENT_BORDER_WIDTH,
-        );
+        if self.trigger != Trigger::None {
+            d.line(
+                -16.0,
+                -4.0,
+                -12.0,
+                0.0,
+                ctx.pal.border,
+                COMPONENT_BORDER_WIDTH,
+            );
+            d.line(
+                -12.0,
+                0.0,
+                -16.0,
+                4.0,
+                ctx.pal.border,
+                COMPONENT_BORDER_WIDTH,
+            );
+        }
         d.text(
             0.0,
             0.0,
@@ -328,20 +336,20 @@ mod tests {
     }
 }
 
-fn flipflop_d_pins(id: &str, use_rs: bool) -> Vec<Pin> {
-    let mut pins = vec![
-        Pin {
-            direction: Some(PinDirection::In),
-            id: format!("{id}-in0"),
-            item_id: id.to_string(),
-            local: Point::new(-24.0, -8.0),
-            angle: 180,
-            length: 8.0,
-            is_bus: false,
-            label: "D".into(),
-            unused: false,
-        },
-        Pin {
+fn flipflop_d_pins(id: &str, use_rs: bool, has_clk: bool) -> Vec<Pin> {
+    let mut pins = vec![Pin {
+        direction: Some(PinDirection::In),
+        id: format!("{id}-in0"),
+        item_id: id.to_string(),
+        local: Point::new(-24.0, -8.0),
+        angle: 180,
+        length: 8.0,
+        is_bus: false,
+        label: "D".into(),
+        unused: false,
+    }];
+    if has_clk {
+        pins.push(Pin {
             direction: Some(PinDirection::In),
             id: format!("{id}-in3"),
             item_id: id.to_string(),
@@ -351,7 +359,9 @@ fn flipflop_d_pins(id: &str, use_rs: bool) -> Vec<Pin> {
             is_bus: false,
             label: ">".into(),
             unused: false,
-        },
+        });
+    }
+    pins.extend([
         Pin {
             direction: Some(PinDirection::Out),
             id: format!("{id}-out0"),
@@ -374,7 +384,7 @@ fn flipflop_d_pins(id: &str, use_rs: bool) -> Vec<Pin> {
             label: "!Q".into(),
             unused: false,
         },
-    ];
+    ]);
     if use_rs {
         pins.push(Pin {
             direction: Some(PinDirection::In),
@@ -402,20 +412,20 @@ fn flipflop_d_pins(id: &str, use_rs: bool) -> Vec<Pin> {
     pins
 }
 
-fn flipflop_jk_pins(id: &str, use_rs: bool) -> Vec<Pin> {
-    let mut pins = vec![
-        Pin {
-            direction: Some(PinDirection::In),
-            id: format!("{id}-in0"),
-            item_id: id.to_string(),
-            local: Point::new(-24.0, -8.0),
-            angle: 180,
-            length: 8.0,
-            is_bus: false,
-            label: "J".into(),
-            unused: false,
-        },
-        Pin {
+fn flipflop_jk_pins(id: &str, use_rs: bool, has_clk: bool) -> Vec<Pin> {
+    let mut pins = vec![Pin {
+        direction: Some(PinDirection::In),
+        id: format!("{id}-in0"),
+        item_id: id.to_string(),
+        local: Point::new(-24.0, -8.0),
+        angle: 180,
+        length: 8.0,
+        is_bus: false,
+        label: "J".into(),
+        unused: false,
+    }];
+    if has_clk {
+        pins.push(Pin {
             direction: Some(PinDirection::In),
             id: format!("{id}-in4"),
             item_id: id.to_string(),
@@ -425,7 +435,9 @@ fn flipflop_jk_pins(id: &str, use_rs: bool) -> Vec<Pin> {
             is_bus: false,
             label: ">".into(),
             unused: false,
-        },
+        });
+    }
+    pins.extend([
         Pin {
             direction: Some(PinDirection::In),
             id: format!("{id}-in1"),
@@ -459,7 +471,7 @@ fn flipflop_jk_pins(id: &str, use_rs: bool) -> Vec<Pin> {
             label: "!Q".into(),
             unused: false,
         },
-    ];
+    ]);
     if use_rs {
         pins.push(Pin {
             direction: Some(PinDirection::In),
@@ -487,20 +499,20 @@ fn flipflop_jk_pins(id: &str, use_rs: bool) -> Vec<Pin> {
     pins
 }
 
-fn flipflop_rs_pins(id: &str) -> Vec<Pin> {
-    vec![
-        Pin {
-            direction: Some(PinDirection::In),
-            id: format!("{id}-in0"),
-            item_id: id.to_string(),
-            local: Point::new(-24.0, -8.0),
-            angle: 180,
-            length: 8.0,
-            is_bus: false,
-            label: "S".into(),
-            unused: false,
-        },
-        Pin {
+fn flipflop_rs_pins(id: &str, has_clk: bool) -> Vec<Pin> {
+    let mut pins = vec![Pin {
+        direction: Some(PinDirection::In),
+        id: format!("{id}-in0"),
+        item_id: id.to_string(),
+        local: Point::new(-24.0, -8.0),
+        angle: 180,
+        length: 8.0,
+        is_bus: false,
+        label: "S".into(),
+        unused: false,
+    }];
+    if has_clk {
+        pins.push(Pin {
             direction: Some(PinDirection::In),
             id: format!("{id}-in2"),
             item_id: id.to_string(),
@@ -510,7 +522,9 @@ fn flipflop_rs_pins(id: &str) -> Vec<Pin> {
             is_bus: false,
             label: ">".into(),
             unused: false,
-        },
+        });
+    }
+    pins.extend([
         Pin {
             direction: Some(PinDirection::In),
             id: format!("{id}-in1"),
@@ -544,23 +558,24 @@ fn flipflop_rs_pins(id: &str) -> Vec<Pin> {
             label: "!Q".into(),
             unused: false,
         },
-    ]
+    ]);
+    pins
 }
 
-fn flipflop_t_pins(id: &str, use_rs: bool) -> Vec<Pin> {
-    let mut pins = vec![
-        Pin {
-            direction: Some(PinDirection::In),
-            id: format!("{id}-in0"),
-            item_id: id.to_string(),
-            local: Point::new(-24.0, -8.0),
-            angle: 180,
-            length: 8.0,
-            is_bus: false,
-            label: "T".into(),
-            unused: false,
-        },
-        Pin {
+fn flipflop_t_pins(id: &str, use_rs: bool, has_clk: bool) -> Vec<Pin> {
+    let mut pins = vec![Pin {
+        direction: Some(PinDirection::In),
+        id: format!("{id}-in0"),
+        item_id: id.to_string(),
+        local: Point::new(-24.0, -8.0),
+        angle: 180,
+        length: 8.0,
+        is_bus: false,
+        label: "T".into(),
+        unused: false,
+    }];
+    if has_clk {
+        pins.push(Pin {
             direction: Some(PinDirection::In),
             id: format!("{id}-in3"),
             item_id: id.to_string(),
@@ -570,7 +585,9 @@ fn flipflop_t_pins(id: &str, use_rs: bool) -> Vec<Pin> {
             is_bus: false,
             label: ">".into(),
             unused: false,
-        },
+        });
+    }
+    pins.extend([
         Pin {
             direction: Some(PinDirection::Out),
             id: format!("{id}-out0"),
@@ -593,7 +610,7 @@ fn flipflop_t_pins(id: &str, use_rs: bool) -> Vec<Pin> {
             label: "!Q".into(),
             unused: false,
         },
-    ];
+    ]);
     if use_rs {
         pins.push(Pin {
             direction: Some(PinDirection::In),

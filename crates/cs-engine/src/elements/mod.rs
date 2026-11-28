@@ -72,6 +72,12 @@ const BATTERY_MIN_OHMS: f64 = 1e-14;
 const CAP_MIN: f64 = 1e-15;
 const IND_MIN: f64 = 1e-12;
 
+/// Read a cached pin's node voltage, or `None` when the pin is unwired.
+#[inline]
+pub(crate) fn node_volt(slot: Option<usize>, nodes: &[ENode]) -> Option<f64> {
+    slot.and_then(|i| nodes.get(i)).map(|n| n.volt)
+}
+
 /// Backward-Euler companion conductance for a capacitor with series ESR `resistance`.
 ///
 /// Returns `G_eff = 1 / (R + dt / C)`, or `0.0` when `capacitance <= 0.0` or `dt <= 0.0`.
@@ -687,10 +693,8 @@ impl Kind {
                         sel |= 1 << i;
                     }
                 }
-                if !enabled {
+                if !enabled || sel >= *channels {
                     sel = usize::MAX;
-                } else {
-                    sel = sel.min(channels.saturating_sub(1));
                 }
                 if *selected != sel {
                     *selected = sel;
@@ -700,25 +704,16 @@ impl Kind {
                 }
             }
             Kind::Servo {
-                speed,
                 pos,
                 target_pos,
                 state,
                 ..
             } => {
-                let vp = cache
-                    .left
-                    .and_then(|j| nodes.get(j))
-                    .map(|n| n.volt)
-                    .unwrap_or(0.0);
-                let vg = cache
-                    .mid
-                    .and_then(|j| nodes.get(j))
-                    .map(|n| n.volt)
-                    .unwrap_or(0.0);
+                let vp = node_volt(cache.left, nodes).unwrap_or(0.0);
+                let vg = node_volt(cache.mid, nodes).unwrap_or(0.0);
                 let v_supply = (vp - vg).abs();
                 let prev_draw = state.current_draw;
-                state.step_dynamics(pos, *target_pos, *speed, v_supply, dt);
+                state.update_electrical(*pos, *target_pos, v_supply);
                 (state.current_draw - prev_draw).abs() < 1e-4
             }
             Kind::Relay {

@@ -1652,7 +1652,7 @@ impl Part {
                         rom: p.rom.clone(),
                         temp: p.temp,
                         dq_low: false,
-                        wire: crate::digital::OwLink::default(),
+                        wire: crate::digital::OwLink::with_rom(&p.rom),
                     },
                 });
             }
@@ -1677,7 +1677,7 @@ impl Part {
                     kind: crate::elements::Kind::Ds1307 {
                         time_updated: p.time_updated,
                         sqw_freq: 1.0,
-                        sqw_enabled: true,
+                        sqw_enabled: false,
                         sqw_state: false,
                         sda_low: false,
                         scl_low: false,

@@ -3761,3 +3761,208 @@ fn power_on_sets_debug_target_mcu_to_active_device() {
     );
     canvas.power_off();
 }
+
+#[test]
+fn phase6_two_scopes_independent_dirty_and_blank_channel() {
+    let circ = r#"<circuit version="1.0.0">
+  <item itemtype="FixedVolt" CircId="V1" Voltage="5 V" Pos="0,0" />
+  <item itemtype="Clock" CircId="CLK1" Freq="1000 Hz" Voltage="5 V" Running="true" Pos="0,100" />
+  <item itemtype="Oscope" CircId="S1" Pos="200,0" />
+  <item itemtype="Oscope" CircId="S2" Pos="200,200" />
+  <item itemtype="Connector" uid="w1" startpinid="V1-outnod" endpinid="S1-Pin0" />
+  <item itemtype="Connector" uid="w2" startpinid="CLK1-outnod" endpinid="S2-Pin0" />
+</circuit>"#;
+    let mut canvas = Canvas::empty();
+    canvas.load_circ1(circ, None).unwrap();
+    canvas.power_on();
+    // Run a few ticks so initial settle finishes and clear dirty set.
+    for _ in 0..3 {
+        canvas.tick();
+    }
+    let _ = canvas.take_dirty();
+
+    // Advance enough ticks for CLK1 to toggle while V1 stays completely flat.
+    let mut s2_dirtied = false;
+    for _ in 0..9 {
+        canvas.tick();
+        let d = canvas.take_dirty();
+        if d.items.contains("S2") {
+            s2_dirtied = true;
+            break;
+        }
+    }
+    assert!(
+        s2_dirtied,
+        "S2 on a clock must mark dirty independently even while S1 is on a static rail"
+    );
+
+    // Changing S1's tunnel blanks channel 0 and must mark S1 dirty.
+    let _ = canvas.take_dirty();
+    let _ = canvas.set_prop_text_for("S1", "Tunnel0".into(), "NONEXISTENT_NET".into());
+    let d = canvas.take_dirty();
+    assert!(
+        d.full || d.items.contains("S1"),
+        "blank_channel must mark the blanked scope dirty"
+    );
+    canvas.power_off();
+}
+
+#[test]
+fn phase6_visual_rects_cover_probe_text_shape_stroke_touchpad_and_ds1621() {
+    use crate::canvas::dirty::item_dirty_rect;
+    use crate::canvas::geom::map_local;
+    use crate::components::{Component, DS1621, Probe, Shape, TouchPad};
+
+    // Probe at default -45° rotation: voltage text at local (10, -6)..(45, 4)
+    // must lie completely inside `item_dirty_rect`.
+    let mut probe_item = Item::probe("P1", 100.0, 100.0, 2.5, false);
+    assert!((probe_item.rotation - (-45.0)).abs() < 1e-6);
+    let dirty = item_dirty_rect(&probe_item);
+    for local_pt in [
+        Point::new(10.0, -6.0),
+        Point::new(45.0, -6.0),
+        Point::new(45.0, 4.0),
+        Point::new(10.0, 4.0),
+    ] {
+        let sp = map_local(
+            probe_item.position(),
+            local_pt,
+            probe_item.rotation,
+            probe_item.hflip,
+            probe_item.vflip,
+        );
+        assert!(
+            dirty.contains_point(sp),
+            "probe dirty rect {dirty:?} must contain rotated text point {sp:?} (local {local_pt:?})"
+        );
+    }
+
+    // With ShowVolt = false, Probe visual_rect shrinks back to body.
+    let p_no_volt = Probe {
+        show_volt: false,
+        ..Probe::default()
+    };
+    assert_eq!(p_no_volt.visual_rect(), p_no_volt.body());
+    probe_item.kind = Part::Probe(p_no_volt);
+    assert_eq!(probe_item.kind.visual_rect(), probe_item.kind.body());
+
+    // Shape with 20 px border expands visual_rect by half-stroke (10 px) on each side.
+    let mut rect_shape = Shape::default();
+    rect_shape.width = 40.0;
+    rect_shape.height = 20.0;
+    rect_shape.border = 20;
+    let body = rect_shape.body();
+    let vr = rect_shape.visual_rect();
+    assert!(vr.x <= body.x - 10.0 + 1e-6);
+    assert!(vr.y <= body.y - 10.0 + 1e-6);
+    assert!(vr.x + vr.w >= body.x + body.w + 10.0 - 1e-6);
+    assert!(vr.y + vr.h >= body.y + body.h + 10.0 - 1e-6);
+
+    // TouchPad visual_rect covers ±6 px crosshair beyond left/top/right pad edges.
+    let tp = TouchPad::default();
+    let tp_b = tp.body();
+    let tp_v = tp.visual_rect();
+    assert!(tp_v.x <= tp_b.x - 6.0);
+    assert!(tp_v.y <= tp_b.y - 6.0);
+    assert!(tp_v.x + tp_v.w >= tp_b.x + tp_b.w + 6.0);
+
+    // DS1621 visual_rect covers the top orientation notch reaching y = -32.
+    let ds = DS1621::default();
+    assert!(ds.visual_rect().y <= -32.0);
+}
+
+#[test]
+fn phase6_led_bar_segment31_threshold_rgb_overload_and_lamp_bucket() {
+    use crate::canvas::dirty::analog_visual_bucket_for_part;
+
+    // 1. 32-segment LED bar with threshold = 3.0 V: segment 31 stays off at 2.0 V, turns on at 4.0 V.
+    let circ_low = r#"<circuit version="1.0.0">
+  <item itemtype="FixedVolt" CircId="V1" Voltage="2 V" Pos="0,0" />
+  <item itemtype="LedBar" CircId="BAR1" Size="32" Grounded="true" Threshold="3 V" Pos="100,0" />
+  <item itemtype="Connector" uid="w1" startpinid="V1-outnod" endpinid="BAR1-lPin31" />
+</circuit>"#;
+    let mut c_low = Canvas::empty();
+    c_low.load_circ1(circ_low, None).unwrap();
+    c_low.power_on();
+    let r_low = c_low.readings().get("BAR1").expect("BAR1 reading");
+    assert_eq!(r_low.text.len(), 32);
+    assert_eq!(
+        r_low.text.as_bytes()[31],
+        b'0',
+        "segment 31 at 2V must be off when threshold=3V"
+    );
+    let b_low = analog_visual_bucket_for_part(
+        &c_low.scene().item_by_id("BAR1").unwrap().kind,
+        "BAR1",
+        c_low.running.as_ref().unwrap(),
+    );
+
+    let circ_high = circ_low.replace("Voltage=\"2 V\"", "Voltage=\"4 V\"");
+    let mut c_high = Canvas::empty();
+    c_high.load_circ1(&circ_high, None).unwrap();
+    c_high.power_on();
+    let r_high = c_high.readings().get("BAR1").expect("BAR1 reading");
+    assert_eq!(
+        r_high.text.as_bytes()[31],
+        b'1',
+        "segment 31 at 4V must be on when threshold=3V"
+    );
+    let b_high = analog_visual_bucket_for_part(
+        &c_high.scene().item_by_id("BAR1").unwrap().kind,
+        "BAR1",
+        c_high.running.as_ref().unwrap(),
+    );
+    assert_ne!(
+        b_low, b_high,
+        "segment 31 crossing threshold must change dirty bucket"
+    );
+    c_low.power_off();
+    c_high.power_off();
+
+    // 2. RGB LED per-channel max current: 10 mA max on red with ~20 mA must trigger overload warning.
+    let circ_rgb = r#"<circuit version="1.0.0">
+  <item itemtype="FixedVolt" CircId="V1" Voltage="5 V" Pos="0,0" />
+  <item itemtype="Resistor" CircId="R1" Resistance="150 Ω" Pos="50,0" />
+  <item itemtype="RgbLed" CircId="RGB1" MaxCurrent_R="10 mA" Threshold_R="2 V" Pos="120,0" />
+  <item itemtype="Ground" CircId="G1" Pos="160,0" />
+  <item itemtype="Connector" uid="w1" startpinid="V1-outnod" endpinid="R1-lPin" />
+  <item itemtype="Connector" uid="w2" startpinid="R1-rPin" endpinid="RGB1-rPin" />
+  <item itemtype="Connector" uid="w3" startpinid="RGB1-cPin" endpinid="G1-Gnd" />
+</circuit>"#;
+    let mut c_rgb = Canvas::empty();
+    c_rgb.load_circ1(circ_rgb, None).unwrap();
+    c_rgb.power_on();
+    c_rgb.tick();
+    let ov = c_rgb
+        .item_overload_state("RGB1")
+        .expect("RGB1 overload state");
+    assert!(
+        ov.warning,
+        "RGB LED red die at ~20 mA with 10 mA max must warn (reason: {})",
+        ov.reason
+    );
+    c_rgb.power_off();
+
+    // 3. High-resistance Lamp (47 kΩ) at 2 V produces non-zero analog dirty bucket.
+    let circ_lamp = r#"<circuit version="1.0.0">
+  <item itemtype="FixedVolt" CircId="V1" Voltage="2 V" Pos="0,0" />
+  <item itemtype="Lamp" CircId="L1" Resistance="47 kΩ" Voltage="12 V" Power="2.4 W" Pos="80,0" />
+  <item itemtype="Ground" CircId="G1" Pos="160,0" />
+  <item itemtype="Connector" uid="w1" startpinid="V1-outnod" endpinid="L1-lPin" />
+  <item itemtype="Connector" uid="w2" startpinid="L1-rPin" endpinid="G1-Gnd" />
+</circuit>"#;
+    let mut c_lamp = Canvas::empty();
+    c_lamp.load_circ1(circ_lamp, None).unwrap();
+    c_lamp.power_on();
+    let lamp_bucket = analog_visual_bucket_for_part(
+        &c_lamp.scene().item_by_id("L1").unwrap().kind,
+        "L1",
+        c_lamp.running.as_ref().unwrap(),
+    )
+    .unwrap();
+    assert!(
+        lamp_bucket > 0,
+        "47 kΩ lamp at 2 V must have non-zero dirty bucket, got {lamp_bucket}"
+    );
+    c_lamp.power_off();
+}

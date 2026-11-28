@@ -51,8 +51,8 @@ Adc: current-gap
 Dac: current-gap
 I2CToParallel: driver 4.808 V current-gap
 Lm555: current-gap
-Memory: driver 4.808 V current-gap
-DynamicMemory: driver 4.808 V current-gap
+Memory: current-gap
+DynamicMemory: current-gap
 I2CRam: current-gap
 Function: current-gap
 Csource: current-gap

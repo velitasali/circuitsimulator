@@ -84,7 +84,9 @@ impl Component for Lm555 {
                 Lm555::get_out_high_v,
                 Lm555::set_out_high_v,
             )
-            .with_info("Output voltage for a logic High."),
+            .with_info(
+                "Output voltage for a logic High. The default 5 V / 0 V pair tracks the supply rails (Vcc - 1.3 V / Vgnd + 0.1 V).",
+            ),
             PropDef::float(
                 "OutLowV",
                 "Low Output Voltage",
@@ -94,7 +96,9 @@ impl Component for Lm555 {
                 Lm555::get_out_low_v,
                 Lm555::set_out_low_v,
             )
-            .with_info("Output voltage for a logic Low."),
+            .with_info(
+                "Output voltage for a logic Low. The default 5 V / 0 V pair tracks the supply rails (Vcc - 1.3 V / Vgnd + 0.1 V).",
+            ),
         ];
         PROPS
     }

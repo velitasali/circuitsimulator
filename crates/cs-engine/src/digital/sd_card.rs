@@ -96,6 +96,30 @@ impl SdCardSpi {
         }
     }
 
+    /// Adopt SPI protocol and bus state while keeping this instance's backing file and image.
+    pub fn adopt_protocol_from(&mut self, prev: &Self) {
+        self.cs_high = prev.cs_high;
+        self.last_sck = prev.last_sck;
+        self.do_high = prev.do_high;
+        self.do_driven = prev.do_driven;
+        self.spi_mode = prev.spi_mode;
+        self.in_idle = prev.in_idle;
+        self.high_capacity = prev.high_capacity;
+        self.block_len = prev.block_len;
+        self.app_cmd = prev.app_cmd;
+        self.in_bit_count = prev.in_bit_count;
+        self.in_byte = prev.in_byte;
+        self.cmd_bytes = prev.cmd_bytes;
+        self.cmd_idx = prev.cmd_idx;
+        self.in_command = prev.in_command;
+        self.tx_queue = prev.tx_queue.clone();
+        self.tx_byte = prev.tx_byte;
+        self.tx_bit_idx = prev.tx_bit_idx;
+        self.write_state = prev.write_state;
+        self.write_lba = prev.write_lba;
+        self.write_buf = prev.write_buf.clone();
+    }
+
     /// Read a 512-byte logical block from the backing storage.
     pub fn read_sector(&self, lba: u64, out: &mut [u8; 512]) {
         let offset = (lba as usize) * 512;

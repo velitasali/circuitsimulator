@@ -321,6 +321,7 @@ pub struct ScopeSampler {
     trig_t: f64,
     prev: Vec<f64>,
     high: Vec<bool>,
+    digital_quantized: bool,
     pub connected: Vec<bool>,
     pub freq_meters: Vec<FreqMeterState>,
 }
@@ -446,6 +447,7 @@ impl ScopeSampler {
             trig_t: 0.0,
             prev: vec![0.0; nch],
             high: vec![false; nch],
+            digital_quantized: false,
             connected: vec![false; nch],
             freq_meters: vec![FreqMeterState::default(); nch],
         }
@@ -621,7 +623,12 @@ impl ScopeSampler {
 
         let start = self.start_idx();
         let step_f = step_ps as f64;
-        let mid = 0.5 * (thr_r + thr_f);
+        let (eff_r, eff_f) = if self.digital_quantized {
+            (0.5, 0.5)
+        } else {
+            (thr_r, thr_f)
+        };
+        let mid = 0.5 * (eff_r + eff_f);
         let to_tick = |t_sec: f64| -> u64 { ((t_sec * 1e12) / step_f).round().max(0.0) as u64 };
 
         let idx0 = start;
@@ -658,8 +665,8 @@ impl ScopeSampler {
             let mut changes: Vec<(char, char)> = Vec::new();
             for (i, &(c, code, _)) in active.iter().enumerate() {
                 let v = self.ch[c][idx];
-                let next = if thr_r > thr_f {
-                    if bits[i] { v > thr_f } else { v >= thr_r }
+                let next = if eff_r > eff_f {
+                    if bits[i] { v > eff_f } else { v >= eff_r }
                 } else {
                     v >= mid
                 };
@@ -693,6 +700,7 @@ impl ScopeSampler {
         thr_f: f64,
         trigger: i32,
     ) {
+        self.digital_quantized = true;
         let mut bits = vec![0.0; self.nch];
         for c in 0..self.nch {
             let v = values.get(c).copied().unwrap_or(0.0);
@@ -805,7 +813,7 @@ impl ScopeSampler {
         (0..self.nch).map(|c| self.ch[c][idx0]).collect()
     }
 
-    fn last_crossing(&self, ch: usize, level: f64) -> Option<f64> {
+    fn last_crossing(&self, ch: usize, level: f64, rising: bool) -> Option<f64> {
         if self.n < 2 || ch >= self.nch {
             return None;
         }
@@ -832,20 +840,29 @@ impl ScopeSampler {
         }
 
         // If specified trigger level is not within the signal swing, use the signal midpoint.
-        let eff_level = if level > min_v && level < max_v {
+        let eff_level = if self.digital_quantized {
+            0.5
+        } else if level > min_v && level < max_v {
             level
         } else {
             (min_v + max_v) * 0.5
         };
 
-        // Search backwards from the latest sample to find the last rising edge immediately
+        // Search backwards from the latest sample to find the last matching edge immediately.
         for k in (offset.max(1)..self.n).rev() {
             let idx = (start + k) % self.cap;
             let prev_idx = (start + k - 1) % self.cap;
             let cur = self.ch[ch][idx];
             let prev = self.ch[ch][prev_idx];
-            if prev < eff_level && cur >= eff_level {
-                return Some(self.t[idx]);
+            let crossed = if rising {
+                prev < eff_level && cur >= eff_level
+            } else {
+                prev > eff_level && cur <= eff_level
+            };
+            if crossed {
+                // `t[prev_idx]` is the corner timestamp frozen at the exact time sample
+                // `idx` entered (whereas `t[idx]` is later bumped by the following change).
+                return Some(self.t[prev_idx]);
             }
         }
         None
@@ -863,11 +880,12 @@ impl ScopeSampler {
         colors: &[&str],
         digital_thr: Option<f64>,
     ) -> PlotBuffer {
-        self.traces_with_count(
+        self.traces_with_count_edge(
             time_div,
             time_pos,
             trigger,
             trig_level,
+            true,
             colors,
             digital_thr,
             DISPLAY_N,
@@ -878,9 +896,20 @@ impl ScopeSampler {
     /// Right-edge reference timestamp for a window of `window` seconds before
     /// subtracting `time_pos`.
     pub fn window_t_base(&self, window: f64, trigger: i32, trig_level: f64) -> f64 {
+        self.window_t_base_edge(window, trigger, trig_level, true)
+    }
+
+    /// Right-edge reference timestamp honoring rising or falling trigger edge.
+    pub fn window_t_base_edge(
+        &self,
+        window: f64,
+        trigger: i32,
+        trig_level: f64,
+        rising: bool,
+    ) -> f64 {
         let t_last = self.last_time();
         if trigger >= 0 && (trigger as usize) < self.nch {
-            self.last_crossing(trigger as usize, trig_level)
+            self.last_crossing(trigger as usize, trig_level, rising)
                 .map(|t| (t + window * 0.5).min(t_last))
                 .unwrap_or(t_last)
         } else {
@@ -901,6 +930,30 @@ impl ScopeSampler {
         trig_level: f64,
         h_divs: f64,
     ) -> f64 {
+        self.zoomed_time_pos_edge(
+            old_time_div,
+            new_time_div,
+            time_pos,
+            anchor_fraction,
+            trigger,
+            trig_level,
+            true,
+            h_divs,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn zoomed_time_pos_edge(
+        &self,
+        old_time_div: f64,
+        new_time_div: f64,
+        time_pos: f64,
+        anchor_fraction: f64,
+        trigger: i32,
+        trig_level: f64,
+        rising: bool,
+        h_divs: f64,
+    ) -> f64 {
         let h_divs = if h_divs.is_finite() {
             h_divs.max(1e-3)
         } else {
@@ -908,8 +961,8 @@ impl ScopeSampler {
         };
         let old_window = (old_time_div.max(1e-12) * h_divs).max(1e-12);
         let new_window = (new_time_div.max(1e-12) * h_divs).max(1e-12);
-        let old_base = self.window_t_base(old_window, trigger, trig_level);
-        let new_base = self.window_t_base(new_window, trigger, trig_level);
+        let old_base = self.window_t_base_edge(old_window, trigger, trig_level, rising);
+        let new_base = self.window_t_base_edge(new_window, trigger, trig_level, rising);
         zoomed_time_pos_untriggered(
             old_time_div,
             new_time_div,
@@ -922,12 +975,40 @@ impl ScopeSampler {
     /// Window of `time_div * h_divs` seconds, `n_display` samples.
     /// The schematic screen passes 10 divisions. An expanded window passes
     /// however many divisions fit.
+    #[allow(clippy::too_many_arguments)]
     pub fn traces_with_count(
         &self,
         time_div: f64,
         time_pos: f64,
         trigger: i32,
         trig_level: f64,
+        colors: &[&str],
+        digital_thr: Option<f64>,
+        n_display: usize,
+        h_divs: f64,
+    ) -> PlotBuffer {
+        self.traces_with_count_edge(
+            time_div,
+            time_pos,
+            trigger,
+            trig_level,
+            true,
+            colors,
+            digital_thr,
+            n_display,
+            h_divs,
+        )
+    }
+
+    /// Like [`Self::traces_with_count`], honoring rising (`true`) or falling (`false`) trigger edge.
+    #[allow(clippy::too_many_arguments)]
+    pub fn traces_with_count_edge(
+        &self,
+        time_div: f64,
+        time_pos: f64,
+        trigger: i32,
+        trig_level: f64,
+        rising: bool,
         colors: &[&str],
         digital_thr: Option<f64>,
         n_display: usize,
@@ -940,7 +1021,7 @@ impl ScopeSampler {
             10.0
         };
         let window = (time_div.max(1e-12) * h_divs).max(1e-12);
-        let t_base = self.window_t_base(window, trigger, trig_level);
+        let t_base = self.window_t_base_edge(window, trigger, trig_level, rising);
         // time_pos shifts the window back/forward in time without buffer loss
         let t_end = t_base - time_pos;
         let t_start = t_end - window;
@@ -1092,11 +1173,8 @@ impl ScopeSampler {
         let val = self.ch[ch][idx];
         match digital_thr {
             Some(thr) => {
-                if val >= thr {
-                    1.0
-                } else {
-                    0.0
-                }
+                let eff_thr = if self.digital_quantized { 0.5 } else { thr };
+                if val >= eff_thr { 1.0 } else { 0.0 }
             }
             None => val,
         }
@@ -1295,6 +1373,9 @@ pub struct InstrumentState {
     pub freq: FxHashMap<String, FreqMeterState>,
     pub scopes: FxHashMap<String, ScopeSampler>,
     pub las: FxHashMap<String, ScopeSampler>,
+    /// Instrument ids whose sampler was blanked by `blank_channel` since the
+    /// last canvas sync.
+    pub blanked_ids: Vec<String>,
 }
 
 impl InstrumentState {
@@ -1303,6 +1384,7 @@ impl InstrumentState {
         self.freq.clear();
         self.scopes.clear();
         self.las.clear();
+        self.blanked_ids.clear();
     }
 
     pub fn first_scope(&self) -> Option<&ScopeSampler> {

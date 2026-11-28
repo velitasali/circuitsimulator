@@ -9,12 +9,23 @@ use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 use crate::theme::COMPONENT_BORDER_WIDTH;
 
-const MIN_DIM: i64 = 1;
-const MAX_DIM: i64 = 4096;
+const MIN_WIDTH: i64 = 32;
+const MAX_WIDTH: i64 = 128;
+const MIN_HEIGHT: i64 = 16;
+const MAX_HEIGHT: i64 = 128;
 const MIN_ADDR: i64 = 0;
 const MAX_ADDR: i64 = 127;
 const MIN_FREQ_KHZ: f64 = 1.0;
 const MAX_FREQ_KHZ: f64 = 1000.0;
+
+fn clamp_width(w: u32) -> usize {
+    (w as usize).clamp(MIN_WIDTH as usize, MAX_WIDTH as usize)
+}
+
+fn clamp_height(h: u32) -> usize {
+    (((h as usize).clamp(MIN_HEIGHT as usize, MAX_HEIGHT as usize) / 8) * 8)
+        .max(MIN_HEIGHT as usize)
+}
 
 impl crate::canvas::Item {
     pub fn sh1107(id: impl Into<String>, x: f64, y: f64, width: u32, height: u32) -> Self {
@@ -61,18 +72,18 @@ impl Default for Sh1107 {
 impl Sh1107 {
     pub const TYPE_ID: &'static str = "Sh1107";
     pub fn disp_width(&self) -> usize {
-        self.width as usize
+        clamp_width(self.width)
     }
 
     pub fn disp_height(&self) -> usize {
-        self.height as usize
+        clamp_height(self.height)
     }
 
     pub fn to_element_kind(&self) -> Kind {
         Kind::Sh1107(crate::digital::Sh1107State::new(
             "",
-            self.width as usize,
-            self.height as usize,
+            self.disp_width(),
+            self.disp_height(),
             self.control_code,
             self.x_offset,
             self.freq_khz,
@@ -80,18 +91,20 @@ impl Sh1107 {
     }
 
     fn get_width(&self) -> PropValue {
-        PropValue::Int(self.width as i64)
+        PropValue::Int(self.disp_width() as i64)
     }
     fn set_width(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.width = expect_int("Width", v)?.clamp(MIN_DIM, MAX_DIM) as u32;
+        let raw = expect_int("Width", v)?.clamp(MIN_WIDTH, MAX_WIDTH) as u32;
+        self.width = clamp_width(raw) as u32;
         Ok(())
     }
 
     fn get_height(&self) -> PropValue {
-        PropValue::Int(self.height as i64)
+        PropValue::Int(self.disp_height() as i64)
     }
     fn set_height(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.height = expect_int("Height", v)?.clamp(MIN_DIM, MAX_DIM) as u32;
+        let raw = expect_int("Height", v)?.clamp(MIN_HEIGHT, MAX_HEIGHT) as u32;
+        self.height = clamp_height(raw) as u32;
         Ok(())
     }
 
@@ -132,12 +145,12 @@ impl Component for Sh1107 {
             let mut p = PropDef::int(
                 "Width",
                 "Width",
-                MIN_DIM,
-                MAX_DIM,
+                MIN_WIDTH,
+                MAX_WIDTH,
                 Sh1107::get_width,
                 Sh1107::set_width,
             )
-            .with_info("Screen width in pixels.");
+            .with_info("Screen width in pixels (32..=128).");
             p.structural = true;
             p
         };
@@ -145,12 +158,12 @@ impl Component for Sh1107 {
             let mut p = PropDef::int(
                 "Height",
                 "Height",
-                MIN_DIM,
-                MAX_DIM,
+                MIN_HEIGHT,
+                MAX_HEIGHT,
                 Sh1107::get_height,
                 Sh1107::set_height,
             )
-            .with_info("Screen height in pixels.");
+            .with_info("Screen height in pixels (16..=128, multiple of 8).");
             p.structural = true;
             p
         };
@@ -205,7 +218,7 @@ impl Component for Sh1107 {
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
-        let h = self.height as f64;
+        let h = self.disp_height() as f64;
         let pin_y = h / 2.0 + 16.0;
         vec![
             CompPin::openco_pin("-PinSck", -48.0, pin_y, 270, 8.0).with_label("SCL"),
@@ -214,8 +227,8 @@ impl Component for Sh1107 {
     }
 
     fn body(&self) -> Rect {
-        let w = self.width as f64;
-        let h = self.height as f64;
+        let w = self.disp_width() as f64;
+        let h = self.disp_height() as f64;
         Rect::new(-70.0, -h / 2.0 - 16.0, w + 12.0, h + 24.0)
     }
 }
@@ -226,8 +239,10 @@ impl Stampable for Sh1107 {
 
 impl super::drawable::Drawable for Sh1107 {
     fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
-        let w = self.width as f64;
-        let h = self.height as f64;
+        let disp_w = self.disp_width();
+        let disp_h = self.disp_height();
+        let w = disp_w as f64;
+        let h = disp_h as f64;
         // Module casing
         d.fill_round_rect(
             -70.0,
@@ -261,8 +276,8 @@ impl super::drawable::Drawable for Sh1107 {
             screen_y,
             w,
             h,
-            self.width as usize,
-            (self.height as usize) / 8,
+            disp_w,
+            disp_h / 8,
             hex,
             Color::rgb(0, 170, 255),
             Color::rgb(0, 0, 0),

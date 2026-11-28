@@ -1,5 +1,6 @@
 //! Digital Memory IC state machines matching C++ `Memory`, `DynamicMemory`, and `I2CRam`.
 
+use super::TwiModule;
 use super::family::LogicFamily;
 use super::pin::IoPin;
 use super::queue::OutQueue;
@@ -10,11 +11,11 @@ use super::queue::OutQueue;
 
 #[derive(Clone, Debug)]
 pub struct MemoryState {
-    pub addr_bits: usize,      // e.g. 8 bits (256 bytes) to 16 bits (64KB)
-    pub data_bits: usize,      // e.g. 8 bits
-    pub data: Vec<u8>,         // Memory buffer
+    pub addr_bits: usize,      // e.g. 8 bits (256 words) to 16 bits (64K words)
+    pub data_bits: usize,      // 1..=16 bits per word
+    pub data: Vec<u8>,         // Little-endian packed word buffer (1 or 2 bytes/word)
     pub addr_pins: Vec<IoPin>, // A0..An-1
-    pub data_pins: Vec<IoPin>, // D0..Dm-1 (bidirectional)
+    pub data_pins: Vec<IoPin>, // D0..Dm-1 (bidirectional, tri-stated when not reading)
     pub cs: IoPin,             // Chip Select (active low)
     pub oe: IoPin,             // Output Enable (active low)
     pub we: IoPin,             // Write Enable (active low)
@@ -24,10 +25,15 @@ pub struct MemoryState {
 }
 
 impl MemoryState {
+    pub fn word_bytes(&self) -> usize {
+        self.data_bits.div_ceil(8).max(1)
+    }
+
     pub fn new(id: &str, addr_bits: usize, data_bits: usize, is_rom: bool) -> Self {
         let addr_bits = addr_bits.clamp(1, 16);
         let data_bits = data_bits.clamp(1, 16);
-        let size = 1usize << addr_bits;
+        let word_bytes = data_bits.div_ceil(8).max(1);
+        let size = (1usize << addr_bits) * word_bytes;
         let data = vec![0u8; size];
 
         let mut addr_pins = Vec::with_capacity(addr_bits);
@@ -36,7 +42,9 @@ impl MemoryState {
         }
         let mut data_pins = Vec::with_capacity(data_bits);
         for i in 0..data_bits {
-            data_pins.push(IoPin::output(format!("{id}-out{i}")));
+            let mut p = IoPin::output(format!("{id}-out{i}"));
+            p.set_state_z(true);
+            data_pins.push(p);
         }
         let cs = IoPin::input(format!("{id}-Pin_Cs"));
         let oe = IoPin::input(format!("{id}-Pin_outEnable"));
@@ -56,6 +64,9 @@ impl MemoryState {
             queue: OutQueue::new(),
         };
         st.apply_family();
+        for p in &mut st.data_pins {
+            p.set_state_z(true);
+        }
         st
     }
 
@@ -64,50 +75,94 @@ impl MemoryState {
             self.family.apply(p);
         }
         for p in &mut self.data_pins {
+            let z = p.is_state_z();
             self.family.apply(p);
+            if z {
+                p.set_state_z(true);
+            }
         }
         self.family.apply(&mut self.cs);
         self.family.apply(&mut self.oe);
         self.family.apply(&mut self.we);
     }
 
+    fn read_word(&self, addr: usize) -> u16 {
+        let wb = self.word_bytes();
+        let off = addr * wb;
+        if wb == 1 {
+            u16::from(self.data.get(off).copied().unwrap_or(0))
+        } else {
+            let lo = self.data.get(off).copied().unwrap_or(0);
+            let hi = self.data.get(off + 1).copied().unwrap_or(0);
+            u16::from_le_bytes([lo, hi])
+        }
+    }
+
+    fn write_word(&mut self, addr: usize, val: u16) {
+        let wb = self.word_bytes();
+        let off = addr * wb;
+        if wb == 1 {
+            if let Some(slot) = self.data.get_mut(off) {
+                *slot = val as u8;
+            }
+        } else {
+            let [lo, hi] = val.to_le_bytes();
+            if off + 1 < self.data.len() {
+                self.data[off] = lo;
+                self.data[off + 1] = hi;
+            }
+        }
+    }
+
     pub fn eval(&mut self) {
         let cs_active = !self.cs.inp_state(); // active-low
         if !cs_active {
             for p in &mut self.data_pins {
-                p.set_out_state(false);
+                p.set_state_z(true);
             }
             return;
         }
 
+        let word_count = (self.data.len() / self.word_bytes()).max(1);
         let mut addr = 0usize;
         for (i, p) in self.addr_pins.iter().enumerate() {
             if p.inp_state() {
                 addr |= 1 << i;
             }
         }
-        addr = addr.min(self.data.len() - 1);
+        addr = addr.min(word_count - 1);
 
         let we_active = !self.is_rom && !self.we.inp_state(); // active-low WE
         if we_active {
-            let mut val = 0u8;
-            for (i, p) in self.data_pins.iter().enumerate() {
-                if p.inp_state() {
-                    val |= 1 << i;
-                }
+            // Release data drivers before sampling so external bus drivers aren't fought.
+            let was_driving = self.data_pins.iter().any(|p| !p.is_state_z());
+            for p in &mut self.data_pins {
+                p.set_state_z(true);
             }
-            self.data[addr] = val;
+            if !was_driving {
+                let mut val = 0u16;
+                for (i, p) in self.data_pins.iter().enumerate() {
+                    if i < 16 && p.inp_state() {
+                        val |= 1u16 << i;
+                    }
+                }
+                self.write_word(addr, val);
+            }
+            return;
         }
 
         let oe_active = !self.oe.inp_state(); // active-low OE
-        if oe_active && !we_active {
-            let val = self.data[addr];
+        if oe_active {
+            let val = self.read_word(addr);
             for (i, p) in self.data_pins.iter_mut().enumerate() {
-                p.set_out_state(((val >> i) & 1) != 0);
+                if p.is_state_z() {
+                    p.set_state_z(false);
+                }
+                p.set_out_state(i < 16 && ((val >> i) & 1) != 0);
             }
-        } else if !we_active {
+        } else {
             for p in &mut self.data_pins {
-                p.set_out_state(false);
+                p.set_state_z(true);
             }
         }
     }
@@ -119,7 +174,7 @@ impl MemoryState {
 
 #[derive(Clone, Debug)]
 pub struct DynamicMemoryState {
-    pub addr_bits: usize, // Multiplexed address bits (e.g. 8 bits -> 64K matrix)
+    pub addr_bits: usize, // Multiplexed address bits (4..=12 -> 1 << (addr_bits * 2) bytes)
     pub data_bits: usize, // Data bus width (default 8)
     pub data: Vec<u8>,    // Memory array
     pub row_addr: usize,  // Latched row address (on RAS falling)
@@ -149,7 +204,9 @@ impl DynamicMemoryState {
         }
         let mut data_pins = Vec::with_capacity(data_bits);
         for i in 0..data_bits {
-            data_pins.push(IoPin::output(format!("{id}-out{i}")));
+            let mut p = IoPin::output(format!("{id}-out{i}"));
+            p.set_state_z(true);
+            data_pins.push(p);
         }
         let ras = IoPin::input(format!("{id}-Pin_Ras"));
         let cas = IoPin::input(format!("{id}-Pin_Cas"));
@@ -174,6 +231,9 @@ impl DynamicMemoryState {
             queue: OutQueue::new(),
         };
         st.apply_family();
+        for p in &mut st.data_pins {
+            p.set_state_z(true);
+        }
         st
     }
 
@@ -182,7 +242,11 @@ impl DynamicMemoryState {
             self.family.apply(p);
         }
         for p in &mut self.data_pins {
+            let z = p.is_state_z();
             self.family.apply(p);
+            if z {
+                p.set_state_z(true);
+            }
         }
         self.family.apply(&mut self.ras);
         self.family.apply(&mut self.cas);
@@ -206,14 +270,18 @@ impl DynamicMemoryState {
         self.last_ras = ras_now;
 
         let cas_now = self.cas.inp_state();
-        // Falling edge on CAS latches col address and performs read/write
+        let we_active = !self.we.inp_state(); // active low WE
+        let oe_active = !self.oe.inp_state(); // active low OE
+
         if !cas_now && self.last_cas {
             self.col_addr = curr_addr;
             let full_addr = (self.row_addr << self.addr_bits) | self.col_addr;
             let full_addr = full_addr.min(self.data.len() - 1);
 
-            let we_active = !self.we.inp_state(); // active low WE
             if we_active {
+                for p in &mut self.data_pins {
+                    p.set_state_z(true);
+                }
                 let mut val = 0u8;
                 for (i, p) in self.data_pins.iter().enumerate() {
                     if p.inp_state() {
@@ -221,16 +289,50 @@ impl DynamicMemoryState {
                     }
                 }
                 self.data[full_addr] = val;
-            } else {
-                let oe_active = !self.oe.inp_state(); // active low OE
-                let val = if oe_active { self.data[full_addr] } else { 0 };
+            } else if oe_active {
+                let val = self.data[full_addr];
                 for (i, p) in self.data_pins.iter_mut().enumerate() {
-                    p.set_out_state(oe_active && (val & (1 << i) != 0));
+                    if p.is_state_z() {
+                        p.set_state_z(false);
+                    }
+                    p.set_out_state((val & (1 << i)) != 0);
+                }
+            } else {
+                for p in &mut self.data_pins {
+                    p.set_state_z(true);
                 }
             }
-        } else if cas_now || self.oe.inp_state() {
+        } else if !cas_now && we_active {
+            // Keep drivers released while WE is low during an active CAS cycle,
+            // and re-sample external data once released.
+            let was_driving = self.data_pins.iter().any(|p| !p.is_state_z());
             for p in &mut self.data_pins {
-                p.set_out_state(false);
+                p.set_state_z(true);
+            }
+            if !was_driving {
+                let full_addr =
+                    ((self.row_addr << self.addr_bits) | self.col_addr).min(self.data.len() - 1);
+                let mut val = 0u8;
+                for (i, p) in self.data_pins.iter().enumerate() {
+                    if p.inp_state() {
+                        val |= 1 << i;
+                    }
+                }
+                self.data[full_addr] = val;
+            }
+        } else if !cas_now && oe_active {
+            let full_addr =
+                ((self.row_addr << self.addr_bits) | self.col_addr).min(self.data.len() - 1);
+            let val = self.data[full_addr];
+            for (i, p) in self.data_pins.iter_mut().enumerate() {
+                if p.is_state_z() {
+                    p.set_state_z(false);
+                }
+                p.set_out_state((val & (1 << i)) != 0);
+            }
+        } else {
+            for p in &mut self.data_pins {
+                p.set_state_z(true);
             }
         }
         self.last_cas = cas_now;
@@ -241,120 +343,105 @@ impl DynamicMemoryState {
 // 24Cxx I2C Serial EEPROM (I2CRam)
 // ============================================================================
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum I2CRamStateMode {
-    Idle,
-    RecvAddress,
-    RecvMemAddress,
-    WriteData,
-    ReadData,
-}
-
 #[derive(Clone, Debug)]
 pub struct I2CRamState {
     pub size_bytes: usize,
-    pub dev_address: u8, // Base I2C address, e.g. 0x50
-    pub data: Vec<u8>,   // e.g. 256 bytes (24C02) up to 8KB (24C64)
+    pub dev_address: u8, // 7-bit base I2C address, e.g. 0x50
+    pub data: Vec<u8>,   // 1..=65536 bytes
     pub mem_ptr: u16,
-    pub mode: I2CRamStateMode,
-    pub bit_count: u8,
-    pub rx_byte: u8,
+    pub addr_bytes_left: u8,
+    pub addr_acc: u16,
     pub scl: IoPin,
     pub sda: IoPin,
-    pub last_scl: bool,
-    pub last_sda: bool,
+    pub addr_pins: [IoPin; 3], // A0, A1, A2 strap inputs (in2, in3, in4)
+    pub twi: TwiModule,
     pub family: LogicFamily,
     pub queue: OutQueue,
 }
 
 impl I2CRamState {
     pub fn new(id: &str, size_bytes: usize, dev_address: u8) -> Self {
-        let size_bytes = size_bytes.clamp(128, 65536);
+        let size_bytes = size_bytes.clamp(1, 65536);
         let data = vec![0u8; size_bytes];
         let scl = IoPin::input(format!("{id}-in1"));
         let sda = IoPin::open_collector(format!("{id}-in0"));
+        let addr_pins = [
+            IoPin::input(format!("{id}-in2")),
+            IoPin::input(format!("{id}-in3")),
+            IoPin::input(format!("{id}-in4")),
+        ];
+        let mut twi = TwiModule::new();
+        twi.set_slave(dev_address & 0x7F);
 
         let mut st = Self {
             size_bytes,
-            dev_address: dev_address & 0x78,
+            dev_address: dev_address & 0x7F,
             data,
             mem_ptr: 0,
-            mode: I2CRamStateMode::Idle,
-            bit_count: 0,
-            rx_byte: 0,
+            addr_bytes_left: 0,
+            addr_acc: 0,
             scl,
             sda,
-            last_scl: true,
-            last_sda: true,
+            addr_pins,
+            twi,
             family: LogicFamily::default(),
             queue: OutQueue::new(),
         };
         st.apply_family();
+        // Open-collector SDA must idle released (high-Z) so the host can drive the bus.
+        st.sda.set_out_state(true);
         st
     }
 
     pub fn apply_family(&mut self) {
         self.family.apply(&mut self.scl);
         self.family.apply(&mut self.sda);
+        for p in &mut self.addr_pins {
+            self.family.apply(p);
+        }
+    }
+
+    pub fn effective_address(&self) -> u8 {
+        let mut strap = 0u8;
+        for (i, pin) in self.addr_pins.iter().enumerate() {
+            if pin.inp_state() {
+                strap |= 1 << i;
+            }
+        }
+        (self.dev_address & 0x7F) | strap
+    }
+
+    pub fn addr_width_bytes(&self) -> u8 {
+        if self.size_bytes > 256 { 2 } else { 1 }
     }
 
     pub fn tick(&mut self) {
-        let sda_in = self.sda.inp_state();
-        let scl_in = self.scl.inp_state();
-
-        // I2C Start condition: SDA falling while SCL is high
-        if scl_in && self.last_sda && !sda_in {
-            self.mode = I2CRamStateMode::RecvAddress;
-            self.bit_count = 0;
-            self.rx_byte = 0;
+        let addr = self.effective_address();
+        if self.twi.address != addr {
+            self.twi.set_slave(addr);
         }
-        // I2C Stop condition: SDA rising while SCL is high
-        if scl_in && !self.last_sda && sda_in {
-            self.mode = I2CRamStateMode::Idle;
+        let tick = self.twi.volt_changed_pins(&mut self.scl, &mut self.sda);
+        if tick.need_start_write {
+            self.addr_bytes_left = self.addr_width_bytes();
+            self.addr_acc = 0;
         }
-
-        // Clock edge processing
-        if !self.last_scl && scl_in {
-            // Rising edge of SCL: Sample SDA
-            if self.mode == I2CRamStateMode::RecvAddress {
-                self.rx_byte = (self.rx_byte << 1) | (if sda_in { 1 } else { 0 });
-                self.bit_count += 1;
-                if self.bit_count == 8 {
-                    let addr = self.rx_byte >> 1;
-                    let is_read = (self.rx_byte & 1) != 0;
-                    if (addr & 0x78) == self.dev_address {
-                        // ACK and transition
-                        if is_read {
-                            self.mode = I2CRamStateMode::ReadData;
-                        } else {
-                            self.mode = I2CRamStateMode::RecvMemAddress;
-                        }
-                    } else {
-                        self.mode = I2CRamStateMode::Idle;
-                    }
-                    self.bit_count = 0;
+        if let Some(byte) = tick.byte_received {
+            if self.addr_bytes_left > 0 {
+                self.addr_acc = (self.addr_acc << 8) | u16::from(byte);
+                self.addr_bytes_left -= 1;
+                if self.addr_bytes_left == 0 {
+                    self.mem_ptr = (self.addr_acc as usize % self.data.len()) as u16;
                 }
-            } else if self.mode == I2CRamStateMode::RecvMemAddress {
-                self.rx_byte = (self.rx_byte << 1) | (if sda_in { 1 } else { 0 });
-                self.bit_count += 1;
-                if self.bit_count == 8 {
-                    self.mem_ptr = self.rx_byte as u16 % self.data.len() as u16;
-                    self.mode = I2CRamStateMode::WriteData;
-                    self.bit_count = 0;
-                }
-            } else if self.mode == I2CRamStateMode::WriteData {
-                self.rx_byte = (self.rx_byte << 1) | (if sda_in { 1 } else { 0 });
-                self.bit_count += 1;
-                if self.bit_count == 8 {
-                    let idx = self.mem_ptr as usize % self.data.len();
-                    self.data[idx] = self.rx_byte;
-                    self.mem_ptr = (self.mem_ptr + 1) % self.data.len() as u16;
-                    self.bit_count = 0;
-                }
+            } else {
+                let idx = self.mem_ptr as usize % self.data.len();
+                self.data[idx] = byte;
+                self.mem_ptr = ((idx + 1) % self.data.len()) as u16;
             }
         }
-
-        self.last_sda = sda_in;
-        self.last_scl = scl_in;
+        if tick.need_slave_write {
+            let idx = self.mem_ptr as usize % self.data.len();
+            self.twi.tx_reg = self.data[idx];
+            self.mem_ptr = ((idx + 1) % self.data.len()) as u16;
+        }
     }
 }

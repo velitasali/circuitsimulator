@@ -47,10 +47,10 @@ fn test_touchpad_4wire_reading_simulation() {
     approx(c_center.pin_voltage("tp-vry_p").unwrap(), 2.5);
 
     // 3. Touched at quarter position (50, 25)
-    // x_pos = 50 / 200 = 0.25
-    // xResA = 100 + 400 * 0.25 = 200 Ω (between vrx_p and nodeX)
-    // xResB = 600 - 200 = 400 Ω (between nodeX and vrx_m)
-    // Voltage at nodeX = 5.0 * 400 / (200 + 400) = 3.333 V
+    // x_pos = 50 / 200 = 0.25 (left side is RxMax=500, right side is RxMin=100)
+    // xResA = 500 - 400 * 0.25 = 400 Ω (between vrx_p and nodeX)
+    // xResB = 600 - 400 = 200 Ω (between nodeX and vrx_m)
+    // Voltage at nodeX = 5.0 * 200 / (400 + 200) = 1.667 V
     let mut c_quarter = Circuit::new();
     c_quarter.add_fixed_volt("src_x", 5.0);
     c_quarter.add_ground("gnd");
@@ -63,7 +63,7 @@ fn test_touchpad_4wire_reading_simulation() {
     c_quarter.connect("r_load-rPin", "gnd-Gnd");
 
     c_quarter.solve().unwrap();
-    approx(c_quarter.pin_voltage("tp-vry_p").unwrap(), 3.333);
+    approx(c_quarter.pin_voltage("tp-vry_p").unwrap(), 1.667);
 }
 
 #[test]
@@ -214,9 +214,9 @@ fn test_touchpad_mouse_interaction_on_circuit_view() {
     assert_eq!(canvas.scene().item_by_id("TouchPad-1").unwrap().x_pos(), 50);
     assert_eq!(canvas.scene().item_by_id("TouchPad-1").unwrap().y_pos(), 25);
 
-    // Simulation updates to ~3.333V
+    // Simulation updates to ~1.667V (left quarter: RxA=400, RxB=200)
     let v_yp_quarter = canvas.pin_voltage("TouchPad-1-vry_p").unwrap();
-    approx(v_yp_quarter, 3.333);
+    approx(v_yp_quarter, 1.667);
 
     // 4. Mouse Release -> Finger lifted
     let ch_rel = canvas.mouse_release(BUTTON_LEFT, screen_quarter.x, screen_quarter.y, 0);

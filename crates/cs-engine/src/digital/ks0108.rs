@@ -198,6 +198,25 @@ impl Ks0108State {
         }
     }
 
+    fn sample_half_byte(
+        ram: &[[u8; HALF_WIDTH]; PAGES],
+        start_line: usize,
+        page: usize,
+        col: usize,
+    ) -> u8 {
+        if start_line == 0 {
+            return ram[page][col];
+        }
+        let mut out = 0u8;
+        for bit in 0..8 {
+            let ry = (page * 8 + bit + start_line) & 63;
+            if (ram[ry / 8][col] & (1 << (ry & 7))) != 0 {
+                out |= 1 << bit;
+            }
+        }
+        out
+    }
+
     pub fn hex_bitmap(&self) -> String {
         if !self.disp_on_1 && !self.disp_on_2 {
             return String::new();
@@ -209,7 +228,7 @@ impl Ks0108State {
         for page in 0..PAGES {
             for col in 0..HALF_WIDTH {
                 let b = if self.disp_on_1 {
-                    self.left_ram[page][col]
+                    Self::sample_half_byte(&self.left_ram, self.left_start_line, page, col)
                 } else {
                     0
                 };
@@ -217,7 +236,7 @@ impl Ks0108State {
             }
             for col in 0..HALF_WIDTH {
                 let b = if self.disp_on_2 {
-                    self.right_ram[page][col]
+                    Self::sample_half_byte(&self.right_ram, self.right_start_line, page, col)
                 } else {
                     0
                 };
@@ -249,9 +268,6 @@ impl Ks0108State {
 
                 let mut cs1 = self.pin_cs1.inp_state();
                 let mut cs2 = self.pin_cs2.inp_state();
-                if !cs1 && !cs2 {
-                    cs2 = true;
-                }
                 if self.cs_act_low {
                     cs1 = !cs1;
                     cs2 = !cs2;

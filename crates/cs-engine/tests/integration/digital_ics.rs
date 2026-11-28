@@ -54,10 +54,10 @@ fn test_bcd_converters() {
         assert_eq!(p.get_out_state(), i == 6, "Pin out{i} mismatch for input 6");
     }
 
-    // DecToBcd (Priority encoder)
+    // DecToBcd (Priority encoder: in0..in8 are D1..D9; all-low is 0)
     let mut dec2bcd = DecToBcdState::new("dec0", false, false);
-    // Assert input 7
-    dec2bcd.inputs[7].get_inp_state(5.0);
+    // Assert D7 (inputs[6])
+    dec2bcd.inputs[6].get_inp_state(5.0);
     dec2bcd.eval();
     // 7 in BCD is 0b0111 -> out0=1, out1=1, out2=1, out3=0
     assert_eq!(dec2bcd.outputs[0].get_out_state(), true);

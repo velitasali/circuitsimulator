@@ -3426,9 +3426,15 @@ impl CircuitCanvas {
     }
 
     #[qslot]
+    fn set_scope_trig_rising(&mut self, rising: bool) {
+        let c = self.inner.set_scope_trig_rising(rising);
+        self.apply_scope_view(c);
+    }
+
+    #[qslot]
     fn set_scope_filter(&mut self, v: f64) {
         let c = self.inner.set_scope_filter(v);
-        self.apply(c);
+        self.apply_scope_view(c);
     }
 
     #[qslot]

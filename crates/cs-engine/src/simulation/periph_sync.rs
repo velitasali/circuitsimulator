@@ -275,13 +275,14 @@ impl Circuit {
         }
     }
 
-    pub fn update_motors_dt(&mut self, dt_ps: u64) {
+    pub fn update_motors_dt(&mut self, dt_ps: u64) -> bool {
         if !self.has_motors_cached {
-            return;
+            return false;
         }
         let nodes = &self.nodes;
         let pin_caches = &self.pin_caches;
         let dt_s = dt_ps as f64 / 1e12;
+        let mut stamp_changed = false;
         for (i, c) in self.components.iter_mut().enumerate() {
             if let Kind::DcMotor {
                 rpm_nominal,
@@ -329,7 +330,11 @@ impl Circuit {
                 let v_plus = pc.and_then(|p| volt(p.left)).unwrap_or(0.0);
                 let v_gnd = pc.and_then(|p| volt(p.mid)).unwrap_or(0.0);
                 let v_supply = (v_plus - v_gnd).max(0.0);
+                let prev_draw = state.current_draw;
                 state.step_dynamics(pos, target_pos, speed, v_supply, dt_s);
+                if (state.current_draw - prev_draw).abs() > 1e-4 {
+                    stamp_changed = true;
+                }
             } else if let Kind::Stepper {
                 bipolar,
                 steps,
@@ -363,6 +368,7 @@ impl Circuit {
                 state.step_dynamics(angle, ia, ib, steps, resistance, dt_s);
             }
         }
+        stamp_changed
     }
 
     pub(super) fn sample_instruments(&mut self) {
@@ -485,7 +491,7 @@ impl Circuit {
                             .entry(comp_id.clone())
                             .or_insert_with(|| ScopeSampler::scope_with_capacity(*buffer_size)),
                     };
-                    s.push(t, &vals, &connected, -1, 0.0, true, 0.1);
+                    s.push(t, &vals, &connected, -1, 0.0, true, self.scope_filter);
                 }
                 CachedInstrument::LAnalizer {
                     comp_id,
@@ -512,7 +518,14 @@ impl Circuit {
                             .entry(comp_id.clone())
                             .or_insert_with(|| ScopeSampler::analyzer_with_capacity(*buffer_size)),
                     };
-                    s.push(t, &vals, &connected, -1, 0.0, true, 0.1);
+                    s.push_digital(
+                        t,
+                        &vals,
+                        &connected,
+                        self.la_threshold_r,
+                        self.la_threshold_f,
+                        self.la_trigger,
+                    );
                 }
             }
         }

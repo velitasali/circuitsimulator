@@ -265,27 +265,100 @@ impl Sh1107State {
         }
     }
 
+    /// Render 1-bit monochrome pixels `width x height`, applying start line,
+    /// display offset, segment remap, and COM scan direction.
+    pub fn render_pixels(&self) -> Vec<bool> {
+        let mut pixels = vec![false; self.width * self.height];
+        if !self.disp_on {
+            return pixels;
+        }
+        if self.disp_full {
+            pixels.fill(true);
+            return pixels;
+        }
+
+        for col in 0..self.width {
+            for row in 0..self.rows {
+                let mut ram_y = row * 8;
+                if self.ram_offset != 0 {
+                    ram_y = (ram_y + self.ram_offset as usize) % self.height;
+                }
+                if ram_y > self.mr as usize {
+                    continue;
+                }
+
+                let row_byte = ram_y / 8;
+                let mut byte0 = self
+                    .ddram
+                    .get(col)
+                    .and_then(|c| c.get(row_byte))
+                    .copied()
+                    .unwrap_or(0);
+                if self.disp_inv {
+                    byte0 = !byte0;
+                }
+
+                let start_bit = ram_y % 8;
+                let mut byte1 = 0u8;
+                if start_bit != 0 {
+                    let next_row = (row_byte + 1) % self.rows;
+                    byte1 = self
+                        .ddram
+                        .get(col)
+                        .and_then(|c| c.get(next_row))
+                        .copied()
+                        .unwrap_or(0);
+                    if self.disp_inv {
+                        byte1 = !byte1;
+                    }
+                }
+
+                let mut dy = (row * 8 + self.disp_offset as usize) % self.height;
+                for bit in start_bit..(start_bit + 8) {
+                    let pixel = if bit < 8 {
+                        (byte0 & (1 << bit)) != 0
+                    } else {
+                        (byte1 & (1 << (bit - 8))) != 0
+                    };
+                    if pixel {
+                        let screen_y = if self.scan_inv {
+                            self.height - 1 - dy
+                        } else {
+                            dy
+                        };
+                        let screen_x = if self.remap {
+                            self.width - 1 - col
+                        } else {
+                            col
+                        };
+                        if screen_x < self.width && screen_y < self.height {
+                            pixels[screen_y * self.width + screen_x] = true;
+                        }
+                    }
+                    dy = (dy + 1) % self.height;
+                }
+            }
+        }
+        pixels
+    }
+
     pub fn hex_bitmap(&self) -> String {
         if !self.disp_on {
             return String::new();
         }
 
+        let pixels = self.render_pixels();
         let mut hex = String::with_capacity(self.rows * self.width * 2);
         use std::fmt::Write;
 
         for page in 0..self.rows {
             for col in 0..self.width {
-                let actual_col = if self.remap {
-                    self.width.saturating_sub(1).saturating_sub(col)
-                } else {
-                    col
-                };
-                let mut byte = self.ddram[actual_col][page];
-                if self.disp_inv {
-                    byte = !byte;
-                }
-                if self.disp_full {
-                    byte = 0xFF;
+                let mut byte = 0u8;
+                for bit in 0..8 {
+                    let py = page * 8 + bit;
+                    if py < self.height && pixels[py * self.width + col] {
+                        byte |= 1 << bit;
+                    }
                 }
                 let _ = write!(hex, "{:02X}", byte);
             }

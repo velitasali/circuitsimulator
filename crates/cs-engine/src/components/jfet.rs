@@ -93,7 +93,14 @@ impl Jfet {
         PropValue::Float(self.vp)
     }
     fn set_vp(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.vp = expect_float("Vp", v)?.clamp(MIN_VP, MAX_VP);
+        let vp = expect_float("Vp", v)?.clamp(MIN_VP, MAX_VP);
+        if vp.abs() < 1e-6 {
+            return Err(PropError::Invalid {
+                id: "Vp".into(),
+                value: "0 V is not allowed".into(),
+            });
+        }
+        self.vp = vp;
         Ok(())
     }
     fn get_lambda_inv(&self) -> PropValue {
@@ -134,7 +141,7 @@ impl Component for Jfet {
                 "Drain-Source saturation current: drain current when Gate-Source voltage is 0.",
             ),
             PropDef::float("Vp", "Vp", "V", MIN_VP, MAX_VP, Jfet::get_vp, Jfet::set_vp).with_info(
-                "Pinch-off voltage: Gate-Source voltage at which the channel is fully pinched off.",
+                "Pinch-off voltage: Gate-Source voltage at which the channel is fully pinched off (negative for N-channel; positive or negative magnitude for P-channel; non-zero).",
             ),
             PropDef::float(
                 "LambdaInv",

@@ -280,7 +280,7 @@ fn test_ky040_quadrature_gray_code_and_joystick_normalized() {
     approx(canvas.pin_voltage("joy-vrx").unwrap(), 2.5);
     approx(canvas.pin_voltage("joy-vry").unwrap(), 2.5);
 
-    canvas.set_joystick_pos("joy", 1.0, -1.0);
+    canvas.set_joystick_pos("joy", 25.0, -25.0);
     approx(canvas.pin_voltage("joy-vrx").unwrap(), 5.0);
     approx(canvas.pin_voltage("joy-vry").unwrap(), 0.0);
 
@@ -384,8 +384,8 @@ fn test_joystick_and_encoder_canvas_mouse_interactions() {
     assert!(!ch_move_stick.items);
     assert!(canvas.take_dirty().items.contains("joy"));
 
-    // stick_x clamped to 13.0 -> norm = (13.0+25.0)/50.0 = 0.76 -> 5.0 * 0.76 = 3.8V
-    approx(canvas.pin_voltage("joy-vrx").unwrap(), 3.8);
+    // Drag to right rim (local dx=15, clamped to 13 px throw) -> full scale stick_x = 25.0 -> 5.0V
+    approx(canvas.pin_voltage("joy-vrx").unwrap(), 5.0);
     approx(canvas.pin_voltage("joy-vry").unwrap(), 2.5);
 
     // Release thumbstick -> should snap back to (0.0, 0.0)

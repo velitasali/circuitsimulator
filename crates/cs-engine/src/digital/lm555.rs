@@ -36,7 +36,7 @@ impl Lm555State {
     /// - `v_trg`: Trigger input voltage (pin 2)
     /// - `v_thr`: Threshold input voltage (pin 6)
     /// - `v_cv`: Control Voltage pin (pin 5, optional override)
-    /// - `v_rst`: Reset pin (pin 4, active low below ~0.7V)
+    /// - `v_rst`: Reset pin (pin 4, active low below ~0.7V; `None` when unwired)
     pub fn step(
         &mut self,
         v_gnd: f64,
@@ -44,7 +44,7 @@ impl Lm555State {
         v_trg: f64,
         v_thr: f64,
         v_cv: Option<f64>,
-        v_rst: f64,
+        v_rst: Option<f64>,
     ) -> (bool, bool) {
         let v_supply = (v_vcc - v_gnd).max(0.0);
         if v_supply < 1.0 {
@@ -63,8 +63,8 @@ impl Lm555State {
             v_gnd + (1.0 / 3.0) * v_supply
         };
 
-        // Reset check: active-low below 0.7V relative to GND
-        let rst_active = (v_rst - v_gnd) < 0.7;
+        // Reset check: active-low below 0.7V relative to GND; open reset is inactive.
+        let rst_active = v_rst.is_some_and(|v| (v - v_gnd) < 0.7);
 
         if rst_active {
             self.out_state = false;
@@ -90,5 +90,24 @@ impl Lm555State {
         }
 
         (self.out_state, self.discharge_on)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_reset_is_inactive_and_wired_low_clears() {
+        let mut lm = Lm555State::new("U1");
+        // Trigger below 1/3 Vcc with reset open -> output goes high, discharge off.
+        let (out, dis) = lm.step(0.0, 5.0, 0.5, 0.5, None, None);
+        assert!(out);
+        assert!(!dis);
+
+        // Wired reset below 0.7 V clears latch and turns discharge on.
+        let (out, dis) = lm.step(0.0, 5.0, 0.5, 0.5, None, Some(0.0));
+        assert!(!out);
+        assert!(dis);
     }
 }

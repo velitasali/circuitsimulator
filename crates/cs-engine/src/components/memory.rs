@@ -1,7 +1,7 @@
 //! Static RAM / ROM memory block component.
 
 use super::drawable::{Drawable, paint_chip_body};
-use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int};
+use super::props::{PropDef, PropError, PropValue, expect_bool, expect_int, expect_string};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
 use crate::canvas::PinDirection;
@@ -59,15 +59,42 @@ impl Default for Memory {
     }
 }
 
+pub(crate) fn encode_mem_hex(data: &[u8]) -> String {
+    let last_nonzero = data
+        .iter()
+        .rposition(|&b| b != 0)
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let mut out = String::with_capacity(last_nonzero * 2);
+    for &b in &data[..last_nonzero] {
+        use std::fmt::Write;
+        let _ = write!(out, "{b:02X}");
+    }
+    out
+}
+
+pub(crate) fn decode_mem_hex(s: &str) -> Vec<u8> {
+    let hex_chars: Vec<u8> = s.bytes().filter(|b| b.is_ascii_hexdigit()).collect();
+    let mut out = Vec::with_capacity(hex_chars.len() / 2);
+    for pair in hex_chars.chunks_exact(2) {
+        let nib = |c: u8| match c {
+            b'0'..=b'9' => c - b'0',
+            b'a'..=b'f' => c - b'a' + 10,
+            b'A'..=b'F' => c - b'A' + 10,
+            _ => 0,
+        };
+        out.push((nib(pair[0]) << 4) | nib(pair[1]));
+    }
+    out
+}
+
 impl Memory {
     pub const TYPE_ID: &'static str = "Memory";
     pub fn to_element_kind(&self) -> Kind {
-        Kind::Memory(MemoryState::new(
-            "",
-            self.addr_bits,
-            self.data_bits,
-            self.is_rom,
-        ))
+        let mut st = MemoryState::new("", self.addr_bits, self.data_bits, self.is_rom);
+        let n = st.data.len().min(self.data.len());
+        st.data[..n].copy_from_slice(&self.data[..n]);
+        Kind::Memory(st)
     }
 
     fn get_addr_bits(&self) -> PropValue {
@@ -93,6 +120,15 @@ impl Memory {
     }
     fn set_is_rom(&mut self, v: PropValue) -> Result<(), PropError> {
         self.is_rom = expect_bool("IsRom", v)?;
+        Ok(())
+    }
+
+    fn get_mem(&self) -> PropValue {
+        PropValue::String(encode_mem_hex(&self.data))
+    }
+    fn set_mem(&mut self, v: PropValue) -> Result<(), PropError> {
+        let s = expect_string("Mem", v)?;
+        self.data = decode_mem_hex(&s);
         Ok(())
     }
 }
@@ -131,6 +167,12 @@ impl Component for Memory {
             p.structural = true;
             p
         };
+        const MEM: PropDef<Memory> = {
+            let mut p = PropDef::string("Mem", "Memory Data", Memory::get_mem, Memory::set_mem);
+            p.show_by_default = false;
+            p.persist = true;
+            p
+        };
         static PROPS: &[PropDef<Memory>] = &[
             ADDR_BITS,
             DATA_BITS,
@@ -141,6 +183,7 @@ impl Component for Memory {
                 Memory::set_is_rom,
             )
             .with_info("Configure as Read-Only Memory (ROM) or Random-Access Memory (RAM)."),
+            MEM,
         ];
         PROPS
     }

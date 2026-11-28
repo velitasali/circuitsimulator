@@ -120,6 +120,13 @@ impl Circuit {
     }
 
     pub fn pin_direction(&self, pin: &str) -> Option<crate::canvas::PinDirection> {
+        if let Some(dir) = self.direct_pin_direction(pin) {
+            return Some(dir);
+        }
+        self.resolve_subcircuit_package_pin(pin, |inner_pin| self.direct_pin_direction(inner_pin))
+    }
+
+    fn direct_pin_direction(&self, pin: &str) -> Option<crate::canvas::PinDirection> {
         use crate::canvas::PinDirection;
         use crate::digital::PinMode;
         for c in &self.components {
@@ -201,6 +208,16 @@ impl Circuit {
     }
 
     pub fn pin_has_pullup(&self, pin: &str) -> bool {
+        if self.direct_pin_has_pullup(pin) {
+            return true;
+        }
+        self.resolve_subcircuit_package_pin(pin, |inner_pin| {
+            self.direct_pin_has_pullup(inner_pin).then_some(true)
+        })
+        .unwrap_or(false)
+    }
+
+    fn direct_pin_has_pullup(&self, pin: &str) -> bool {
         for c in &self.components {
             match &c.kind {
                 Kind::Mcu(m) => {
@@ -250,6 +267,52 @@ impl Circuit {
             }
         }
         false
+    }
+
+    /// Resolve a subcircuit package pin (exported as a `Kind::Tunnel` with `id == name == pin_id`)
+    /// to an inner MCU/QEMU/ScriptCpu/McuPin sharing the same net inside that subcircuit instance.
+    fn resolve_subcircuit_package_pin<T>(
+        &self,
+        pin: &str,
+        mut query: impl FnMut(&str) -> Option<T>,
+    ) -> Option<T> {
+        let is_pkg_tunnel = self.components.iter().any(|c| {
+            c.id == pin
+                && matches!(&c.kind, Kind::Tunnel { name, pin_id } if name == pin && pin_id == pin)
+        });
+        if !is_pkg_tunnel {
+            return None;
+        }
+        let &node_idx = self.pin_net.get(pin)?;
+        let node = self.nodes.get(node_idx)?;
+        // Inner tunnels that export to this package pin carry `name == pin` and an `id` prefixed
+        // with `<num_id>@...` identifying the subcircuit instance that owns them.
+        let mut prefixes: Vec<&str> = Vec::new();
+        for c in &self.components {
+            if c.id != pin {
+                if let Kind::Tunnel { name, .. } = &c.kind {
+                    if name == pin {
+                        if let Some(at) = c.id.rfind('@') {
+                            let pfx = &c.id[..=at];
+                            if !prefixes.contains(&pfx) {
+                                prefixes.push(pfx);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if prefixes.is_empty() {
+            return None;
+        }
+        for inner_pin in &node.pin_ids {
+            if prefixes.iter().any(|pfx| inner_pin.starts_with(pfx)) {
+                if let Some(res) = query(inner_pin) {
+                    return Some(res);
+                }
+            }
+        }
+        None
     }
 
     pub fn resistor_current(&self, id: &str) -> Option<f64> {

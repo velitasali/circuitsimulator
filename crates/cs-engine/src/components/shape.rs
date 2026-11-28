@@ -937,6 +937,25 @@ impl Component for Shape {
             ),
         }
     }
+
+    fn visual_rect(&self) -> Rect {
+        let b = self.body();
+        let half = match self.shape_kind {
+            ShapeKind::Line | ShapeKind::Arc => (self.border as f64).max(1.0) * 0.5,
+            _ => {
+                if self.border > 0 {
+                    self.border as f64 * 0.5
+                } else {
+                    0.0
+                }
+            }
+        };
+        if half > 0.0 {
+            b.adjust(-half, -half, half, half)
+        } else {
+            b
+        }
+    }
 }
 
 impl Stampable for Shape {

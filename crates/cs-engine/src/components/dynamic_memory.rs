@@ -1,7 +1,8 @@
 //! Dynamic RAM (DRAM) memory block component.
 
 use super::drawable::{Drawable, paint_chip_body};
-use super::props::{PropDef, PropError, PropValue, expect_int};
+use super::memory::{decode_mem_hex, encode_mem_hex};
+use super::props::{PropDef, PropError, PropValue, expect_int, expect_string};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
 use crate::canvas::PinDirection;
@@ -12,8 +13,8 @@ use crate::digital::DynamicMemoryState;
 use crate::elements::Kind;
 use crate::matrix::CircMatrix;
 
-const MIN_BITS: usize = 1;
-const MAX_BITS: usize = 16;
+const MIN_BITS: usize = 4;
+const MAX_BITS: usize = 12;
 
 /// Dynamic RAM (DRAM) memory block.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,7 +47,10 @@ impl Default for DynamicMemory {
 impl DynamicMemory {
     pub const TYPE_ID: &'static str = "DynamicMemory";
     pub fn to_element_kind(&self) -> Kind {
-        Kind::DynamicMemory(DynamicMemoryState::new("", self.addr_bits))
+        let mut st = DynamicMemoryState::new("", self.addr_bits);
+        let n = st.data.len().min(self.data.len());
+        st.data[..n].copy_from_slice(&self.data[..n]);
+        Kind::DynamicMemory(st)
     }
 
     fn get_addr_bits(&self) -> PropValue {
@@ -55,6 +59,15 @@ impl DynamicMemory {
     fn set_addr_bits(&mut self, v: PropValue) -> Result<(), PropError> {
         self.addr_bits =
             expect_int("AddrBits", v)?.clamp(MIN_BITS as i64, MAX_BITS as i64) as usize;
+        Ok(())
+    }
+
+    fn get_mem(&self) -> PropValue {
+        PropValue::String(encode_mem_hex(&self.data))
+    }
+    fn set_mem(&mut self, v: PropValue) -> Result<(), PropError> {
+        let s = expect_string("Mem", v)?;
+        self.data = decode_mem_hex(&s);
         Ok(())
     }
 }
@@ -76,16 +89,27 @@ impl Component for DynamicMemory {
                 DynamicMemory::get_addr_bits,
                 DynamicMemory::set_addr_bits,
             )
-            .with_info("Number of address select bits.");
+            .with_info("Number of multiplexed row/column address bits (4..=12).");
             p.structural = true;
             p
         };
-        static PROPS: &[PropDef<DynamicMemory>] = &[ADDR_BITS];
+        const MEM: PropDef<DynamicMemory> = {
+            let mut p = PropDef::string(
+                "Mem",
+                "Memory Data",
+                DynamicMemory::get_mem,
+                DynamicMemory::set_mem,
+            );
+            p.show_by_default = false;
+            p.persist = true;
+            p
+        };
+        static PROPS: &[PropDef<DynamicMemory>] = &[ADDR_BITS, MEM];
         PROPS
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
-        dynamic_memory_pins("", self.addr_bits)
+        dynamic_memory_pins("", self.addr_bits.clamp(MIN_BITS, MAX_BITS))
             .into_iter()
             .map(CompPin::from)
             .collect()
@@ -93,7 +117,7 @@ impl Component for DynamicMemory {
 
     fn body(&self) -> Rect {
         let data_bits = 8;
-        let h = self.addr_bits.max(data_bits) + 1;
+        let h = self.addr_bits.clamp(MIN_BITS, MAX_BITS).max(data_bits) + 1;
         let height = h + 2;
         let orig_y = -((height / 2) as f64) * 8.0;
         Rect::new(-16.0, orig_y, 32.0, (height as f64) * 8.0)

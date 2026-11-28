@@ -223,6 +223,28 @@ impl Component for Transformer {
     const DESCRIPTION: &'static str = "Coupled inductor transformer.";
 
     fn props() -> &'static [PropDef<Self>] {
+        const CENTER_TAP: PropDef<Transformer> = {
+            let mut p = PropDef::bool(
+                "CenterTap",
+                "Center Tap Secondary",
+                Transformer::get_center_tap,
+                Transformer::set_center_tap,
+            )
+            .with_info("Enables center-tapped secondary winding (adds pin ct).");
+            p.structural = true;
+            p
+        };
+        const AUX_SECONDARY: PropDef<Transformer> = {
+            let mut p = PropDef::bool(
+                "AuxSecondary",
+                "Auxiliary Secondary",
+                Transformer::get_aux_secondary,
+                Transformer::set_aux_secondary,
+            )
+            .with_info("Enables third isolated auxiliary secondary winding (adds pins a1, a2).");
+            p.structural = true;
+            p
+        };
         static PROPS: &[PropDef<Transformer>] = &[
             PropDef::float(
                 "Inductance1",
@@ -306,20 +328,8 @@ impl Component for Transformer {
                 Transformer::set_hysteresis,
             )
             .with_info("Magnetic hysteresis coercive current width in Amps (0.0 = no hysteresis)."),
-            PropDef::bool(
-                "CenterTap",
-                "Center Tap Secondary",
-                Transformer::get_center_tap,
-                Transformer::set_center_tap,
-            )
-            .with_info("Enables center-tapped secondary winding (adds pin ct)."),
-            PropDef::bool(
-                "AuxSecondary",
-                "Auxiliary Secondary",
-                Transformer::get_aux_secondary,
-                Transformer::set_aux_secondary,
-            )
-            .with_info("Enables third isolated auxiliary secondary winding (adds pins a1, a2)."),
+            CENTER_TAP,
+            AUX_SECONDARY,
             PropDef::float(
                 "Inductance3",
                 "Auxiliary Inductance",

@@ -209,11 +209,9 @@ impl Kind {
                 copy_prefix(&mut next.data, &prev.data);
                 let last = next.data.len().saturating_sub(1) as u16;
                 next.mem_ptr = prev.mem_ptr.min(last);
-                next.mode = prev.mode;
-                next.bit_count = prev.bit_count;
-                next.rx_byte = prev.rx_byte;
-                next.last_scl = prev.last_scl;
-                next.last_sda = prev.last_sda;
+                next.addr_bytes_left = prev.addr_bytes_left;
+                next.addr_acc = prev.addr_acc;
+                keep_twi(&mut next.twi, &prev.twi);
             }
             (Kind::I2CToParallel(next), Kind::I2CToParallel(prev)) => {
                 next.out_latch = prev.out_latch;
@@ -255,6 +253,12 @@ impl Kind {
             (Kind::Lm555(next), Kind::Lm555(prev)) => {
                 next.out_state = prev.out_state;
                 next.discharge_on = prev.discharge_on;
+            }
+            (Kind::Comparator { state: next }, Kind::Comparator { state: prev }) => {
+                let out = prev.output.get_out_state();
+                next.queue = prev.queue.clone();
+                next.output.set_out_state(out);
+                next.apply_electric();
             }
             (Kind::Pcd8544(next), Kind::Pcd8544(prev)) => {
                 next.ram = prev.ram;
@@ -374,7 +378,9 @@ impl Kind {
                 *link = prev_link.clone();
             }
             (
-                Kind::Ds18b20 { dq_low, wire, .. },
+                Kind::Ds18b20 {
+                    rom, dq_low, wire, ..
+                },
                 Kind::Ds18b20 {
                     dq_low: prev_low,
                     wire: prev_wire,
@@ -383,6 +389,7 @@ impl Kind {
             ) => {
                 *dq_low = *prev_low;
                 *wire = prev_wire.clone();
+                wire.set_rom(rom);
             }
             (
                 Kind::Ds1621 {
@@ -430,7 +437,11 @@ impl Kind {
                 *uart = prev.clone();
             }
             (Kind::SdCard { spi, .. }, Kind::SdCard { spi: prev, .. }) => {
-                *spi = prev.clone();
+                if spi.file == prev.file {
+                    *spi = prev.clone();
+                } else {
+                    spi.adopt_protocol_from(prev);
+                }
             }
             (Kind::SerialPort { uart, .. }, Kind::SerialPort { uart: prev, .. }) => {
                 *uart = prev.clone();
@@ -438,8 +449,15 @@ impl Kind {
             (Kind::SerialTerm { uart, .. }, Kind::SerialTerm { uart: prev, .. }) => {
                 *uart = prev.clone();
             }
-            (Kind::TftDisplay { tft, .. }, Kind::TftDisplay { tft: prev, .. }) => {
+            (Kind::TftDisplay { bgr, tft, .. }, Kind::TftDisplay { tft: prev, .. }) => {
+                let new_bgr = *bgr;
+                let bgr_changed = prev.bgr != new_bgr;
                 *tft = prev.clone();
+                tft.bgr = new_bgr;
+                if bgr_changed {
+                    tft.dirty = true;
+                    tft.dirty_seq = tft.dirty_seq.wrapping_add(1);
+                }
             }
             (Kind::Pcf8833Display { pcf, .. }, Kind::Pcf8833Display { pcf: prev, .. }) => {
                 *pcf = prev.clone();

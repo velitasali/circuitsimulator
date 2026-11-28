@@ -20,6 +20,8 @@ pub struct TftState {
     // Protocol state
     pub display_on: bool,
     pub sleep: bool,
+    pub madctl: u8,
+    pub colmod: u8,
     cur_cmd: u8,
     cmd_params: Vec<u8>,
 
@@ -30,7 +32,8 @@ pub struct TftState {
     row_end: u16,
     curr_x: u16,
     curr_y: u16,
-    pixel_high_byte: Option<u8>,
+    pixel_buf: [u8; 3],
+    pixel_buf_len: u8,
 
     // SPI receiver
     in_byte: u8,
@@ -52,6 +55,8 @@ impl TftState {
             last_sck: false,
             display_on: true,
             sleep: false,
+            madctl: if bgr { 0x08 } else { 0x00 },
+            colmod: 0x55,
             cur_cmd: 0,
             cmd_params: Vec::with_capacity(4),
             col_start: 0,
@@ -60,7 +65,8 @@ impl TftState {
             row_end: (h - 1) as u16,
             curr_x: 0,
             curr_y: 0,
-            pixel_high_byte: None,
+            pixel_buf: [0; 3],
+            pixel_buf_len: 0,
             in_byte: 0,
             in_bit_count: 0,
         }
@@ -69,6 +75,8 @@ impl TftState {
     pub fn reset(&mut self) {
         self.display_on = true;
         self.sleep = false;
+        self.madctl = if self.bgr { 0x08 } else { 0x00 };
+        self.colmod = 0x55;
         self.dirty = true;
         self.dirty_seq = self.dirty_seq.wrapping_add(1);
         self.cur_cmd = 0;
@@ -79,7 +87,8 @@ impl TftState {
         self.row_end = (self.height.saturating_sub(1)) as u16;
         self.curr_x = 0;
         self.curr_y = 0;
-        self.pixel_high_byte = None;
+        self.pixel_buf = [0; 3];
+        self.pixel_buf_len = 0;
         self.in_byte = 0;
         self.in_bit_count = 0;
     }
@@ -132,7 +141,7 @@ impl TftState {
     fn process_command(&mut self, cmd: u8) {
         self.cur_cmd = cmd;
         self.cmd_params.clear();
-        self.pixel_high_byte = None;
+        self.pixel_buf_len = 0;
 
         match cmd {
             0x01 => self.reset(),
@@ -202,16 +211,72 @@ impl TftState {
                     self.curr_y = self.row_start;
                 }
             }
-            0x2C => {
-                // RAMWR: stream 16-bit RGB565 pixels
-                match self.pixel_high_byte {
-                    None => {
-                        self.pixel_high_byte = Some(byte);
+            0x36 => {
+                // MADCTL: Memory Access Control (MY=0x80, MX=0x40, MV=0x20, BGR=0x08)
+                if self.cmd_params.is_empty() {
+                    self.cmd_params.push(byte);
+                    self.madctl = byte;
+                    let new_bgr = (byte & 0x08) != 0;
+                    if self.bgr != new_bgr {
+                        self.bgr = new_bgr;
+                        self.dirty = true;
+                        self.dirty_seq = self.dirty_seq.wrapping_add(1);
                     }
-                    Some(high) => {
-                        self.pixel_high_byte = None;
-                        let color = (u16::from(high) << 8) | u16::from(byte);
-                        self.write_pixel(color);
+                }
+            }
+            0x3A => {
+                // COLMOD: Interface Pixel Format (3=12-bit, 5=16-bit RGB565, 6=18-bit RGB666)
+                if self.cmd_params.is_empty() {
+                    self.cmd_params.push(byte);
+                    self.colmod = byte;
+                    self.pixel_buf_len = 0;
+                }
+            }
+            0x2C => {
+                // RAMWR: stream pixels according to COLMOD
+                let fmt = self.colmod & 0x07;
+                match fmt {
+                    6 => {
+                        // 18-bit RGB666 (3 bytes per pixel)
+                        let idx = self.pixel_buf_len as usize;
+                        self.pixel_buf[idx] = byte;
+                        self.pixel_buf_len += 1;
+                        if self.pixel_buf_len >= 3 {
+                            self.pixel_buf_len = 0;
+                            let r = u16::from(self.pixel_buf[0] & 0xF8);
+                            let g = u16::from(self.pixel_buf[1] & 0xFC);
+                            let b = u16::from(self.pixel_buf[2] >> 3);
+                            self.write_pixel((r << 8) | (g << 3) | b);
+                        }
+                    }
+                    3 => {
+                        // 12-bit RGB444 (3 bytes -> 2 pixels)
+                        let idx = self.pixel_buf_len as usize;
+                        self.pixel_buf[idx] = byte;
+                        self.pixel_buf_len += 1;
+                        if self.pixel_buf_len >= 3 {
+                            self.pixel_buf_len = 0;
+                            let [b0, b1, b2] = self.pixel_buf;
+                            let pack444 = |r4: u8, g4: u8, b4: u8| -> u16 {
+                                let r5 = u16::from((r4 << 1) | (r4 >> 3));
+                                let g6 = u16::from((g4 << 2) | (g4 >> 2));
+                                let b5 = u16::from((b4 << 1) | (b4 >> 3));
+                                (r5 << 11) | (g6 << 5) | b5
+                            };
+                            self.write_pixel(pack444(b0 >> 4, b0 & 0x0F, b1 >> 4));
+                            self.write_pixel(pack444(b1 & 0x0F, b2 >> 4, b2 & 0x0F));
+                        }
+                    }
+                    _ => {
+                        // 16-bit RGB565 (2 bytes per pixel)
+                        let idx = self.pixel_buf_len as usize;
+                        self.pixel_buf[idx] = byte;
+                        self.pixel_buf_len += 1;
+                        if self.pixel_buf_len >= 2 {
+                            self.pixel_buf_len = 0;
+                            let color = u16::from_be_bytes([self.pixel_buf[0], self.pixel_buf[1]]);
+                            self.write_pixel(color);
+                        }
                     }
                 }
             }
@@ -220,8 +285,18 @@ impl TftState {
     }
 
     fn write_pixel(&mut self, color: u16) {
-        if (self.curr_x as u32) < self.width && (self.curr_y as u32) < self.height {
-            let idx = (self.curr_y as usize) * (self.width as usize) + (self.curr_x as usize);
+        let mv = (self.madctl & 0x20) != 0;
+        let mx = (self.madctl & 0x40) != 0;
+        let my = (self.madctl & 0x80) != 0;
+        let (raw_x, raw_y) = if mv {
+            (u32::from(self.curr_y), u32::from(self.curr_x))
+        } else {
+            (u32::from(self.curr_x), u32::from(self.curr_y))
+        };
+        if raw_x < self.width && raw_y < self.height {
+            let px = if mx { self.width - 1 - raw_x } else { raw_x };
+            let py = if my { self.height - 1 - raw_y } else { raw_y };
+            let idx = (py as usize) * (self.width as usize) + (px as usize);
             if idx < self.fb.len() && self.fb[idx] != color {
                 self.fb[idx] = color;
                 self.dirty = true;

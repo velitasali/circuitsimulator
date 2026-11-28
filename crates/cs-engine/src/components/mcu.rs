@@ -148,8 +148,8 @@ impl Mcu {
         let mut comp = self.mcu.clone();
         comp.set_rst_enabled(self.rst_enabled);
         comp.set_ext_osc(self.ext_osc);
-        comp.device.set_wdt_enabled(self.wdt_enabled);
-        comp.device.set_clk_out(self.clk_out);
+        comp.set_wdt_enabled(self.wdt_enabled);
+        comp.set_clk_out(self.clk_out);
         comp.sync_gpio_to_pins();
         Kind::Mcu(comp)
     }

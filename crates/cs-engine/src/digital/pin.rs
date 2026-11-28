@@ -302,9 +302,10 @@ impl IoPin {
 
     pub fn set_output_imp(&mut self, imp: f64) {
         self.output_imp = imp.max(1e-14);
-        if self.mode == PinMode::Output {
+        if self.mode == PinMode::Output && !self.state_z {
             self.vdd_admit = 1.0 / self.output_imp;
-            self.updt_state();
+            self.admit = self.vdd_admit + self.vdd_adm_ex + self.gnd_admit + self.gnd_adm_ex;
+            self.set_out_state(self.out_state);
         }
     }
 
@@ -347,10 +348,15 @@ impl IoPin {
         }
     }
 
+    pub fn is_state_z(&self) -> bool {
+        self.state_z
+    }
+
     pub fn set_state_z(&mut self, z: bool) {
         self.state_z = z;
         if z {
-            self.out_volt = self.out_low_v;
+            self.vdd_admit = 0.0;
+            self.gnd_admit = 0.0;
             self.set_impedance(self.open_imp);
         } else {
             let pm = self.mode;
@@ -360,8 +366,10 @@ impl IoPin {
     }
 
     fn set_impedance(&mut self, imp: f64) {
-        self.admit = 1.0 / imp.max(1e-14);
+        let base_admit = 1.0 / imp.max(1e-14);
         let vdd = self.vdd_admit + self.vdd_adm_ex;
+        let gnd = self.gnd_admit + self.gnd_adm_ex;
+        self.admit = base_admit + vdd + gnd;
         let current = self.out_high_v * vdd;
         self.out_volt = if self.admit.abs() > 0.0 {
             current / self.admit
@@ -436,6 +444,21 @@ impl IoPin {
             !self.inp_state
         } else {
             self.inp_state
+        }
+    }
+
+    /// Sample a pin that may be unwired (`None`).
+    ///
+    /// An open input is logically inactive (`false`) regardless of `inverted`,
+    /// so unwired active-low controls do not assert.
+    pub fn sample_open_inactive(&mut self, volt: Option<f64>) -> bool {
+        match volt {
+            Some(v) => self.get_inp_state(v),
+            None => {
+                self.last_volt = if self.inverted { self.out_high_v } else { 0.0 };
+                self.inp_state = self.inverted;
+                false
+            }
         }
     }
 

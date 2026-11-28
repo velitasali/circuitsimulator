@@ -94,6 +94,14 @@ pub struct Circuit {
     /// When set, only the MCU whose component ID matches this string interacts with
     /// the global `DebugSession` (single active debug target in multi-MCU circuits).
     pub debug_target_mcu: Option<String>,
+    /// Hysteresis filter voltage passed into oscilloscope `ScopeSampler::push`.
+    pub scope_filter: f64,
+    /// Rising threshold voltage for logic analyzer `ScopeSampler::push_digital`.
+    pub la_threshold_r: f64,
+    /// Falling threshold voltage for logic analyzer `ScopeSampler::push_digital`.
+    pub la_threshold_f: f64,
+    /// Trigger channel for logic analyzer `ScopeSampler::push_digital` (`-1` = none).
+    pub la_trigger: i32,
 }
 
 impl Default for Circuit {
@@ -139,6 +147,10 @@ impl Default for Circuit {
             debug_break_pcs: Vec::new(),
             debug_batch_state: crate::debug::BatchDebugState::Idle,
             debug_target_mcu: None,
+            scope_filter: 0.1,
+            la_threshold_r: crate::LA_THRESHOLD_DEFAULT,
+            la_threshold_f: crate::LA_THRESHOLD_DEFAULT,
+            la_trigger: -1,
         }
     }
 }
@@ -334,8 +346,8 @@ impl Circuit {
         self.time = ps_to_secs(self.circ_time.saturating_sub(1));
         self.sample_instruments();
         let dt_ps = self.circ_time.saturating_sub(self.last_motor_ps);
-        self.update_motors_dt(dt_ps);
-        if self.propagate_links() && !self.nodes.is_empty() {
+        let motor_changed = self.update_motors_dt(dt_ps);
+        if (motor_changed || self.propagate_links()) && !self.nodes.is_empty() {
             self.solve_circuit()?;
         }
         self.last_motor_ps = self.circ_time;
@@ -353,8 +365,8 @@ impl Circuit {
         self.drain_logic_events()?;
         self.sample_instruments();
         let dt_ps = self.circ_time.saturating_sub(self.last_motor_ps);
-        self.update_motors_dt(dt_ps);
-        if self.propagate_links() {
+        let motor_changed = self.update_motors_dt(dt_ps);
+        if motor_changed || self.propagate_links() {
             self.solve_circuit()?;
         }
         self.last_motor_ps = self.circ_time;

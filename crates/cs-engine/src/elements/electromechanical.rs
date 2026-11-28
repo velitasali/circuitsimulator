@@ -228,6 +228,33 @@ impl ServoState {
         self.is_stalled = prev.is_stalled;
     }
 
+    /// Update electrical current draw and stall status without advancing mechanical position.
+    pub fn update_electrical(&mut self, pos: f64, target_pos: f64, v_supply: f64) {
+        if v_supply < 2.5 {
+            self.current_draw = 0.0;
+            self.is_stalled = false;
+            return;
+        }
+        let kv = (v_supply / 5.0).clamp(0.4, 1.5);
+        let torque_ratio = (self.load_torque / self.stall_torque.max(1e-3)).clamp(0.0, 2.0);
+        let abs_delta = (target_pos - pos).abs();
+        if torque_ratio >= 1.0 {
+            self.is_stalled = true;
+            self.current_draw = self.stall_current * kv;
+        } else {
+            self.is_stalled = false;
+            if abs_delta > 1e-4 {
+                self.current_draw = (self.run_current
+                    + (self.stall_current - self.run_current) * torque_ratio)
+                    * kv;
+            } else {
+                self.current_draw = (self.idle_current
+                    + (self.stall_current - self.idle_current) * (torque_ratio * 0.2))
+                    * kv;
+            }
+        }
+    }
+
     /// Advance mechanical position and calculate electrical current consumption.
     pub fn step_dynamics(
         &mut self,

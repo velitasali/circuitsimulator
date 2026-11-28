@@ -48,14 +48,22 @@ impl std::fmt::Display for Ssd1306Color {
 }
 
 pub const SSD1306_COLOR_OPTIONS: &[&str] = &["White", "Blue", "Yellow"];
-const MIN_WIDTH: i64 = 16;
-const MAX_WIDTH: i64 = 256;
+const MIN_WIDTH: i64 = 32;
+const MAX_WIDTH: i64 = 128;
 const MIN_HEIGHT: i64 = 16;
-const MAX_HEIGHT: i64 = 128;
+const MAX_HEIGHT: i64 = 64;
 const MIN_ADDR: i64 = 0;
 const MAX_ADDR: i64 = 127;
 const MIN_FREQ_HZ: f64 = 1e3;
 const MAX_FREQ_HZ: f64 = 10e6;
+
+fn clamp_width(w: usize) -> usize {
+    w.clamp(MIN_WIDTH as usize, MAX_WIDTH as usize)
+}
+
+fn clamp_height(h: usize) -> usize {
+    ((h.clamp(MIN_HEIGHT as usize, MAX_HEIGHT as usize) / 8) * 8).max(MIN_HEIGHT as usize)
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ssd1306 {
@@ -111,18 +119,18 @@ impl Default for Ssd1306 {
 impl Ssd1306 {
     pub const TYPE_ID: &'static str = "Ssd1306";
     pub fn disp_width(&self) -> usize {
-        self.width
+        clamp_width(self.width)
     }
 
     pub fn disp_height(&self) -> usize {
-        self.height
+        clamp_height(self.height)
     }
 
     pub fn to_element_kind(&self) -> Kind {
         Kind::Ssd1306(crate::digital::Ssd1306State::new(
             "",
-            self.width,
-            self.height,
+            self.disp_width(),
+            self.disp_height(),
             self.control_code,
             self.color.as_str(),
             self.rotate,
@@ -140,18 +148,20 @@ impl Ssd1306 {
     }
 
     fn get_width(&self) -> PropValue {
-        PropValue::Int(self.width as i64)
+        PropValue::Int(self.disp_width() as i64)
     }
     fn set_width(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.width = expect_int("Width", v)?.clamp(MIN_WIDTH, MAX_WIDTH) as usize;
+        let raw = expect_int("Width", v)?.clamp(MIN_WIDTH, MAX_WIDTH) as usize;
+        self.width = clamp_width(raw);
         Ok(())
     }
 
     fn get_height(&self) -> PropValue {
-        PropValue::Int(self.height as i64)
+        PropValue::Int(self.disp_height() as i64)
     }
     fn set_height(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.height = expect_int("Height", v)?.clamp(MIN_HEIGHT, MAX_HEIGHT) as usize;
+        let raw = expect_int("Height", v)?.clamp(MIN_HEIGHT, MAX_HEIGHT) as usize;
+        self.height = clamp_height(raw);
         Ok(())
     }
 
@@ -189,6 +199,19 @@ impl Component for Ssd1306 {
     const DESCRIPTION: &'static str = "128x64 OLED monochrome graphic display.";
 
     fn props() -> &'static [PropDef<Self>] {
+        const WIDTH: PropDef<Ssd1306> = {
+            let mut p = PropDef::int(
+                "Width",
+                "Width",
+                MIN_WIDTH,
+                MAX_WIDTH,
+                Ssd1306::get_width,
+                Ssd1306::set_width,
+            )
+            .with_info("Screen width in pixels (32..=128).");
+            p.structural = true;
+            p
+        };
         const HEIGHT: PropDef<Ssd1306> = {
             let mut p = PropDef::int(
                 "Height",
@@ -198,7 +221,7 @@ impl Component for Ssd1306 {
                 Ssd1306::get_height,
                 Ssd1306::set_height,
             )
-            .with_info("Screen height in pixels");
+            .with_info("Screen height in pixels (16..=64, multiple of 8).");
             p.structural = true;
             p
         };
@@ -227,14 +250,7 @@ impl Component for Ssd1306 {
                 Ssd1306::set_color,
             )
             .with_info("Pixel color."),
-            PropDef::int(
-                "Width",
-                "Width",
-                MIN_WIDTH,
-                MAX_WIDTH,
-                Ssd1306::get_width,
-                Ssd1306::set_width,
-            ).with_info("Screen width in pixels"),
+            WIDTH,
             HEIGHT,
             PropDef::bool("Rotate", "Rotate", Ssd1306::get_rotate, Ssd1306::set_rotate).with_info("Rotate screen 180º.\nSome libraries use screen rotation, others don't use it.\nUsing this you can keep the display in same position."),
             PropDef::int(
@@ -261,15 +277,15 @@ impl Component for Ssd1306 {
     }
 
     fn pin_geoms(&self) -> Vec<CompPin> {
-        ssd1306_pins("", self.height)
+        ssd1306_pins("", self.disp_height())
             .into_iter()
             .map(CompPin::from)
             .collect()
     }
 
     fn body(&self) -> Rect {
-        let w = self.width as f64;
-        let h = self.height as f64;
+        let w = self.disp_width() as f64;
+        let h = self.disp_height() as f64;
         Rect::new(-70.0, -h / 2.0 - 16.0, w + 12.0, h + 24.0)
     }
 }
@@ -280,8 +296,10 @@ impl Stampable for Ssd1306 {
 
 impl Drawable for Ssd1306 {
     fn paint(&self, d: &mut dyn Draw, ctx: &PaintCtx) -> bool {
-        let w = self.width as f64;
-        let h = self.height as f64;
+        let disp_w = self.disp_width();
+        let disp_h = self.disp_height();
+        let w = disp_w as f64;
+        let h = disp_h as f64;
         d.fill_round_rect(
             -70.0,
             -h / 2.0 - 16.0,
@@ -318,8 +336,8 @@ impl Drawable for Ssd1306 {
             screen_y,
             w,
             h,
-            self.width,
-            self.height / 8,
+            disp_w,
+            disp_h / 8,
             hex,
             fg,
             Color::rgb(0, 0, 0),

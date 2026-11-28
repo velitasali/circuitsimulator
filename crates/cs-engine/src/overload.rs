@@ -77,16 +77,26 @@ pub fn eval_led(
     }
 }
 
-/// Evaluates RGB LED overcurrent per channel (R, G, B) with 10% hysteresis band.
-/// In C++ `LedRgb::updateStep`.
+/// Evaluates RGB LED overcurrent per channel (R, G, B) with 10% hysteresis band
+/// using a shared max current.
 pub fn eval_rgb_led(
     currents: [f64; 3],
     max_current: f64,
     prev_warning: bool,
     prev_crashed: bool,
 ) -> ItemOverloadState {
+    eval_rgb_led_per_channel(currents, [max_current; 3], prev_warning, prev_crashed)
+}
+
+/// Evaluates RGB LED overcurrent per channel (R, G, B) with per-channel max currents
+/// and a 10% hysteresis band. In C++ `LedRgb::updateStep`.
+pub fn eval_rgb_led_per_channel(
+    currents: [f64; 3],
+    max_currents: [f64; 3],
+    prev_warning: bool,
+    prev_crashed: bool,
+) -> ItemOverloadState {
     const CHAN_NAMES: [&str; 3] = ["R", "G", "B"];
-    let max_i = max_current.max(0.001);
 
     let warn_thresh = if prev_warning { 1.35 } else { 1.5 };
     let crash_thresh = if prev_crashed { 1.8 } else { 2.0 };
@@ -97,6 +107,7 @@ pub fn eval_rgb_led(
     let mut max_oc = 0.0;
 
     for i in 0..3 {
+        let max_i = max_currents[i].max(0.001);
         let cur = currents[i].max(0.0);
         let oc = cur / max_i;
         if oc > warn_thresh {
@@ -113,6 +124,7 @@ pub fn eval_rgb_led(
 
     if warning {
         let worst_cur = currents[worst_idx].max(0.0);
+        let worst_max = max_currents[worst_idx].max(0.001);
         ItemOverloadState {
             warning: true,
             crashed,
@@ -120,7 +132,7 @@ pub fn eval_rgb_led(
                 "Overcurrent on {} channel: {:.1} mA (max {:.1} mA)",
                 CHAN_NAMES[worst_idx],
                 worst_cur * 1e3,
-                max_i * 1e3
+                worst_max * 1e3
             ),
         }
     } else {

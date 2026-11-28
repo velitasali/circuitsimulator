@@ -788,6 +788,7 @@ impl Comp {
                 for pin in p
                     .ports
                     .iter()
+                    .chain(p.addr_pins.iter())
                     .chain(std::iter::once(&p.int_pin))
                     .chain(std::iter::once(&p.scl))
                     .chain(std::iter::once(&p.sda))
@@ -941,6 +942,9 @@ impl Comp {
             Kind::I2CRam(r) => {
                 stamp_iopin(pin_net, nodes, &r.scl);
                 stamp_iopin(pin_net, nodes, &r.sda);
+                for pin in &r.addr_pins {
+                    stamp_iopin(pin_net, nodes, pin);
+                }
             }
             Kind::Lm555(lm) => {
                 let gnd_pin = format!("{}-ePin0", self.id);
@@ -1233,14 +1237,14 @@ impl Comp {
                         );
                         let g0 = if is_t0 {
                             g_closed
-                        } else if state.arcing && pulled {
+                        } else if state.arcing && !pulled {
                             g_arc
                         } else {
                             1e-12
                         };
                         let g1 = if is_t1 {
                             g_closed
-                        } else if state.arcing && !pulled {
+                        } else if state.arcing && pulled {
                             g_arc
                         } else {
                             1e-12
@@ -1301,7 +1305,7 @@ impl Comp {
                 } else {
                     let xp = (*x_pos as f64).clamp(0.0, w);
                     let yp = (*y_pos as f64).clamp(0.0, h);
-                    let xa = rx_min + (rx_max - rx_min) * (xp / w);
+                    let xa = rx_max - (rx_max - rx_min) * (xp / w);
                     let xb = rx_min + rx_max - xa;
                     let ya = ry_min + (ry_max - ry_min) * (yp / h);
                     let yb = ry_min + ry_max - ya;
@@ -1359,17 +1363,8 @@ impl Comp {
                 stick_y,
                 btn_down,
             } => {
-                let legacy_scale = stick_x.abs() > 1.0 || stick_y.abs() > 1.0;
-                let x_norm = if legacy_scale {
-                    ((*stick_x + 25.0) / 50.0).clamp(0.0, 1.0)
-                } else {
-                    ((*stick_x + 1.0) / 2.0).clamp(0.0, 1.0)
-                };
-                let y_norm = if legacy_scale {
-                    ((*stick_y + 25.0) / 50.0).clamp(0.0, 1.0)
-                } else {
-                    ((*stick_y + 1.0) / 2.0).clamp(0.0, 1.0)
-                };
+                let x_norm = ((*stick_x + 25.0) / 50.0).clamp(0.0, 1.0);
+                let y_norm = ((*stick_y + 25.0) / 50.0).clamp(0.0, 1.0);
                 stamp_pin_to_gnd(
                     pin_net,
                     nodes,
@@ -1763,7 +1758,7 @@ impl Comp {
                 for i in 0..*channels {
                     let ch = self.mux_channel_pin(i);
                     if i == *selected {
-                        stamp_between(pin_net, nodes, &ch, &com, 1.0 / on_res.max(1.0), 0.0);
+                        stamp_between(pin_net, nodes, &ch, &com, 1.0 / on_res.max(1e-6), 0.0);
                     } else {
                         stamp_between(pin_net, nodes, &ch, &com, 1e-7, 0.0);
                     }

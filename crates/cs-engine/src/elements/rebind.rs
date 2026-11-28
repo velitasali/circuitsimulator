@@ -53,6 +53,9 @@ impl Kind {
                 one(comp_id, &mut l.reset);
                 one(comp_id, &mut l.oe);
             }
+            Kind::Comparator { state } => {
+                state.attach_id(comp_id);
+            }
             Kind::McuPin(p) => one(comp_id, &mut p.pin),
             Kind::Mcu(m) => {
                 each(comp_id, &mut m.pins);
@@ -118,6 +121,7 @@ impl Kind {
             }
             Kind::I2CToParallel(p) => {
                 each(comp_id, &mut p.ports);
+                each(comp_id, &mut p.addr_pins);
                 one(comp_id, &mut p.int_pin);
                 one(comp_id, &mut p.scl);
                 one(comp_id, &mut p.sda);
@@ -203,6 +207,7 @@ impl Kind {
             Kind::I2CRam(r) => {
                 one(comp_id, &mut r.scl);
                 one(comp_id, &mut r.sda);
+                each(comp_id, &mut r.addr_pins);
             }
             Kind::Lm555(lm) => {
                 lm.id = comp_id.to_string();

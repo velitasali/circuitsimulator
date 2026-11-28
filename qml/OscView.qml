@@ -55,6 +55,7 @@ Rectangle {
         }
         if ( Oscilloscope.chTrigRising && Oscilloscope.chTrigRising.length === 4 ) {
             root.chTrigRising = Oscilloscope.chTrigRising.slice()
+            CircuitCanvas.setScopeTrigRising( root.chTrigRising[Oscilloscope.currentChannel] !== false )
         }
         Oscilloscope.dark = App.darkTheme
         CircuitCanvas.setScopeTimeDiv( Oscilloscope.timeDiv )
@@ -86,6 +87,7 @@ Rectangle {
             var ch = Oscilloscope.currentChannel
             CircuitCanvas.setScopeTimePos( root.chTimePos[ch] || 0.0 )
             CircuitCanvas.setScopeTrigLevel( root.chTrigLevel[ch] || 0.0 )
+            CircuitCanvas.setScopeTrigRising( root.chTrigRising[ch] !== false )
         }
     }
 
@@ -850,6 +852,7 @@ Rectangle {
                             copy[ch] = edgeBtn.checked
                             root.chTrigRising = copy
                             Oscilloscope.setChTrigRising( ch, edgeBtn.checked )
+                            CircuitCanvas.setScopeTrigRising( edgeBtn.checked )
                         }
                     }
                 }

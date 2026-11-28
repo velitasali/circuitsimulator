@@ -14,8 +14,8 @@ use crate::theme::COMPONENT_BORDER_WIDTH;
 
 const MIN_ROWS: i64 = 1;
 const MAX_ROWS: i64 = 4;
-const MIN_COLS: i64 = 1;
-const MAX_COLS: i64 = 80;
+const MIN_COLS: i64 = 8;
+const MAX_COLS: i64 = 20;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hd44780 {
@@ -101,8 +101,10 @@ impl Component for Hd44780 {
     }
 
     fn body(&self) -> Rect {
-        let w = (self.cols as f64 * 6.0 - 1.0) * 2.0 + 20.0;
-        let h = (self.rows as f64 * 9.0 - 1.0) * 2.0 + 33.0;
+        let rows = self.rows.clamp(MIN_ROWS as usize, MAX_ROWS as usize);
+        let cols = self.cols.clamp(MIN_COLS as usize, MAX_COLS as usize);
+        let w = (cols as f64 * 6.0 - 1.0) * 2.0 + 20.0;
+        let h = (rows as f64 * 9.0 - 1.0) * 2.0 + 33.0;
         Rect::new(0.0, -h, w, h)
     }
 }

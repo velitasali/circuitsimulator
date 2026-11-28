@@ -67,6 +67,10 @@ pub struct McuComp {
     pub rst_enabled: bool,
     /// C++ `m_extOsc`: detach XTAL pins from GPIO and step on XTAL1 rising edges.
     pub ext_osc: bool,
+    /// Forced watchdog enable flag (persisted across live kind updates).
+    pub wdt_enabled: bool,
+    /// Clock-out enable flag (persisted across live kind updates).
+    pub clk_out: bool,
     /// C++ `m_autoLoad`: reload `firmware` at simulation start.
     pub auto_load: bool,
     /// C++ `ForceFreq` (default true).
@@ -258,6 +262,8 @@ impl McuComp {
             reset_held: false,
             rst_enabled,
             ext_osc,
+            wdt_enabled: false,
+            clk_out: false,
             auto_load: false,
             force_freq: true,
             save_pgm: false,
@@ -346,6 +352,16 @@ impl McuComp {
     pub fn set_ext_osc(&mut self, enabled: bool) {
         self.ext_osc = enabled;
         self.device.set_ext_osc(enabled);
+    }
+
+    pub fn set_wdt_enabled(&mut self, enabled: bool) {
+        self.wdt_enabled = enabled;
+        self.device.set_wdt_enabled(enabled);
+    }
+
+    pub fn set_clk_out(&mut self, enabled: bool) {
+        self.clk_out = enabled;
+        self.device.set_clk_out(enabled);
     }
 
     /// True when `ext_osc` is enabled and the primary XTAL input pin is wired to a circuit net,

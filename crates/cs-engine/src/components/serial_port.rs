@@ -141,7 +141,7 @@ impl Component for SerialPort {
                 SerialPort::get_port,
                 SerialPort::set_port,
             )
-            .with_info("Name of the Serial Port to connect to."),
+            .with_info("Name of the Serial Port (in-process serial monitor only; host OS port open is not yet supported)."),
             PropDef::int(
                 "Baud",
                 "Baud Rate",

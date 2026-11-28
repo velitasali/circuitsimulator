@@ -484,21 +484,31 @@ impl Canvas {
         true
     }
 
+    fn memory_capacity(kind: &Part) -> Option<usize> {
+        match kind {
+            Part::Memory(m) => {
+                let word_bytes = m.data_bits.clamp(1, 16).div_ceil(8).max(1);
+                Some((1usize << m.addr_bits.clamp(1, 16)) * word_bytes)
+            }
+            Part::DynamicMemory(m) => Some(1usize << (m.addr_bits.clamp(4, 12) * 2)),
+            Part::I2CRam(m) => Some(m.size_bytes.clamp(1, 65536)),
+            _ => None,
+        }
+    }
+
     pub fn memory_item_info(&self, uid: &str) -> Option<MemoryItemInfo> {
         let it = self.scene.item_by_id(uid)?;
         let running_data = self
             .running
             .as_ref()
             .and_then(|c| c.component_memory_bytes(uid));
+        let total = Self::memory_capacity(&it.kind)?;
         match &it.kind {
             Part::Memory(m) => {
-                let cell_bytes = (m.data_bits + 7) / 8;
-                let total = 1 << m.addr_bits;
+                let cell_bytes = m.data_bits.clamp(1, 16).div_ceil(8).max(1);
                 let data = running_data.unwrap_or_else(|| {
                     let mut d = m.data.clone();
-                    if d.len() < total {
-                        d.resize(total, 0);
-                    }
+                    d.resize(total, 0);
                     d
                 });
                 let title = if m.is_rom {
@@ -510,18 +520,15 @@ impl Canvas {
                     id: it.id.clone(),
                     title,
                     is_rom: m.is_rom,
-                    cell_bytes: cell_bytes.max(1),
-                    word_bytes: cell_bytes.max(1),
+                    cell_bytes,
+                    word_bytes: cell_bytes,
                     data,
                 })
             }
             Part::DynamicMemory(m) => {
-                let total = 1 << m.addr_bits;
                 let data = running_data.unwrap_or_else(|| {
                     let mut d = m.data.clone();
-                    if d.len() < total {
-                        d.resize(total, 0);
-                    }
+                    d.resize(total, 0);
                     d
                 });
                 Some(MemoryItemInfo {
@@ -534,12 +541,9 @@ impl Canvas {
                 })
             }
             Part::I2CRam(m) => {
-                let total = m.size_bytes.max(1);
                 let data = running_data.unwrap_or_else(|| {
                     let mut d = m.data.clone();
-                    if d.len() < total {
-                        d.resize(total, 0);
-                    }
+                    d.resize(total, 0);
                     d
                 });
                 Some(MemoryItemInfo {
@@ -569,37 +573,21 @@ impl Canvas {
             c.set_component_memory_byte(uid, addr, val);
         }
         if let Some(it) = self.scene.item_by_id_mut(uid) {
-            match &mut it.kind {
-                Part::Memory(m) => {
-                    let total = 1 << m.addr_bits;
-                    if m.data.len() < total {
-                        m.data.resize(total, 0);
-                    }
-                    if addr < m.data.len() {
-                        m.data[addr] = val;
-                        return true;
-                    }
-                }
-                Part::DynamicMemory(m) => {
-                    let total = 1 << m.addr_bits;
-                    if m.data.len() < total {
-                        m.data.resize(total, 0);
-                    }
-                    if addr < m.data.len() {
-                        m.data[addr] = val;
-                        return true;
-                    }
-                }
-                Part::I2CRam(m) => {
-                    if m.data.len() < m.size_bytes {
-                        m.data.resize(m.size_bytes, 0);
-                    }
-                    if addr < m.data.len() {
-                        m.data[addr] = val;
-                        return true;
-                    }
-                }
-                _ => {}
+            let Some(total) = Self::memory_capacity(&it.kind) else {
+                return false;
+            };
+            let buf = match &mut it.kind {
+                Part::Memory(m) => &mut m.data,
+                Part::DynamicMemory(m) => &mut m.data,
+                Part::I2CRam(m) => &mut m.data,
+                _ => return false,
+            };
+            if buf.len() < total {
+                buf.resize(total, 0);
+            }
+            if addr < buf.len() {
+                buf[addr] = val;
+                return true;
             }
         }
         false
@@ -610,35 +598,21 @@ impl Canvas {
             c.set_component_memory_bytes(uid, data);
         }
         if let Some(it) = self.scene.item_by_id_mut(uid) {
-            match &mut it.kind {
-                Part::Memory(m) => {
-                    let total = 1 << m.addr_bits;
-                    if m.data.len() < total {
-                        m.data.resize(total, 0);
-                    }
-                    let n = m.data.len().min(data.len());
-                    m.data[..n].copy_from_slice(&data[..n]);
-                    return true;
-                }
-                Part::DynamicMemory(m) => {
-                    let total = 1 << m.addr_bits;
-                    if m.data.len() < total {
-                        m.data.resize(total, 0);
-                    }
-                    let n = m.data.len().min(data.len());
-                    m.data[..n].copy_from_slice(&data[..n]);
-                    return true;
-                }
-                Part::I2CRam(m) => {
-                    if m.data.len() < m.size_bytes {
-                        m.data.resize(m.size_bytes, 0);
-                    }
-                    let n = m.data.len().min(data.len());
-                    m.data[..n].copy_from_slice(&data[..n]);
-                    return true;
-                }
-                _ => {}
+            let Some(total) = Self::memory_capacity(&it.kind) else {
+                return false;
+            };
+            let buf = match &mut it.kind {
+                Part::Memory(m) => &mut m.data,
+                Part::DynamicMemory(m) => &mut m.data,
+                Part::I2CRam(m) => &mut m.data,
+                _ => return false,
+            };
+            if buf.len() < total {
+                buf.resize(total, 0);
             }
+            let n = buf.len().min(data.len());
+            buf[..n].copy_from_slice(&data[..n]);
+            return true;
         }
         false
     }
@@ -657,34 +631,37 @@ impl Canvas {
         let Some(it) = self.scene.item_by_id_mut(uid) else {
             return false;
         };
-        match &mut it.kind {
-            Part::Memory(m) => {
-                let n = m.data.len().min(data.len());
-                m.data[..n].copy_from_slice(&data[..n]);
-                true
-            }
-            Part::DynamicMemory(m) => {
-                let n = m.data.len().min(data.len());
-                m.data[..n].copy_from_slice(&data[..n]);
-                true
-            }
-            Part::I2CRam(m) => {
-                let n = m.data.len().min(data.len());
-                m.data[..n].copy_from_slice(&data[..n]);
-                true
-            }
-            _ => false,
+        let Some(total) = Self::memory_capacity(&it.kind) else {
+            return false;
+        };
+        let target_len = data.len().min(total);
+        let buf = match &mut it.kind {
+            Part::Memory(m) => &mut m.data,
+            Part::DynamicMemory(m) => &mut m.data,
+            Part::I2CRam(m) => &mut m.data,
+            _ => return false,
+        };
+        if buf.len() < target_len {
+            buf.resize(target_len, 0);
         }
+        buf[..target_len].copy_from_slice(&data[..target_len]);
+        if let Some(c) = self.running.as_mut() {
+            c.set_component_memory_bytes(uid, &data[..target_len]);
+        }
+        true
     }
 
     pub fn load_item_data_file(&mut self, uid: &str, path: &str) -> Change {
         let uid = self.resolve_item_uid(uid);
-        let Some(mut data) = self.item_data_bytes(&uid) else {
+        let Some(total) = self
+            .scene
+            .item_by_id(&uid)
+            .and_then(|it| Self::memory_capacity(&it.kind))
+        else {
             return Change::default();
         };
-        if data.is_empty() {
-            data.resize(256, 0);
-        }
+        let mut data = self.get_memory_bytes(&uid).unwrap_or_default();
+        data.resize(total, 0);
         if let Err(e) = crate::memdata::load_bytes(std::path::Path::new(path), &mut data) {
             crate::logging::log_sim(e);
             return Change::default();
@@ -694,7 +671,12 @@ impl Canvas {
             self.history.undo.pop();
             return Change::default();
         }
-        Change::edit()
+        if let Some(c) = self.running.as_mut() {
+            let _ = c.re_solve();
+        }
+        let mut ch = Change::edit();
+        ch.sim = self.running.is_some();
+        ch
     }
 
     pub fn save_item_data_file(&self, uid: &str, path: &str) -> bool {
@@ -709,7 +691,7 @@ impl Canvas {
         } else {
             uid.to_string()
         };
-        let Some(data) = self.item_data_bytes(&uid) else {
+        let Some(data) = self.get_memory_bytes(&uid) else {
             return false;
         };
         if let Err(e) = crate::memdata::save_bytes(std::path::Path::new(path), &data) {

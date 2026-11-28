@@ -1098,6 +1098,10 @@ impl Circuit {
             debug_break_pcs: Vec::new(),
             debug_batch_state: crate::debug::BatchDebugState::Idle,
             debug_target_mcu: None,
+            scope_filter: 0.1,
+            la_threshold_r: crate::LA_THRESHOLD_DEFAULT,
+            la_threshold_f: crate::LA_THRESHOLD_DEFAULT,
+            la_trigger: -1,
         })
     }
 

@@ -270,6 +270,11 @@ impl Component for TouchPad {
         Rect::new(-w / 2.0, -h, w, h + 16.0)
     }
 
+    fn visual_rect(&self) -> Rect {
+        // Crosshair arms (±6 px + stroke) extend past the pad at left, top, and right edges.
+        self.body().adjust(-7.0, -7.0, 7.0, 0.0)
+    }
+
     fn interact_press(&mut self, local: Point) -> bool {
         let w = self.width as f64;
         let h = self.height as f64;

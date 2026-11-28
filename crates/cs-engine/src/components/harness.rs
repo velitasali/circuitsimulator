@@ -754,8 +754,8 @@ pub(crate) const CASES: &[Case] = &[
         make: || Part::Ssd1306(Ssd1306::default()),
         extras: &[
             ("Color", "Blue", "Yellow"),
-            ("Width", "64", "256"),
-            ("Height", "32", "128"),
+            ("Width", "64", "96"),
+            ("Height", "32", "48"),
             ("Rotate", "false", "true"),
             ("Control_Code", "62", "58"),
             ("Frequency", "400 kHz", "200 kHz"),

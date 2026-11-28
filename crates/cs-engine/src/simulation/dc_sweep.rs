@@ -218,6 +218,9 @@ impl Circuit {
                         resistance: resistance.max(RESISTOR_MIN_OHMS),
                     };
                 }
+                Kind::Transformer { state } => {
+                    state.dc_only = true;
+                }
                 _ => {}
             }
         }

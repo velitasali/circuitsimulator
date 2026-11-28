@@ -54,6 +54,10 @@ impl Circuit {
         self.regroup_pending = false;
         let links_before = self.named_net_links();
         let mut updated = None;
+        let mut reschedule_device = None;
+        let pin_net = &self.pin_net;
+        let sim_started = self.sim_started;
+        let slope_steps = self.slope_steps;
         for (index, c) in self.components.iter_mut().enumerate() {
             if c.id == id {
                 match (&mut c.kind, kind) {
@@ -61,6 +65,65 @@ impl Circuit {
                         let prev = *old;
                         *old = *new;
                         old.copy_runtime_from(&prev);
+                    }
+                    (Kind::Mcu(old), Kind::Mcu(new)) => {
+                        let freq_changed = (old.device.freq - new.device.freq).abs() > 1e-6;
+                        if freq_changed {
+                            old.device.force_freq(new.device.freq);
+                        }
+                        old.force_freq = new.force_freq;
+                        old.auto_load = new.auto_load;
+                        old.save_pgm = new.save_pgm;
+                        old.set_rst_enabled(new.rst_enabled);
+                        old.set_ext_osc(new.ext_osc);
+                        old.set_wdt_enabled(new.wdt_enabled);
+                        old.set_clk_out(new.clk_out);
+
+                        let fw_changed =
+                            old.firmware != new.firmware || old.firmware_dir != new.firmware_dir;
+                        old.firmware = new.firmware.clone();
+                        old.firmware_dir = new.firmware_dir.clone();
+                        if fw_changed {
+                            if let Some(path) = old.firmware_path() {
+                                if path.is_file() {
+                                    let _ = old.load_firmware_file(&path);
+                                    old.device.reset();
+                                    if sim_started {
+                                        old.device.start();
+                                    }
+                                }
+                            }
+                        }
+                        old.sync_gpio_to_pins();
+                        old.update_node_indices(pin_net);
+                        if sim_started
+                            && (freq_changed || fw_changed)
+                            && !old.reset_held
+                            && !old.is_ext_clock_driven()
+                            && old.device.freq > 0.0
+                        {
+                            reschedule_device = Some(old.device.ps_tick.max(1));
+                        }
+                    }
+                    (Kind::QemuDevice(old), Kind::QemuDevice(new)) => {
+                        let relaunch = old.firmware != new.firmware
+                            || old.firmware_dir != new.firmware_dir
+                            || old.extra_args != new.extra_args
+                            || old.gdb_port != new.gdb_port;
+                        old.firmware = new.firmware.clone();
+                        old.firmware_dir = new.firmware_dir.clone();
+                        old.extra_args = new.extra_args.clone();
+                        old.gdb_port = new.gdb_port;
+                        if relaunch {
+                            old.stop_live();
+                            if sim_started {
+                                old.stamp_init(slope_steps);
+                                if old.is_live() {
+                                    reschedule_device = Some(1);
+                                }
+                            }
+                        }
+                        old.update_node_indices(pin_net);
                     }
                     (
                         Kind::Capacitor {
@@ -158,6 +221,12 @@ impl Circuit {
         };
         if matches!(self.components[index].kind, Kind::Clock { .. }) {
             self.reschedule_clock(index);
+        }
+        if let Some(delay) = reschedule_device {
+            let target = EventTarget::Device(index);
+            self.events.cancel(target);
+            self.events
+                .add(self.circ_time.saturating_add(delay), target);
         }
         match &self.components[index].kind {
             Kind::Oscope { buffer_size, .. } => {
@@ -270,10 +339,15 @@ impl Circuit {
             let Some(sampler) = sampler else {
                 continue;
             };
+            let mut blanked = false;
             for ch in 0..nch {
                 if gnd_moved || old.get(ch) != groups.get(ch) {
                     sampler.blank_channel(ch);
+                    blanked = true;
                 }
+            }
+            if blanked && !self.instruments.blanked_ids.iter().any(|b| b == id) {
+                self.instruments.blanked_ids.push(id.clone());
             }
         }
     }
@@ -639,13 +713,10 @@ impl Circuit {
         }
         let pin_net = &self.pin_net;
         let nodes = &self.nodes;
-        let v_of = |pin: &str| -> f64 {
-            pin_net
-                .get(pin)
-                .and_then(|&i| nodes.get(i))
-                .map(|n| n.volt)
-                .unwrap_or(0.0)
+        let v_opt = |pin: &str| -> Option<f64> {
+            pin_net.get(pin).and_then(|&i| nodes.get(i)).map(|n| n.volt)
         };
+        let v_of = |pin: &str| -> f64 { v_opt(pin).unwrap_or(0.0) };
         let t = self.circ_time;
         let mut stamp_changed = false;
         let mut periph_arms: Vec<(usize, Drive)> = Vec::new();
@@ -660,7 +731,7 @@ impl Circuit {
                 }
                 Kind::FlipFlop(f) => {
                     let idx = f.q_pin_index();
-                    (f.volt_changed(&v_of, t), idx)
+                    (f.volt_changed(&v_opt, t), idx)
                 }
                 Kind::Latch(l) => (l.volt_changed(&v_of, t), l.channels),
                 Kind::Comparator { state } => {
@@ -773,7 +844,25 @@ impl Circuit {
                     let new_scl = s.pin_scl.get_inp_state(v_scl);
                     let new_sda = s.pin_sda.get_inp_state(v_sda);
                     if old_scl != new_scl || old_sda != new_sda {
+                        let before = s.pin_sda.norton();
                         s.volt_changed_direct();
+                        if norton_moved(before, &s.pin_sda) {
+                            stamp_changed = true;
+                        }
+                    }
+                    if (s.scroll || s.scroll_single) && !s.scroll_armed {
+                        s.scroll_armed = true;
+                        const SSD1306_FRAME_PS: u64 = 16_666_667_000;
+                        periph_arms.push((
+                            i,
+                            Drive {
+                                changed: false,
+                                arm_at: Some(t.saturating_add(SSD1306_FRAME_PS)),
+                                replace: true,
+                            },
+                        ));
+                    } else if !s.scroll && !s.scroll_single {
+                        s.scroll_armed = false;
                     }
                     continue;
                 }
@@ -860,11 +949,7 @@ impl Circuit {
                 Kind::Demux(d) => {
                     // SimulIDE's Demux acts as a pure decoder with no wired data input pin;
                     // tie an unconnected data input high so selected outputs assert normally.
-                    let v = if pin_net.contains_key(&d.input.id) {
-                        v_of(&d.input.id)
-                    } else {
-                        d.family.out_high_v
-                    };
+                    let v = v_opt(&d.input.id).unwrap_or(d.family.out_high_v);
                     d.input.get_inp_state(v);
                     for p in &mut d.addr_pins {
                         let v = v_of(&p.id);
@@ -920,11 +1005,10 @@ impl Circuit {
                         p.get_inp_state(v);
                     }
                     // Lamp test and ripple blanking are not external pins.
-                    // Hold them inactive (active-low).
+                    // Hold them inactive (active-low). Open OE enables the decoder.
                     b.lt.get_inp_state(5.0);
                     b.rbi.get_inp_state(5.0);
-                    let v_bi = v_of(&b.bi_rbo.id);
-                    b.bi_rbo.get_inp_state(v_bi);
+                    b.sample_oe(v_opt(&b.bi_rbo.id));
                     if b.use_reset {
                         let v_rst = v_of(&b.rst.id);
                         b.rst.get_inp_state(v_rst);
@@ -941,6 +1025,10 @@ impl Circuit {
                     let v_sda = v_of(&p.sda.id);
                     p.scl.get_inp_state(v_scl);
                     p.sda.get_inp_state(v_sda);
+                    for pin in &mut p.addr_pins {
+                        let v = v_of(&pin.id);
+                        pin.get_inp_state(v);
+                    }
                     for pin in &mut p.ports {
                         let v = v_of(&pin.id);
                         pin.get_inp_state(v);
@@ -1108,11 +1196,7 @@ impl Circuit {
                     let v_ds = v_of(&sr.ser_in.id);
                     let v_sh = v_of(&sr.clk_shift.id);
                     // Hold active-low master reset inactive when unwired (e.g. 7495 / 74178).
-                    let v_mr = if pin_net.contains_key(&sr.master_reset.id) {
-                        v_of(&sr.master_reset.id)
-                    } else {
-                        sr.family.out_high_v
-                    };
+                    let v_mr = v_opt(&sr.master_reset.id).unwrap_or(sr.family.out_high_v);
                     let v_oe = v_of(&sr.oe.id);
                     sr.ser_in.get_inp_state(v_ds);
                     sr.clk_shift.get_inp_state(v_sh);
@@ -1206,6 +1290,10 @@ impl Circuit {
                     let v_sda = v_of(&r.sda.id);
                     r.scl.get_inp_state(v_scl);
                     r.sda.get_inp_state(v_sda);
+                    for pin in &mut r.addr_pins {
+                        let v = v_of(&pin.id);
+                        pin.get_inp_state(v);
+                    }
                     let before = r.sda.norton();
                     r.tick();
                     if norton_moved(before, &r.sda) {
@@ -1214,20 +1302,15 @@ impl Circuit {
                     continue;
                 }
                 Kind::Lm555(lm) => {
-                    let v_node = |opt: Option<usize>| {
-                        opt.and_then(|idx| nodes.get(idx))
-                            .map(|n| n.volt)
-                            .unwrap_or(0.0)
-                    };
-                    let v_gnd = v_node(cache.la_pins[0]);
-                    let v_trg = v_node(cache.la_pins[1]);
-                    let v_rst = v_node(cache.la_pins[3]);
+                    let v_gnd = crate::elements::node_volt(cache.la_pins[0], nodes).unwrap_or(0.0);
+                    let v_trg = crate::elements::node_volt(cache.la_pins[1], nodes).unwrap_or(0.0);
+                    let v_rst = crate::elements::node_volt(cache.la_pins[3], nodes);
                     // An open control pin has no net. Reading that as 0 V collapses
                     // both thresholds, so the latch never sets. `None` uses the
                     // internal 2/3 and 1/3 divider.
-                    let v_cv = cache.la_pins[4].and_then(|idx| nodes.get(idx).map(|n| n.volt));
-                    let v_thr = v_node(cache.la_pins[5]);
-                    let v_vcc = v_node(cache.la_pins[7]);
+                    let v_cv = crate::elements::node_volt(cache.la_pins[4], nodes);
+                    let v_thr = crate::elements::node_volt(cache.la_pins[5], nodes).unwrap_or(0.0);
+                    let v_vcc = crate::elements::node_volt(cache.la_pins[7], nodes).unwrap_or(0.0);
                     let before = (lm.out_state, lm.discharge_on, lm.out_high_v, lm.out_low_v);
                     lm.step(v_gnd, v_vcc, v_trg, v_thr, v_cv, v_rst);
                     let level_moved = (lm.out_high_v - before.2).abs() > 1e-12

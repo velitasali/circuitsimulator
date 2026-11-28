@@ -812,20 +812,37 @@ pub fn analog_visual_bucket_for_part(
             }
             Some(hash as i32)
         }
-        Part::RgbLed(_) => {
-            let ir = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_R).abs() / 0.03;
-            let ig = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_G).abs() / 0.03;
-            let ib = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_B).abs() / 0.03;
+        Part::RgbLed(p) => {
+            let ir = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_R).abs()
+                / p.i_max_r.max(0.001);
+            let ig = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_G).abs()
+                / p.i_max_g.max(0.001);
+            let ib = pin_i(circuit, item_id, crate::elements::pins::PIN_RGB_B).abs()
+                / p.i_max_b.max(0.001);
             Some((glow_bucket(ir) << 16) | (glow_bucket(ig) << 8) | glow_bucket(ib))
         }
         Part::Lamp(p) => {
             let current = pin_i(circuit, item_id, crate::elements::pins::PIN_LEFT).abs();
+            let vl = pin_v(circuit, item_id, crate::elements::pins::PIN_LEFT);
+            let vr = pin_v(circuit, item_id, crate::elements::pins::PIN_RIGHT);
+            let v_diff = (vl - vr).abs();
             let max_i = if p.voltage > 1e-6 {
                 p.power / p.voltage
             } else {
                 1.0
             };
-            Some(glow_bucket(current / max_i.max(0.001)))
+            let nom_i = max_i.max(0.001);
+            let mut ratio = if current > 0.0 {
+                current / nom_i
+            } else if v_diff > 0.05 {
+                (v_diff / p.r_cold.max(1e-3)) / nom_i
+            } else {
+                0.0
+            };
+            if ratio <= 0.01 && current <= 0.001 && v_diff > 0.5 {
+                ratio = (v_diff / p.voltage.max(1.0)).clamp(0.1, 1.0);
+            }
+            Some(glow_bucket(ratio))
         }
         Part::LedMatrix(p) => {
             let rows = p.rows.max(1);

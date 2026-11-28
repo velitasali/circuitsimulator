@@ -105,6 +105,11 @@ impl Component for DS1621 {
     fn body(&self) -> Rect {
         Rect::new(-20.0, -28.0, 40.0, 56.0)
     }
+
+    fn visual_rect(&self) -> Rect {
+        // Top orientation notch is a radius-4 arc centered on y = -28, reaching y = -32.
+        self.body().adjust(0.0, -5.0, 0.0, 0.0)
+    }
 }
 
 impl Stampable for DS1621 {

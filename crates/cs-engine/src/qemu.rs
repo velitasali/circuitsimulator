@@ -52,12 +52,24 @@ pub const ESP32_CHIP_ID: u16 = 0x0000;
 const GPIO_OUT: u64 = 0x04;
 const GPIO_OUT_W1TS: u64 = 0x08;
 const GPIO_OUT_W1TC: u64 = 0x0C;
+const GPIO_OUT1: u64 = 0x10;
+const GPIO_OUT1_W1TS: u64 = 0x14;
+const GPIO_OUT1_W1TC: u64 = 0x18;
 const GPIO_ENABLE: u64 = 0x20;
 const GPIO_ENABLE_W1TS: u64 = 0x24;
 const GPIO_ENABLE_W1TC: u64 = 0x28;
+const GPIO_ENABLE1: u64 = 0x2C;
+const GPIO_ENABLE1_W1TS: u64 = 0x30;
+const GPIO_ENABLE1_W1TC: u64 = 0x34;
 const GPIO_STRAP: u64 = 0x38;
 const GPIO_IN: u64 = 0x3C;
 const GPIO_IN1: u64 = 0x40;
+const GPIO_FUNC_IN_SEL_CFG_BASE: u64 = 0x130;
+const GPIO_FUNC_OUT_SEL_CFG_BASE: u64 = 0x530;
+/// Bank 1 output-capable pins: only GPIO32 (bit 0) and GPIO33 (bit 1); GPIO34–39 are input-only.
+const ESP32_BANK1_OUT_MASK: u32 = 0x03;
+/// ESP32 IO_MUX FUN_WPU bit (internal pull-up enable).
+const ESP32_IOMUX_FUN_WPU: u32 = 1 << 8;
 
 const CRL_OFFSET: u64 = 0x00;
 const CRH_OFFSET: u64 = 0x04;
@@ -122,10 +134,55 @@ struct PendingEvent {
     action: SimAction,
 }
 
+/// ESP32 IO_MUX register offset → GPIO pad number (ESP32 TRM Table 20).
+fn esp32_iomux_offset_to_gpio(offset: u64) -> Option<usize> {
+    match offset {
+        0x04 => Some(36),
+        0x08 => Some(37),
+        0x0C => Some(38),
+        0x10 => Some(39),
+        0x14 => Some(34),
+        0x18 => Some(35),
+        0x1C => Some(32),
+        0x20 => Some(33),
+        0x24 => Some(25),
+        0x28 => Some(26),
+        0x2C => Some(27),
+        0x30 => Some(14),
+        0x34 => Some(12),
+        0x38 => Some(13),
+        0x3C => Some(15),
+        0x40 => Some(2),
+        0x44 => Some(0),
+        0x48 => Some(4),
+        0x4C => Some(16),
+        0x50 => Some(17),
+        0x54 => Some(9),
+        0x58 => Some(10),
+        0x5C => Some(11),
+        0x60 => Some(6),
+        0x64 => Some(7),
+        0x68 => Some(8),
+        0x6C => Some(5),
+        0x70 => Some(18),
+        0x74 => Some(19),
+        0x78 => Some(20),
+        0x7C => Some(21),
+        0x80 => Some(22),
+        0x84 => Some(3),
+        0x88 => Some(1),
+        0x8C => Some(23),
+        0x90 => Some(24),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Esp32Gpio {
     state: u32,
     enable: u32,
+    state1: u32,
+    enable1: u32,
     /// Pad number → index in `QemuComp::pins`.
     pad: [Option<usize>; 40],
 }
@@ -135,6 +192,8 @@ impl Esp32Gpio {
         Self {
             state: 0,
             enable: 0,
+            state1: 0,
+            enable1: 0,
             pad: [None; 40],
         }
     }
@@ -261,6 +320,12 @@ impl Clone for QemuComp {
             last_mailbox_read_addr: None,
             deferred_poll: None,
         }
+    }
+}
+
+impl Drop for QemuComp {
+    fn drop(&mut self) {
+        self.stop_live();
     }
 }
 
@@ -1656,11 +1721,7 @@ impl QemuComp {
     fn write_register(&mut self, ev: PendingEvent, now: u64) {
         match ev.kind {
             ModuleKind::Esp32Gpio => self.esp32_write(ev.address, ev.value as u32),
-            ModuleKind::Esp32IoMux => {
-                if let Some(ref mut m) = self.esp32_iomux {
-                    m.write(ev.address.saturating_sub(m.mem_start), ev.value as u32);
-                }
-            }
+            ModuleKind::Esp32IoMux => self.esp32_iomux_write(ev.address, ev.value as u32),
             ModuleKind::Stm32Port(n) => self.stm32_write(n as usize, ev.address, ev.value as u32),
             ModuleKind::Stm32Afio => self.stm32_afio_write(ev.address, ev.value as u32),
             ModuleKind::Esp32Usart(n) | ModuleKind::Stm32Usart(n) => {
@@ -2077,9 +2138,29 @@ impl QemuComp {
         }
     }
 
+    fn esp32_iomux_write(&mut self, address: u64, value: u32) {
+        let Some(ref mut m) = self.esp32_iomux else {
+            return;
+        };
+        let offset = address.saturating_sub(m.mem_start);
+        m.write(offset, value);
+        if let Some(gpio) = esp32_iomux_offset_to_gpio(offset)
+            && gpio < 34
+            && let Some(idx) = self.esp32_gpio.pad[gpio]
+        {
+            let wpu = (value & ESP32_IOMUX_FUN_WPU) != 0;
+            self.pins[idx].set_pullup(if wpu { 1e5 } else { 0.0 });
+            self.pins_dirty = true;
+        }
+    }
+
     fn esp32_read(&mut self, address: u64) -> u32 {
         let offset = address.saturating_sub(ESP32_GPIO_START);
         match offset {
+            GPIO_OUT => self.esp32_gpio.state,
+            GPIO_OUT1 => self.esp32_gpio.state1,
+            GPIO_ENABLE => self.esp32_gpio.enable,
+            GPIO_ENABLE1 => self.esp32_gpio.enable1,
             GPIO_STRAP => 0x13,
             GPIO_IN => self.read_esp32_port(0),
             GPIO_IN1 => self.read_esp32_port(1),
@@ -2093,12 +2174,166 @@ impl QemuComp {
             GPIO_OUT => self.set_gpio_state(value),
             GPIO_OUT_W1TS => self.set_gpio_state(self.esp32_gpio.state | value),
             GPIO_OUT_W1TC => self.set_gpio_state(self.esp32_gpio.state & !value),
+            GPIO_OUT1 => self.set_gpio_state1(value),
+            GPIO_OUT1_W1TS => self.set_gpio_state1(self.esp32_gpio.state1 | value),
+            GPIO_OUT1_W1TC => self.set_gpio_state1(self.esp32_gpio.state1 & !value),
             GPIO_ENABLE => self.set_gpio_dir(value),
             GPIO_ENABLE_W1TS => self.set_gpio_dir(self.esp32_gpio.enable | value),
             GPIO_ENABLE_W1TC => self.set_gpio_dir(self.esp32_gpio.enable & !value),
+            GPIO_ENABLE1 => self.set_gpio_dir1(value),
+            GPIO_ENABLE1_W1TS => self.set_gpio_dir1(self.esp32_gpio.enable1 | value),
+            GPIO_ENABLE1_W1TC => self.set_gpio_dir1(self.esp32_gpio.enable1 & !value),
+            off if (GPIO_FUNC_IN_SEL_CFG_BASE..GPIO_FUNC_OUT_SEL_CFG_BASE).contains(&off) => {
+                let sig = ((off - GPIO_FUNC_IN_SEL_CFG_BASE) / 4) as usize;
+                if let Some(ref mut m) = self.esp32_iomux {
+                    m.set_func_in(sig, value);
+                }
+                self.apply_esp32_func_in(sig, value);
+            }
+            off if (GPIO_FUNC_OUT_SEL_CFG_BASE..GPIO_FUNC_OUT_SEL_CFG_BASE + 40 * 4)
+                .contains(&off) =>
+            {
+                let gpio = ((off - GPIO_FUNC_OUT_SEL_CFG_BASE) / 4) as usize;
+                if let Some(ref mut m) = self.esp32_iomux {
+                    m.set_func_out(gpio, value);
+                }
+                self.apply_esp32_func_out(gpio, value);
+            }
             _ => {}
         }
         self.write_mem(address, value);
+    }
+
+    fn apply_esp32_func_in(&mut self, sig: usize, val: u32) {
+        let gpio = (val & 0x3F) as usize;
+        if gpio >= 40 {
+            return;
+        }
+        let pin = self.esp32_gpio.pad[gpio];
+        match sig {
+            14 => {
+                if let Some(u) = self.usarts.first_mut() {
+                    u.rx = pin;
+                }
+            }
+            17 => {
+                if let Some(u) = self.usarts.get_mut(1) {
+                    u.rx = pin;
+                }
+            }
+            198 => {
+                if let Some(u) = self.usarts.get_mut(2) {
+                    u.rx = pin;
+                }
+            }
+            9 => {
+                if let Some(s) = self.spis.first_mut() {
+                    s.pins.miso = pin;
+                }
+            }
+            64 => {
+                if let Some(s) = self.spis.get_mut(1) {
+                    s.pins.miso = pin;
+                }
+            }
+            29 => {
+                if let Some(t) = self.twis.first_mut() {
+                    t.pins.scl = pin;
+                }
+            }
+            30 => {
+                if let Some(t) = self.twis.first_mut() {
+                    t.pins.sda = pin;
+                }
+            }
+            95 => {
+                if let Some(t) = self.twis.get_mut(1) {
+                    t.pins.scl = pin;
+                }
+            }
+            96 => {
+                if let Some(t) = self.twis.get_mut(1) {
+                    t.pins.sda = pin;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_esp32_func_out(&mut self, gpio: usize, val: u32) {
+        if gpio >= 34 {
+            return;
+        }
+        let sig = (val & 0x1FF) as usize;
+        let pin = self.esp32_gpio.pad[gpio];
+        match sig {
+            14 => {
+                if let Some(u) = self.usarts.first_mut() {
+                    u.tx = pin;
+                }
+            }
+            17 => {
+                if let Some(u) = self.usarts.get_mut(1) {
+                    u.tx = pin;
+                }
+            }
+            198 => {
+                if let Some(u) = self.usarts.get_mut(2) {
+                    u.tx = pin;
+                }
+            }
+            8 => {
+                if let Some(s) = self.spis.first_mut() {
+                    s.pins.clk = pin;
+                }
+            }
+            10 => {
+                if let Some(s) = self.spis.first_mut() {
+                    s.pins.mosi = pin;
+                }
+            }
+            11 => {
+                if let Some(s) = self.spis.first_mut() {
+                    s.pins.ss = pin;
+                }
+            }
+            63 => {
+                if let Some(s) = self.spis.get_mut(1) {
+                    s.pins.clk = pin;
+                }
+            }
+            65 => {
+                if let Some(s) = self.spis.get_mut(1) {
+                    s.pins.mosi = pin;
+                }
+            }
+            68 => {
+                if let Some(s) = self.spis.get_mut(1) {
+                    s.pins.ss = pin;
+                }
+            }
+            29 => {
+                if let Some(t) = self.twis.first_mut() {
+                    t.pins.scl = pin;
+                }
+            }
+            30 => {
+                if let Some(t) = self.twis.first_mut() {
+                    t.pins.sda = pin;
+                }
+            }
+            95 => {
+                if let Some(t) = self.twis.get_mut(1) {
+                    t.pins.scl = pin;
+                }
+            }
+            96 => {
+                if let Some(t) = self.twis.get_mut(1) {
+                    t.pins.sda = pin;
+                }
+            }
+            _ => {}
+        }
     }
 
     fn read_esp32_port(&self, bank: i32) -> u32 {
@@ -2112,10 +2347,10 @@ impl QemuComp {
                 }
             }
         } else {
-            for i in 33..40 {
+            for i in 32..40 {
                 if let Some(idx) = self.esp32_gpio.pad[i] {
                     if self.pin_inp(idx) {
-                        data |= 1 << (i - 33);
+                        data |= 1 << (i - 32);
                     }
                 }
             }
@@ -2164,6 +2399,82 @@ impl QemuComp {
             }
             changed &= !mask;
         }
+    }
+
+    fn set_gpio_state1(&mut self, raw_state: u32) {
+        let new_state = raw_state & ESP32_BANK1_OUT_MASK;
+        if self.esp32_gpio.state1 == new_state {
+            return;
+        }
+        let mut changed = self.esp32_gpio.state1 ^ new_state;
+        self.esp32_gpio.state1 = new_state;
+        self.pins_dirty = true;
+        while changed != 0 {
+            let bit = changed.trailing_zeros() as usize;
+            let mask = 1u32 << bit;
+            if let Some(idx) = self.esp32_gpio.pad[32 + bit] {
+                self.pins[idx].set_out_state(new_state & mask != 0);
+            }
+            changed &= !mask;
+        }
+    }
+
+    fn set_gpio_dir1(&mut self, raw_enable: u32) {
+        let new_enable = raw_enable & ESP32_BANK1_OUT_MASK;
+        if self.esp32_gpio.enable1 == new_enable {
+            return;
+        }
+        let mut changed = self.esp32_gpio.enable1 ^ new_enable;
+        self.esp32_gpio.enable1 = new_enable;
+        self.pins_dirty = true;
+        while changed != 0 {
+            let bit = changed.trailing_zeros() as usize;
+            let mask = 1u32 << bit;
+            if let Some(idx) = self.esp32_gpio.pad[32 + bit] {
+                if new_enable & mask != 0 {
+                    self.pins[idx].set_pin_mode(PinMode::Output);
+                    self.pins[idx].set_out_state(self.esp32_gpio.state1 & mask != 0);
+                } else {
+                    self.pins[idx].set_pin_mode(PinMode::Input);
+                }
+            }
+            changed &= !mask;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn esp32_write_for_test(&mut self, address: u64, value: u32) {
+        self.esp32_write(address, value);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn esp32_read_for_test(&mut self, address: u64) -> u32 {
+        self.esp32_read(address)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn esp32_iomux_write_for_test(&mut self, address: u64, value: u32) {
+        self.esp32_iomux_write(address, value);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pin_by_suffix(&self, suffix: &str) -> Option<&IoPin> {
+        let want = format!("{}-{suffix}", self.uid);
+        self.pins.iter().find(|p| p.id == want)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_pin_input_for_test(&mut self, suffix: &str, volt: f64) {
+        let want = format!("{}-{suffix}", self.uid);
+        if let Some(p) = self.pins.iter_mut().find(|p| p.id == want) {
+            p.get_inp_state(volt);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn usart_tx_pin_name(&self, idx: usize) -> Option<String> {
+        let pin_idx = self.usarts.get(idx)?.tx?;
+        self.pins.get(pin_idx).map(|p| p.id.clone())
     }
 
     fn stm32_read(&mut self, port: usize, address: u64) -> u32 {

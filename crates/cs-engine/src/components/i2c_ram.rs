@@ -1,7 +1,8 @@
 //! I2C serial EEPROM / RAM (24C04 compatible) component.
 
 use super::drawable::{Drawable, paint_chip_body};
-use super::props::{PropDef, PropError, PropValue, expect_int};
+use super::memory::{decode_mem_hex, encode_mem_hex};
+use super::props::{PropDef, PropError, PropValue, expect_int, expect_string};
 use super::{CompPin, Component, Stampable};
 use crate::canvas::Pin;
 use crate::canvas::PinDirection;
@@ -58,7 +59,10 @@ impl Default for I2CRam {
 impl I2CRam {
     pub const TYPE_ID: &'static str = "I2CRam";
     pub fn to_element_kind(&self) -> Kind {
-        Kind::I2CRam(I2CRamState::new("", self.size_bytes, self.dev_address))
+        let mut st = I2CRamState::new("", self.size_bytes, self.dev_address);
+        let n = st.data.len().min(self.data.len());
+        st.data[..n].copy_from_slice(&self.data[..n]);
+        Kind::I2CRam(st)
     }
 
     fn get_size_bytes(&self) -> PropValue {
@@ -77,6 +81,15 @@ impl I2CRam {
         self.dev_address = expect_int("DevAddress", v)?.clamp(0, 127) as u8;
         Ok(())
     }
+
+    fn get_mem(&self) -> PropValue {
+        PropValue::String(encode_mem_hex(&self.data))
+    }
+    fn set_mem(&mut self, v: PropValue) -> Result<(), PropError> {
+        let s = expect_string("Mem", v)?;
+        self.data = decode_mem_hex(&s);
+        Ok(())
+    }
 }
 
 impl Component for I2CRam {
@@ -87,6 +100,12 @@ impl Component for I2CRam {
     const DESCRIPTION: &'static str = "I2C Serial EEPROM / RAM (24C04 compatible).";
 
     fn props() -> &'static [PropDef<Self>] {
+        const MEM: PropDef<I2CRam> = {
+            let mut p = PropDef::string("Mem", "Memory Data", I2CRam::get_mem, I2CRam::set_mem);
+            p.show_by_default = false;
+            p.persist = true;
+            p
+        };
         static PROPS: &[PropDef<I2CRam>] = &[
             PropDef::int(
                 "SizeBytes",
@@ -106,6 +125,7 @@ impl Component for I2CRam {
                 I2CRam::set_dev_address,
             )
             .with_info("7-bit I2C slave device address."),
+            MEM,
         ];
         PROPS
     }

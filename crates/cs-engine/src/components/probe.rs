@@ -151,6 +151,19 @@ impl Component for Probe {
             Rect::new(-8.0, -8.0, 16.0, 16.0)
         }
     }
+
+    fn visual_rect(&self) -> Rect {
+        let b = self.body();
+        if !self.show_volt {
+            return b;
+        }
+        let text_rect = if self.small {
+            Rect::new(-4.0, -8.0, 56.0, 16.0)
+        } else {
+            Rect::new(10.0, -8.0, 66.0, 18.0)
+        };
+        b.united(text_rect)
+    }
 }
 
 impl Stampable for Probe {

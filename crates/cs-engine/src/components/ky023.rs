@@ -130,14 +130,15 @@ impl Component for KY023 {
         let stick_pos = Point::new(self.stick_x, -8.0 + self.stick_y);
         let dist_to_stick = (local.x - stick_pos.x).hypot(local.y - stick_pos.y);
         if dist_to_stick <= 10.0 || d.x.hypot(d.y) <= 17.0 {
+            let scale = MAX_AXIS / 13.0;
             let len = d.x.hypot(d.y);
             let (sx, sy) = if len > 13.0 {
-                (d.x * 13.0 / len, d.y * 13.0 / len)
+                (d.x * MAX_AXIS / len, d.y * MAX_AXIS / len)
             } else {
-                (d.x, d.y)
+                (d.x * scale, d.y * scale)
             };
-            self.stick_x = sx;
-            self.stick_y = sy;
+            self.stick_x = sx.clamp(MIN_AXIS, MAX_AXIS);
+            self.stick_y = sy.clamp(MIN_AXIS, MAX_AXIS);
             return true;
         }
         false
@@ -148,12 +149,15 @@ impl Component for KY023 {
             return false;
         }
         let d = Point::new(local.x, local.y - (-8.0));
+        let scale = MAX_AXIS / 13.0;
         let len = d.x.hypot(d.y);
         let (sx, sy) = if len > 13.0 {
-            (d.x * 13.0 / len, d.y * 13.0 / len)
+            (d.x * MAX_AXIS / len, d.y * MAX_AXIS / len)
         } else {
-            (d.x, d.y)
+            (d.x * scale, d.y * scale)
         };
+        let sx = sx.clamp(MIN_AXIS, MAX_AXIS);
+        let sy = sy.clamp(MIN_AXIS, MAX_AXIS);
         if (self.stick_x - sx).abs() > 1e-4 || (self.stick_y - sy).abs() > 1e-4 {
             self.stick_x = sx;
             self.stick_y = sy;
@@ -223,17 +227,8 @@ impl crate::canvas::Scene {
 
 impl Stampable for KY023 {
     fn stamp(&self, matrix: &mut CircMatrix, pin_nodes: &[usize], _dt: f64) {
-        let legacy_scale = self.stick_x.abs() > 1.0 || self.stick_y.abs() > 1.0;
-        let x_norm = if legacy_scale {
-            ((self.stick_x + 25.0) / 50.0).clamp(0.0, 1.0)
-        } else {
-            ((self.stick_x + 1.0) / 2.0).clamp(0.0, 1.0)
-        };
-        let y_norm = if legacy_scale {
-            ((self.stick_y + 25.0) / 50.0).clamp(0.0, 1.0)
-        } else {
-            ((self.stick_y + 1.0) / 2.0).clamp(0.0, 1.0)
-        };
+        let x_norm = ((self.stick_x + MAX_AXIS) / (2.0 * MAX_AXIS)).clamp(0.0, 1.0);
+        let y_norm = ((self.stick_y + MAX_AXIS) / (2.0 * MAX_AXIS)).clamp(0.0, 1.0);
         stamp_to_ground(matrix, pin_nodes, 0, 5.0 * x_norm, SOURCE_ADMIT);
         stamp_to_ground(matrix, pin_nodes, 1, 5.0 * y_norm, SOURCE_ADMIT);
         if self.btn_down {
@@ -268,9 +263,9 @@ impl Drawable for KY023 {
         d.fill_circle(0.0, -8.0, 17.0, ctx.pal.border.fade(0.15));
         d.stroke_circle(0.0, -8.0, 17.0, ctx.pal.border, 1.0);
 
-        // Thumb stick at (0, -8) + (stick_x, stick_y)
-        let sx = self.stick_x.clamp(-12.0, 12.0);
-        let sy = -8.0 + self.stick_y.clamp(-12.0, 12.0);
+        // Thumb stick at (0, -8) scaled across the ±12 px painted throw
+        let sx = (self.stick_x / MAX_AXIS).clamp(-1.0, 1.0) * 12.0;
+        let sy = -8.0 + (self.stick_y / MAX_AXIS).clamp(-1.0, 1.0) * 12.0;
         d.fill_circle(sx, sy, 5.1, ctx.pal.border);
 
         // Push button at (8, 15, 10, 10)

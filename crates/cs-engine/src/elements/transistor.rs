@@ -2,7 +2,7 @@
 //! (square-law + channel-length correction) companions.
 
 use crate::CERO_DOUB;
-use crate::elements::PinCache;
+use crate::elements::{PinCache, node_volt};
 use crate::net::ENode;
 
 /// Thermal voltage used by C++ `eBJT::m_vt` / `eDiode::m_vt`.
@@ -101,21 +101,10 @@ impl BjtState {
 
     /// Non-linear convergence step.
     pub fn update_nonlinear(&mut self, cache: &PinCache, nodes: &[ENode]) -> bool {
-        let vc = cache
-            .collector
-            .and_then(|i| nodes.get(i))
-            .map(|n| n.volt)
-            .unwrap_or(0.0);
-        let ve = cache
-            .emitter
-            .and_then(|i| nodes.get(i))
-            .map(|n| n.volt)
-            .unwrap_or(0.0);
-        let vb = cache
-            .base
-            .and_then(|i| nodes.get(i))
-            .map(|n| n.volt)
-            .unwrap_or(0.0);
+        let vc = node_volt(cache.collector, nodes).unwrap_or(0.0);
+        let ve = node_volt(cache.emitter, nodes).unwrap_or(0.0);
+        let vb =
+            node_volt(cache.base, nodes).unwrap_or(if self.pnp { ve.max(vc) } else { ve.min(vc) });
         self.volt_changed(vc, ve, vb)
     }
 
@@ -236,7 +225,7 @@ impl MosfetState {
     }
 
     pub fn set_rdson(&mut self, rdson: f64) {
-        self.rdson = rdson.clamp(CERO_DOUB, 1000.0);
+        self.rdson = rdson.clamp(CERO_DOUB, 1e6);
         self.update_values();
     }
 
@@ -249,7 +238,7 @@ impl MosfetState {
     }
 
     fn update_values(&mut self) {
-        self.k_rdson = self.rdson * (10.0 - self.threshold);
+        self.k_rdson = self.rdson * (10.0 - self.threshold).max(1.0);
         self.gth = if self.depletion {
             -self.threshold - self.threshold / 4.0
         } else {
@@ -378,10 +367,15 @@ impl JfetState {
 
     pub fn set_idss(&mut self, idss: f64) {
         self.idss = idss.abs().min(1000.0);
+        self.update_beta();
     }
 
     pub fn set_vp(&mut self, vp: f64) {
+        if vp.abs() < 1e-6 {
+            return;
+        }
         self.vp = vp;
+        self.update_beta();
     }
 
     pub fn set_lambda_inv(&mut self, lambda_inv: f64) {
@@ -392,9 +386,13 @@ impl JfetState {
         self.p_channel = p_channel;
     }
 
+    fn update_beta(&mut self) {
+        self.beta = self.idss / self.vp.powi(2).max(1e-12);
+    }
+
     pub fn reset_stamp(&mut self) {
         // C++ `eJfet::initialize` recomputes β from the current Idss / Vp.
-        self.beta = self.idss / self.vp.powi(2).max(1e-24);
+        self.update_beta();
         self.accuracy = JFET_ACCURACY;
         self.admit = CERO_DOUB;
         self.last_current = CERO_DOUB;
@@ -437,10 +435,16 @@ impl JfetState {
         }
         let vgs = vg - vs;
         let vds = vd - vs;
-        let mut gate_v = vgs - self.vp;
+        // Mirror positive datasheet Vp on P-channel parts into the negated n-channel domain.
+        let vp = if self.p_channel && self.vp > 0.0 {
+            -self.vp
+        } else {
+            self.vp
+        };
+        let mut gate_v = vgs - vp;
         let correction = 1.0 + vds / self.lambda_inv;
 
-        let (mut current, temp_admit) = if vgs <= self.vp {
+        let (mut current, temp_admit) = if vgs <= vp {
             gate_v = CERO_DOUB;
             (CERO_DOUB, CERO_DOUB)
         } else if vds < CERO_DOUB {
@@ -451,7 +455,7 @@ impl JfetState {
             let current = self.beta * (2.0 * gate_v * vds - vds * vds) * correction;
             (current, current / vds)
         } else {
-            let current = self.beta * (vgs - self.vp).powi(2) * correction;
+            let current = self.beta * (vgs - vp).powi(2) * correction;
             (current, current / vds)
         };
         if self.p_channel {
@@ -524,5 +528,28 @@ mod tests {
         let id = j.admit * 5.0;
         let expect = JFET_DEFAULT_IDSS * (1.0 + 5.0 / JFET_DEFAULT_LAMBDA_INV);
         assert!((id - expect).abs() < 1e-9, "swapped Id {id} want {expect}");
+    }
+
+    #[test]
+    fn pnp_open_base_stays_off_with_high_emitter() {
+        let mut b = BjtState::pnp();
+        let mut nodes = vec![ENode::new("c".into(), 0), ENode::new("e".into(), 1)];
+        nodes[0].volt = 0.0;
+        nodes[1].volt = 12.0;
+        let mut cache = PinCache::default();
+        cache.collector = Some(0);
+        cache.emitter = Some(1);
+        cache.base = None;
+        for _ in 0..10 {
+            if b.update_nonlinear(&cache, &nodes) {
+                break;
+            }
+        }
+        assert!(
+            b.ic.abs() < 1e-9 && b.ie.abs() < 1e-9,
+            "open-base PNP must not conduct: ic={}, ie={}",
+            b.ic,
+            b.ie
+        );
     }
 }

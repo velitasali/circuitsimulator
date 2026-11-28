@@ -43,14 +43,18 @@ pub struct TransformerState {
     pub inductance3: f64,
     /// Auxiliary secondary winding series resistance (Ω).
     pub r_coil3: f64,
+    /// When set (DC operating point / DC sweep), stamp copper resistances only.
+    pub dc_only: bool,
 
     // Dynamic runtime states
     /// Primary current i1 (A).
     pub i1: f64,
     /// Secondary current i2 (A).
     pub i2: f64,
-    /// Auxiliary secondary current i3 (A).
+    /// Secondary B (when center-tapped) or auxiliary secondary current i3 (A).
     pub i3: f64,
+    /// Auxiliary secondary current i4 (A) when both center tap and auxiliary are enabled.
+    pub i4: f64,
     /// Hysteresis magnetization direction (+1.0 or -1.0).
     pub h_dir: f64,
     /// Previous magnetizing current for dI_m/dt tracking.
@@ -74,10 +78,12 @@ impl Default for TransformerState {
             aux_secondary: false,
             inductance3: 1.0,
             r_coil3: 0.1,
+            dc_only: false,
 
             i1: 0.0,
             i2: 0.0,
             i3: 0.0,
+            i4: 0.0,
             h_dir: 1.0,
             prev_i_mag: 0.0,
             flux: 0.0,
@@ -151,6 +157,7 @@ impl TransformerState {
         self.i1 = 0.0;
         self.i2 = 0.0;
         self.i3 = 0.0;
+        self.i4 = 0.0;
         self.h_dir = 1.0;
         self.prev_i_mag = 0.0;
         self.flux = 0.0;
@@ -160,6 +167,7 @@ impl TransformerState {
         self.i1 = prev.i1;
         self.i2 = prev.i2;
         self.i3 = prev.i3;
+        self.i4 = prev.i4;
         self.h_dir = prev.h_dir;
         self.prev_i_mag = prev.prev_i_mag;
         self.flux = prev.flux;
@@ -179,7 +187,7 @@ impl TransformerState {
 
     /// Calculate total magnetizing current referred to the primary.
     #[inline]
-    pub fn magnetizing_current(&self, i1: f64, i2: f64, i3: f64) -> f64 {
+    pub fn magnetizing_current(&self, i1: f64, i2: f64, i3: f64, i4: f64) -> f64 {
         let n2 = self.turns_ratio_secondary();
         let i_sec = if self.center_tap {
             // For center-tapped secondary, i2 is winding A, i3 is winding B
@@ -187,8 +195,9 @@ impl TransformerState {
         } else {
             n2 * i2
         };
-        let i_aux = if self.aux_secondary && !self.center_tap {
-            self.turns_ratio_aux() * i3
+        let i_aux = if self.aux_secondary {
+            let aux_curr = if self.center_tap { i4 } else { i3 };
+            self.turns_ratio_aux() * aux_curr
         } else {
             0.0
         };
@@ -234,30 +243,14 @@ impl TransformerState {
 
     /// Solves the multi-winding companion admittance matrix and history current vector.
     pub fn companion(&self, dt: f64) -> MultiWindingCompanion {
-        if dt <= 0.0 {
-            let mut comp = MultiWindingCompanion::default();
-            comp.dim = 2;
-            comp.g[0][0] = 1.0 / self.r_coil1.max(MIN_R);
-            comp.g[1][1] = 1.0 / self.r_coil2.max(MIN_R);
-            return comp;
-        }
-
-        let i_m = self.magnetizing_current(self.i1, self.i2, self.i3);
-        let (_l_mag, s_sat, flux) = self.diff_inductance_and_flux(i_m);
-
-        let l1 = self.inductance1.max(MIN_L);
-        let l2 = self.inductance2.max(MIN_L);
-        let k = self.coupling.clamp(0.0, 1.0);
         let r1 = self.r_coil1.max(MIN_R);
         let r2 = self.r_coil2.max(MIN_R);
-
-        // Core loss conductance G_core across primary
+        let r3 = self.r_coil3.max(MIN_R);
         let g_core = if self.r_core > 0.0 && self.r_core < 1e11 {
             1.0 / self.r_core
         } else {
             0.0
         };
-
         let dim = if self.center_tap && self.aux_secondary {
             4
         } else if self.center_tap || self.aux_secondary {
@@ -265,6 +258,39 @@ impl TransformerState {
         } else {
             2
         };
+
+        if dt <= 0.0 || self.dc_only {
+            let mut comp = MultiWindingCompanion::default();
+            comp.dim = dim;
+            comp.g[0][0] = 1.0 / r1 + g_core;
+            match dim {
+                2 => {
+                    comp.g[1][1] = 1.0 / r2;
+                }
+                3 if self.center_tap => {
+                    comp.g[1][1] = 1.0 / (0.5 * r2);
+                    comp.g[2][2] = 1.0 / (0.5 * r2);
+                }
+                3 => {
+                    comp.g[1][1] = 1.0 / r2;
+                    comp.g[2][2] = 1.0 / r3;
+                }
+                4 => {
+                    comp.g[1][1] = 1.0 / (0.5 * r2);
+                    comp.g[2][2] = 1.0 / (0.5 * r2);
+                    comp.g[3][3] = 1.0 / r3;
+                }
+                _ => unreachable!(),
+            }
+            return comp;
+        }
+
+        let i_m = self.magnetizing_current(self.i1, self.i2, self.i3, self.i4);
+        let (_l_mag, s_sat, flux) = self.diff_inductance_and_flux(i_m);
+
+        let l1 = self.inductance1.max(MIN_L);
+        let l2 = self.inductance2.max(MIN_L);
+        let k = self.coupling.clamp(0.0, 1.0);
 
         let mut r = [0.0; 4];
         let mut l = [[0.0; 4]; 4];
@@ -370,7 +396,7 @@ impl TransformerState {
                 i_prev[0] = self.i1;
                 i_prev[1] = self.i2;
                 i_prev[2] = self.i3;
-                i_prev[3] = 0.0;
+                i_prev[3] = self.i4;
 
                 l[0][0] = ((1.0 - k) * l1 + k * l1 * s_sat).max(MIN_L);
                 l[1][1] = ((1.0 - k) * l2_half + k * l2_half * s_sat).max(MIN_L);
@@ -572,6 +598,7 @@ impl TransformerState {
         if (self.i1 - new_i[0]).abs() > 1e-8
             || (self.i2 - new_i[1]).abs() > 1e-8
             || (self.i3 - new_i[2]).abs() > 1e-8
+            || (self.i4 - new_i[3]).abs() > 1e-8
         {
             changed = true;
         }
@@ -579,8 +606,9 @@ impl TransformerState {
         self.i1 = new_i[0];
         self.i2 = new_i[1];
         self.i3 = new_i[2];
+        self.i4 = new_i[3];
 
-        let i_m = self.magnetizing_current(self.i1, self.i2, self.i3);
+        let i_m = self.magnetizing_current(self.i1, self.i2, self.i3, self.i4);
         let d_imag = i_m - self.prev_i_mag;
         let d_thresh = (self.i_sat * 1e-5).max(1e-7);
         if d_imag > d_thresh {

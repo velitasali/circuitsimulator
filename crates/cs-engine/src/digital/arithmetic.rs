@@ -90,7 +90,9 @@ impl CounterState {
     }
 
     pub fn eval(&mut self) {
+        let clk = self.clock.inp_state();
         if self.use_set && self.set.inp_state() {
+            self.last_clk = clk;
             self.count = self.max_count;
             for (i, p) in self.outputs.iter_mut().enumerate() {
                 p.set_out_state(((self.count >> i) & 1) != 0);
@@ -99,6 +101,7 @@ impl CounterState {
             return;
         }
         if self.reset.inp_state() {
+            self.last_clk = clk;
             self.count = 0;
             self.output.set_out_state(false);
             for p in &mut self.outputs {
@@ -107,7 +110,6 @@ impl CounterState {
             return;
         }
 
-        let clk = self.clock.inp_state();
         let en = self.enable.inp_state();
 
         // Rising edge clock
@@ -254,6 +256,7 @@ impl BinCounterState {
             mask
         };
         let count_down = self.bidirectional && self.pin_dir.inp_state();
+        let clk_a = self.clk_a.inp_state();
 
         // Set 9 override (if both R9 inputs are high on decade counter)
         if self.is_decade && self.r9_1.inp_state() && self.r9_2.inp_state() {
@@ -270,7 +273,6 @@ impl BinCounterState {
             self.count = val & mask;
         } else {
             // Negative-edge clock.
-            let clk_a = self.clk_a.inp_state();
             if !clk_a && self.last_clk_a {
                 if count_down {
                     self.count = if self.count == 0 {
@@ -286,8 +288,8 @@ impl BinCounterState {
                     };
                 }
             }
-            self.last_clk_a = clk_a;
         }
+        self.last_clk_a = clk_a;
 
         self.count_a = (self.count & 1) as u8;
         self.count_b = ((self.count >> 1) & 7) as u8;
@@ -586,34 +588,32 @@ impl ShiftRegState {
 
     pub fn eval(&mut self) {
         let mask = bit_mask(self.bits);
+        let clk_s = self.clk_shift.inp_state();
         // Master reset: active low
         if !self.master_reset.inp_state() {
             self.shift_reg = 0;
-        } else {
-            let clk_s = self.clk_shift.inp_state();
-            if clk_s && !self.last_clk_shift {
-                if self.parallel_in && self.load.inp_state() {
-                    let mut val = 0u32;
-                    for (i, p) in self.data_inputs.iter().enumerate() {
-                        if p.inp_state() {
-                            val |= 1u32 << i;
-                        }
+        } else if clk_s && !self.last_clk_shift {
+            if self.parallel_in && self.load.inp_state() {
+                let mut val = 0u32;
+                for (i, p) in self.data_inputs.iter().enumerate() {
+                    if p.inp_state() {
+                        val |= 1u32 << i;
                     }
-                    self.shift_reg = val & mask;
-                } else if self.bidirectional && self.dir.inp_state() {
-                    let msb = if self.ser_in_left.inp_state() {
-                        1u32 << (self.bits - 1)
-                    } else {
-                        0
-                    };
-                    self.shift_reg = ((self.shift_reg >> 1) | msb) & mask;
-                } else {
-                    let bit = if self.ser_in.inp_state() { 1 } else { 0 };
-                    self.shift_reg = ((self.shift_reg << 1) | bit) & mask;
                 }
+                self.shift_reg = val & mask;
+            } else if self.bidirectional && self.dir.inp_state() {
+                let msb = if self.ser_in_left.inp_state() {
+                    1u32 << (self.bits - 1)
+                } else {
+                    0
+                };
+                self.shift_reg = ((self.shift_reg >> 1) | msb) & mask;
+            } else {
+                let bit = if self.ser_in.inp_state() { 1 } else { 0 };
+                self.shift_reg = ((self.shift_reg << 1) | bit) & mask;
             }
-            self.last_clk_shift = clk_s;
         }
+        self.last_clk_shift = clk_s;
 
         // Latch clock
         let clk_l = self.clk_latch.inp_state();
@@ -647,7 +647,7 @@ pub struct FunctionState {
 
 impl FunctionState {
     pub fn new(id: &str, n_inputs: usize, expression: &str) -> Self {
-        let n_inputs = n_inputs.clamp(1, 8);
+        let n_inputs = n_inputs.clamp(1, 16);
         let mut inputs = Vec::with_capacity(n_inputs);
         for i in 0..n_inputs {
             inputs.push(IoPin::input(format!("{id}-in{i}")));
@@ -674,9 +674,9 @@ impl FunctionState {
     }
 
     pub fn eval(&mut self) -> bool {
-        let mut vars = [false; 8];
+        let mut vars = [false; 16];
         for (i, p) in self.inputs.iter().enumerate() {
-            if i < 8 {
+            if i < 16 {
                 vars[i] = p.inp_state();
             }
         }
@@ -686,8 +686,8 @@ impl FunctionState {
     }
 }
 
-/// Simple Boolean expression evaluator supporting A..H, !, ~, &, |, ^, (, )
-fn eval_boolean_expr(expr: &str, vars: &[bool; 8]) -> bool {
+/// Simple Boolean expression evaluator supporting I0..I15 (and A..H aliases), !, ~, &, |, ^, (, )
+fn eval_boolean_expr(expr: &str, vars: &[bool; 16]) -> bool {
     let mut clean = String::new();
     for c in expr.chars() {
         if !c.is_whitespace() {
@@ -700,7 +700,7 @@ fn eval_boolean_expr(expr: &str, vars: &[bool; 8]) -> bool {
     parse_or(&clean, vars).0
 }
 
-fn parse_or(s: &str, vars: &[bool; 8]) -> (bool, usize) {
+fn parse_or(s: &str, vars: &[bool; 16]) -> (bool, usize) {
     let (mut left, mut idx) = parse_xor(s, vars);
     while idx < s.len() && (s.as_bytes()[idx] == b'|' || s.as_bytes()[idx] == b'+') {
         let (right, next_idx) = parse_xor(&s[idx + 1..], vars);
@@ -710,7 +710,7 @@ fn parse_or(s: &str, vars: &[bool; 8]) -> (bool, usize) {
     (left, idx)
 }
 
-fn parse_xor(s: &str, vars: &[bool; 8]) -> (bool, usize) {
+fn parse_xor(s: &str, vars: &[bool; 16]) -> (bool, usize) {
     let (mut left, mut idx) = parse_and(s, vars);
     while idx < s.len() && s.as_bytes()[idx] == b'^' {
         let (right, next_idx) = parse_and(&s[idx + 1..], vars);
@@ -720,7 +720,7 @@ fn parse_xor(s: &str, vars: &[bool; 8]) -> (bool, usize) {
     (left, idx)
 }
 
-fn parse_and(s: &str, vars: &[bool; 8]) -> (bool, usize) {
+fn parse_and(s: &str, vars: &[bool; 16]) -> (bool, usize) {
     let (mut left, mut idx) = parse_primary(s, vars);
     while idx < s.len() && (s.as_bytes()[idx] == b'&' || s.as_bytes()[idx] == b'*') {
         let (right, next_idx) = parse_primary(&s[idx + 1..], vars);
@@ -730,26 +730,38 @@ fn parse_and(s: &str, vars: &[bool; 8]) -> (bool, usize) {
     (left, idx)
 }
 
-fn parse_primary(s: &str, vars: &[bool; 8]) -> (bool, usize) {
+fn parse_primary(s: &str, vars: &[bool; 16]) -> (bool, usize) {
     if s.is_empty() {
         return (false, 0);
     }
-    let b = s.as_bytes()[0];
+    let bytes = s.as_bytes();
+    let b = bytes[0];
     if b == b'!' || b == b'~' {
         let (val, idx) = parse_primary(&s[1..], vars);
         (!val, 1 + idx)
     } else if b == b'(' {
         let (val, idx) = parse_or(&s[1..], vars);
-        let end = if idx + 1 < s.len() && s.as_bytes()[idx + 1] == b')' {
+        let end = if idx + 1 < s.len() && bytes[idx + 1] == b')' {
             idx + 2
         } else {
             idx + 1
         };
         (val, end)
-    } else if b >= b'A' && b <= b'H' {
+    } else if b == b'I' || b == b'i' {
+        let mut end = 1;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        let var_idx = if end == 1 {
+            0
+        } else {
+            s[1..end].parse::<usize>().unwrap_or(usize::MAX)
+        };
+        (vars.get(var_idx).copied().unwrap_or(false), end)
+    } else if (b'A'..=b'H').contains(&b) {
         let var_idx = (b - b'A') as usize;
         (vars[var_idx], 1)
-    } else if b >= b'a' && b <= b'h' {
+    } else if (b'a'..=b'h').contains(&b) {
         let var_idx = (b - b'a') as usize;
         (vars[var_idx], 1)
     } else if b == b'1' {

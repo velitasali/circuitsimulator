@@ -42,6 +42,7 @@ pub struct Ssd1306State {
     pub v_scroll_offset: u8,
     pub scroll_top: u8,
     pub scroll_rows: u8,
+    pub scroll_armed: bool,
     // Display config
     pub disp_offset: u8,
     pub ram_offset: u8,
@@ -126,6 +127,7 @@ impl Ssd1306State {
             v_scroll_offset: 0,
             scroll_top: 0,
             scroll_rows: 0,
+            scroll_armed: false,
             disp_offset: 0,
             ram_offset: 0,
             disp_on: false,
@@ -165,6 +167,7 @@ impl Ssd1306State {
         self.scroll_step = 5;
         self.scroll_count = 0;
         self.v_scroll_offset = 0;
+        self.scroll_armed = false;
 
         self.disp_offset = 0;
         self.ram_offset = 0;

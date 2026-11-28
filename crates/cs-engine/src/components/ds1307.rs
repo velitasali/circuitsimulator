@@ -30,7 +30,7 @@ impl DS1307 {
         Kind::Ds1307 {
             time_updated: self.time_updated,
             sqw_freq: 1.0,
-            sqw_enabled: true,
+            sqw_enabled: false,
             sqw_state: false,
             sda_low: false,
             scl_low: false,

@@ -6,7 +6,7 @@
 //! voltage triggering, and circuit-commutated turn-off recovery delays ($t_q$).
 
 use crate::SWITCH_CLOSED_ADMIT;
-use crate::elements::PinCache;
+use crate::elements::{PinCache, node_volt};
 use crate::net::ENode;
 
 /// Minimum voltage / current clamps to prevent numerical singularity.
@@ -41,6 +41,7 @@ pub struct ScrState {
     // Dynamic runtime state
     pub conducting: bool,
     pub latched: bool,
+    pub pending_commutation: bool,
     pub v_ak_prev: f64,
     pub t_off: f64,
     pub i_anode: f64,
@@ -62,6 +63,7 @@ impl Default for ScrState {
 
             conducting: false,
             latched: false,
+            pending_commutation: false,
             v_ak_prev: 0.0,
             t_off: -1.0,
             i_anode: 0.0,
@@ -84,6 +86,7 @@ impl ScrState {
     pub fn reset(&mut self) {
         self.conducting = false;
         self.latched = false;
+        self.pending_commutation = false;
         self.v_ak_prev = 0.0;
         self.t_off = -1.0;
         self.i_anode = 0.0;
@@ -93,6 +96,7 @@ impl ScrState {
     pub fn copy_runtime_from(&mut self, prev: &Self) {
         self.conducting = prev.conducting;
         self.latched = prev.latched;
+        self.pending_commutation = prev.pending_commutation;
         self.v_ak_prev = prev.v_ak_prev;
         self.t_off = prev.t_off;
         self.i_anode = prev.i_anode;
@@ -120,8 +124,8 @@ impl ScrState {
         dt: f64,
         sim_time: f64,
     ) -> bool {
-        let va_opt = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
-        let vk_opt = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
+        let va_opt = node_volt(cache.left, nodes);
+        let vk_opt = node_volt(cache.right, nodes);
         if va_opt.is_none() || vk_opt.is_none() {
             let was_off = !self.conducting;
             self.conducting = false;
@@ -130,11 +134,7 @@ impl ScrState {
         }
         let va = va_opt.unwrap();
         let vk = vk_opt.unwrap();
-        let vg = cache
-            .gate
-            .and_then(|i| nodes.get(i))
-            .map(|n| n.volt)
-            .unwrap_or(0.0);
+        let vg = node_volt(cache.gate, nodes).unwrap_or(vk);
 
         let v_ak = va - vk;
         let v_gk = vg - vk;
@@ -156,19 +156,29 @@ impl ScrState {
             let gate_active = v_gk >= self.v_gate_th && i_g >= self.i_trig;
 
             if i_anode < self.i_hold.max(MIN_HOLD) || v_ak <= 0.0 {
-                // Drop below holding current or reverse-biased anode -> turn off
+                // Drop below holding current or reverse-biased anode -> turn off.
+                // Only arm t_q once forward voltage is actually removed in the off state.
                 state = false;
                 self.latched = false;
-                self.t_off = sim_time;
+                self.t_off = -1.0;
+                self.pending_commutation = true;
             } else if !self.latched && !gate_active {
                 // Gate trigger dropped before load current reached latching current -> turn off
                 state = false;
                 self.latched = false;
-                self.t_off = sim_time;
+                self.t_off = -1.0;
+                self.pending_commutation = true;
             }
         } else {
             self.i_anode = v_ak * 1e-9;
-            if v_ak > self.v_on {
+            if v_ak <= self.v_on {
+                if self.pending_commutation {
+                    self.t_off = sim_time;
+                    self.pending_commutation = false;
+                }
+            } else {
+                // Forward voltage remained applied after dropout: do not start t_q.
+                self.pending_commutation = false;
                 // 1. Gate trigger condition
                 let gate_trig = v_gk >= self.v_gate_th && i_g >= self.i_trig;
 
@@ -190,6 +200,7 @@ impl ScrState {
                 if gate_trig || dv_dt_trig || tq_trig {
                     state = true;
                     self.latched = false;
+                    self.t_off = -1.0;
                 }
             }
         }
@@ -233,6 +244,7 @@ pub struct TriacState {
     // Dynamic runtime state
     pub conducting: bool,
     pub latched: bool,
+    pub pending_commutation: bool,
     pub conduction_dir: f64, // +1.0 for MT2 -> MT1, -1.0 for MT1 -> MT2, 0.0 when off
     pub v_mt_prev: f64,
     pub t_off: f64,
@@ -260,6 +272,7 @@ impl Default for TriacState {
 
             conducting: false,
             latched: false,
+            pending_commutation: false,
             conduction_dir: 0.0,
             v_mt_prev: 0.0,
             t_off: -1.0,
@@ -283,6 +296,7 @@ impl TriacState {
     pub fn reset(&mut self) {
         self.conducting = false;
         self.latched = false;
+        self.pending_commutation = false;
         self.conduction_dir = 0.0;
         self.v_mt_prev = 0.0;
         self.t_off = -1.0;
@@ -293,6 +307,7 @@ impl TriacState {
     pub fn copy_runtime_from(&mut self, prev: &Self) {
         self.conducting = prev.conducting;
         self.latched = prev.latched;
+        self.pending_commutation = prev.pending_commutation;
         self.conduction_dir = prev.conduction_dir;
         self.v_mt_prev = prev.v_mt_prev;
         self.t_off = prev.t_off;
@@ -321,8 +336,8 @@ impl TriacState {
         dt: f64,
         sim_time: f64,
     ) -> bool {
-        let v1_opt = cache.left.and_then(|i| nodes.get(i)).map(|n| n.volt);
-        let v2_opt = cache.right.and_then(|i| nodes.get(i)).map(|n| n.volt);
+        let v1_opt = node_volt(cache.left, nodes);
+        let v2_opt = node_volt(cache.right, nodes);
         if v1_opt.is_none() || v2_opt.is_none() {
             let was_off = !self.conducting;
             self.conducting = false;
@@ -332,11 +347,7 @@ impl TriacState {
         }
         let v1 = v1_opt.unwrap();
         let v2 = v2_opt.unwrap();
-        let vg = cache
-            .gate
-            .and_then(|i| nodes.get(i))
-            .map(|n| n.volt)
-            .unwrap_or(0.0);
+        let vg = node_volt(cache.gate, nodes).unwrap_or(v1);
 
         let v_mt = v2 - v1; // MT2 relative to MT1
         let v_g = vg - v1; // Gate relative to MT1
@@ -363,16 +374,24 @@ impl TriacState {
                 state = false;
                 self.latched = false;
                 self.conduction_dir = 0.0;
-                self.t_off = sim_time;
+                self.t_off = -1.0;
+                self.pending_commutation = true;
             } else if !self.latched && !gate_active {
                 state = false;
                 self.latched = false;
                 self.conduction_dir = 0.0;
-                self.t_off = sim_time;
+                self.t_off = -1.0;
+                self.pending_commutation = true;
             }
         } else {
             self.i_main = v_mt * 1e-9;
-            if v_mt.abs() > 0.2 {
+            if v_mt.abs() <= 0.2 {
+                if self.pending_commutation {
+                    self.t_off = sim_time;
+                    self.pending_commutation = false;
+                }
+            } else {
+                self.pending_commutation = false;
                 // 1. Multi-quadrant gate trigger
                 let gate_trig = self.is_gate_triggered(v_mt, v_g, i_g);
 
@@ -394,6 +413,7 @@ impl TriacState {
                 if gate_trig || dv_dt_trig || tq_trig {
                     state = true;
                     self.latched = false;
+                    self.t_off = -1.0;
                     self.conduction_dir = if v_mt >= 0.0 { 1.0 } else { -1.0 };
                 }
             }
@@ -568,5 +588,40 @@ impl DiacState {
 
         self.conducting = state;
         self.conducting == prev_conducting
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scr_open_gate_does_not_trigger_with_negative_cathode() {
+        let mut scr = ScrState::default();
+        let mut nodes = vec![ENode::new("a".into(), 0), ENode::new("k".into(), 1)];
+        nodes[0].volt = 5.0;
+        nodes[1].volt = -5.0;
+        let mut cache = PinCache::default();
+        cache.left = Some(0);
+        cache.right = Some(1);
+        cache.gate = None;
+        scr.update_nonlinear(&cache, &nodes, 0.0, 0.0);
+        assert!(!scr.conducting, "open gate must not fire SCR");
+        assert_eq!(scr.i_gate, 0.0);
+    }
+
+    #[test]
+    fn triac_open_gate_does_not_trigger_with_elevated_mt1() {
+        let mut triac = TriacState::default();
+        let mut nodes = vec![ENode::new("mt1".into(), 0), ENode::new("mt2".into(), 1)];
+        nodes[0].volt = 12.0;
+        nodes[1].volt = 24.0;
+        let mut cache = PinCache::default();
+        cache.left = Some(0);
+        cache.right = Some(1);
+        cache.gate = None;
+        triac.update_nonlinear(&cache, &nodes, 0.0, 0.0);
+        assert!(!triac.conducting, "open gate must not fire TRIAC");
+        assert_eq!(triac.i_gate, 0.0);
     }
 }

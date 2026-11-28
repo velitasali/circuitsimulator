@@ -137,7 +137,9 @@ impl FlipFlopState {
             ids.push(self.set.id.clone());
             ids.push(self.rst.id.clone());
         }
-        ids.push(self.clk.id.clone());
+        if self.clocked.trigger != Trigger::None {
+            ids.push(self.clk.id.clone());
+        }
         ids.push(self.q.id.clone());
         ids.push(self.qn.id.clone());
         ids
@@ -227,9 +229,12 @@ impl FlipFlopState {
         self.queue.next_out_val = self.queue.out_value;
     }
 
-    pub fn volt_changed(&mut self, volt_of: &impl Fn(&str) -> f64, circ_time: u64) -> GateUpdate {
-        let clk_v = volt_of(&self.clk.id);
-        let clk = self.clk.get_inp_state(clk_v);
+    pub fn volt_changed(
+        &mut self,
+        volt_of: &impl Fn(&str) -> Option<f64>,
+        circ_time: u64,
+    ) -> GateUpdate {
+        let clk = self.clk.sample_open_inactive(volt_of(&self.clk.id));
         self.clocked.update(Some(clk));
 
         if self.kind == FlipFlopKind::Rs {
@@ -264,40 +269,38 @@ impl FlipFlopState {
         u
     }
 
-    fn s_state(&mut self, volt_of: &impl Fn(&str) -> f64) -> bool {
+    fn s_state(&mut self, volt_of: &impl Fn(&str) -> Option<f64>) -> bool {
         if self.kind == FlipFlopKind::Rs || self.use_rs {
-            let v = volt_of(&self.set.id);
-            self.set.get_inp_state(v)
+            self.set.sample_open_inactive(volt_of(&self.set.id))
         } else {
             false
         }
     }
 
-    fn r_state(&mut self, volt_of: &impl Fn(&str) -> f64) -> bool {
+    fn r_state(&mut self, volt_of: &impl Fn(&str) -> Option<f64>) -> bool {
         if self.kind == FlipFlopKind::Rs || self.use_rs {
-            let v = volt_of(&self.rst.id);
-            self.rst.get_inp_state(v)
+            self.rst.sample_open_inactive(volt_of(&self.rst.id))
         } else {
             false
         }
     }
 
-    fn calc_output(&mut self, volt_of: &impl Fn(&str) -> f64) {
+    fn calc_output(&mut self, volt_of: &impl Fn(&str) -> Option<f64>) {
         match self.kind {
             FlipFlopKind::D => {
-                let d = self.d.get_inp_state(volt_of(&self.d.id));
+                let d = self.d.sample_open_inactive(volt_of(&self.d.id));
                 self.queue.next_out_val = if d { 1 } else { 2 };
             }
             FlipFlopKind::Jk => {
-                let j = self.j.get_inp_state(volt_of(&self.j.id));
-                let k = self.k.get_inp_state(volt_of(&self.k.id));
+                let j = self.j.sample_open_inactive(volt_of(&self.j.id));
+                let k = self.k.sample_open_inactive(volt_of(&self.k.id));
                 let q = self.q.get_out_state();
                 let q0 = (j && !q) || (!k && q);
                 self.q0 = q0;
                 self.queue.next_out_val = if q0 { 1 } else { 2 };
             }
             FlipFlopKind::T => {
-                let t = self.t.get_inp_state(volt_of(&self.t.id));
+                let t = self.t.sample_open_inactive(volt_of(&self.t.id));
                 if t {
                     self.queue.next_out_val = if self.qn.get_out_state() { 1 } else { 2 };
                 }
@@ -451,6 +454,7 @@ impl LatchState {
     }
 
     pub fn volt_changed(&mut self, volt_of: &impl Fn(&str) -> f64, circ_time: u64) -> GateUpdate {
+        let mut oe_changed = false;
         if self.tristate {
             let en = self.oe.get_inp_state(volt_of(&self.oe.id));
             if en != self.out_enable {
@@ -458,6 +462,7 @@ impl LatchState {
                 for o in &mut self.outputs {
                     o.set_state_z(!en);
                 }
+                oe_changed = true;
             }
         }
         let clk = self.clk.get_inp_state(volt_of(&self.clk.id));
@@ -473,7 +478,7 @@ impl LatchState {
             }
             self.queue.next_out_val = v;
         }
-        match self.queue.schedule(self.family.delay_ps(), circ_time) {
+        let mut u = match self.queue.schedule(self.family.delay_ps(), circ_time) {
             Schedule::Immediate => self.apply_bits(self.queue.out_value),
             Schedule::Arm { delay_ps } => GateUpdate {
                 stamp_changed: false,
@@ -481,7 +486,9 @@ impl LatchState {
                 pin_action: PinAction::None,
             },
             Schedule::Queued | Schedule::Unchanged => GateUpdate::none(),
-        }
+        };
+        u.stamp_changed |= oe_changed;
+        u
     }
 
     pub fn run_event(&mut self, circ_time: u64) -> GateUpdate {
@@ -506,5 +513,39 @@ impl LatchState {
             device_event: None,
             pin_action: PinAction::None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flipflop_d_clocks_data_with_open_set_and_reset() {
+        let mut ff = FlipFlopState::d("FF1");
+        ff.family.set_prop_delay_s(0.0);
+        ff.stamp_init(0);
+        assert!(!ff.q.get_out_state());
+        assert!(ff.qn.get_out_state());
+
+        // Leave in1 (S) and in2 (R) unwired (None). D=5V, CLK=0V.
+        let low_clk = |id: &str| match id {
+            "FF1-in0" => Some(5.0),
+            "FF1-in3" => Some(0.0),
+            _ => None,
+        };
+        ff.volt_changed(&low_clk, 0);
+        assert!(!ff.q.get_out_state());
+        assert!(ff.qn.get_out_state());
+
+        // Rising edge on CLK stores D=1 while S and R remain open.
+        let high_clk = |id: &str| match id {
+            "FF1-in0" => Some(5.0),
+            "FF1-in3" => Some(5.0),
+            _ => None,
+        };
+        ff.volt_changed(&high_clk, 1);
+        assert!(ff.q.get_out_state());
+        assert!(!ff.qn.get_out_state());
     }
 }

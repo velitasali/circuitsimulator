@@ -387,6 +387,9 @@ impl Circuit {
                         resistance: resistance.max(OHM_FLOOR),
                     };
                 }
+                Kind::Transformer { state } => {
+                    state.dc_only = true;
+                }
                 Kind::VoltSource { running, .. } if c.id == source_id => {
                     *running = true;
                 }
@@ -1021,56 +1024,202 @@ fn stamp_transformer(
     let p2 = net(pin_net, &comp.transformer_p2_pin());
     let s1 = net(pin_net, &comp.transformer_s1_pin());
     let s2 = net(pin_net, &comp.transformer_s2_pin());
-    let primary = match (p1, p2) {
-        (Some(a), Some(b)) if a != b => Some((a, b)),
+    let ct = net(pin_net, &comp.transformer_ct_pin());
+    let a1 = net(pin_net, &comp.transformer_a1_pin());
+    let a2 = net(pin_net, &comp.transformer_a2_pin());
+
+    let pair = |a: Option<usize>, b: Option<usize>| match (a, b) {
+        (Some(u), Some(v)) if u != v => Some((u, v)),
         _ => None,
     };
-    let secondary = match (s1, s2) {
-        (Some(a), Some(b)) if a != b => Some((a, b)),
-        _ => None,
-    };
+
     let l1 = state.inductance1.max(HENRY_FLOOR);
     let l2 = state.inductance2.max(HENRY_FLOOR);
+    let l3 = state.inductance3.max(HENRY_FLOOR);
     let k = state.coupling.clamp(-0.999, 0.999);
-    let r1 = state.r_coil1;
-    let r2 = state.r_coil2;
-    let m = k * (l1 * l2).sqrt();
-    let z11 = (r1.max(0.0), omega * l1);
-    let z22 = (r2.max(0.0), omega * l2);
-    let z12 = (0.0, omega * m);
+    let r1 = state.r_coil1.max(0.0);
+    let r2 = state.r_coil2.max(0.0);
+    let r3 = state.r_coil3.max(0.0);
 
-    if let Some((a, b)) = primary {
+    let dim = if state.center_tap && state.aux_secondary {
+        4
+    } else if state.center_tap || state.aux_secondary {
+        3
+    } else {
+        2
+    };
+
+    let mut pairs: [Option<(usize, usize)>; 4] = [None; 4];
+    let mut r = [0.0; 4];
+    let mut l = [[0.0; 4]; 4];
+
+    match dim {
+        2 => {
+            pairs[0] = pair(p1, p2);
+            pairs[1] = pair(s1, s2);
+            r[0] = r1;
+            r[1] = r2;
+            l[0][0] = l1;
+            l[1][1] = l2;
+            let m = k * (l1 * l2).sqrt();
+            l[0][1] = m;
+            l[1][0] = m;
+        }
+        3 if state.center_tap => {
+            pairs[0] = pair(p1, p2);
+            pairs[1] = pair(s1, ct);
+            pairs[2] = pair(ct, s2);
+            r[0] = r1;
+            r[1] = 0.5 * r2;
+            r[2] = 0.5 * r2;
+            let l2_half = 0.25 * l2;
+            l[0][0] = l1;
+            l[1][1] = l2_half;
+            l[2][2] = l2_half;
+            let m_p_half = 0.5 * k * (l1 * l2).sqrt();
+            let m_half_half = k * l2_half;
+            l[0][1] = m_p_half;
+            l[1][0] = m_p_half;
+            l[0][2] = m_p_half;
+            l[2][0] = m_p_half;
+            l[1][2] = m_half_half;
+            l[2][1] = m_half_half;
+        }
+        3 => {
+            pairs[0] = pair(p1, p2);
+            pairs[1] = pair(s1, s2);
+            pairs[2] = pair(a1, a2);
+            r[0] = r1;
+            r[1] = r2;
+            r[2] = r3;
+            l[0][0] = l1;
+            l[1][1] = l2;
+            l[2][2] = l3;
+            let m12 = k * (l1 * l2).sqrt();
+            let m13 = k * (l1 * l3).sqrt();
+            let m23 = k * (l2 * l3).sqrt();
+            l[0][1] = m12;
+            l[1][0] = m12;
+            l[0][2] = m13;
+            l[2][0] = m13;
+            l[1][2] = m23;
+            l[2][1] = m23;
+        }
+        4 => {
+            pairs[0] = pair(p1, p2);
+            pairs[1] = pair(s1, ct);
+            pairs[2] = pair(ct, s2);
+            pairs[3] = pair(a1, a2);
+            r[0] = r1;
+            r[1] = 0.5 * r2;
+            r[2] = 0.5 * r2;
+            r[3] = r3;
+            let l2_half = 0.25 * l2;
+            l[0][0] = l1;
+            l[1][1] = l2_half;
+            l[2][2] = l2_half;
+            l[3][3] = l3;
+            let m_p_half = 0.5 * k * (l1 * l2).sqrt();
+            let m_half_half = k * l2_half;
+            let m13 = k * (l1 * l3).sqrt();
+            let m_half_aux = 0.5 * k * (l2 * l3).sqrt();
+            l[0][1] = m_p_half;
+            l[1][0] = m_p_half;
+            l[0][2] = m_p_half;
+            l[2][0] = m_p_half;
+            l[1][2] = m_half_half;
+            l[2][1] = m_half_half;
+            l[0][3] = m13;
+            l[3][0] = m13;
+            l[1][3] = m_half_aux;
+            l[3][1] = m_half_aux;
+            l[2][3] = m_half_aux;
+            l[3][2] = m_half_aux;
+        }
+        _ => return,
+    }
+
+    if let Some((a, b)) = pairs[0] {
         if state.r_core > 0.0 && state.r_core < 1e11 {
             let g_core = (1.0 / state.r_core, 0.0);
             stamp_branch(sys, a, b, a, b, g_core);
         }
     }
 
-    match (primary, secondary) {
-        (Some((a, b)), Some((c, d))) => {
-            let det = csub(cmul(z11, z22), cmul(z12, z12));
-            if hypot2(det) < 1e-30 {
-                return;
-            }
-            let y11 = cdiv(z22, det);
-            let y22 = cdiv(z11, det);
-            let y12 = cdiv((-z12.0, -z12.1), det);
-            // I_p = Y11 (Vp1-Vp2) + Y12 (Vs1-Vs2), and the secondary likewise.
-            stamp_branch(sys, a, b, a, b, y11);
-            stamp_branch(sys, a, b, c, d, y12);
-            stamp_branch(sys, c, d, a, b, y12);
-            stamp_branch(sys, c, d, c, d, y22);
+    let mut active: [usize; 4] = [0; 4];
+    let mut m = 0usize;
+    for w in 0..dim {
+        if pairs[w].is_some() {
+            active[m] = w;
+            m += 1;
         }
-        (Some((a, b)), None) => {
-            let y = cinv(z11);
-            stamp_branch(sys, a, b, a, b, y);
-        }
-        (None, Some((c, d))) => {
-            let y = cinv(z22);
-            stamp_branch(sys, c, d, c, d, y);
-        }
-        (None, None) => {}
     }
+    if m == 0 {
+        return;
+    }
+
+    let mut z = [[(0.0, 0.0); 4]; 4];
+    for i in 0..m {
+        let wi = active[i];
+        for j in 0..m {
+            let wj = active[j];
+            z[i][j] = (if wi == wj { r[wi] } else { 0.0 }, omega * l[wi][wj]);
+        }
+    }
+    let Some(y) = invert_complex_matrix(z, m) else {
+        return;
+    };
+    for i in 0..m {
+        let (rp, rn) = pairs[active[i]].unwrap();
+        for j in 0..m {
+            let (cp, cn) = pairs[active[j]].unwrap();
+            stamp_branch(sys, rp, rn, cp, cn, y[i][j]);
+        }
+    }
+}
+
+fn invert_complex_matrix(mut a: [[(f64, f64); 4]; 4], n: usize) -> Option<[[(f64, f64); 4]; 4]> {
+    let mut inv = [[(0.0, 0.0); 4]; 4];
+    for i in 0..n {
+        inv[i][i] = (1.0, 0.0);
+    }
+    for col in 0..n {
+        let mut piv = col;
+        let mut best = hypot2(a[col][col]);
+        for row in (col + 1)..n {
+            let v = hypot2(a[row][col]);
+            if v > best {
+                best = v;
+                piv = row;
+            }
+        }
+        if best < 1e-30 {
+            return None;
+        }
+        if piv != col {
+            a.swap(col, piv);
+            inv.swap(col, piv);
+        }
+        let diag = a[col][col];
+        for j in 0..n {
+            a[col][j] = cdiv(a[col][j], diag);
+            inv[col][j] = cdiv(inv[col][j], diag);
+        }
+        for row in 0..n {
+            if row == col {
+                continue;
+            }
+            let f = a[row][col];
+            if hypot2(f) == 0.0 {
+                continue;
+            }
+            for j in 0..n {
+                a[row][j] = csub(a[row][j], cmul(f, a[col][j]));
+                inv[row][j] = csub(inv[row][j], cmul(f, inv[col][j]));
+            }
+        }
+    }
+    Some(inv)
 }
 
 /// Current into `row_p` (and out of `row_n`) is `y * (Vcol_p - Vcol_n)`.
@@ -1102,10 +1251,6 @@ fn cdiv(a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
         return (0.0, 0.0);
     }
     ((a.0 * b.0 + a.1 * b.1) / den, (a.1 * b.0 - a.0 * b.1) / den)
-}
-
-fn cinv(z: (f64, f64)) -> (f64, f64) {
-    cdiv((1.0, 0.0), z)
 }
 
 fn hypot2(z: (f64, f64)) -> f64 {

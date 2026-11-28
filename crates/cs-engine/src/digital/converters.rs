@@ -330,11 +330,11 @@ impl DecToBcdState {
             return;
         }
 
-        // Highest active input wins (priority encoding)
+        // Highest active input wins (priority encoding; in0 is D1 .. in8 is D9).
         let mut highest = None;
         for (i, p) in self.inputs.iter().enumerate().rev() {
             if p.inp_state() {
-                highest = Some(i);
+                highest = Some(i + 1);
                 break;
             }
         }
@@ -434,6 +434,13 @@ impl BcdTo7SState {
         }
     }
 
+    /// Sample the active-low blanking / output-enable pin (`in4`).
+    /// An open OE pin (`None`) enables the decoder, matching `BcdToDec`.
+    pub fn sample_oe(&mut self, volt: Option<f64>) {
+        let v = volt.unwrap_or(self.family.out_high_v);
+        self.bi_rbo.get_inp_state(v);
+    }
+
     pub fn eval(&mut self) {
         // Optional reset blanks all segments when asserted.
         if self.use_reset && self.rst.inp_state() {
@@ -489,11 +496,12 @@ impl BcdTo7SState {
 
 #[derive(Clone, Debug)]
 pub struct I2CToParallelState {
-    pub address: u8,       // 7-bit I2C address (0x20..0x27 for PCF8574)
-    pub ports: Vec<IoPin>, // P0..P7 quasi-bidirectional pins
-    pub int_pin: IoPin,    // Open-drain interrupt output (active low)
-    pub scl: IoPin,        // I2C clock
-    pub sda: IoPin,        // I2C data
+    pub address: u8,           // 7-bit I2C base address (0x20..0x27 for PCF8574)
+    pub ports: Vec<IoPin>,     // P0..P7 quasi-bidirectional pins
+    pub int_pin: IoPin,        // Open-drain interrupt output (active low)
+    pub scl: IoPin,            // I2C clock
+    pub sda: IoPin,            // I2C data
+    pub addr_pins: [IoPin; 3], // A0, A1, A2 address strap inputs (in2, in3, in4)
     pub in_latch: u8,
     pub out_latch: u8,
     pub family: LogicFamily,
@@ -510,6 +518,11 @@ impl I2CToParallelState {
         let int_pin = IoPin::open_collector(format!("{id}-in5"));
         let scl = IoPin::input(format!("{id}-in1"));
         let sda = IoPin::open_collector(format!("{id}-in0"));
+        let addr_pins = [
+            IoPin::input(format!("{id}-in2")),
+            IoPin::input(format!("{id}-in3")),
+            IoPin::input(format!("{id}-in4")),
+        ];
 
         let mut twi = TwiModule::new();
         twi.set_slave(address & 0x7F);
@@ -519,6 +532,7 @@ impl I2CToParallelState {
             int_pin,
             scl,
             sda,
+            addr_pins,
             in_latch: 0xFF,
             out_latch: 0xFF,
             family: LogicFamily::default(),
@@ -541,6 +555,19 @@ impl I2CToParallelState {
         self.family.apply(&mut self.int_pin);
         self.family.apply(&mut self.scl);
         self.family.apply(&mut self.sda);
+        for pin in &mut self.addr_pins {
+            self.family.apply(pin);
+        }
+    }
+
+    pub fn effective_address(&self) -> u8 {
+        let mut strap = 0u8;
+        for (i, pin) in self.addr_pins.iter().enumerate() {
+            if pin.inp_state() {
+                strap |= 1 << i;
+            }
+        }
+        (self.address & 0x7F) | strap
     }
 
     pub fn write_byte(&mut self, data: u8) {
@@ -564,8 +591,9 @@ impl I2CToParallelState {
     /// A slave read returns the sampled port byte. INT is the open-drain
     /// alert when the port byte differs from the last bus transfer.
     pub fn poll(&mut self) {
-        if self.twi.address != (self.address & 0x7F) {
-            self.twi.set_slave(self.address & 0x7F);
+        let addr = self.effective_address();
+        if self.twi.address != addr {
+            self.twi.set_slave(addr);
         }
         let tick = self.twi.volt_changed_pins(&mut self.scl, &mut self.sda);
         if let Some(byte) = tick.byte_received {
@@ -602,7 +630,7 @@ pub struct AdcState {
 
 impl AdcState {
     pub fn new(id: &str, bits: usize, vref_pos: f64, vref_neg: f64) -> Self {
-        let bits = bits.clamp(4, 16);
+        let bits = bits.clamp(1, 16);
         let mut outputs = Vec::with_capacity(bits);
         for i in 0..bits {
             outputs.push(IoPin::output(format!("{id}-out{i}")));
@@ -668,7 +696,7 @@ pub struct DacState {
 
 impl DacState {
     pub fn new(id: &str, bits: usize, vref: f64) -> Self {
-        let bits = bits.clamp(4, 16);
+        let bits = bits.clamp(1, 16);
         let mut inputs = Vec::with_capacity(bits);
         for i in 0..bits {
             inputs.push(IoPin::input(format!("{id}-in{i}")));
@@ -747,5 +775,24 @@ mod tests {
         assert_eq!(dev.out_latch, 0x0F);
         assert!(!dev.ports[4].get_out_state());
         assert!(dev.ports[0].get_out_state());
+    }
+
+    #[test]
+    fn bcd_to_7s_open_oe_enables_and_wired_low_blanks() {
+        let mut dev = super::BcdTo7SState::new("D7", false);
+        dev.lt.get_inp_state(5.0);
+        dev.rbi.get_inp_state(5.0);
+        // BCD = 1 -> segments b and c lit (0x06)
+        dev.inputs[0].get_inp_state(5.0);
+        dev.sample_oe(None);
+        dev.eval();
+        assert!(!dev.segments[0].get_out_state());
+        assert!(dev.segments[1].get_out_state());
+        assert!(dev.segments[2].get_out_state());
+
+        // Wired low OE blanks every segment.
+        dev.sample_oe(Some(0.0));
+        dev.eval();
+        assert!(dev.segments.iter().all(|s| !s.get_out_state()));
     }
 }

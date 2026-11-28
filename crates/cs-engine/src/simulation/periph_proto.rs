@@ -94,9 +94,9 @@ pub(super) fn on_pins(kind: &mut Kind, id: &str, v: impl Fn(&str) -> f64, t: u64
             sda_low,
             pin("inPin1"),
             pin("inPin0"),
-            pin("inPin2") > 2.5,
-            pin("inPin3") > 2.5,
             pin("inPin4") > 2.5,
+            pin("inPin3") > 2.5,
+            pin("inPin2") > 2.5,
         ),
         Kind::Ds1307 {
             time_updated,
@@ -179,6 +179,18 @@ pub(super) fn on_event(
     t: u64,
 ) -> Option<Drive> {
     match kind {
+        Kind::Ssd1306(s) => {
+            if s.scroll || s.scroll_single {
+                s.update_step();
+            }
+            if s.scroll {
+                const SSD1306_FRAME_PS: u64 = 16_666_667_000;
+                Some(Drive::arm(t.saturating_add(SSD1306_FRAME_PS), false, false))
+            } else {
+                s.scroll_armed = false;
+                Some(Drive::QUIET)
+            }
+        }
         Kind::Ws2812 {
             count,
             rst_time_ns,

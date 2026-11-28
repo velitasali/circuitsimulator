@@ -2785,8 +2785,15 @@ fn ds1307_sqw_toggles_at_its_frequency() {
         .add_ground("GND")
         .connect("RTC-PinSQW", "RL-lPin")
         .connect("RL-rPin", "GND-Gnd");
-    if let Kind::Ds1307 { sqw_freq, bus, .. } = &mut c.comp_mut("RTC").unwrap().kind {
+    if let Kind::Ds1307 {
+        sqw_freq,
+        sqw_enabled,
+        bus,
+        ..
+    } = &mut c.comp_mut("RTC").unwrap().kind
+    {
         *sqw_freq = 1_000.0;
+        *sqw_enabled = true;
         assert!(!bus.seeded);
     }
     c.run_ps(1).unwrap();
@@ -3699,4 +3706,1279 @@ fn pcd8544_spi_contrast_bias_and_paint_change() {
         }
         _ => panic!("expected Pcd8544"),
     }
+}
+
+#[test]
+fn phase2_comparator_live_out_high_stays_in_matrix() {
+    use crate::components::Comparator;
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VP", 5.0)
+        .add_fixed_volt("VN", 1.0)
+        .add_comparator("CMP")
+        .add_resistor("RL", 10_000.0)
+        .add_ground("GND")
+        .connect("VP-outnod", "CMP-in0")
+        .connect("VN-outnod", "CMP-in1")
+        .connect("CMP-out", "RL-lPin")
+        .connect("RL-rPin", "GND-Gnd");
+    c.solve().unwrap();
+    let v_before = c.pin_voltage("CMP-out").unwrap();
+    assert!(v_before > 4.5, "expected ~5V before edit, got {v_before}");
+
+    let mut part = Comparator::default();
+    part.out_high = 9.0;
+    assert!(c.update_component_kind("CMP", &part.to_element_kind()));
+    c.re_solve().unwrap();
+    let v_after = c.pin_voltage("CMP-out").unwrap();
+    assert!(
+        (v_after - 9.0).abs() < 0.2,
+        "expected ~9V after live OutHigh edit, got {v_after}"
+    );
+}
+
+#[test]
+fn phase2_mcu_live_edit_keeps_node_indices_following_nets() {
+    use crate::mcu::McuComp;
+    let xml = r#"
+<mcu core="Pic14" data="256" prog="64" progword="2" inst_cycle="4" freq="4000000">
+  <regblock start="0" end="0x4F" streg="STATUS">
+    <register name="INDF" addr="0x00" reset="0"/>
+    <register name="PCL" addr="0x02" reset="0"/>
+    <register name="STATUS" addr="0x03" reset="00011000" bits="C,DC,Z,PD,TO,RP0|R0,RP1|R1,IRP"/>
+    <register name="PORTA" addr="0x05" reset="0"/>
+    <register name="TRISA" addr="0x85" reset="0xFF"/>
+  </regblock>
+  <port name="PORTA" pins="2" outreg="PORTA" inreg="PORTA" dirreg="!TRISA" />
+</mcu>
+"#;
+    let dev = cs_mcu::Device::from_xml("U1", xml).unwrap();
+    let mcu = McuComp::from_device(dev);
+    let pin_id = mcu.pins[0].id.clone();
+
+    let mut c = Circuit::new();
+    c.add_comp(crate::elements::Comp {
+        id: "U1".into(),
+        kind: Kind::Mcu(mcu.clone()),
+    });
+    c.add_fixed_volt("VIN", 5.0).connect("VIN-outnod", &pin_id);
+    c.solve().unwrap();
+
+    // Live edit with a fresh canvas clone (which has empty node_indices).
+    let mut edited = mcu;
+    edited.device.force_freq(8_000_000.0);
+    assert!(c.update_component_kind("U1", &Kind::Mcu(edited)));
+    c.re_solve().unwrap();
+
+    let Kind::Mcu(running) = &c.comp("U1").unwrap().kind else {
+        panic!("expected MCU");
+    };
+    assert_eq!(running.device.freq, 8_000_000.0);
+    assert!(
+        running.node_indices[0].is_some(),
+        "live MCU edit must refresh node_indices"
+    );
+    assert!(
+        running.pins[0].inp_state(),
+        "MCU input pin must keep reading the 5V net"
+    );
+}
+
+#[test]
+fn phase2_sd_ds18b20_tft_live_adopt_runtime() {
+    // SD card: new file path loads new sectors while same path keeps written sectors.
+    let dir = std::env::temp_dir();
+    let img_a = dir.join(format!("cs_sd_a_{}.bin", std::process::id()));
+    let img_b = dir.join(format!("cs_sd_b_{}.bin", std::process::id()));
+    std::fs::write(&img_a, vec![0xAAu8; 512]).unwrap();
+    std::fs::write(&img_b, vec![0x55u8; 512]).unwrap();
+
+    let mut prev_spi = crate::digital::SdCardSpi::new(img_a.to_string_lossy());
+    prev_spi.spi_mode = true;
+    prev_spi.write_sector(0, &[0xCCu8; 512]);
+    let prev_sd = Kind::SdCard {
+        file: img_a.to_string_lossy().into_owned(),
+        card_inserted: true,
+        spi: prev_spi,
+    };
+
+    let mut same_file = Kind::SdCard {
+        file: img_a.to_string_lossy().into_owned(),
+        card_inserted: true,
+        spi: crate::digital::SdCardSpi::new(img_a.to_string_lossy()),
+    };
+    same_file.adopt_runtime(&prev_sd);
+    if let Kind::SdCard { spi, .. } = &same_file {
+        assert_eq!(spi.memory[0], 0xCC);
+    }
+
+    let mut new_file = Kind::SdCard {
+        file: img_b.to_string_lossy().into_owned(),
+        card_inserted: true,
+        spi: crate::digital::SdCardSpi::new(img_b.to_string_lossy()),
+    };
+    new_file.adopt_runtime(&prev_sd);
+    if let Kind::SdCard { spi, .. } = &new_file {
+        assert_eq!(spi.memory[0], 0x55, "new SD file image must be kept");
+        assert!(spi.spi_mode, "protocol state must be adopted");
+    }
+    let _ = std::fs::remove_file(&img_a);
+    let _ = std::fs::remove_file(&img_b);
+
+    // DS18B20: ROM property updates OwLink on live edit.
+    let prev_ow = Kind::Ds18b20 {
+        rom: "28FF2B450000".into(),
+        temp: 22.0,
+        dq_low: false,
+        wire: crate::digital::OwLink::with_rom("28FF2B450000"),
+    };
+    let mut next_ow = Kind::Ds18b20 {
+        rom: "281122334455".into(),
+        temp: 25.0,
+        dq_low: false,
+        wire: crate::digital::OwLink::with_rom("281122334455"),
+    };
+    next_ow.adopt_runtime(&prev_ow);
+    if let Kind::Ds18b20 { wire, .. } = &next_ow {
+        assert_eq!(&wire.rom[..6], &[0x28, 0x11, 0x22, 0x33, 0x44, 0x55]);
+    }
+
+    // TFT: BGR toggle sticks and bumps dirty_seq.
+    let mut prev_tft_state = crate::digital::TftState::new(16, 16, false);
+    prev_tft_state.fb[0] = 0xF800;
+    let prev_seq = prev_tft_state.dirty_seq;
+    let prev_tft = Kind::TftDisplay {
+        controller: "ILI9341".into(),
+        width: 16,
+        height: 16,
+        scale: 1.0,
+        bgr: false,
+        tft: prev_tft_state,
+    };
+    let mut next_tft = Kind::TftDisplay {
+        controller: "ILI9341".into(),
+        width: 16,
+        height: 16,
+        scale: 1.0,
+        bgr: true,
+        tft: crate::digital::TftState::new(16, 16, true),
+    };
+    next_tft.adopt_runtime(&prev_tft);
+    if let Kind::TftDisplay { tft, .. } = &next_tft {
+        assert!(tft.bgr, "live BGR edit must stick");
+        assert_eq!(tft.fb[0], 0xF800, "framebuffer must survive");
+        assert_ne!(tft.dirty_seq, prev_seq, "dirty_seq must bump");
+    }
+}
+
+#[test]
+fn phase2_transformer_center_tap_is_structural_and_drops_ct_net() {
+    use crate::canvas::Canvas;
+    use crate::components::{Component, Transformer};
+    let props = Transformer::props();
+    assert!(
+        props
+            .iter()
+            .find(|p| p.id == "CenterTap")
+            .unwrap()
+            .structural
+    );
+    assert!(
+        props
+            .iter()
+            .find(|p| p.id == "AuxSecondary")
+            .unwrap()
+            .structural
+    );
+
+    let mut canvas = Canvas::new();
+    let tr = canvas.scene_mut().add_transformer(0.0, 0.0);
+    let r = canvas.scene_mut().add_resistor(80.0, 0.0, 1000.0);
+    canvas.set_prop_bool_for(&tr, "CenterTap".into(), true);
+    let ct_id = format!("{tr}-ct");
+    let r_id = format!("{r}-lPin");
+    let ct_pt = crate::canvas::Point::new(16.0, 12.0);
+    let r_pt = crate::canvas::Point::new(64.0, 0.0);
+    canvas.scene_mut().connect_pins(&ct_id, ct_pt, &r_id, r_pt);
+    canvas.power_on();
+    assert!(
+        canvas
+            .running_circuit()
+            .unwrap()
+            .pin_voltage(&ct_id)
+            .is_some()
+    );
+    canvas.set_prop_bool_for(&tr, "CenterTap".into(), false);
+    assert!(
+        canvas
+            .running_circuit()
+            .unwrap()
+            .pin_voltage(&ct_id)
+            .is_none(),
+        "disabling CenterTap must drop the -ct net"
+    );
+}
+
+#[test]
+fn phase3_transformer_center_tap_plus_aux_ramps_and_dc_uses_copper_r() {
+    use crate::elements::{Comp, TransformerState};
+    let mut state = TransformerState::new(1.0, 1.0, 0.99, 1.0, 1.0);
+    state.center_tap = true;
+    state.aux_secondary = true;
+    state.inductance3 = 1.0;
+    state.r_coil3 = 1.0;
+
+    let mut c = Circuit::new();
+    c.dt = 1e-4;
+    c.add_fixed_volt("VP", 10.0)
+        .add_comp(Comp {
+            id: "TR".into(),
+            kind: Kind::Transformer { state },
+        })
+        .add_resistor("RAUX", 10.0)
+        .add_ground("G1")
+        .add_ground("G2")
+        .add_ground("G3")
+        .connect("VP-outnod", "TR-p1")
+        .connect("TR-p2", "G1-Gnd")
+        .connect("TR-ct", "G2-Gnd")
+        .connect("TR-a1", "RAUX-lPin")
+        .connect("RAUX-rPin", "G3-Gnd")
+        .connect("TR-a2", "G3-Gnd");
+    c.solve().unwrap();
+    for _ in 0..5 {
+        c.step().unwrap();
+    }
+    let Kind::Transformer { state: after } = &c.comp("TR").unwrap().kind else {
+        panic!("expected Transformer");
+    };
+    assert!(
+        after.i4.abs() > 1e-4,
+        "4-winding auxiliary current i4 must integrate across steps, got {}",
+        after.i4
+    );
+
+    // DC sweep uses copper resistance (r_coil1 = 1 Ω) rather than L/dt.
+    let mut dc = Circuit::new();
+    let mut st2 = TransformerState::new(1.0, 1.0, 0.99, 1.0, 1.0);
+    st2.center_tap = false;
+    dc.add_fixed_volt("V1", 10.0)
+        .add_resistor("RS", 9.0)
+        .add_comp(Comp {
+            id: "TR".into(),
+            kind: Kind::Transformer { state: st2 },
+        })
+        .add_ground("G")
+        .connect("V1-outnod", "RS-lPin")
+        .connect("RS-rPin", "TR-p1")
+        .connect("TR-p2", "G-Gnd");
+    let res = dc
+        .dc_sweep(&crate::simulation::DcSweepParams {
+            primary_source: "V1".into(),
+            primary_start: 10.0,
+            primary_stop: 10.0,
+            primary_step: 1.0,
+            secondary_source: None,
+            secondary_start: 0.0,
+            secondary_stop: 0.0,
+            secondary_step: 1.0,
+            probe_pin: "TR-p1".into(),
+        })
+        .unwrap();
+    let v_dc = res.curves[0].points[0].v_probe;
+    assert!(
+        (v_dc - 1.0).abs() < 0.05,
+        "DC divider with 9Ω + 1Ω copper should be ~1V, got {v_dc}"
+    );
+}
+
+#[test]
+fn phase3_scr_stays_off_after_holding_current_dropout() {
+    let mut c = Circuit::new();
+    c.dt = 5e-6;
+    c.add_fixed_volt("VSUP", 12.0)
+        .add_fixed_volt("VG", 2.0)
+        .add_scr("S1")
+        .add_resistor("RL", 100.0)
+        .add_ground("G")
+        .connect("VSUP-outnod", "RL-lPin")
+        .connect("RL-rPin", "S1-aPin")
+        .connect("S1-kPin", "G-Gnd")
+        .connect("VG-outnod", "S1-gPin");
+    c.solve().unwrap();
+    c.step().unwrap();
+    assert!(
+        c.pin_voltage("S1-aPin").unwrap() < 1.5,
+        "SCR should conduct"
+    );
+
+    // Remove gate and increase load to 2 kΩ -> on-state current ~5.65 mA < 8.2 mA hold.
+    for comp in c.components_mut() {
+        if comp.id == "VG" {
+            if let Kind::FixedVolt { voltage } = &mut comp.kind {
+                *voltage = 0.0;
+            }
+        }
+        if comp.id == "RL" {
+            if let Kind::Resistor { resistance } = &mut comp.kind {
+                *resistance = 2000.0;
+            }
+        }
+    }
+    for _ in 0..5 {
+        c.step().unwrap();
+        let va = c.pin_voltage("S1-aPin").unwrap();
+        assert!(
+            va > 11.5,
+            "SCR must stay off after holding-current dropout without chattering, got va={va}"
+        );
+    }
+}
+
+#[test]
+fn phase3_mosfet_high_threshold_and_jfet_pchannel_vp() {
+    use crate::components::{Component, Jfet, PropValue};
+    use crate::elements::{JfetState, MosfetState};
+
+    for vth in [10.0, 12.0, 50.0] {
+        let mut m = MosfetState::n_enhancement();
+        m.set_threshold(vth);
+        assert!(m.k_rdson > 0.0 && m.k_rdson.is_finite());
+        let _ = m.volt_changed(5.0, 0.0, vth + 2.0);
+        assert!(m.current.is_finite() && m.admit.is_finite());
+        assert!(
+            m.admit * 5.0 - m.current > 0.0,
+            "drain current must stay positive for Vth={vth}"
+        );
+    }
+
+    let mut jp = JfetState::new();
+    jp.set_p_channel(true);
+    jp.set_vp(3.0);
+    let _ = jp.volt_changed(0.0, 5.0, 5.0); // Vgs = 0 -> saturated at Idss
+    assert!(
+        jp.admit * 5.0 > 0.04,
+        "P-channel JFET with Vp=+3V must conduct at Vgs=0, admit={}",
+        jp.admit
+    );
+
+    let mut jpart = Jfet::default();
+    assert!(jpart.set_prop("Vp", PropValue::Float(0.0)).is_err());
+}
+
+#[test]
+fn phase3_servo_does_not_double_integrate_with_reactive_lamp() {
+    use crate::elements::{Comp, ServoState};
+    let mut c = Circuit::new();
+    c.dt = 1e-3;
+    c.add_fixed_volt("VCC", 5.0)
+        .add_ground("G")
+        .add_comp(Comp {
+            id: "L1".into(),
+            kind: crate::components::Lamp::default().to_element_kind(),
+        })
+        .add_comp(Comp {
+            id: "SV".into(),
+            kind: Kind::Servo {
+                speed: 0.2,
+                min_pulse: 1000.0,
+                max_pulse: 2000.0,
+                pos: 0.0,
+                target_pos: 60.0,
+                pulse_start_ps: 0,
+                sig_high: false,
+                state: ServoState::default(),
+            },
+        })
+        .connect("VCC-outnod", "L1-lPin")
+        .connect("L1-rPin", "G-Gnd")
+        .connect("VCC-outnod", "SV-PinV+")
+        .connect("SV-PinGnd", "G-Gnd");
+    assert!(c.has_reactive());
+    c.solve().unwrap();
+    // Advance 0.1 s (half of 0.2 s/60°): horn should be near 30°, not 60°.
+    for _ in 0..100 {
+        c.step().unwrap();
+    }
+    let Kind::Servo { pos, .. } = c.comp("SV").unwrap().kind else {
+        panic!("expected Servo");
+    };
+    assert!(
+        (pos - 30.0).abs() < 2.0,
+        "Servo with reactive lamp must advance ~30 deg in 0.1s (not double-integrate), got {pos}"
+    );
+}
+
+#[test]
+fn phase4_function_i_vars_and_16_inputs() {
+    use crate::digital::FunctionState;
+
+    let mut f = FunctionState::new("F1", 2, "I0 | I1");
+    f.inputs[0].get_inp_state(0.0);
+    f.inputs[1].get_inp_state(0.0);
+    f.eval();
+    assert!(!f.output.get_out_state());
+
+    f.inputs[1].get_inp_state(5.0);
+    f.eval();
+    assert!(f.output.get_out_state(), "I0 | I1 must be high when I1=1");
+
+    // 12-input expression referencing I11 and I0
+    let mut f12 = FunctionState::new("F12", 12, "I11 & !I0");
+    assert_eq!(f12.inputs.len(), 12);
+    f12.inputs[0].get_inp_state(0.0);
+    f12.inputs[11].get_inp_state(5.0);
+    f12.eval();
+    assert!(f12.output.get_out_state());
+    f12.inputs[0].get_inp_state(5.0);
+    f12.eval();
+    assert!(!f12.output.get_out_state());
+
+    // Legacy A..H aliases continue to work
+    let mut fa = FunctionState::new("FA", 2, "A & B");
+    fa.inputs[0].get_inp_state(5.0);
+    fa.inputs[1].get_inp_state(5.0);
+    fa.eval();
+    assert!(fa.output.get_out_state());
+}
+
+#[test]
+fn phase4_dec_to_bcd_d1_through_d9() {
+    use crate::digital::DecToBcdState;
+
+    let mut dec = DecToBcdState::new("D1", false, false);
+    dec.ei.get_inp_state(0.0);
+    let read_bcd = |d: &DecToBcdState| -> u8 {
+        d.outputs
+            .iter()
+            .enumerate()
+            .fold(0u8, |acc, (i, p)| acc | (u8::from(p.get_out_state()) << i))
+    };
+
+    dec.eval();
+    assert_eq!(read_bcd(&dec), 0, "all inputs low must encode 0");
+
+    // D1 is in0 -> must encode 1
+    dec.inputs[0].get_inp_state(5.0);
+    dec.eval();
+    assert_eq!(read_bcd(&dec), 1, "D1 must encode 1");
+
+    // D9 is in8 -> must encode 9
+    dec.inputs[8].get_inp_state(5.0);
+    dec.eval();
+    assert_eq!(read_bcd(&dec), 9, "D9 must encode 9");
+}
+
+#[test]
+fn phase4_counter_bincounter_shiftreg_release_reset_no_phantom_edge() {
+    use crate::digital::{BinCounterState, CounterState, ShiftRegState};
+
+    // Counter: clock stays high while reset is released -> must stay 0
+    let mut cnt = CounterState::new("C1", 4, 15);
+    cnt.enable.get_inp_state(5.0);
+    cnt.clock.get_inp_state(5.0);
+    cnt.reset.get_inp_state(5.0);
+    cnt.eval();
+    assert_eq!(cnt.count, 0);
+    cnt.reset.get_inp_state(0.0);
+    cnt.eval();
+    assert_eq!(
+        cnt.count, 0,
+        "releasing reset with clock high must not count"
+    );
+
+    // BinCounter: clock stays low (active falling edge) while reset is released -> must stay 0
+    let mut bc = BinCounterState::new("BC1", true);
+    bc.clk_a.get_inp_state(5.0);
+    bc.r0_1.get_inp_state(5.0);
+    bc.r0_2.get_inp_state(5.0);
+    bc.eval();
+    bc.clk_a.get_inp_state(0.0);
+    bc.eval();
+    assert_eq!(bc.count, 0);
+    bc.r0_1.get_inp_state(0.0);
+    bc.r0_2.get_inp_state(0.0);
+    bc.eval();
+    assert_eq!(
+        bc.count, 0,
+        "releasing BinCounter reset with clock low must not count"
+    );
+
+    // ShiftReg: clock high while active-low MR is asserted, then MR released -> must not shift
+    let mut sr = ShiftRegState::new("SR1", 8);
+    sr.ser_in.get_inp_state(5.0);
+    sr.oe.get_inp_state(0.0);
+    sr.clk_shift.get_inp_state(5.0);
+    sr.master_reset.get_inp_state(0.0);
+    sr.eval();
+    assert_eq!(sr.shift_reg, 0);
+    sr.master_reset.get_inp_state(5.0);
+    sr.eval();
+    assert_eq!(
+        sr.shift_reg, 0,
+        "releasing ShiftReg MR with clock high must not shift"
+    );
+}
+
+#[test]
+fn phase4_tristate_gate_and_latch_oe_and_one_input_gates() {
+    use crate::digital::{GateState, LatchState, Trigger};
+
+    // Tristate gate OE toggle with unchanged data bit must set stamp_changed (OE is active-low)
+    let mut g = GateState::buffer("G1");
+    g.set_tristate(true);
+    let g_oe = g.oe.as_ref().unwrap().id.clone();
+    let _ = g.volt_changed(&|id| if id == g_oe { 0.0 } else { 5.0 }, 0);
+    assert!(!g.output.is_state_z());
+    // Now disable OE (5 V) while data stays high (5 V): data bit unchanged, but OE changed!
+    let u1 = g.volt_changed(&|id| if id == g_oe { 5.0 } else { 5.0 }, 1_000_000);
+    assert!(
+        u1.stamp_changed,
+        "tristate gate OE change must set stamp_changed"
+    );
+    assert!(g.output.is_state_z());
+    let (z_v, z_g) = g.output.norton();
+    assert!(
+        z_g < 1e-6 && z_v.abs() < 1e-9,
+        "Hi-Z output must have near-zero admittance and 0 V, got ({z_v}, {z_g})"
+    );
+
+    // Tristate latch OE toggle with unchanged data must set stamp_changed (OE is active-low)
+    let mut l = LatchState::new("L1", 2);
+    l.clocked.trigger = Trigger::None;
+    l.tristate = true;
+    let l_oe = l.oe.id.clone();
+    let _ = l.volt_changed(&|id| if id == l_oe { 0.0 } else { 5.0 }, 0);
+    assert!(!l.outputs[0].is_state_z());
+    let lu1 = l.volt_changed(&|id| if id == l_oe { 5.0 } else { 5.0 }, 1_000_000);
+    assert!(
+        lu1.stamp_changed,
+        "tristate latch OE change must set stamp_changed"
+    );
+    assert!(l.outputs[0].is_state_z());
+
+    // 1-input OR and XOR with inverted inputs must honor width 1
+    let mut or1 = GateState::or("OR1", 1);
+    assert_eq!(or1.inputs.len(), 1);
+    or1.inputs[0].set_inverted(true);
+    let _ = or1.volt_changed(&|_| 5.0, 0);
+    assert!(
+        !or1.output.get_out_state(),
+        "1-input inverted OR with 5V must be low"
+    );
+
+    let mut xor1 = GateState::xor("XOR1", 1);
+    assert_eq!(xor1.inputs.len(), 1);
+    xor1.inputs[0].set_inverted(true);
+    let _ = xor1.volt_changed(&|_| 5.0, 0);
+    assert!(
+        !xor1.output.get_out_state(),
+        "1-input inverted XOR with 5V must be low"
+    );
+}
+
+#[test]
+fn phase4_flipflop_trigger_none_omits_clock_pin() {
+    use crate::components::{Component, FlipFlop, PropValue};
+    use crate::digital::Trigger;
+
+    let prop = FlipFlop::props()
+        .iter()
+        .find(|p| p.id == "Trigger")
+        .unwrap();
+    assert!(prop.structural, "FlipFlop Trigger must be structural");
+
+    let mut ff = FlipFlop::default();
+    assert_eq!(ff.pin_geoms().len(), 6);
+    ff.set_prop("Trigger", PropValue::Enum("None".into()))
+        .unwrap();
+    assert_eq!(ff.trigger, Trigger::None);
+    assert_eq!(ff.pin_geoms().len(), 5, "Trigger=None must omit clock pin");
+    assert!(ff.pin_geoms().iter().all(|p| p.suffix != "-in3"));
+}
+
+#[test]
+fn phase4_memory_tristate_write_contention_and_16bit_width() {
+    use crate::digital::MemoryState;
+    use crate::elements::Comp;
+
+    // 1. RAM with CS high is high-Z (pulled down to 0 V by external resistor, not driven)
+    let mut c = Circuit::new();
+    let mut ram = MemoryState::new("M1", 4, 8, false);
+    ram.data[0] = 0xFF;
+    c.add_fixed_volt("VCC", 5.0)
+        .add_ground("G")
+        .add_resistor("RPD", 10_000.0)
+        .add_comp(Comp {
+            id: "M1".into(),
+            kind: Kind::Memory(ram),
+        })
+        .connect("VCC-outnod", "M1-Pin_Cs") // CS high -> disabled
+        .connect("G-Gnd", "M1-Pin_outEnable")
+        .connect("VCC-outnod", "M1-Pin_We")
+        .connect("M1-out0", "RPD-lPin")
+        .connect("RPD-rPin", "G-Gnd");
+    c.solve().unwrap();
+    let v_d0 = c.pin_voltage("M1-out0").unwrap();
+    assert!(
+        v_d0.abs() < 0.01,
+        "RAM with CS high must be Hi-Z, got {v_d0} V"
+    );
+
+    // 2. Writing via 40-ohm external driver after a read (previously driving 0 V) flips stored bit
+    let mut cw = Circuit::new();
+    let mut ram_w = MemoryState::new("MW", 2, 8, false);
+    ram_w.data[0] = 0x00;
+    cw.add_fixed_volt("VCC", 5.0)
+        .add_fixed_volt("WE", 5.0)
+        .add_ground("G")
+        .add_resistor("RDRV", 40.0) // 40-ohm logic driver pulling D0 high
+        .add_comp(Comp {
+            id: "MW".into(),
+            kind: Kind::Memory(ram_w),
+        })
+        .connect("G-Gnd", "MW-Pin_Cs")
+        .connect("G-Gnd", "MW-Pin_outEnable")
+        .connect("WE-outnod", "MW-Pin_We")
+        .connect("G-Gnd", "MW-in0")
+        .connect("G-Gnd", "MW-in1")
+        .connect("VCC-outnod", "RDRV-lPin")
+        .connect("RDRV-rPin", "MW-out0");
+    cw.solve().unwrap();
+    // First in read mode: MW drives D0=0 against 40-ohm driver -> ~2.5 V
+    let v_read = cw.pin_voltage("MW-out0").unwrap();
+    assert!(
+        (v_read - 2.5).abs() < 0.2,
+        "expected contested read ~2.5 V, got {v_read}"
+    );
+
+    // Now assert WE low: MW must release D0 to Hi-Z, letting bus rise to 5 V, and store bit 0 = 1!
+    cw.update_component_kind("WE", &Kind::FixedVolt { voltage: 0.0 });
+    cw.re_solve().unwrap();
+    let stored = cw.component_memory_bytes("MW").unwrap()[0];
+    assert_eq!(
+        stored & 1,
+        1,
+        "RAM write must release drivers and store 1, got {stored:#x}"
+    );
+
+    // 3. 16-bit DataBits reads and writes bit 15 without shift panic
+    let mut m16 = MemoryState::new("M16", 4, 16, false);
+    m16.cs.get_inp_state(0.0);
+    m16.oe.get_inp_state(5.0);
+    m16.we.get_inp_state(0.0);
+    for (i, p) in m16.data_pins.iter_mut().enumerate() {
+        p.get_inp_state(if i == 0 || i == 15 { 5.0 } else { 0.0 });
+    }
+    m16.eval();
+    m16.we.get_inp_state(5.0);
+    m16.oe.get_inp_state(0.0);
+    m16.eval();
+    assert!(m16.data_pins[0].get_out_state());
+    assert!(m16.data_pins[15].get_out_state());
+    assert!(!m16.data_pins[7].get_out_state());
+}
+
+#[test]
+fn phase4_i2c_ram_ack_write_read_and_address_straps() {
+    use crate::digital::{I2CRamState, I2CToParallelState};
+
+    let i2c_clock_bit = |r: &mut I2CRamState, bit: bool| -> bool {
+        r.scl.get_inp_state(0.0);
+        r.sda.get_inp_state(if bit { 5.0 } else { 0.0 });
+        r.tick();
+        r.scl.get_inp_state(5.0);
+        r.tick();
+        // Open-collector SDA driven low by slave when out_volt < 1.0 && admit > 1e-3
+        let (v, g) = r.sda.norton();
+        let slave_low = g > 1e-3 && v < 1.0;
+        r.scl.get_inp_state(0.0);
+        r.tick();
+        slave_low
+    };
+    let i2c_start = |r: &mut I2CRamState| {
+        r.scl.get_inp_state(5.0);
+        r.sda.get_inp_state(5.0);
+        r.tick();
+        r.sda.get_inp_state(0.0);
+        r.tick();
+        r.scl.get_inp_state(0.0);
+        r.tick();
+    };
+    let i2c_stop = |r: &mut I2CRamState| {
+        r.scl.get_inp_state(0.0);
+        r.sda.get_inp_state(0.0);
+        r.tick();
+        r.scl.get_inp_state(5.0);
+        r.tick();
+        r.sda.get_inp_state(5.0);
+        r.tick();
+    };
+    let i2c_send_byte = |r: &mut I2CRamState, byte: u8| -> bool {
+        for i in (0..8).rev() {
+            let _ = i2c_clock_bit(r, ((byte >> i) & 1) != 0);
+        }
+        // 9th clock: release SDA high and observe slave ACK (slave pulls low)
+        i2c_clock_bit(r, true)
+    };
+    let i2c_read_byte = |r: &mut I2CRamState, ack_master: bool| -> u8 {
+        let mut out = 0u8;
+        for i in (0..8).rev() {
+            let slave_low = i2c_clock_bit(r, true);
+            if !slave_low {
+                out |= 1 << i;
+            }
+        }
+        let _ = i2c_clock_bit(r, !ack_master);
+        out
+    };
+
+    // 256-byte EEPROM at base 0x50 with A0=1 strap -> effective address 0x51
+    let mut ram = I2CRamState::new("EE", 256, 0x50);
+    ram.addr_pins[0].get_inp_state(5.0); // A0 = 1
+    ram.addr_pins[1].get_inp_state(0.0);
+    ram.addr_pins[2].get_inp_state(0.0);
+
+    // Address 0x50 must NACK when strapped to 0x51
+    i2c_start(&mut ram);
+    assert!(
+        !i2c_send_byte(&mut ram, 0x50 << 1),
+        "wrong address 0x50 must NACK"
+    );
+    i2c_stop(&mut ram);
+
+    // Write 0xA5 at memory address 0x10 on slave 0x51
+    i2c_start(&mut ram);
+    assert!(
+        i2c_send_byte(&mut ram, 0x51 << 1),
+        "strapped address 0x51 must ACK"
+    );
+    assert!(i2c_send_byte(&mut ram, 0x10), "mem addr 0x10 must ACK");
+    assert!(i2c_send_byte(&mut ram, 0xA5), "data 0xA5 must ACK");
+    i2c_stop(&mut ram);
+    assert_eq!(ram.data[0x10], 0xA5);
+
+    // Read back from 0x10 via dummy write + repeated start read
+    i2c_start(&mut ram);
+    assert!(i2c_send_byte(&mut ram, 0x51 << 1));
+    assert!(i2c_send_byte(&mut ram, 0x10));
+    i2c_start(&mut ram);
+    assert!(i2c_send_byte(&mut ram, (0x51 << 1) | 1));
+    let got = i2c_read_byte(&mut ram, false);
+    i2c_stop(&mut ram);
+    assert_eq!(got, 0xA5, "I2C readback at 0x10 must return 0xA5");
+
+    // 64 KB EEPROM uses 2-byte memory address (>255)
+    let mut big = I2CRamState::new("EE64", 65536, 0x50);
+    i2c_start(&mut big);
+    assert!(i2c_send_byte(&mut big, 0x50 << 1));
+    assert!(i2c_send_byte(&mut big, 0x01)); // high addr byte
+    assert!(i2c_send_byte(&mut big, 0x23)); // low addr byte -> 0x0123
+    assert!(i2c_send_byte(&mut big, 0x5A));
+    i2c_stop(&mut big);
+    assert_eq!(big.data[0x0123], 0x5A);
+
+    // I2CToParallel strap pins A0..A2 modify base address
+    let mut io = I2CToParallelState::new("IO", 0x20);
+    io.addr_pins[0].get_inp_state(5.0);
+    io.addr_pins[1].get_inp_state(0.0);
+    io.addr_pins[2].get_inp_state(5.0);
+    assert_eq!(io.effective_address(), 0x25);
+}
+
+#[test]
+fn phase4_one_bit_adc_dac_and_ws2812_geometry() {
+    use crate::components::{Component, PropValue, Ws2812};
+    use crate::digital::{AdcState, DacState};
+
+    let mut adc = AdcState::new("A1", 1, 5.0, 0.0);
+    assert_eq!(adc.outputs.len(), 1);
+    adc.oe.get_inp_state(5.0);
+    adc.convert(2.6);
+    assert!(
+        adc.outputs[0].get_out_state(),
+        "1-bit ADC of 2.6V in 5V must be 1"
+    );
+    adc.convert(2.4);
+    assert!(
+        !adc.outputs[0].get_out_state(),
+        "1-bit ADC of 2.4V in 5V must be 0"
+    );
+
+    let mut dac = DacState::new("D1", 1, 5.0);
+    assert_eq!(dac.inputs.len(), 1);
+    dac.inputs[0].get_inp_state(5.0);
+    dac.eval();
+    assert!(
+        (dac.vout - 5.0).abs() < 1e-6,
+        "1-bit DAC of 1 must be 5.0V, got {}",
+        dac.vout
+    );
+
+    let mut ws = Ws2812::default();
+    ws.set_prop("Count", PropValue::Int(8)).unwrap();
+    assert_eq!((ws.count, ws.rows, ws.cols), (8, 1, 8));
+    ws.set_prop("Rows", PropValue::Int(2)).unwrap();
+    assert_eq!((ws.count, ws.rows, ws.cols), (16, 2, 8));
+    ws.set_prop("Cols", PropValue::Int(4)).unwrap();
+    assert_eq!((ws.count, ws.rows, ws.cols), (8, 2, 4));
+}
+
+#[test]
+fn phase4_memory_image_persist_and_live_load() {
+    use crate::canvas::Canvas;
+    use crate::components::{DynamicMemory, Memory};
+
+    let mut canvas = Canvas::new();
+    let mem_id = canvas.scene.add_memory(0.0, 0.0);
+    let dram_id = canvas.scene.add_dynamic_memory(100.0, 0.0);
+    let i2c_id = canvas.scene.add_i2c_ram(200.0, 0.0);
+
+    // DRAM capacity matches state (8 addr bits -> 2^(8*2) = 65536 bytes)
+    let dram_info = canvas.memory_item_info(&dram_id).unwrap();
+    assert_eq!(dram_info.data.len(), 1 << 16);
+
+    // Save/load roundtrip preserves Memory image via hidden persistent Mem prop
+    let dir = std::env::temp_dir().join("cs_phase4_mem_test");
+    let _ = std::fs::create_dir_all(&dir);
+    let data_file = dir.join("img.bin");
+    std::fs::write(&data_file, [0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+
+    // Load while stopped into empty Vec -> must grow and store bytes
+    canvas.load_item_data_file(&mem_id, data_file.to_str().unwrap());
+    assert_eq!(
+        &canvas.get_memory_bytes(&mem_id).unwrap()[..4],
+        &[0xDE, 0xAD, 0xBE, 0xEF]
+    );
+
+    let saved = canvas.scene.to_circ1();
+    let loaded = crate::canvas::Scene::from_circ1(&saved).unwrap();
+    let m_part = match &loaded.item_by_id(&mem_id).unwrap().kind {
+        crate::components::Part::Memory(m) => m,
+        other => panic!("expected Memory, got {other:?}"),
+    };
+    assert_eq!(&m_part.data[..4], &[0xDE, 0xAD, 0xBE, 0xEF]);
+
+    // Load while running -> reaches solver immediately and survives power_off
+    canvas.power_on();
+    let data_file2 = dir.join("img2.bin");
+    std::fs::write(&data_file2, [0x11, 0x22, 0x33, 0x44]).unwrap();
+    canvas.load_item_data_file(&i2c_id, data_file2.to_str().unwrap());
+    assert_eq!(
+        &canvas.get_memory_bytes(&i2c_id).unwrap()[..4],
+        &[0x11, 0x22, 0x33, 0x44]
+    );
+    canvas.power_off();
+    assert_eq!(
+        &canvas.get_memory_bytes(&i2c_id).unwrap()[..4],
+        &[0x11, 0x22, 0x33, 0x44],
+        "live-loaded memory image must survive power_off"
+    );
+
+    // Keep unused imports clean
+    let _ = (Memory::TYPE_ID, DynamicMemory::TYPE_ID);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn phase5_dht22_sign_and_ds1621_halves_and_address_pins() {
+    use crate::digital::dht_frame;
+
+    // DHT22 -10.1°C must use sign-magnitude: 0x8065 (bit 15 = sign, 101 = 0x65)
+    let frame = dht_frame("DHT22", -10.1, 50.0);
+    let b2 = ((frame >> 16) & 0xFF) as u8;
+    let b3 = ((frame >> 8) & 0xFF) as u8;
+    assert_eq!(
+        (b2, b3),
+        (0x80, 0x65),
+        "DHT22 -10.1°C must encode as 0x8065"
+    );
+
+    // DHT11 stays clamped at 0°C
+    let f11 = dht_frame("DHT11", -5.0, 40.0);
+    assert_eq!(((f11 >> 16) & 0xFF) as u8, 0x00);
+
+    // DS1621 -0.5°C must read back 0xFF80, and inPin2=A0 / inPin4=A2 (datasheet order)
+    let mut c = Circuit::new();
+    c.add_fixed_volt("VSCL", 5.0)
+        .add_fixed_volt("VSDA", 5.0)
+        .add_fixed_volt("VA0", 5.0) // wired to inPin2 (pin 7 = A0)
+        .add_ground("G")
+        .add_resistor("RSDA", 10_000.0)
+        .add_comp(Comp::ds1621("T1", -0.5))
+        .connect("VSCL-outnod", "T1-inPin1")
+        .connect("VSDA-outnod", "RSDA-lPin")
+        .connect("RSDA-rPin", "T1-inPin0")
+        .connect("VA0-outnod", "T1-inPin2")
+        .connect("G-Gnd", "T1-inPin3")
+        .connect("G-Gnd", "T1-inPin4")
+        .connect("G-Gnd", "T1-PinGnd");
+
+    // Address 0x49 (0x48 | A0=1): read temperature register (0xAA -> 0xFF, 0xAB -> 0x80)
+    let read_i2c = |c: &mut Circuit, ack_master: bool| -> u8 {
+        let mut out = 0u8;
+        for i in (0..8).rev() {
+            set_volt(c, "VSCL", 0.0);
+            set_volt(c, "VSDA", 5.0);
+            c.re_solve().unwrap();
+            set_volt(c, "VSCL", 5.0);
+            c.re_solve().unwrap();
+            if c.pin_voltage("T1-inPin0").unwrap() > 2.5 {
+                out |= 1 << i;
+            }
+        }
+        i2c_bit(c, !ack_master);
+        out
+    };
+    i2c_start(&mut c);
+    let ack = i2c_byte(&mut c, (0x49 << 1) | 1, "T1-inPin0");
+    assert!(
+        ack < 0.5,
+        "DS1621 with inPin2=A0 high must ACK 0x49, got {ack}"
+    );
+    let msb = read_i2c(&mut c, true);
+    let lsb = read_i2c(&mut c, false);
+    i2c_stop(&mut c);
+    assert_eq!(
+        ((msb as u16) << 8) | (lsb as u16),
+        0xFF80,
+        "DS1621 -0.5°C must be 0xFF80"
+    );
+}
+
+#[test]
+fn phase5_ssd1306_sh1107_hd44780_size_scan_and_ks0108() {
+    use crate::components::{Aip31068, Component, Hd44780, PropValue, Sh1107, Ssd1306};
+    use crate::digital::{Ks0108State, Sh1107State};
+
+    // SSD1306 clamps height 128 -> 64 and width 200 -> 128; Width is structural
+    let w_prop = Ssd1306::props().iter().find(|p| p.id == "Width").unwrap();
+    assert!(w_prop.structural, "SSD1306 Width must be structural");
+    let mut ssd = Ssd1306::default();
+    ssd.set_prop("Height", PropValue::Int(128)).unwrap();
+    ssd.set_prop("Width", PropValue::Int(200)).unwrap();
+    assert_eq!(ssd.height, 64);
+    assert_eq!(ssd.width, 128);
+
+    // SH1107 clamps to controller limits and applies scan/offset/start-line in hex_bitmap
+    let mut sh_part = Sh1107::default();
+    sh_part.set_prop("Width", PropValue::Int(500)).unwrap();
+    sh_part.set_prop("Height", PropValue::Int(500)).unwrap();
+    assert_eq!((sh_part.width, sh_part.height), (128, 128));
+
+    let mut sh = Sh1107State::new("SH", 128, 64, 0x3C, false, 100.0);
+    sh.process_command(0xAF); // display on
+    sh.write_data(0x01); // pixel at (x=0, y=0)
+    let normal_hex = sh.hex_bitmap();
+    sh.process_command(0xC8); // COM scan inverted
+    let inv_hex = sh.hex_bitmap();
+    assert_ne!(
+        normal_hex, inv_hex,
+        "SH1107 COM scan flip must change hex_bitmap"
+    );
+    sh.process_command(0xC0);
+    sh.process_command(0xD3);
+    sh.parameter(8); // display offset 8 lines
+    let off_hex = sh.hex_bitmap();
+    assert_ne!(
+        normal_hex, off_hex,
+        "SH1107 display offset must change hex_bitmap"
+    );
+
+    // HD44780 and AIP31068 clamp Cols to 8..=20
+    let mut lcd = Hd44780::default();
+    lcd.set_prop("Cols", PropValue::Int(4)).unwrap();
+    assert_eq!(lcd.cols, 8);
+    let mut aip = Aip31068::default();
+    aip.set_prop("Cols", PropValue::Int(40)).unwrap();
+    assert_eq!(aip.cols, 20);
+
+    // KS0108 start line rotates bitmap and CS active-low/high polarity is exact
+    let mut ks = Ks0108State::new("KS", false);
+    ks.process_command(0x3F, true, true);
+    ks.write_data(0x01, true, false); // row 0 col 0
+    let b0 = ks.hex_bitmap();
+    ks.process_command(0xC8, true, false); // start line = 8
+    let b8 = ks.hex_bitmap();
+    assert_ne!(b0, b8, "KS0108 start line must rotate hex_bitmap");
+
+    // Active-high CS: both pins low must NOT write either half
+    let mut ks_hi = Ks0108State::new("KS_HI", false);
+    ks_hi.pin_rst.get_inp_state(5.0);
+    ks_hi.pin_rw.get_inp_state(0.0);
+    ks_hi.pin_dc.get_inp_state(5.0);
+    ks_hi.pin_cs1.get_inp_state(0.0);
+    ks_hi.pin_cs2.get_inp_state(0.0);
+    ks_hi.data_pins[0].get_inp_state(5.0);
+    ks_hi.pin_en.get_inp_state(5.0);
+    ks_hi.step(0);
+    ks_hi.pin_en.get_inp_state(0.0);
+    ks_hi.step(1);
+    assert_eq!(ks_hi.left_ram[0][0], 0);
+    assert_eq!(ks_hi.right_ram[0][0], 0);
+
+    // Active-low CS: both pins low must write BOTH halves
+    let mut ks_lo = Ks0108State::new("KS_LO", true);
+    ks_lo.pin_rst.get_inp_state(5.0);
+    ks_lo.pin_rw.get_inp_state(0.0);
+    ks_lo.pin_dc.get_inp_state(5.0);
+    ks_lo.pin_cs1.get_inp_state(0.0);
+    ks_lo.pin_cs2.get_inp_state(0.0);
+    ks_lo.data_pins[0].get_inp_state(5.0);
+    ks_lo.pin_en.get_inp_state(5.0);
+    ks_lo.step(0);
+    ks_lo.pin_en.get_inp_state(0.0);
+    ks_lo.step(1);
+    assert_eq!(ks_lo.left_ram[0][0], 1);
+    assert_eq!(ks_lo.right_ram[0][0], 1);
+}
+
+#[test]
+fn phase5_tft_madctl_colmod_ds1307_sqw_ky023_and_sr04() {
+    use crate::canvas::{Canvas, Point, Wire};
+    use crate::components::{Component, DS1307, KY023};
+    use crate::digital::TftState;
+
+    // TFT MADCTL (0x36) updates bgr + bumps dirty_seq, COLMOD (0x3A) handles 18-bit RGB666
+    let mut tft = TftState::new(16, 16, false);
+    let send = |t: &mut TftState, dc: bool, b: u8| {
+        for i in 0..8 {
+            let di = (b & (0x80 >> i)) != 0;
+            t.step(false, dc, true, di, true);
+            t.step(false, dc, false, di, true);
+        }
+    };
+    let seq0 = tft.dirty_seq;
+    send(&mut tft, false, 0x36); // MADCTL
+    send(&mut tft, true, 0x08); // BGR = 1
+    assert!(tft.bgr);
+    assert_ne!(tft.dirty_seq, seq0);
+
+    send(&mut tft, false, 0x3A); // COLMOD
+    send(&mut tft, true, 0x06); // 18-bit RGB666 (3 bytes/pixel)
+    send(&mut tft, false, 0x2C); // RAMWR
+    send(&mut tft, true, 0xF8);
+    send(&mut tft, true, 0x00);
+    send(&mut tft, true, 0x00);
+    assert_eq!(tft.fb[0], 0xF800);
+
+    // DS1307 SQW stays off until SQWE (bit 4 of reg 7) is set
+    let Kind::Ds1307 { sqw_enabled, .. } = DS1307::default().to_element_kind() else {
+        panic!("expected Ds1307");
+    };
+    assert!(
+        !sqw_enabled,
+        "DS1307 SQW must start disabled until SQWE is written"
+    );
+
+    // KY-023 uses one smooth scale without cliff at abs==1
+    let mut joy = KY023::default();
+    assert!(joy.interact_press(Point::new(13.0, -8.0)));
+    assert!(
+        (joy.stick_x - 25.0).abs() < 1e-3,
+        "full throw must reach +25, got {}",
+        joy.stick_x
+    );
+    let mut cj = Circuit::new();
+    cj.add_ground("G")
+        .add_resistor("RX", 1e7)
+        .add_ky023("J", 0.5, 0.0, false)
+        .connect("J-vrx", "RX-lPin")
+        .connect("RX-rPin", "G-Gnd");
+    cj.solve().unwrap();
+    let v_half = cj.pin_voltage("J-vrx").unwrap();
+    assert!(
+        (v_half - 2.55).abs() < 0.05,
+        "stick_x=0.5 must be ~2.55V (no cliff), got {v_half}"
+    );
+
+    // HC-SR04 without slider publishes active In-pin distance in readings
+    let mut canvas = Canvas::new();
+    let vin = canvas.scene_mut().add_fixed_volt(0.0, 0.0, 1.25);
+    let sr = canvas.scene_mut().add_sr04(200.0, 0.0);
+    canvas.scene_mut().add_saved_wire(Wire::from_saved(
+        "w1",
+        format!("{vin}-outnod"),
+        format!("{sr}-inpin"),
+        vec![Point::new(0.0, 0.0), Point::new(112.0, -24.0)],
+    ));
+    canvas.power_on();
+    let txt = canvas
+        .readings()
+        .get(&sr)
+        .map(|r| r.text.as_str())
+        .unwrap_or("");
+    assert_eq!(txt, "125.0 cm", "SR04 reading must reflect In-pin voltage");
+}
+
+#[test]
+fn phase5_esp32_gpio_bank1_and_iomux_pullup_and_matrix() {
+    use crate::qemu::periph::ESP32_IOMUX_START;
+    use crate::qemu::{ESP32_GPIO_START, QemuComp};
+
+    let mut q = QemuComp::esp32("ESP1");
+    // Enable GPIO32 (bit 0) and attempt GPIO34 (bit 2, input-only) via GPIO_ENABLE1 (0x2C)
+    q.esp32_write_for_test(ESP32_GPIO_START + 0x2C, 0x05);
+    // Drive GPIO32 high via GPIO_OUT1_W1TS (0x14)
+    q.esp32_write_for_test(ESP32_GPIO_START + 0x14, 0x01);
+
+    let p32 = q.pin_by_suffix("G32").expect("GPIO32 pin");
+    assert!(
+        (p32.out_volt() - 3.3).abs() < 0.2,
+        "GPIO32 must drive high (~3.3V), got {}",
+        p32.out_volt()
+    );
+    let p34 = q.pin_by_suffix("G34").expect("GPIO34 pin");
+    assert_eq!(
+        p34.mode,
+        crate::digital::PinMode::Input,
+        "GPIO34 must remain input-only"
+    );
+
+    // Feed high into GPIO32 and verify GPIO_IN1 (0x40) bit 0 reads 1
+    q.set_pin_input_for_test("G32", 3.3);
+    let in1 = q.esp32_read_for_test(ESP32_GPIO_START + 0x40);
+    assert_eq!(in1 & 1, 1, "GPIO_IN1 bit 0 must reflect GPIO32");
+
+    // IOMUX FUN_WPU (bit 8) on GPIO4 (offset 0x48) enables pull-up on G04
+    q.esp32_iomux_write_for_test(ESP32_IOMUX_START + 0x48, 1 << 8);
+    assert!(
+        q.pin_by_suffix("G04").expect("G04").has_pullup(),
+        "IOMUX FUN_WPU must enable pull-up"
+    );
+
+    // GPIO matrix FUNC_OUT_SEL_CFG for GPIO16 (0x530 + 16*4) -> signal 14 (UART0 TX)
+    q.esp32_write_for_test(ESP32_GPIO_START + 0x530 + 16 * 4, 14);
+    assert_eq!(q.usart_tx_pin_name(0).as_deref(), Some("ESP1-G16"));
+}
+
+#[test]
+fn phase6_scope_falling_edge_filter_la_hysteresis_and_subcircuit_pin_dir() {
+    use crate::canvas::PinDirection;
+    use crate::digital::{IoPin, PinMode};
+    use crate::elements::{Comp, Kind};
+    use crate::instruments::ScopeSampler;
+
+    // 1. ScopeSampler rising vs falling trigger edge
+    let mut s = ScopeSampler::scope();
+    let conn = [true, false, false, false];
+    // Rising crossing at t = 0.002 s, falling crossing at t = 0.006 s
+    s.push(0.000, &[0.0, 0.0, 0.0, 0.0], &conn, -1, 0.0, true, 0.1);
+    s.push(0.002, &[5.0, 0.0, 0.0, 0.0], &conn, -1, 0.0, true, 0.1);
+    s.push(0.006, &[0.0, 0.0, 0.0, 0.0], &conn, -1, 0.0, true, 0.1);
+    s.push(0.010, &[0.0, 0.0, 0.0, 0.0], &conn, -1, 0.0, true, 0.1);
+
+    let base_rise = s.window_t_base_edge(0.004, 0, 2.5, true);
+    let base_fall = s.window_t_base_edge(0.004, 0, 2.5, false);
+    assert!(
+        (base_rise - 0.004).abs() < 1e-6,
+        "rising edge at 2ms + 2ms half-window = 4ms, got {base_rise}"
+    );
+    assert!(
+        (base_fall - 0.008).abs() < 1e-6,
+        "falling edge at 6ms + 2ms half-window = 8ms, got {base_fall}"
+    );
+
+    // 2. Scope filter suppresses small ripple below threshold in frequency counter,
+    //    while passing the same ripple when filter is below the swing.
+    let run_ripple = |filter_v: f64| -> f64 {
+        let mut c = Circuit::new();
+        c.scope_filter = filter_v;
+        c.add_ground("G")
+            .add_fixed_volt("V", 2.0)
+            .add_oscope("S")
+            .connect("V-outnod", "S-Pin0");
+        c.solve().unwrap();
+        for step in 0..20 {
+            let v = if step % 2 == 0 { 2.0 } else { 2.4 }; // 0.4 V ripple
+            c.update_component_kind("V", &Kind::FixedVolt { voltage: v });
+            c.re_solve().unwrap();
+            c.run_ps(1_000_000_000).unwrap();
+        }
+        c.instruments.scopes["S"].freq_meters[0].freq
+    };
+    let freq_hi_filt = run_ripple(1.0);
+    let freq_lo_filt = run_ripple(0.1);
+    assert_eq!(
+        freq_hi_filt, 0.0,
+        "0.4V ripple must be filtered out when scope_filter=1.0V, got {freq_hi_filt}"
+    );
+    assert!(
+        freq_lo_filt > 100.0,
+        "0.4V ripple must be counted when scope_filter=0.1V, got {freq_lo_filt}"
+    );
+
+    // 3. Logic analyzer uses push_digital with separate rise (3.5 V) and fall (1.5 V) hysteresis
+    let mut c_la = Circuit::new();
+    c_la.la_threshold_r = 3.5;
+    c_la.la_threshold_f = 1.5;
+    c_la.add_fixed_volt("V", 0.0)
+        .add_lanalizer("LA")
+        .connect("V-outnod", "LA-Pin0");
+    c_la.solve().unwrap();
+    let la_bit = |c: &Circuit| c.instruments.las["LA"].last_values()[0];
+    assert_eq!(la_bit(&c_la), 0.0);
+
+    // Rise to 2.5 V (< 3.5 V): stays LOW
+    c_la.update_component_kind("V", &Kind::FixedVolt { voltage: 2.5 });
+    c_la.re_solve().unwrap();
+    c_la.run_ps(1_000_000).unwrap();
+    assert_eq!(la_bit(&c_la), 0.0, "2.5V must stay low below rise=3.5V");
+
+    // Rise to 4.0 V (>= 3.5 V): goes HIGH
+    c_la.update_component_kind("V", &Kind::FixedVolt { voltage: 4.0 });
+    c_la.re_solve().unwrap();
+    c_la.run_ps(1_000_000).unwrap();
+    assert_eq!(la_bit(&c_la), 1.0, "4.0V must go high above rise=3.5V");
+
+    // Drop to 2.5 V (> 1.5 V): stays HIGH due to hysteresis
+    c_la.update_component_kind("V", &Kind::FixedVolt { voltage: 2.5 });
+    c_la.re_solve().unwrap();
+    c_la.run_ps(1_000_000).unwrap();
+    assert_eq!(la_bit(&c_la), 1.0, "2.5V must stay high above fall=1.5V");
+
+    // Drop to 1.0 V (<= 1.5 V): goes LOW
+    c_la.update_component_kind("V", &Kind::FixedVolt { voltage: 1.0 });
+    c_la.re_solve().unwrap();
+    c_la.run_ps(1_000_000).unwrap();
+    assert_eq!(la_bit(&c_la), 0.0, "1.0V must go low below fall=1.5V");
+
+    // 4. Subcircuit package pin resolves direction through its own inner MCU pin,
+    //    ignoring unrelated external MCU pins wired to the same net.
+    let mut c_sub = Circuit::new();
+    c_sub.add_comp(Comp::tunnel("Sub-1-D0", "Sub-1-D0", "Sub-1-D0"));
+    c_sub.add_comp(Comp::tunnel("1@T0", "Sub-1-D0", "1@T0-pin"));
+    let inner_pin = IoPin::input("1@McuPin-1-pin");
+    c_sub.add_comp(Comp {
+        id: "1@McuPin-1".into(),
+        kind: Kind::McuPin(crate::digital::McuPinState { pin: inner_pin }),
+    });
+    let ext_pin = IoPin::output("ExtMcu-1-pin");
+    c_sub.add_comp(Comp {
+        id: "ExtMcu-1".into(),
+        kind: Kind::McuPin(crate::digital::McuPinState { pin: ext_pin }),
+    });
+    c_sub
+        .connect("1@T0-pin", "1@McuPin-1-pin")
+        .connect("Sub-1-D0", "ExtMcu-1-pin");
+    c_sub.solve().unwrap();
+
+    assert_eq!(
+        c_sub.pin_direction("Sub-1-D0"),
+        Some(PinDirection::In),
+        "package pin direction must follow inner MCU pin, not external MCU pin"
+    );
+
+    // Flip inner MCU pin to Output -> package pin updates to Out
+    for comp in &mut c_sub.components {
+        if comp.id == "1@McuPin-1" {
+            if let Kind::McuPin(p) = &mut comp.kind {
+                p.pin.set_pin_mode(PinMode::Output);
+            }
+        }
+    }
+    assert_eq!(
+        c_sub.pin_direction("Sub-1-D0"),
+        Some(PinDirection::Out),
+        "package pin direction must reflect updated inner pinMode"
+    );
 }

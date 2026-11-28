@@ -36,6 +36,10 @@ impl Canvas {
         let mut circuit = self.scene.to_circuit();
         circuit.slope_steps = crate::settings::get().slope_steps;
         circuit.debug_target_mcu = self.active_sim_mcu_id();
+        circuit.scope_filter = self.scope_filter;
+        circuit.la_threshold_r = self.la_threshold_r;
+        circuit.la_threshold_f = self.la_threshold_f;
+        circuit.la_trigger = self.la_trigger;
         crate::logging::log_sim(format!(
             "Simulation started: {} components, {} wires",
             self.scene.items().len(),
@@ -168,6 +172,7 @@ impl Canvas {
         self.publish_instrument_views();
         self.scope_traces = crate::instruments::empty_scope_traces();
         self.la_traces = crate::instruments::empty_la_traces();
+        self.plot_item_traces.clear();
         self.sim_error = None;
         self.sim_warning = None;
         self.sim_warning_ticks = 0;
@@ -376,6 +381,10 @@ impl Canvas {
         let mut circuit = self.scene.to_circuit();
         circuit.slope_steps = crate::settings::get().slope_steps;
         circuit.debug_target_mcu = self.active_sim_mcu_id();
+        circuit.scope_filter = self.scope_filter;
+        circuit.la_threshold_r = self.la_threshold_r;
+        circuit.la_threshold_f = self.la_threshold_f;
+        circuit.la_trigger = self.la_trigger;
         if circuit.has_audio_out() {
             if let Some(sink) = &self.audio_sink {
                 if let Ok(mut s) = sink.lock() {
@@ -818,6 +827,27 @@ impl Canvas {
                     self.readings
                         .insert(it.id.clone(), crate::instruments::freq_reading(st));
                 }
+                Part::SR04(p) => {
+                    let meters = if !p.use_slider && self.sim_running {
+                        self.item_pin_voltage(&it.id, "inpin")
+                            .unwrap_or(0.0)
+                            .clamp(0.02, 4.0)
+                    } else {
+                        p.distance
+                    };
+                    self.readings.insert(
+                        it.id.clone(),
+                        crate::instruments::ReadingView {
+                            text: format!("{:.1} cm", meters * 100.0),
+                            max_text: String::new(),
+                            avg_text: String::new(),
+                            extra: String::new(),
+                            high: false,
+                            low: false,
+                            hz_text: String::new(),
+                        },
+                    );
+                }
                 Part::Hd44780(_) => {
                     let (hex, lines) = self
                         .running
@@ -1110,6 +1140,7 @@ impl Canvas {
                 }
                 Part::LedBar(p) => {
                     let mut bitmask_str = String::with_capacity(p.segments);
+                    let th = if p.threshold > 0.1 { p.threshold } else { 1.4 };
                     for i in 0..p.segments {
                         let vl = with_pin_id_idx(&it.id, PIN_LEFT, i, |pin_l| {
                             self.pin_volts.get(pin_l).copied().unwrap_or(0.0)
@@ -1121,7 +1152,7 @@ impl Canvas {
                                 self.pin_volts.get(pin_r).copied().unwrap_or(0.0)
                             })
                         };
-                        let on = (vl - vr) >= 1.4;
+                        let on = (vl - vr) >= th;
                         bitmask_str.push(if on { '1' } else { '0' });
                     }
                     self.readings.insert(
@@ -1219,8 +1250,21 @@ impl Canvas {
                 _ => {}
             }
         }
-        let update_plots =
-            force_plots || !self.sim_running || self.sim_paused || self.sim_tick % 3 == 0;
+        let blanked_ids: Vec<String> = self
+            .running
+            .as_mut()
+            .map(|c| std::mem::take(&mut c.instruments.blanked_ids))
+            .unwrap_or_default();
+        let update_plots = force_plots
+            || !blanked_ids.is_empty()
+            || !self.sim_running
+            || self.sim_paused
+            || self.sim_tick % 3 == 0;
+        let mut dirty_plot_ids: Vec<String> = Vec::new();
+        for id in &blanked_ids {
+            dirty_plot_ids.push(id.clone());
+            plots_changed = true;
+        }
         if update_plots {
             if let Some(circuit) = self.running.as_ref() {
                 if !circuit.instruments.scopes.is_empty() {
@@ -1234,6 +1278,7 @@ impl Canvas {
                                 self.scope_time_pos,
                                 self.scope_trigger,
                                 self.scope_trig_level,
+                                self.scope_trig_rising,
                                 self.scope_view_w,
                             )
                         })
@@ -1272,6 +1317,67 @@ impl Canvas {
                     self.la_traces = crate::instruments::empty_la_traces();
                     plots_changed = true;
                 }
+
+                // Compare each schematic scope/LA symbol's own 10-division extract
+                // independently so a changing second scope or blanked channel always
+                // marks its own item dirty even when the first scope is flat.
+                let scope_time_div = self.scope_time_div;
+                let scope_time_pos = self.scope_time_pos;
+                let scope_trigger = self.scope_trigger;
+                let scope_trig_level = self.scope_trig_level;
+                let scope_trig_rising = self.scope_trig_rising;
+                let la_time_div = self.la_time_div;
+                let la_time_pos = self.la_time_pos;
+                let la_trigger = self.la_trigger;
+                let la_thr = 0.5 * (self.la_threshold_r + self.la_threshold_f);
+                let mut active_plot_ids = Vec::new();
+                for it in self.scene.items() {
+                    let next_buf = match &it.kind {
+                        Part::Oscope(_) => circuit
+                            .instruments
+                            .scopes
+                            .get(&it.id)
+                            .map(|sampler| {
+                                sampler.traces_with_count_edge(
+                                    scope_time_div,
+                                    scope_time_pos,
+                                    scope_trigger,
+                                    scope_trig_level,
+                                    scope_trig_rising,
+                                    &crate::instruments::SCOPE_COLORS,
+                                    None,
+                                    crate::instruments::SCOPE_CANVAS_DISPLAY_N,
+                                    10.0,
+                                )
+                            })
+                            .unwrap_or_else(crate::instruments::empty_scope_traces),
+                        Part::LogicAnalyzer(_) => circuit
+                            .instruments
+                            .las
+                            .get(&it.id)
+                            .map(|sampler| {
+                                sampler.traces_with_count(
+                                    la_time_div,
+                                    la_time_pos,
+                                    la_trigger,
+                                    la_thr,
+                                    &crate::instruments::LA_COLORS,
+                                    Some(la_thr),
+                                    96,
+                                    10.0,
+                                )
+                            })
+                            .unwrap_or_else(crate::instruments::empty_la_traces),
+                        _ => continue,
+                    };
+                    active_plot_ids.push(it.id.clone());
+                    if self.plot_item_traces.get(&it.id) != Some(&next_buf) {
+                        self.plot_item_traces.insert(it.id.clone(), next_buf);
+                        dirty_plot_ids.push(it.id.clone());
+                    }
+                }
+                self.plot_item_traces
+                    .retain(|id, _| active_plot_ids.iter().any(|a| a == id));
             }
         }
         let changed_ids: Vec<String> = self
@@ -1289,8 +1395,8 @@ impl Canvas {
         for id in changed_ids {
             self.dirty.mark_item(&id);
         }
-        if plots_changed {
-            self.dirty_plot_items();
+        for id in dirty_plot_ids {
+            self.dirty.mark_item(&id);
         }
         Change {
             plots: plots_changed,
@@ -1369,11 +1475,12 @@ impl Canvas {
     pub fn live_scope_traces(&self, item_id: &str) -> Option<crate::plot::PlotBuffer> {
         let circuit = self.running.as_ref()?;
         let sampler = circuit.instruments.scopes.get(item_id)?;
-        Some(sampler.traces_with_count(
+        Some(sampler.traces_with_count_edge(
             self.scope_time_div,
             self.scope_time_pos,
             self.scope_trigger,
             self.scope_trig_level,
+            self.scope_trig_rising,
             &crate::instruments::SCOPE_COLORS,
             None,
             crate::instruments::SCOPE_CANVAS_DISPLAY_N,
@@ -1537,11 +1644,12 @@ impl Canvas {
         let time_pos = self.scope_time_pos;
         let trigger = self.scope_trigger;
         let level = self.scope_trig_level;
+        let rising = self.scope_trig_rising;
         let view_w = self.scope_view_w;
         let Some(sampler_buf) = self.running.as_ref().and_then(|c| {
             c.instruments
                 .first_scope()
-                .map(|s| scope_window_buffer(s, time_div, time_pos, trigger, level, view_w))
+                .map(|s| scope_window_buffer(s, time_div, time_pos, trigger, level, rising, view_w))
         }) else {
             return;
         };
@@ -1605,13 +1713,14 @@ impl Canvas {
             .as_ref()
             .and_then(|c| c.instruments.first_scope())
         {
-            Some(sampler) => sampler.zoomed_time_pos(
+            Some(sampler) => sampler.zoomed_time_pos_edge(
                 old_time_div,
                 clamped_new,
                 self.scope_time_pos,
                 anchor_fraction,
                 self.scope_trigger,
                 self.scope_trig_level,
+                self.scope_trig_rising,
                 h_divs,
             ),
             None => instruments::zoomed_time_pos_untriggered(
@@ -1681,9 +1790,23 @@ impl Canvas {
         c
     }
 
+    pub fn set_scope_trig_rising(&mut self, rising: bool) -> Change {
+        self.scope_trig_rising = rising;
+        let c = self.publish_instrument_views_inner(true);
+        self.dirty_plot_items();
+        c
+    }
+
     pub fn set_scope_filter(&mut self, v: f64) -> Change {
         self.scope_filter = v.max(0.0);
-        Change::default()
+        if let Some(circuit) = self.running.as_mut() {
+            circuit.scope_filter = self.scope_filter;
+        }
+        self.dirty_plot_items();
+        Change {
+            plots: true,
+            ..Change::default()
+        }
     }
 
     pub fn set_la_time_div(&mut self, v: f64) -> Change {
@@ -1738,6 +1861,9 @@ impl Canvas {
 
     pub fn set_la_trigger(&mut self, ch: i32) -> Change {
         self.la_trigger = ch;
+        if let Some(circuit) = self.running.as_mut() {
+            circuit.la_trigger = ch;
+        }
         let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
@@ -1746,6 +1872,10 @@ impl Canvas {
     pub fn set_la_thresholds(&mut self, rise: f64, fall: f64) -> Change {
         self.la_threshold_r = rise;
         self.la_threshold_f = fall;
+        if let Some(circuit) = self.running.as_mut() {
+            circuit.la_threshold_r = rise;
+            circuit.la_threshold_f = fall;
+        }
         let c = self.publish_instrument_views_inner(true);
         self.dirty_plot_items();
         c
@@ -1781,6 +1911,10 @@ impl Canvas {
 
     pub fn scope_trig_level(&self) -> f64 {
         self.scope_trig_level
+    }
+
+    pub fn scope_trig_rising(&self) -> bool {
+        self.scope_trig_rising
     }
 
     pub fn auto_scale_scope(&self, ch: usize) -> Option<crate::instruments::AutoScaleResult> {
@@ -1871,15 +2005,17 @@ fn scope_window_buffer(
     time_pos: f64,
     trigger: i32,
     level: f64,
+    rising: bool,
     view_w: f64,
 ) -> crate::plot::PlotBuffer {
     let h_divs = crate::instruments::scope_h_divs(view_w);
     let n = crate::instruments::display_columns(h_divs);
-    sampler.traces_with_count(
+    sampler.traces_with_count_edge(
         time_div,
         time_pos,
         trigger,
         level,
+        rising,
         &crate::instruments::SCOPE_COLORS,
         None,
         n,
@@ -2245,6 +2381,7 @@ fn sync_part_from_circuit(part: &mut Part, sim_id: &str, circuit: &Circuit) -> (
                 if let Kind::TftDisplay { tft, .. } = &comp.kind {
                     if tft_part.last_sync_seq != tft.dirty_seq {
                         tft_part.last_sync_seq = tft.dirty_seq;
+                        tft_part.bgr = tft.bgr;
                         let active_fb = if tft.display_on && !tft.sleep {
                             &tft.fb[..]
                         } else {
@@ -2509,7 +2646,7 @@ fn eval_part_overload(
                 prev_state.crashed,
             )
         }
-        Part::RgbLed(_) => {
+        Part::RgbLed(p) => {
             let r_cur = canvas
                 .item_pin_current(sim_id, PIN_RGB_R)
                 .unwrap_or(0.0)
@@ -2522,9 +2659,9 @@ fn eval_part_overload(
                 .item_pin_current(sim_id, PIN_RGB_B)
                 .unwrap_or(0.0)
                 .abs();
-            overload::eval_rgb_led(
+            overload::eval_rgb_led_per_channel(
                 [r_cur, g_cur, b_cur],
-                0.03,
+                [p.i_max_r, p.i_max_g, p.i_max_b],
                 prev_state.warning,
                 prev_state.crashed,
             )

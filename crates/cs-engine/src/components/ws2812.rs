@@ -14,6 +14,7 @@ use crate::theme::COMPONENT_BORDER_WIDTH;
 
 const MIN_LEDS: i64 = 1;
 const MAX_LEDS: i64 = 64;
+const MAX_COUNT: i64 = MAX_LEDS * MAX_LEDS;
 const MIN_TIME_NS: i64 = 1;
 const MAX_RST_NS: i64 = 1_000_000;
 const MAX_BIT_NS: i64 = 100_000;
@@ -85,7 +86,19 @@ impl Ws2812 {
         PropValue::Int(self.count as i64)
     }
     fn set_count(&mut self, v: PropValue) -> Result<(), PropError> {
-        self.count = expect_int("Count", v)?.clamp(MIN_LEDS, MAX_LEDS) as usize;
+        let n = expect_int("Count", v)?.clamp(MIN_LEDS, MAX_COUNT) as usize;
+        self.count = n;
+        if self.rows * self.cols != n {
+            if self.rows > 1 && n.is_multiple_of(self.rows) && n / self.rows <= MAX_LEDS as usize {
+                self.cols = n / self.rows;
+            } else if n <= MAX_LEDS as usize {
+                self.rows = 1;
+                self.cols = n;
+            } else {
+                self.cols = MAX_LEDS as usize;
+                self.rows = n.div_ceil(self.cols).min(MAX_LEDS as usize);
+            }
+        }
         Ok(())
     }
 
@@ -94,6 +107,7 @@ impl Ws2812 {
     }
     fn set_rows(&mut self, v: PropValue) -> Result<(), PropError> {
         self.rows = expect_int("Rows", v)?.clamp(MIN_LEDS, MAX_LEDS) as usize;
+        self.count = self.rows * self.cols;
         Ok(())
     }
 
@@ -102,6 +116,7 @@ impl Ws2812 {
     }
     fn set_cols(&mut self, v: PropValue) -> Result<(), PropError> {
         self.cols = expect_int("Cols", v)?.clamp(MIN_LEDS, MAX_LEDS) as usize;
+        self.count = self.rows * self.cols;
         Ok(())
     }
 
@@ -180,8 +195,21 @@ impl Component for Ws2812 {
             p.structural = true;
             p
         };
+        const COUNT: PropDef<Ws2812> = {
+            let mut p = PropDef::int(
+                "Count",
+                "Count",
+                MIN_LEDS,
+                MAX_COUNT,
+                Ws2812::get_count,
+                Ws2812::set_count,
+            )
+            .with_info("Number of addressable RGB LEDs in the strip.");
+            p.structural = true;
+            p
+        };
         static PROPS: &[PropDef<Ws2812>] = &[
-            PropDef::int("Count", "Count", MIN_LEDS, MAX_LEDS, Ws2812::get_count, Ws2812::set_count).with_info("Number of addressable RGB LEDs in the strip."),
+            COUNT,
             ROWS,
             COLS,
             PropDef::int(
@@ -259,7 +287,13 @@ impl Drawable for Ws2812 {
         for row in 0..r {
             for col in 0..c {
                 let idx = row * c + col;
-                let color = ws_pixel(hex, idx).unwrap_or(Color::rgb(200, 200, 200));
+                let color = if idx >= self.count {
+                    Color::rgb(0, 0, 0)
+                } else if hex.is_empty() {
+                    Color::rgb(200, 200, 200)
+                } else {
+                    ws_pixel(hex, idx).unwrap_or(Color::rgb(0, 0, 0))
+                };
                 d.fill_circle((col as f64) * 12.0, (row as f64) * 12.0, 3.5, color);
             }
         }

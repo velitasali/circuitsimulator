@@ -178,7 +178,12 @@ pub fn dht_frame(model: &str, temp: f64, humi: f64) -> u64 {
         (h, 0, tp, 0)
     } else {
         let h = (humi * 10.0).round().clamp(0.0, 65535.0) as u16;
-        let tp = (temp * 10.0).round().clamp(-32768.0, 32767.0) as i16 as u16;
+        let tenths = (temp * 10.0).round().clamp(-32767.0, 32767.0) as i32;
+        let tp: u16 = if tenths < 0 {
+            0x8000 | ((-tenths) as u16)
+        } else {
+            tenths as u16
+        };
         (
             (h >> 8) as u8,
             (h & 0xFF) as u8,
@@ -258,6 +263,18 @@ impl Default for OwLink {
 }
 
 impl OwLink {
+    pub fn with_rom(rom_str: &str) -> Self {
+        let mut link = Self::default();
+        link.set_rom(rom_str);
+        link
+    }
+
+    pub fn set_rom(&mut self, rom_str: &str) {
+        if !rom_str.trim().is_empty() {
+            self.rom = parse_rom_64(rom_str);
+        }
+    }
+
     pub fn on_pins(
         &mut self,
         rom_str: &str,
@@ -807,9 +824,11 @@ impl Ds1621Bus {
 }
 
 fn ds1621_byte(temp: f64, th: f64, tl: f64, pointer: u8) -> u8 {
+    let half_steps = (temp * 2.0).round().clamp(-256.0, 255.0) as i16;
+    let raw = (half_steps as u16) << 7;
     match pointer {
-        0xAA => temp.trunc().clamp(-128.0, 127.0) as i16 as u8,
-        0xAB => u8::from((temp - temp.trunc()).abs() >= 0.5).saturating_mul(0x80),
+        0xAA => (raw >> 8) as u8,
+        0xAB => (raw & 0x80) as u8,
         0xA1 => th.clamp(-128.0, 127.0) as i16 as u8,
         0xA2 => tl.clamp(-128.0, 127.0) as i16 as u8,
         _ => 0,

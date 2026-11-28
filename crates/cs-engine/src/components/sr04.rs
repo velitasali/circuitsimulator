@@ -165,9 +165,22 @@ impl super::drawable::Drawable for SR04 {
         // Header Title
         d.text(4.0, -26.0, "HC-SR04", 8.0, ctx.pal.border, Align::Center);
 
-        // Distance Readout
-        let dist_str = format!("{:.1} cm", self.distance * 100.0);
-        d.text(4.0, -14.0, &dist_str, 9.0, ctx.pal.border, Align::Center);
+        // Distance Readout (reflects active In-pin distance when running without slider)
+        let reading_text = ctx
+            .canvas
+            .readings()
+            .get(ctx.item_id)
+            .map(|r| r.text.as_str())
+            .filter(|s| !s.is_empty());
+        let fallback;
+        let dist_str = match reading_text {
+            Some(t) => t,
+            None => {
+                fallback = format!("{:.1} cm", self.distance * 100.0);
+                &fallback
+            }
+        };
+        d.text(4.0, -14.0, dist_str, 9.0, ctx.pal.border, Align::Center);
 
         // Transmitter Cylinder (T) at (-66, -16, 44, 44) => center (-44, 6), radius 22
         d.fill_circle(-44.0, 6.0, 22.0, ctx.pal.body.fade(0.8));

@@ -69,7 +69,7 @@ impl DS18B20 {
             rom: self.rom.clone(),
             temp: self.temp,
             dq_low: false,
-            wire: crate::digital::OwLink::default(),
+            wire: crate::digital::OwLink::with_rom(&self.rom),
         }
     }
 

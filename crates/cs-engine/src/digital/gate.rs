@@ -35,11 +35,11 @@ impl GateState {
     }
 
     pub fn or(id: &str, n_inputs: usize) -> Self {
-        Self::new(id, GateOp::Or, n_inputs.max(2))
+        Self::new(id, GateOp::Or, n_inputs.max(1))
     }
 
     pub fn xor(id: &str, n_inputs: usize) -> Self {
-        Self::new(id, GateOp::Xor, n_inputs.max(2))
+        Self::new(id, GateOp::Xor, n_inputs.max(1))
     }
 
     pub fn buffer(id: &str) -> Self {
@@ -186,9 +186,11 @@ impl GateState {
 
     /// C++ `Gate::voltChanged`. `volt_of` maps pin id → node voltage (0 if floating).
     pub fn volt_changed(&mut self, volt_of: &impl Fn(&str) -> f64, circ_time: u64) -> GateUpdate {
-        if self.tristate {
-            self.update_out_enabled(volt_of);
-        }
+        let oe_changed = if self.tristate {
+            self.update_out_enabled(volt_of)
+        } else {
+            false
+        };
         let mut highs = 0usize;
         for p in &mut self.inputs {
             let v = volt_of(&p.id);
@@ -202,7 +204,9 @@ impl GateState {
             GateOp::Xor => highs == 1,
         };
         self.queue.next_out_val = u32::from(out);
-        self.apply_schedule(circ_time)
+        let mut u = self.apply_schedule(circ_time);
+        u.stamp_changed |= oe_changed;
+        u
     }
 
     pub fn run_event(&mut self, circ_time: u64) -> GateUpdate {
@@ -214,15 +218,17 @@ impl GateState {
         u
     }
 
-    fn update_out_enabled(&mut self, volt_of: &impl Fn(&str) -> f64) {
+    fn update_out_enabled(&mut self, volt_of: &impl Fn(&str) -> f64) -> bool {
         let Some(oe) = self.oe.as_mut() else {
-            return;
+            return false;
         };
         let en = oe.get_inp_state(volt_of(&oe.id));
         if en != self.out_enable {
             self.out_enable = en;
             self.output.set_state_z(!en);
+            return true;
         }
+        false
     }
 
     fn apply_schedule(&mut self, circ_time: u64) -> GateUpdate {

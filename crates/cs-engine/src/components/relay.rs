@@ -442,11 +442,16 @@ impl Drawable for Relay {
             COMPONENT_BORDER_WIDTH,
         );
 
-        // Switch contacts for each pole
+        // Switch contacts for each pole: match the closed throw in `Stampable::stamp`.
+        let pulled = if self.norm_close {
+            !self.active
+        } else {
+            self.active
+        };
         for i in 0..self.poles {
             let sy = -16.0 * ((i + 1) as f64);
             d.line(-12.0, sy, -4.0, sy, ctx.pal.border, COMPONENT_BORDER_WIDTH);
-            if self.active {
+            if pulled {
                 d.line(-4.0, sy, 6.0, sy, ctx.pal.border, COMPONENT_BORDER_WIDTH);
             } else {
                 d.line(
@@ -519,5 +524,57 @@ mod tests {
         let mut v = vec![0.0];
         assert!(m.solve(&mut v));
         assert!((v[0] - 100.0).abs() < 1e-6, "{}", v[0]);
+    }
+
+    #[test]
+    fn phase6_norm_close_lever_matches_closed_throw() {
+        use crate::canvas::Canvas;
+        use crate::canvas::draw::{PaintCtx, Palette};
+        use crate::components::tests::recorder::{DrawOp, DrawRecorder};
+
+        let empty_canvas = Canvas::empty();
+        let pal = Palette::light();
+        let ctx = PaintCtx {
+            pal: &pal,
+            canvas: &empty_canvas,
+            scale: 1.0,
+            item_id: "RL1",
+            on_board: false,
+            active_item_id: None,
+        };
+
+        let nc_off = Relay {
+            norm_close: true,
+            active: false,
+            ..Relay::default()
+        };
+        let mut rec_off = DrawRecorder::default();
+        nc_off.paint(&mut rec_off, &ctx);
+        let has_straight_off = rec_off.ops.iter().any(|op| {
+            matches!(op, DrawOp::Line { x0, y0, x1, y1, .. }
+                if (*x0 - (-4.0)).abs() < 1e-6 && (*y0 - (-16.0)).abs() < 1e-6
+                && (*x1 - 6.0).abs() < 1e-6 && (*y1 - (-16.0)).abs() < 1e-6)
+        });
+        assert!(
+            has_straight_off,
+            "NC relay with coil off must draw straight closed lever"
+        );
+
+        let nc_on = Relay {
+            norm_close: true,
+            active: true,
+            ..Relay::default()
+        };
+        let mut rec_on = DrawRecorder::default();
+        nc_on.paint(&mut rec_on, &ctx);
+        let has_angled_on = rec_on.ops.iter().any(|op| {
+            matches!(op, DrawOp::Line { x0, y0, x1, y1, .. }
+                if (*x0 - (-4.0)).abs() < 1e-6 && (*y0 - (-16.0)).abs() < 1e-6
+                && (*x1 - 6.0).abs() < 1e-6 && (*y1 - (-22.0)).abs() < 1e-6)
+        });
+        assert!(
+            has_angled_on,
+            "NC relay with coil energized must draw open angled lever"
+        );
     }
 }
